@@ -1,18 +1,18 @@
 import Foundation
 
-package struct SystemMemoryAttachmentInput: Sendable {
-  package enum Source: Sendable {
+public struct SystemMemoryAttachmentInput: Sendable {
+  public enum Source: Sendable {
     case data(Data)
     case fileURL(URL)
   }
 
-  package var source: Source
-  package var role: NoteFileRole
-  package var mediaType: String
-  package var originalFilename: String?
-  package var position: Int
+  public var source: Source
+  public var role: NoteFileRole
+  public var mediaType: String
+  public var originalFilename: String?
+  public var position: Int
 
-  package init(
+  public init(
     source: Source,
     role: NoteFileRole = .related,
     mediaType: String,
@@ -27,14 +27,14 @@ package struct SystemMemoryAttachmentInput: Sendable {
   }
 }
 
-package struct SystemMemoryNoteInput: Sendable {
-  package var bodyMarkdown: String
-  package var tags: [NoteTagInput]
-  package var metaJSON: String?
-  package var relatedNoteIds: [String]
-  package var attachments: [SystemMemoryAttachmentInput]
+public struct SystemMemoryNoteInput: Sendable {
+  public var bodyMarkdown: String
+  public var tags: [NoteTagInput]
+  public var metaJSON: String?
+  public var relatedNoteIds: [String]
+  public var attachments: [SystemMemoryAttachmentInput]
 
-  package init(
+  public init(
     bodyMarkdown: String,
     tags: [NoteTagInput],
     metaJSON: String? = nil,
@@ -109,7 +109,7 @@ extension NoteService {
     }
   }
 
-  package func systemMemoryNotebook() throws -> Notebook {
+  public func systemMemoryNotebook() throws -> Notebook {
     try driver.withDatabase { database in
       let notebookIds = try systemMemoryNotebookIds(in: database)
       guard notebookIds.count == 1, let notebookId = notebookIds.first else {
@@ -125,7 +125,7 @@ extension NoteService {
   }
 
   @discardableResult
-  package func appendSystemMemoryNote(
+  public func appendSystemMemoryNote(
     bodyMarkdown: String,
     tags: [NoteTagInput],
     metaJSON: String? = nil,
@@ -147,7 +147,7 @@ extension NoteService {
     return note
   }
 
-  package func appendSystemMemoryNotes(
+  public func appendSystemMemoryNotes(
     _ inputs: [SystemMemoryNoteInput],
     idempotencyKey: String? = nil
   ) throws -> [Note] {
@@ -237,7 +237,7 @@ extension NoteService {
     }
   }
 
-  package func listSystemMemoryNotes(personaId: String, limit: Int) throws -> [Note] {
+  public func listSystemMemoryNotes(personaId: String, limit: Int) throws -> [Note] {
     let boundedLimit = max(1, min(limit, 100))
     return try driver.withDatabase { database in
       let notebookIds = try systemMemoryNotebookIds(in: database)
@@ -268,7 +268,7 @@ extension NoteService {
     }
   }
 
-  package func listSystemMemoryNotes(
+  public func listSystemMemoryNotes(
     streamId: String,
     workflowId: String,
     nodeId: String? = nil,
@@ -331,15 +331,15 @@ extension NoteService {
     }
   }
 
-  package static func systemMemoryStreamTag(_ streamId: String) -> String {
+  public static func systemMemoryStreamTag(_ streamId: String) -> String {
     "system-memory-stream:\(streamId)"
   }
 
-  package static func systemMemoryWorkflowTag(_ workflowId: String) -> String {
+  public static func systemMemoryWorkflowTag(_ workflowId: String) -> String {
     "system-memory-workflow:\(workflowId)"
   }
 
-  package static func systemMemoryNodeTag(_ nodeId: String) -> String {
+  public static func systemMemoryNodeTag(_ nodeId: String) -> String {
     "system-memory-node:\(nodeId)"
   }
 
