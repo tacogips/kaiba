@@ -146,3 +146,30 @@ accepted `design-riela-note.md` (D1–D19), mirrored in
 - Auth: `kaiba client issue` mints the key (printed once, stored
   hashed); revocation is immediate; QR registration remains the
   browser-oriented path.
+
+### Implemented riela integration (2026-08-07)
+
+- Riela removed its note subsystem (RielaNote/RielaNoteLibSQL/
+  RielaNoteWorkspace/RielaNoteDispatch targets, `riela note` CLI, note
+  GraphQL module, server note routes, app note windows/settings, web
+  note views) on branch `feat/extract-note-to-kaiba`, and now depends
+  on kaiba `>= 0.1.1` via SwiftPM (`AppCore` + `AppGraphQL` products).
+- Built-in `kaiba/*` addons in riela (vendored from the former
+  `riela/note-*` addon implementations, running on the imported kaiba
+  library): note-create/update/get/search/graph-neighbors/tag-apply/
+  attach-file/comment-add/graphql-document, notebook-ingest-pages,
+  note-conversation-save, kanban task-create/move/board,
+  note-memory-save/load, note-persona-context-read/write.
+- Note root resolution in addons: config `noteRoot` → workflow input →
+  `KAIBA_NOTE_ROOT` → legacy `RIELA_NOTE_ROOT` → `~/.kaiba`.
+- `kaiba/note-graphql-document` additionally supports remote mode:
+  config `endpoint` targets a running `kaiba serve`, authenticated by
+  the API key in the env var named by `apiKeyEnv` (default
+  `KAIBA_API_KEY`); verified end-to-end including 401 on a revoked or
+  wrong key.
+- Kaiba-side prerequisite shipped in v0.1.1: the system-memory API
+  (`appendSystemMemoryNote(s)`, `listSystemMemoryNotes`,
+  `SystemMemoryNoteInput`/`SystemMemoryAttachmentInput`) became public
+  so riela's memory/persona addons work across the package boundary.
+- Riela's agent-trio/enterprise example workflows now reference the
+  `kaiba/*` addon names.
