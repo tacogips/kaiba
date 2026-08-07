@@ -58,6 +58,7 @@ public struct AppCommand: Sendable {
     case "delete": return try runDelete(context)
     case "notebook": return try runNotebook(context)
     case "storage": return try runStorage(context)
+    case "client": return try runClient(context)
     default:
       if command.hasPrefix("-") {
         throw Error.unknownArgument(command)
@@ -115,11 +116,15 @@ public struct AppCommand: Sendable {
       notebook   progress <notebook-id> <none|progress|done|pending>
       notebook   readonly <notebook-id> (--on|--off)
 
-    Serve:
+    Serve and API access:
       serve      [--host <h>] [--port <p>] [--web-root <dir>]
                  [--allow-unauthenticated]
                  # HTTP note API (POST /graphql, /note/register QR auth,
                  # GET /note/events) + web viewer SPA from --web-root
+      graphql    (<document>|--file <path>|-) [--variables <json>]
+                 [--operation <name>]   # execute GraphQL against the local store
+      client     issue --name <n> | list [--all] | revoke <client-id>
+                 # API keys accepted as bearer tokens by kaiba serve
 
     Storage:
       storage    migrate (<file-id>|--all) --profile <name> --endpoint <url>

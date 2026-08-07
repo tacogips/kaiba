@@ -71,6 +71,30 @@ Notebook read-only blocks note creation, body edits, attachments, and
 deletion inside the notebook while still allowing comments, tags,
 links, and progress changes.
 
+### GraphQL from the CLI
+
+```bash
+kaiba graphql (<document>|--file <path>|-) [--variables <json>]
+              [--operation <name>]
+```
+
+Executes a note GraphQL document against the local store and prints the
+JSON response (`data`/`errors`). Exit code is non-zero when the
+response carries GraphQL errors.
+
+### API keys
+
+```bash
+kaiba client issue --name <display-name>   # prints the key once
+kaiba client list [--all]
+kaiba client revoke <client-id>
+```
+
+Issued keys are stored hashed in the `api_clients` table and are
+accepted by `kaiba serve` as `Authorization: Bearer <api-key>` —
+the same registry the QR registration flow uses. Revocation takes
+effect immediately.
+
 ### Serve (HTTP note API + web viewer)
 
 ```bash

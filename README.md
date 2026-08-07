@@ -43,6 +43,20 @@ machine. The server exposes `POST /graphql`, `GET /note/events`
 (long-poll live updates), `GET|POST /note/register`, and serves the
 viewer SPA.
 
+## API Access
+
+```bash
+# machine access: issue an API key (printed once), use it as a bearer
+kaiba client issue --name my-tool
+curl -X POST http://127.0.0.1:8787/graphql \
+  -H "Authorization: Bearer <api-key>" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"query Tags { tags { result { accepted } value { name } } }"}'
+
+# or execute GraphQL locally without a server
+kaiba graphql 'query Tags { tags { result { accepted } value { name } } }'
+```
+
 ## Development
 
 ```bash

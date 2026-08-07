@@ -169,6 +169,28 @@ private func noteId(fromJSON output: String) throws -> String {
   #expect(try Data(contentsOf: URL(fileURLWithPath: exportPath)) == Data("binary-content".utf8))
 }
 
+@Test func cliClientIssueListRevokeRoundTrip() throws {
+  let root = try makeTempRoot()
+  let issued = try run(["client", "issue", "--name", "test-consumer", "--output", "json"], root: root)
+  let object = try JSONSerialization.jsonObject(with: Data(issued.utf8)) as? [String: Any]
+  let apiKey = try #require(object?["apiKey"] as? String)
+  let clientId = try #require(object?["clientId"] as? String)
+  #expect(apiKey.count >= 40)
+
+  let listed = try run(["client", "list"], root: root)
+  #expect(listed.contains(clientId))
+  #expect(listed.contains("test-consumer"))
+  #expect(!listed.contains(apiKey))
+
+  let service = try AppCommand(arguments: [], environment: [:]).makeService(root: root)
+  #expect(try service.authenticateAPIClient(bearerToken: apiKey)?.clientId == clientId)
+
+  _ = try run(["client", "revoke", clientId], root: root)
+  #expect(try service.authenticateAPIClient(bearerToken: apiKey) == nil)
+  #expect(!(try run(["client", "list"], root: root)).contains(clientId))
+  #expect((try run(["client", "list", "--all"], root: root)).contains("[revoked"))
+}
+
 @Test func cliRejectsConflictingBodySources() throws {
   let root = try makeTempRoot()
   do {
