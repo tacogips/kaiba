@@ -1,6 +1,47 @@
 # kaiba
 
-A Swift command line tool
+A local-first, ontology-oriented note app for the command line, extracted
+from the Riela Note subsystem. Notes live in notebooks, carry markdown
+bodies (the first `# ` heading is the title), and are organized through
+tags with world-model classes (`person`, `year`, `event`, `topic`, ...),
+tag hierarchies, and provenance tracking (human vs AI vs system). Notes
+can be linked to each other, commented on, marked read-only, and carry
+content-addressed file attachments (local by default, migratable to
+S3-compatible storage). Search is SQLite FTS5 with tag/class filters.
+
+## Quick Start
+
+```bash
+kaiba add --body '# My first note
+Anything markdown.' --tag idea
+
+kaiba list                      # newest first
+kaiba search idea               # FTS + snippet
+kaiba show <note-id>            # body, tags, links, files, comments
+kaiba notebook list
+kaiba --help                    # full command surface
+```
+
+The note store lives under `~/.kaiba/` (override with `--note-root` or
+`KAIBA_NOTE_ROOT`). See `design-docs/specs/command.md` for the full CLI
+and `design-docs/specs/kaiba-note.md` for the design.
+
+## Web Viewer
+
+Kaiba includes the SolidJS note viewer ported from riela and a local
+HTTP note API (GraphQL):
+
+```bash
+cd web && bun install && bun run build && cd ..
+kaiba serve --web-root web/dist
+```
+
+`kaiba serve` prints the endpoint plus a registration URL / terminal QR
+code; open the URL to register the browser (bearer token, stored
+hashed). Use `--allow-unauthenticated` to skip auth on a trusted
+machine. The server exposes `POST /graphql`, `GET /note/events`
+(long-poll live updates), `GET|POST /note/register`, and serves the
+viewer SPA.
 
 ## Development
 
@@ -13,14 +54,12 @@ swift run kaiba --help
 
 The package uses Swift Package Manager with:
 
-- Library target: `AppCore`
+- System library target: `CKaibaSQLite3` (sqlite3)
+- Library targets: `AppCore` (note domain + command logic),
+  `AppGraphQL` (note GraphQL executor), `AppServer` (local HTTP server)
 - Executable target: `AppCLI`
 - Installed executable: `kaiba`
-
-Swift target names and type names must be valid Swift identifiers. If the project
-name contains hyphens, keep `PROJECT_NAME` and `EXECUTABLE_NAME` hyphenated as
-needed, but use identifier-safe values such as `AppCore`, `AppCLI`, and
-`AppCommand` for Swift module/type variables.
+- Web viewer: `web/` (SolidJS + vite; `bun run build`)
 
 ## Homebrew Formula
 

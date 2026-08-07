@@ -1,0 +1,18 @@
+title = "kaiba gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore build output, scratch artifacts, and known-benign test fixtures."
+paths = [
+  '''(?:^|/)\.build/''',
+  '''(?:^|/)tmp/''',
+  '''(?:^|/)web/node_modules/''',
+  '''(?:^|/)web/dist/''',
+]
+regexTarget = "line"
+regexes = [
+  # Test fixture idempotency keys (plain literals, not credentials).
+  '''idempotencyKey: "expansion-turn-\d+"''',
+]
