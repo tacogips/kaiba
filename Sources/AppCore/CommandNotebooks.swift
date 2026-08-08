@@ -31,7 +31,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let notebook = try service.setNotebookReadOnly(notebookId: notebookId, readOnly: on)
     return "Notebook \(notebook.notebookId) is now \(notebook.readOnly ? "read-only" : "writable")"
   }
@@ -47,7 +47,7 @@ extension AppCommand {
     let output = try cursor.extractOutputMode()
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let notebooks = try service.listNotebooks(
       limit: limit,
       offset: offset,
@@ -75,7 +75,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let notebook = try service.getNotebook(notebookId)
     let notes = try service.listNotes(notebookId: notebookId)
     let files = try service.listFiles(notebookId: notebookId)
@@ -118,7 +118,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let notebook = try service.createNotebook(title: title, kindTagName: kind)
     return "Created notebook \(notebook.notebookId): \(notebook.title)"
   }
@@ -130,7 +130,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     try service.deleteNotebook(notebookId: notebookId)
     return "Deleted notebook \(notebookId)"
   }
@@ -142,7 +142,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let notebook = try service.setNotebookProgress(notebookId: notebookId, progress: progress)
     return "Notebook \(notebook.notebookId) progress: \(notebook.progress)"
   }
@@ -155,7 +155,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let comment = try service.addComment(noteId: noteId, bodyMarkdown: body)
     return "Added comment \(comment.commentId) to note \(noteId)"
   }
@@ -168,7 +168,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let link = try service.linkNotes(from: fromNoteId, to: toNoteId, linkKind: kind)
     return "Linked \(link.fromNoteId) -> \(link.toNoteId) (\(link.linkKind))"
   }

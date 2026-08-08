@@ -12,6 +12,7 @@ struct ServeCommand {
     var host = "127.0.0.1"
     var port = 8787
     var noteRoot: String
+    var configuration: KaibaConfiguration
     var webRoot: String?
     var allowUnauthenticated = false
   }
@@ -28,8 +29,12 @@ struct ServeCommand {
     }
   }
 
-  static func parse(arguments: [String], noteRoot: String) throws -> Options {
-    var options = Options(noteRoot: noteRoot)
+  static func parse(
+    arguments: [String],
+    noteRoot: String,
+    configuration: KaibaConfiguration = KaibaConfiguration()
+  ) throws -> Options {
+    var options = Options(noteRoot: noteRoot, configuration: configuration)
     var iterator = arguments.makeIterator()
     while let argument = iterator.next() {
       switch argument {
@@ -60,11 +65,19 @@ struct ServeCommand {
     )
     let changeFeed = NoteChangeFeed()
     let service = try NoteService(
-      driver: SQLiteNoteDatabaseDriver(noteRoot: options.noteRoot),
+      driver: KaibaConfigurationLoader.makeDriver(
+        configuration: options.configuration.database,
+        noteRoot: options.noteRoot,
+        environment: ProcessInfo.processInfo.environment
+      ),
       changeObserver: NoteChangeFeedObserver(feed: changeFeed)
     )
     let executor = NoteGraphQLDocumentExecutor(
-      service: GraphQLNoteGraphQLService(service: service)
+      service: GraphQLNoteGraphQLService(service: service),
+      s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(
+        configuration: options.configuration,
+        environment: ProcessInfo.processInfo.environment
+      )
     )
     let authenticator: QRClientRegistrationAuthenticator? = options.allowUnauthenticated
       ? nil

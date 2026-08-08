@@ -99,11 +99,18 @@ public final class SQLiteDatabase: @unchecked Sendable {
   public let path: String?
   private let handle: OpaquePointer?
   private let ownsHandle: Bool
+  private let remote: TursoHTTPDatabase?
 
-  private init(path: String?, handle: OpaquePointer?, ownsHandle: Bool) {
+  private init(
+    path: String?,
+    handle: OpaquePointer?,
+    ownsHandle: Bool,
+    remote: TursoHTTPDatabase? = nil
+  ) {
     self.path = path
     self.handle = handle
     self.ownsHandle = ownsHandle
+    self.remote = remote
   }
 
   deinit {
@@ -198,6 +205,10 @@ public final class SQLiteDatabase: @unchecked Sendable {
     SQLiteDatabase(path: path, handle: handle, ownsHandle: false)
   }
 
+  static func remote(path: String, database: TursoHTTPDatabase) -> SQLiteDatabase {
+    SQLiteDatabase(path: path, handle: nil, ownsHandle: false, remote: database)
+  }
+
   public func transaction<T>(
     begin: String = "BEGIN IMMEDIATE",
     _ body: (SQLiteDatabase) throws -> T
@@ -219,6 +230,9 @@ public final class SQLiteDatabase: @unchecked Sendable {
 
   @discardableResult
   public func executeAndReturnChangedRowCount(_ sql: String, bindings: [SQLiteValue] = []) throws -> Int {
+    if let remote {
+      return try remote.execute(sql, bindings: bindings).affectedRowCount
+    }
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
       throw sqliteError(operation: .execute, sql: sql)
@@ -234,6 +248,9 @@ public final class SQLiteDatabase: @unchecked Sendable {
   }
 
   public func query(_ sql: String, bindings: [SQLiteValue] = []) throws -> [SQLiteRow] {
+    if let remote {
+      return try remote.execute(sql, bindings: bindings).rows
+    }
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
       throw sqliteError(operation: .query, sql: sql)
@@ -301,7 +318,7 @@ public final class SQLiteDatabase: @unchecked Sendable {
   }
 
   private func runFTS5Probe(createSQL: String) throws {
-    let tableName = "temp.riela_fts5_probe_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
+    let tableName = "kaiba_fts5_probe_\(UUID().uuidString.replacingOccurrences(of: "-", with: "_"))"
     defer {
       try? execute("DROP TABLE IF EXISTS \(tableName)")
     }

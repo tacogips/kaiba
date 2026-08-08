@@ -26,7 +26,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let token = try makeAPIKeyToken()
     let client = try service.registerAPIClient(displayName: name, bearerToken: token)
     switch output {
@@ -54,7 +54,7 @@ extension AppCommand {
     let output = try cursor.extractOutputMode()
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let clients = try service.listAPIClients(includeRevoked: includeRevoked)
     switch output {
     case .json:
@@ -92,7 +92,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let client = try service.revokeAPIClient(clientId: clientId)
     return "Revoked client \(client.clientId) (\(client.displayName))"
   }

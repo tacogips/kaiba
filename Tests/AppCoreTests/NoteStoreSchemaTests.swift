@@ -1,8 +1,5 @@
 import Foundation
 @testable import AppCore
-#if RIELA_NOTE_LIBSQL_TESTS
-import RielaNoteLibSQL
-#endif
 import XCTest
 
 class NoteTestCase: XCTestCase {
@@ -640,70 +637,6 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
-  #if RIELA_NOTE_LIBSQL_TESTS
-  func testLibSQLLocalDriverEvictsHandleAfterThrownBody() throws {
-    enum InjectedFailure: Error { case fail }
-    let driver = LibSQLNoteDatabaseDriver(noteRoot: try makeNoteRoot())
-    XCTAssertThrowsError(try driver.withDatabase { database in
-      try database.execute("CREATE TEMP TABLE failed_handle_marker (value TEXT)")
-      try database.execute("PRAGMA foreign_keys = OFF")
-      throw InjectedFailure.fail
-    })
-    try driver.withDatabase { database in
-      XCTAssertTrue(try database.query(
-        "SELECT name FROM sqlite_temp_master WHERE name = 'failed_handle_marker'"
-      ).isEmpty)
-      XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
-    }
-  }
-
-  func testLibSQLLocalDriverReusesConnectionBetweenOperations() throws {
-    let driver = LibSQLNoteDatabaseDriver(noteRoot: try makeNoteRoot())
-    let firstDatabase = try driver.withDatabase { ObjectIdentifier($0) }
-    let secondDatabase = try driver.withDatabase { ObjectIdentifier($0) }
-
-    XCTAssertEqual(firstDatabase, secondDatabase)
-  }
-
-  func testLibSQLLocalDriverSerializesConcurrentWritesWithSingleProbeCycle() throws {
-    NoteSQLiteCapabilityCache.resetForTesting()
-    defer {
-      NoteSQLiteCapabilityCache.resetForTesting()
-    }
-
-    let driver = LibSQLNoteDatabaseDriver(noteRoot: try makeNoteRoot())
-    let service = try NoteService(driver: driver)
-
-    let writeCount = 24
-    let failures = NSMutableArray()
-    let failuresLock = NSLock()
-
-    DispatchQueue.concurrentPerform(iterations: writeCount) { index in
-      do {
-        _ = try service.createNote(bodyMarkdown: "# Concurrent \(index)\nbody \(index)")
-      } catch {
-        failuresLock.lock()
-        failures.add(String(describing: error))
-        failuresLock.unlock()
-      }
-    }
-
-    XCTAssertEqual(
-      failures.count,
-      0,
-      "concurrent writes through one LibSQL driver must not raise 'database is locked': \(failures)"
-    )
-
-    // A single cached, lock-guarded connection means the capability probe runs
-    // exactly once regardless of how many concurrent operations executed.
-    XCTAssertEqual(NoteSQLiteCapabilityCache.probeRunCountForTesting(), 1)
-
-    let stored = try driver.withDatabase { database in
-      try database.query("SELECT COUNT(*) AS total FROM notes").first?["total"]
-    }
-    XCTAssertEqual(stored, String(writeCount))
-  }
-  #endif
 }
 
 private enum InjectedV7MigrationFailure: Error {
@@ -802,28 +735,5 @@ func makeNoteRoot(function: String = #function) throws -> String {
 }
 
 func makeNoteDriver(function: String = #function) throws -> NoteDatabaseDriving {
-  let noteRoot = try makeNoteRoot(function: function)
-  switch ProcessInfo.processInfo.environment["RIELA_NOTE_TEST_DRIVER"]?.lowercased() {
-  case nil, "", "sqlite":
-    return SQLiteNoteDatabaseDriver(noteRoot: noteRoot)
-  case "libsql":
-    #if RIELA_NOTE_LIBSQL_TESTS
-    return LibSQLNoteDatabaseDriver(noteRoot: noteRoot)
-    #else
-    throw NSError(
-      domain: "AppCoreTests",
-      code: 1,
-      userInfo: [
-        NSLocalizedDescriptionKey:
-          "RIELA_NOTE_TEST_DRIVER=libsql requires RIELA_NOTE_ENABLE_LIBSQL_TESTS=1 when SwiftPM evaluates Package.swift"
-      ]
-    )
-    #endif
-  case let driver?:
-    throw NSError(
-      domain: "AppCoreTests",
-      code: 1,
-      userInfo: [NSLocalizedDescriptionKey: "Unsupported RIELA_NOTE_TEST_DRIVER value: \(driver)"]
-    )
-  }
+  SQLiteNoteDatabaseDriver(noteRoot: try makeNoteRoot(function: function))
 }

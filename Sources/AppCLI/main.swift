@@ -3,7 +3,10 @@ import Foundation
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 
-func extractNoteRoot(from arguments: inout [String]) -> String {
+func extractGlobalConfiguration(
+  from arguments: inout [String]
+) throws -> (noteRoot: String, configuration: KaibaConfiguration) {
+  let resolver = AppCommand(arguments: [])
   var noteRootOverride: String?
   if let rootIndex = arguments.firstIndex(of: "--note-root") {
     guard rootIndex + 1 < arguments.count else {
@@ -13,7 +16,24 @@ func extractNoteRoot(from arguments: inout [String]) -> String {
     noteRootOverride = arguments[rootIndex + 1]
     arguments.removeSubrange(rootIndex...(rootIndex + 1))
   }
-  return AppCommand(arguments: []).resolveNoteRoot(override: noteRootOverride)
+  var configPathOverride: String?
+  if let configIndex = arguments.firstIndex(of: "--config") {
+    guard configIndex + 1 < arguments.count else {
+      FileHandle.standardError.write(Data("Error: missing value for --config\n".utf8))
+      exit(2)
+    }
+    configPathOverride = arguments[configIndex + 1]
+    arguments.removeSubrange(configIndex...(configIndex + 1))
+  }
+  let path = resolver.resolveConfigPath(override: configPathOverride)
+  return (
+    resolver.resolveNoteRoot(override: noteRootOverride),
+    try KaibaConfigurationLoader.load(
+      at: path,
+      required: configPathOverride != nil
+        || !(ProcessInfo.processInfo.environment["KAIBA_CONFIG_PATH"] ?? "").isEmpty
+    )
+  )
 }
 
 // `kaiba serve` and `kaiba graphql` are async paths; everything else stays on
@@ -22,9 +42,13 @@ if let serveIndex = arguments.firstIndex(of: "serve"),
   !arguments.contains("--help"), !arguments.contains("-h") {
   var serveArguments = arguments
   serveArguments.remove(at: serveIndex)
-  let noteRoot = extractNoteRoot(from: &serveArguments)
   do {
-    let options = try ServeCommand.parse(arguments: serveArguments, noteRoot: noteRoot)
+    let global = try extractGlobalConfiguration(from: &serveArguments)
+    let options = try ServeCommand.parse(
+      arguments: serveArguments,
+      noteRoot: global.noteRoot,
+      configuration: global.configuration
+    )
     try await ServeCommand.run(options)
     exit(0)
   } catch {
@@ -37,9 +61,13 @@ if let graphqlIndex = arguments.firstIndex(of: "graphql"),
   !arguments.contains("--help"), !arguments.contains("-h") {
   var graphqlArguments = arguments
   graphqlArguments.remove(at: graphqlIndex)
-  let noteRoot = extractNoteRoot(from: &graphqlArguments)
   do {
-    let options = try GraphQLCommand.parse(arguments: graphqlArguments, noteRoot: noteRoot)
+    let global = try extractGlobalConfiguration(from: &graphqlArguments)
+    let options = try GraphQLCommand.parse(
+      arguments: graphqlArguments,
+      noteRoot: global.noteRoot,
+      configuration: global.configuration
+    )
     let (output, exitCode) = try await GraphQLCommand.run(options)
     if !output.isEmpty {
       print(output)

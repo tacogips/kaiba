@@ -41,6 +41,14 @@ Homebrew. See `kaiba-note.md` for the note domain design.
 - `<note-root>/files/<xx>/<file-id>`: content-addressed local file
   storage, sha256-verified; files can be migrated to S3-compatible
   storage.
+- Configuration: `~/.config/kaiba/config.json` by default (`--config` or
+  `KAIBA_CONFIG_PATH` override). The configuration stores only environment
+  variable names for database and object-storage credentials.
+- Database backends: local SQLite by default, or Turso/libSQL through the
+  SQL-over-HTTP v2 pipeline with connection batons preserving transactions.
+- File backends: local files by default, or named S3-compatible profiles.
+  `swift-s3-gateway` is the verified interface for exposing local POSIX storage
+  or forwarding to MinIO/S3.
 
 ## Release Surfaces
 

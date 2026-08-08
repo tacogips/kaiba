@@ -82,6 +82,7 @@ public struct CommandCursor: Sendable {
 
 struct CommandContext {
   var noteRoot: String
+  var configuration: KaibaConfiguration
   var cursor: CommandCursor
 }
 
@@ -125,6 +126,18 @@ extension AppCommand {
       withIntermediateDirectories: true
     )
     return try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: noteRoot))
+  }
+
+  func makeService(_ context: CommandContext) throws -> NoteService {
+    try FileManager.default.createDirectory(
+      atPath: context.noteRoot,
+      withIntermediateDirectories: true
+    )
+    return try NoteService(driver: KaibaConfigurationLoader.makeDriver(
+      configuration: context.configuration.database,
+      noteRoot: context.noteRoot,
+      environment: environment
+    ))
   }
 
   /// Reads a body from `--body`, `--body-file`, or stdin when `-` is present.

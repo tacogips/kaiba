@@ -26,6 +26,16 @@ tasks:
     cmds:
       - swift test
 
+  test:s3-gateway:
+    desc: Run Kaiba file round trips through swift-s3-gateway POSIX and MinIO backends
+    cmds:
+      - nix shell nixpkgs#awscli2 nixpkgs#jq --command scripts/test-swift-s3-gateway-integration.sh
+
+  test:turso:
+    desc: Run Kaiba persistence and FTS against a local libSQL HTTP server
+    cmds:
+      - nix shell nixpkgs#jq --command scripts/test-turso-http-integration.sh
+
   clean:
     desc: Clean SwiftPM and release artifacts
     cmds:

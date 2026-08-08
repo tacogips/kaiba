@@ -83,8 +83,8 @@ final class NoteGraphQLFollowUpTests: XCTestCase {
   func testPublishedSchemaHasSingleRootTypeDefinitions() {
     let schema = GraphQLContractProjector.schemaContract
 
-    XCTAssertEqual(schema.rielaOccurrences(of: "type Query {"), 1)
-    XCTAssertEqual(schema.rielaOccurrences(of: "type Mutation {"), 1)
+    XCTAssertEqual(schema.kaibaOccurrences(of: "type Query {"), 1)
+    XCTAssertEqual(schema.kaibaOccurrences(of: "type Mutation {"), 1)
   }
 
   private func assertNotebookSort(
@@ -196,7 +196,7 @@ final class NoteGraphQLFollowUpTests: XCTestCase {
 }
 
 private extension String {
-  func rielaOccurrences(of needle: String) -> Int {
+  func kaibaOccurrences(of needle: String) -> Int {
     guard !needle.isEmpty else {
       return 0
     }

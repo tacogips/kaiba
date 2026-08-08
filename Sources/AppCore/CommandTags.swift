@@ -13,7 +13,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     var note: Note?
     if !additions.isEmpty {
       note = try service.applyTags(
@@ -37,7 +37,7 @@ extension AppCommand {
     let output = try cursor.extractOutputMode()
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     var tags = try service.listTags()
     if let classFilter {
       tags = tags.filter { $0.classId == classFilter }
@@ -71,7 +71,7 @@ extension AppCommand {
     let output = try cursor.extractOutputMode()
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let classes = try service.listTagClasses()
     switch output {
     case .json:
@@ -108,7 +108,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     var parentTagId: String?
     if let parentName {
       guard let parent = try service.listTags().first(where: { $0.name == parentName }) else {
@@ -136,7 +136,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let tagClass = try service.defineTagClass(
       classId: classId,
       label: label,

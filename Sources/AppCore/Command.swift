@@ -30,12 +30,18 @@ public struct AppCommand: Sendable {
 
     var cursor = CommandCursor(arguments: arguments)
     let noteRootOverride = try cursor.extractOption("--note-root")
+    let configPathOverride = try cursor.extractOption("--config")
+    let configPath = resolveConfigPath(override: configPathOverride)
     guard let command = cursor.next() else {
       return usage
     }
 
     let context = CommandContext(
       noteRoot: resolveNoteRoot(override: noteRootOverride),
+      configuration: try KaibaConfigurationLoader.load(
+        at: configPath,
+        required: configPathOverride != nil || !(environment["KAIBA_CONFIG_PATH"] ?? "").isEmpty
+      ),
       cursor: cursor
     )
 
@@ -77,9 +83,21 @@ public struct AppCommand: Sendable {
     return (NSHomeDirectory() as NSString).appendingPathComponent(".kaiba")
   }
 
+  public func resolveConfigPath(override: String?) -> String {
+    if let override, !override.isEmpty {
+      return (override as NSString).expandingTildeInPath
+    }
+    if let configured = environment["KAIBA_CONFIG_PATH"], !configured.isEmpty {
+      return (configured as NSString).expandingTildeInPath
+    }
+    return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+      .appendingPathComponent(".config/kaiba/config.json")
+      .path
+  }
+
   public var usage: String {
     """
-    Usage: kaiba [--note-root <dir>] <command> ...
+    Usage: kaiba [--note-root <dir>] [--config <path>] <command> ...
 
     Notes:
       add        [--notebook <id>] [--title <t>] (--body <md>|--body-file <path>|-)
@@ -130,10 +148,13 @@ public struct AppCommand: Sendable {
       storage    migrate (<file-id>|--all) --profile <name> --endpoint <url>
                  --region <r> --bucket <b> --access-key-env <VAR>
                  --secret-key-env <VAR> [--key-prefix <prefix>]
+                 # endpoint/credential options may come from a named config profile
       storage    gc [--grace-hours N]   # reclaim unreferenced file content
 
     Global:
       --note-root <dir>   Note store root (default ~/.kaiba, env KAIBA_NOTE_ROOT)
+      --config <path>     Config file (default ~/.config/kaiba/config.json,
+                          env KAIBA_CONFIG_PATH)
       --help, --version
     """
   }

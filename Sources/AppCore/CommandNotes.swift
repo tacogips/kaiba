@@ -13,7 +13,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let note = try service.createNote(
       notebookId: notebookId,
       title: title,
@@ -41,7 +41,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let newBody: String
     if append {
       let existing = try service.getNote(noteId)
@@ -66,7 +66,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let note = try service.getNote(noteId)
     let comments = try service.listComments(noteId: noteId)
     let files = try service.listFiles(noteId: noteId)
@@ -130,7 +130,7 @@ extension AppCommand {
     let output = try cursor.extractOutputMode()
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let notes = try service.listNotes(
       limit: limit,
       offset: offset,
@@ -164,7 +164,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let results = try service.searchNotes(
       query: query,
       tagFilter: tagFilter,
@@ -199,7 +199,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let note = try service.setReadOnly(noteId: noteId, readOnly: on)
     return "Note \(note.noteId) is now \(note.readOnly ? "read-only" : "writable")"
   }
@@ -211,7 +211,7 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     try service.deleteNote(noteId: noteId)
     return "Deleted note \(noteId)"
   }

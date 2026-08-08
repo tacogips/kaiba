@@ -22,9 +22,66 @@ kaiba notebook list
 kaiba --help                    # full command surface
 ```
 
-The note store lives under `~/.kaiba/` (override with `--note-root` or
-`KAIBA_NOTE_ROOT`). See `design-docs/specs/command.md` for the full CLI
+The local note store lives at `~/.kaiba/note-store.sqlite`, with attachments
+under `~/.kaiba/files/` (override the root with `--note-root` or
+`KAIBA_NOTE_ROOT`). Kaiba configuration lives at
+`~/.config/kaiba/config.json` (override with `--config` or
+`KAIBA_CONFIG_PATH`). No Riela path or environment variable is consulted.
+See `design-docs/specs/command.md` for the full CLI
 and `design-docs/specs/kaiba-note.md` for the design.
+
+## External database and file storage
+
+The default configuration is local SQLite. A Turso or libSQL SQL-over-HTTP
+database can be selected without putting its token in the configuration file:
+
+```json
+{
+  "database": {
+    "kind": "turso",
+    "url": "libsql://my-kaiba-database.turso.io",
+    "authTokenEnvironmentVariable": "KAIBA_TURSO_TOKEN",
+    "allowInsecureLoopbackHTTP": false
+  },
+  "storageProfiles": []
+}
+```
+
+The remote database must provide the SQLite features Kaiba uses: JSONB, FTS5,
+and the FTS5 trigram tokenizer. `libsql://` and `turso://` URLs are sent over
+HTTPS. Plain HTTP is accepted only when explicitly enabled for a loopback test
+server.
+
+Named S3-compatible profiles let all CLI, GraphQL, and server paths use the
+same external file storage. Credentials remain in environment variables:
+
+```json
+{
+  "database": { "kind": "sqlite" },
+  "storageProfiles": [{
+    "name": "gateway",
+    "endpoint": "http://127.0.0.1:8443",
+    "region": "us-east-1",
+    "bucket": "kaiba-files",
+    "accessKeyIdEnvironmentVariable": "KAIBA_S3_ACCESS_KEY",
+    "secretAccessKeyEnvironmentVariable": "KAIBA_S3_SECRET_KEY",
+    "keyPrefix": "attachments"
+  }]
+}
+```
+
+`swift-s3-gateway` can expose either a local filesystem or an upstream S3
+service through that profile. The integration gates exercise Kaiba upload and
+download through its POSIX backend and through its MinIO-backed S3 backend:
+
+```bash
+task test:turso
+task test:s3-gateway
+```
+
+The S3 gateway test expects a sibling checkout at `../swift-s3-gateway` by
+default and uses Docker (Colima is supported) for MinIO. Override the checkout
+with `SWIFT_S3_GATEWAY_REPOSITORY`.
 
 ## Web Viewer
 

@@ -28,6 +28,58 @@ private func noteId(fromJSON output: String) throws -> String {
   #expect(fallback.resolveNoteRoot(override: nil).hasSuffix("/.kaiba"))
 }
 
+@Test func cliConfigPathResolutionIsKaibaSpecific() {
+  let command = AppCommand(arguments: [], environment: ["KAIBA_CONFIG_PATH": "/env/kaiba.json"])
+  #expect(command.resolveConfigPath(override: "/cli/kaiba.json") == "/cli/kaiba.json")
+  #expect(command.resolveConfigPath(override: nil) == "/env/kaiba.json")
+  let fallback = AppCommand(arguments: [], environment: [:])
+  #expect(fallback.resolveConfigPath(override: nil).hasSuffix("/.config/kaiba/config.json"))
+}
+
+@Test func localDatabasePathIsInsideKaibaNoteRoot() {
+  #expect(
+    SQLiteNoteDatabaseDriver.defaultDatabasePath(noteRoot: "/data/kaiba")
+      == "/data/kaiba/note-store.sqlite"
+  )
+}
+
+@Test func configLoaderDefaultsToSQLiteAndDecodesTursoWithoutSecrets() throws {
+  let missing = try makeTempRoot().appending("/missing.json")
+  #expect(try KaibaConfigurationLoader.load(at: missing, required: false) == KaibaConfiguration())
+
+  let path = try makeTempRoot().appending("/kaiba.json")
+  let configuration = KaibaConfiguration(database: .turso(TursoHTTPConfiguration(
+    url: "libsql://kaiba-example.turso.io",
+    authTokenEnvironmentVariable: "KAIBA_TURSO_TOKEN"
+  )))
+  let data = try JSONEncoder().encode(configuration)
+  try data.write(to: URL(fileURLWithPath: path))
+  #expect(try KaibaConfigurationLoader.load(at: path, required: true) == configuration)
+  #expect(!(String(data: data, encoding: .utf8) ?? "").contains("secret-token"))
+}
+
+@Test func configBuildsEnvironmentBackedS3Profile() throws {
+  let configuration = KaibaConfiguration(storageProfiles: [KaibaS3ProfileConfiguration(
+    name: "gateway",
+    endpoint: "http://127.0.0.1:8443",
+    region: "us-east-1",
+    bucket: "kaiba-files",
+    accessKeyIdEnvironmentVariable: "KAIBA_S3_ACCESS",
+    secretAccessKeyEnvironmentVariable: "KAIBA_S3_SECRET",
+    keyPrefix: "attachments"
+  )])
+  let profiles = try KaibaConfigurationLoader.makeS3Profiles(
+    configuration: configuration,
+    environment: ["KAIBA_S3_ACCESS": "client", "KAIBA_S3_SECRET": "secret"]
+  )
+  let profile = try #require(profiles.first)
+  #expect(profile.name == "gateway")
+  #expect(profile.bucket == "kaiba-files")
+  #expect(profile.keyPrefix == "attachments")
+  #expect(profile.accessKeyId == "client")
+  #expect(profile.secretAccessKey == "secret")
+}
+
 @Test func cliRejectsUnknownCommand() throws {
   do {
     _ = try AppCommand(arguments: ["bogus"], environment: [:]).run()

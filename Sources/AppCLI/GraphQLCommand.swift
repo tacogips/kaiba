@@ -7,6 +7,7 @@ import Foundation
 struct GraphQLCommand {
   struct Options {
     var noteRoot: String
+    var configuration: KaibaConfiguration
     var document: String
     var variables: JSONObject = [:]
     var operationName: String?
@@ -26,7 +27,11 @@ struct GraphQLCommand {
     }
   }
 
-  static func parse(arguments: [String], noteRoot: String) throws -> Options {
+  static func parse(
+    arguments: [String],
+    noteRoot: String,
+    configuration: KaibaConfiguration = KaibaConfiguration()
+  ) throws -> Options {
     var document: String?
     var file: String?
     var readStdin = false
@@ -91,6 +96,7 @@ struct GraphQLCommand {
     }
     return Options(
       noteRoot: noteRoot,
+      configuration: configuration,
       document: query,
       variables: variables,
       operationName: operationName
@@ -105,10 +111,18 @@ struct GraphQLCommand {
       withIntermediateDirectories: true
     )
     let service = try NoteService(
-      driver: SQLiteNoteDatabaseDriver(noteRoot: options.noteRoot)
+      driver: KaibaConfigurationLoader.makeDriver(
+        configuration: options.configuration.database,
+        noteRoot: options.noteRoot,
+        environment: ProcessInfo.processInfo.environment
+      )
     )
     let executor = NoteGraphQLDocumentExecutor(
-      service: GraphQLNoteGraphQLService(service: service)
+      service: GraphQLNoteGraphQLService(service: service),
+      s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(
+        configuration: options.configuration,
+        environment: ProcessInfo.processInfo.environment
+      )
     )
     let response = await executor.execute(GraphQLDocumentRequest(
       query: options.document,

@@ -7,11 +7,13 @@ Accepted
 ## Current CLI
 
 ```bash
-kaiba [--note-root <dir>] <command> ...
+kaiba [--note-root <dir>] [--config <path>] <command> ...
 ```
 
 Global options: `--note-root <dir>` (default `~/.kaiba`, env
-`KAIBA_NOTE_ROOT`), `--help`, `--version`. Commands that render
+`KAIBA_NOTE_ROOT`) and `--config <path>` (default
+`~/.config/kaiba/config.json`, env `KAIBA_CONFIG_PATH`), plus `--help` and
+`--version`. Commands that render
 entities accept `--output json|text` (default `text`).
 
 ### Notes
@@ -120,7 +122,10 @@ kaiba storage gc [--grace-hours N]
 ```
 
 `migrate` moves local file content to S3-compatible storage; credentials
-are read from the named environment variables. `gc` reclaims file
+are read from the named environment variables. The endpoint, region, bucket,
+credential environment-variable names, and key prefix may instead come from a
+named `storageProfiles` entry in the Kaiba configuration. `file --out` uses the
+same configured profile to retrieve S3-backed content. `gc` reclaims file
 records no note or notebook references anymore and sweeps stray blobs,
 with a grace window (default 24 hours) protecting recent files.
 

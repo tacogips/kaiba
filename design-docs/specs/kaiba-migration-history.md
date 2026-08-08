@@ -131,8 +131,9 @@ accepted `design-riela-note.md` (D1–D19), mirrored in
   adapter (these become riela-side kaiba addons instead).
 - Note Agent / Note Config Agent chat UIs (need an agent runtime).
 - SwiftUI workspace (`RielaNoteWorkspace`/`RielaNoteUI`).
-- libSQL/Turso driver (`RielaNoteLibSQL`); the `NoteDatabaseDriving`
-  seam remains for a future driver.
+- The former placeholder `RielaNoteLibSQL` target was not ported. Kaiba now
+  provides its own real Turso/libSQL SQL-over-HTTP backend through
+  `TursoNoteDatabaseDriver`, selected from the Kaiba configuration.
 - Riela GraphQL control plane (manager mutations, workflow queries).
 
 ## Ecosystem Contract (kaiba ⇄ riela)

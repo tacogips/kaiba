@@ -16,7 +16,7 @@ extension AppCommand {
 
     let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     let data = try Data(contentsOf: url)
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let attachment = try service.attachFile(
       noteId: noteId,
       data: data,
@@ -37,10 +37,14 @@ extension AppCommand {
     }
     try cursor.finish()
 
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     let record = try service.getFileRecord(fileId: fileId)
     if let outPath {
-      let data = try service.resolveFileContent(fileId: fileId)
+      let profiles = try KaibaConfigurationLoader.makeS3Profiles(
+        configuration: context.configuration,
+        environment: environment
+      )
+      let data = try service.resolveFileContent(fileId: fileId, s3Profiles: profiles)
       let destination = URL(fileURLWithPath: (outPath as NSString).expandingTildeInPath)
       try data.write(to: destination)
       return "Wrote \(data.count) bytes to \(destination.path)"
@@ -73,7 +77,7 @@ extension AppCommand {
     if subcommand == "gc" {
       let graceHours = try cursor.extractIntOption("--grace-hours") ?? 24
       try cursor.finish()
-      let service = try makeService(root: context.noteRoot)
+      let service = try makeService(context)
       let result = try service.reclaimUnreferencedFiles(
         olderThan: TimeInterval(graceHours) * 60 * 60
       )
@@ -102,31 +106,43 @@ extension AppCommand {
     guard all != (fileId != nil) else {
       throw Error.invalidUsage("storage migrate requires exactly one of <file-id> or --all")
     }
-    guard
-      let profileName, let endpointRaw, let region, let bucket,
-      let accessKeyEnv, let secretKeyEnv
-    else {
-      throw Error.invalidUsage(
-        "storage migrate requires --profile, --endpoint, --region, --bucket, "
-          + "--access-key-env, and --secret-key-env"
+    guard let profileName else {
+      throw Error.invalidUsage("storage migrate requires --profile")
+    }
+    let inlineValues = [endpointRaw, region, bucket, accessKeyEnv, secretKeyEnv]
+    let profile: S3StorageProfile
+    if inlineValues.allSatisfy({ $0 != nil }) {
+      guard let endpointRaw, let endpoint = URL(string: endpointRaw), endpoint.scheme != nil,
+            let region, let bucket, let accessKeyEnv, let secretKeyEnv else {
+        throw Error.invalidUsage("--endpoint expects a URL")
+      }
+      profile = try S3StorageProfile.environmentBacked(
+        name: profileName,
+        endpoint: endpoint,
+        region: region,
+        bucket: bucket,
+        accessKeyIdEnv: accessKeyEnv,
+        secretAccessKeyEnv: secretKeyEnv,
+        keyPrefix: keyPrefix,
+        environment: environment
       )
-    }
-    guard let endpoint = URL(string: endpointRaw), endpoint.scheme != nil else {
-      throw Error.invalidUsage("--endpoint expects a URL, got: \(endpointRaw)")
+    } else if inlineValues.contains(where: { $0 != nil }) {
+      throw Error.invalidUsage(
+        "inline S3 profiles require --endpoint, --region, --bucket, "
+          + "--access-key-env, and --secret-key-env together"
+      )
+    } else {
+      let profiles = try KaibaConfigurationLoader.makeS3Profiles(
+        configuration: context.configuration,
+        environment: environment
+      )
+      guard let configured = profiles.first(where: { $0.name == profileName }) else {
+        throw Error.invalidUsage("S3 profile is not configured: \(profileName)")
+      }
+      profile = configured
     }
 
-    let profile = try S3StorageProfile.environmentBacked(
-      name: profileName,
-      endpoint: endpoint,
-      region: region,
-      bucket: bucket,
-      accessKeyIdEnv: accessKeyEnv,
-      secretAccessKeyEnv: secretKeyEnv,
-      keyPrefix: keyPrefix,
-      environment: environment
-    )
-
-    let service = try makeService(root: context.noteRoot)
+    let service = try makeService(context)
     if let fileId {
       let record = try service.migrateFileStorage(fileId: fileId, to: profile)
       return "Migrated \(record.fileId) to s3://\(record.s3Bucket ?? "")/\(record.s3Key ?? "")"
