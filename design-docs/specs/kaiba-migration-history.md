@@ -174,3 +174,45 @@ accepted `design-riela-note.md` (D1–D19), mirrored in
   so riela's memory/persona addons work across the package boundary.
 - Riela's agent-trio/enterprise example workflows now reference the
   `kaiba/*` addon names.
+
+### Memory responsibilities split with riela (2026-08-09, v0.1.4)
+
+Memory ownership between riela and kaiba is now MECE: riela keeps
+SHORT-TERM memory in its own SQLite store, and kaiba owns LONG-TERM
+memory as consolidated notes in a canonical notebook, linked into the
+`note_links` graph and recalled through FTS plus graph traversal.
+
+- Removed the system-memory subsystem (`NoteService+SystemMemory.swift`,
+  `NoteSystemMemoryTests.swift`): its newest-N-by-recency store keyed by
+  `personaId`/`streamId`/`workflowId`/`nodeId` was short-term memory that
+  only existed to serve riela's addons, and it moved back to riela. Gone
+  with it: `appendSystemMemoryNote(s)`, `listSystemMemoryNotes`,
+  `systemMemoryNotebook`, `SystemMemoryNoteInput`,
+  `SystemMemoryAttachmentInput`, and the
+  `notebook-kind:system-memory` seed. Existing stores keep the orphaned
+  tag row; no migration deletes it.
+- `setNotebookReadOnly` and the notebook read-only lock are generic
+  notebook features and survive the removal, relocated to
+  `NoteService+ReadOnly.swift` with their tests in
+  `NoteReadOnlyLockTests.swift`.
+- Added `NoteService+LongTermMemory.swift`: canonical "Kaiba Long-Term
+  Memory" notebook identified by the non-deletable system tag
+  `notebook-kind:long-term-memory` (class `document-kind`, provenance
+  `system`, assigned by `kaiba-note`), bootstrapped idempotently from
+  `NoteService.init` and guarded by the same single-identity invariant
+  the system-memory notebook used. The notebook is NOT read-only locked.
+- Public API: `longTermMemoryNotebook()`,
+  `appendLongTermMemoryNotes(_:idempotencyKey:)`,
+  `listLongTermMemoryNotes(periodStart:periodEnd:tagFilters:limit:)`,
+  `recallLongTermMemories(query:limit:includeAssociations:associationDepth:)`,
+  `linkLongTermMemoryAssociations(noteId:limit:)`, plus
+  `LongTermMemoryEntryInput`, `LongTermMemoryAppendResult` and
+  `LongTermMemoryRecallResult`.
+- Append is one transaction with note ids derived from the idempotency
+  key, so a retry replays instead of duplicating. Resolvable
+  `sourceNoteIds` become `memory-source` links and resolvable
+  `relatedNoteIds` become `related` links (both provenance `system`);
+  ids that no longer resolve survive in the note metadata only.
+- Schema v8 (append-only, `currentVersion` 7 -> 8) registers the
+  long-term-memory kind tag on stores that predate it; new stores get it
+  from the ordinary notebook-kind seed list.

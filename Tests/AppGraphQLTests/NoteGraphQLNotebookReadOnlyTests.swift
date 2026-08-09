@@ -66,12 +66,12 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
     XCTAssertEqual(missing["notebook"], .null)
   }
 
-  func testDocumentExecutorRejectsSecondSystemMemoryIdentityAcrossPublicMutations() async throws {
+  func testDocumentExecutorRejectsSecondLongTermMemoryIdentityAcrossPublicMutations() async throws {
     let service = try makeNoteGraphQLService()
     let executor = NoteGraphQLDocumentExecutor(service: service)
-    let canonical = try service.service.systemMemoryNotebook()
+    let canonical = try service.service.longTermMemoryNotebook()
     let ordinary = try service.service.createNotebook(title: "Ordinary notebook")
-    let reservedTag = NoteStoreSchema.systemMemoryNotebookKindTag
+    let reservedTag = NoteStoreSchema.longTermMemoryNotebookKindTag
 
     let createNotebook = try await executeMutation(
       executor: executor,
@@ -90,7 +90,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
         "kindTagName": .string(reservedTag)
       ])]
     )
-    try assertReservedSystemMemoryRejection(createNotebook)
+    try assertReservedLongTermMemoryRejection(createNotebook)
 
     let applyTag = try await executeMutation(
       executor: executor,
@@ -110,7 +110,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
         "provenance": .string("human")
       ])]
     )
-    try assertReservedSystemMemoryRejection(applyTag)
+    try assertReservedLongTermMemoryRejection(applyTag)
 
     let reservedTagId = try XCTUnwrap(
       service.service.listTags().first { $0.name == reservedTag }?.tagId
@@ -133,14 +133,14 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
         "provenance": .string("human")
       ])]
     )
-    try assertReservedSystemMemoryRejection(applyTagId)
+    try assertReservedLongTermMemoryRejection(applyTagId)
 
     XCTAssertEqual(
       try service.service.listNotebooks(tagFilter: [reservedTag]).map(\.notebookId),
       [canonical.notebookId]
     )
     let reopened = try NoteService(driver: service.service.driver)
-    XCTAssertEqual(try reopened.systemMemoryNotebook().notebookId, canonical.notebookId)
+    XCTAssertEqual(try reopened.longTermMemoryNotebook().notebookId, canonical.notebookId)
   }
 
   private func setNotebookReadOnly(
@@ -207,7 +207,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
     return try graphQLPayload(response.body, field: field)
   }
 
-  private func assertReservedSystemMemoryRejection(
+  private func assertReservedLongTermMemoryRejection(
     _ payload: JSONObject,
     file: StaticString = #filePath,
     line: UInt = #line
@@ -219,8 +219,8 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
           case let .string(diagnostic)? = diagnostics.first else {
       return XCTFail("expected invalid_request diagnostic", file: file, line: line)
     }
-    XCTAssertTrue(diagnostic.contains(NoteStoreSchema.systemMemoryNotebookKindTag), file: file, line: line)
-    XCTAssertTrue(diagnostic.contains("canonical system-memory notebook"), file: file, line: line)
+    XCTAssertTrue(diagnostic.contains(NoteStoreSchema.longTermMemoryNotebookKindTag), file: file, line: line)
+    XCTAssertTrue(diagnostic.contains("canonical long-term-memory notebook"), file: file, line: line)
   }
 
   private func makeNoteGraphQLService(function: String = #function) throws -> GraphQLNoteGraphQLService {

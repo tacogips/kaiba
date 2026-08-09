@@ -637,7 +637,7 @@ private func nextFTSRowId(in database: SQLiteDatabase) throws -> Int64 {
   return Int64(rows.first?["next_rowid"] ?? "") ?? 1
 }
 
-private func snippet(from body: String, query: String) -> String {
+func snippet(from body: String, query: String) -> String {
   let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
   guard !normalizedQuery.isEmpty,
         let range = body.range(of: normalizedQuery, options: [.caseInsensitive, .diacriticInsensitive])
@@ -660,7 +660,7 @@ private func escapedLikePattern(_ value: String) -> String {
     .replacingOccurrences(of: "_", with: "\\_")
 }
 
-private func ftsMatchQuery(from query: String) -> String? {
+func ftsMatchQuery(from query: String) -> String? {
   let terms = ftsTerms(from: query)
   guard !terms.isEmpty else {
     return nil

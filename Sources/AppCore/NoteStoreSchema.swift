@@ -13,9 +13,9 @@ enum NoteStoreSchemaV7MigrationCheckpoint: Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 7
-  public static let systemMemoryNotebookKindTag = "notebook-kind:system-memory"
-  static let systemMemoryNotebookKindTagId = stableTagId(for: systemMemoryNotebookKindTag)
+  public static let currentVersion = 8
+  public static let longTermMemoryNotebookKindTag = "notebook-kind:long-term-memory"
+  static let longTermMemoryNotebookKindTagId = stableTagId(for: longTermMemoryNotebookKindTag)
   static let agentConversationNotebookKindTag = "notebook-kind:agent-conversation"
   static let agentConversationNotebookKindTagId = stableTagId(
     for: agentConversationNotebookKindTag
@@ -350,6 +350,31 @@ public enum NoteStoreSchema {
     }
   }
 
+  /// Registers the canonical long-term-memory notebook kind tag on stores that
+  /// predate it. Fresh stores reach this migration before `seedTagClasses` has
+  /// run, where the `tags.class_id` foreign key would reject the row; they get
+  /// the tag from `seedNotebookKindTags` later in `prepare` instead, which also
+  /// re-runs for existing stores and makes this insert idempotent.
+  fileprivate static func migrateToV8(in database: SQLiteDatabase) throws {
+    guard try !database.query(
+      "SELECT 1 FROM tag_classes WHERE class_id = 'document-kind' LIMIT 1"
+    ).isEmpty else {
+      return
+    }
+    try database.execute(
+      """
+      INSERT INTO tags (tag_id, name, class_id, is_system, created_at)
+      VALUES (?, ?, 'document-kind', 1, ?)
+      ON CONFLICT DO NOTHING
+      """,
+      bindings: [
+        .text(longTermMemoryNotebookKindTagId),
+        .text(longTermMemoryNotebookKindTag),
+        .text(NoteStoreClock.system.now())
+      ]
+    )
+  }
+
   private static func migrateToV7(in database: SQLiteDatabase) throws {
     try requireForeignKeysEnabled(in: database)
     try requireForeignKeyIntegrity(in: database)
@@ -568,7 +593,8 @@ private let schemaMigrations: [NoteSchemaMigration] = [
   NoteSchemaMigration(version: 3, apply: NoteStoreSchema.migrateToV3),
   NoteSchemaMigration(version: 4, apply: NoteStoreSchema.migrateToV4),
   NoteSchemaMigration(version: 5, apply: NoteStoreSchema.migrateToV5),
-  NoteSchemaMigration(version: 6, apply: NoteStoreSchema.migrateToV6)
+  NoteSchemaMigration(version: 6, apply: NoteStoreSchema.migrateToV6),
+  NoteSchemaMigration(version: 8, apply: NoteStoreSchema.migrateToV8)
 ]
 
 private struct V7IdentitySnapshot: Equatable {
@@ -667,7 +693,7 @@ private let systemNotebookKindTags = [
   "notebook-kind:imported-material",
   NoteStoreSchema.agentConversationNotebookKindTag,
   "notebook-kind:user-memo",
-  NoteStoreSchema.systemMemoryNotebookKindTag
+  NoteStoreSchema.longTermMemoryNotebookKindTag
 ]
 
 private let noteSchemaVersionTableStatement = """

@@ -2,6 +2,26 @@ import Foundation
 
 public extension NoteService {
   @discardableResult
+  func setNotebookReadOnly(notebookId: String, readOnly: Bool) throws -> Notebook {
+    let notebook = try driver.withDatabase { database in
+      try database.transaction { db in
+        _ = try requireNotebook(notebookId, in: db)
+        try db.execute(
+          "UPDATE notebooks SET read_only = ?, updated_at = ? WHERE notebook_id = ?",
+          bindings: [.int(readOnly ? 1 : 0), .text(NoteStoreClock.system.now()), .text(notebookId)]
+        )
+        return try requireNotebook(notebookId, in: db)
+      }
+    }
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.notebookReadOnly,
+      notebookId: notebook.notebookId,
+      tagNames: folderTagNames(of: notebook)
+    ))
+    return notebook
+  }
+
+  @discardableResult
   func setReadOnly(noteId: String, readOnly: Bool) throws -> Note {
     try driver.withDatabase { database in
       try database.transaction { db in

@@ -60,7 +60,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
         [
           "notebook-kind:agent-conversation",
           "notebook-kind:imported-material",
-          "notebook-kind:system-memory",
+          "notebook-kind:long-term-memory",
           "notebook-kind:user-memo"
         ]
       )
@@ -187,7 +187,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       // Fixture setup only: remove the additive v6 column and marker so the
       // populated current-schema store represents the exact v5 input shape.
       try database.execute("ALTER TABLE notebooks DROP COLUMN read_only")
-      try database.execute("DELETE FROM note_schema_version WHERE version IN (6, 7)")
+      try database.execute("DELETE FROM note_schema_version WHERE version IN (6, 7, 8)")
       XCTAssertFalse(try database.query("PRAGMA table_info(notebooks)").contains { $0["name"] == "read_only" })
       XCTAssertEqual(try schemaVersions(in: database), [1, 2, 3, 4, 5])
     }
@@ -279,14 +279,46 @@ final class NoteStoreSchemaTests: NoteTestCase {
     )
   }
 
-  func testPrepareRejectsV5UserTagCollisionForSystemMemoryIdentity() throws {
+  func testPrepareRestoresLongTermMemoryKindTagOnV7Store() throws {
+    let driver = try makeNoteDriver()
+    try NoteStoreSchema.prepare(on: driver)
+    try driver.withDatabase { database in
+      // Fixture setup only: strip the v8 tag and marker so the store represents
+      // a v7 shape that predates the long-term-memory notebook kind.
+      try database.execute(
+        "DELETE FROM tags WHERE name = ?",
+        bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
+      )
+      try database.execute("DELETE FROM note_schema_version WHERE version = 8")
+      XCTAssertEqual(try schemaVersions(in: database), Array(1...7))
+    }
+
+    try NoteStoreSchema.prepare(on: driver)
+
+    try driver.withDatabase { database in
+      let tagRow = try XCTUnwrap(database.query(
+        "SELECT tag_id, class_id, is_system FROM tags WHERE name = ?",
+        bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
+      ).first)
+      XCTAssertEqual(tagRow["tag_id"], NoteStoreSchema.longTermMemoryNotebookKindTagId)
+      XCTAssertEqual(tagRow["class_id"], "document-kind")
+      XCTAssertEqual(tagRow["is_system"], "1")
+      XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
+    }
+    XCTAssertEqual(
+      try NoteService(driver: driver).longTermMemoryNotebook().title,
+      "Kaiba Long-Term Memory"
+    )
+  }
+
+  func testPrepareRejectsV5UserTagCollisionForLongTermMemoryIdentity() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
-    let canonical = try service.systemMemoryNotebook()
+    let canonical = try service.longTermMemoryNotebook()
     try driver.withDatabase { database in
       try database.execute(
         "UPDATE tags SET is_system = 0 WHERE name = ?",
-        bindings: [.text(NoteStoreSchema.systemMemoryNotebookKindTag)]
+        bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
       )
       try database.execute(
         """
@@ -303,7 +335,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
     XCTAssertThrowsError(try NoteStoreSchema.prepare(on: driver)) { error in
       XCTAssertEqual(
         error as? NoteStoreSchemaError,
-        .systemTagCollision(name: NoteStoreSchema.systemMemoryNotebookKindTag)
+        .systemTagCollision(name: NoteStoreSchema.longTermMemoryNotebookKindTag)
       )
     }
     try driver.withDatabase { database in
@@ -311,7 +343,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       XCTAssertTrue(try database.query("PRAGMA table_info(notebooks)").contains { $0["name"] == "read_only" })
       let tagRow = try XCTUnwrap(database.query(
         "SELECT is_system FROM tags WHERE name = ?",
-        bindings: [.text(NoteStoreSchema.systemMemoryNotebookKindTag)]
+        bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
       ).first)
       XCTAssertEqual(tagRow["is_system"], "0")
     }

@@ -42,7 +42,7 @@ public struct NoteService: Sendable {
     self.changeObserver = changeObserver
     self.autoActionDispatchTasks = AutoActionDispatchTaskTracker()
     try NoteStoreSchema.prepare(on: driver)
-    try bootstrapSystemMemoryNotebook()
+    try bootstrapLongTermMemoryNotebook()
     // Recovery+retry is no longer run from init; it is an explicit entry point
     // (`recoverAndRetryAutoActionDispatches`) invoked by the
     // `riela note auto-action retry` subcommand and the app maintenance tick.
@@ -810,7 +810,7 @@ func applyNotebookTag(
   provenance: NoteProvenance,
   assignedBy: String?,
   deletable: Bool,
-  allowsSystemMemoryIdentityCreation: Bool = false,
+  allowsLongTermMemoryIdentityCreation: Bool = false,
   in database: SQLiteDatabase
 ) throws {
   let tag: Tag
@@ -826,7 +826,7 @@ func applyNotebookTag(
     provenance: provenance,
     assignedBy: assignedBy,
     deletable: deletable,
-    allowsSystemMemoryIdentityCreation: allowsSystemMemoryIdentityCreation,
+    allowsLongTermMemoryIdentityCreation: allowsLongTermMemoryIdentityCreation,
     in: database
   )
 }
@@ -837,14 +837,14 @@ func applyNotebookTag(
   provenance: NoteProvenance,
   assignedBy: String?,
   deletable: Bool,
-  allowsSystemMemoryIdentityCreation: Bool = false,
+  allowsLongTermMemoryIdentityCreation: Bool = false,
   in database: SQLiteDatabase
 ) throws {
   let tag = try requireTag(id: tagId, in: database)
-  if tag.tagId == NoteStoreSchema.systemMemoryNotebookKindTagId {
-    try validateSystemMemoryNotebookTagAssignment(
+  if tag.tagId == NoteStoreSchema.longTermMemoryNotebookKindTagId {
+    try validateLongTermMemoryNotebookTagAssignment(
       notebookId: notebookId,
-      allowsIdentityCreation: allowsSystemMemoryIdentityCreation,
+      allowsIdentityCreation: allowsLongTermMemoryIdentityCreation,
       in: database
     )
   }
