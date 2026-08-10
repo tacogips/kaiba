@@ -31,6 +31,7 @@
     "impl-plans/active/.gitkeep",
     "impl-plans/completed/.gitkeep",
     "impl-plans/templates/plan-template.md",
+    "mise.toml",
     "packaging/homebrew/README.md",
     "scripts/build-homebrew-cask-release.sh",
     "scripts/build-homebrew-release.sh",

@@ -109,17 +109,17 @@ The `get` output should be masked or presence-only.
 Prefer project-provided tasks. A good command path is:
 
 ```bash
-task check:ios-signing
-task archive:ios-app-signed
+mise run check:ios-signing
+mise run archive:ios-app-signed
 task export:ios-app
-task check:testflight-readiness
+mise run check:testflight-readiness
 ```
 
 If the repo uses signing secrets, wrap only the needed commands:
 
 ```bash
-kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- task check:ios-signing
-kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- task archive:ios-app-signed
+kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- mise run check:ios-signing
+kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- mise run archive:ios-app-signed
 kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- task export:ios-app
 ```
 
@@ -193,7 +193,7 @@ Prefer a repo task if one exists, for example:
 
 ```bash
 rg -n 'testflight.*device|device.*testflight|devicectl device info apps|devicectl device process launch' Taskfile.yml scripts
-task check:testflight-ipad-device -- '<trusted iPad name>'
+mise run check:testflight-ipad-device -- '<trusted iPad name>'
 ```
 
 A good automated check verifies:

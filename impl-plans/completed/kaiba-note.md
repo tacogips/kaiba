@@ -80,7 +80,7 @@ note application with a command line interface.
 **Completion Criteria**:
 
 - [x] `architecture.md`, `command.md`, `README.md` updated.
-- [x] `task build`, `task test`, `swiftlint` pass; plan moved to
+- [x] `mise run build`, `mise run test`, `swiftlint` pass; plan moved to
       `impl-plans/completed/`.
 
 ## Progress Log
