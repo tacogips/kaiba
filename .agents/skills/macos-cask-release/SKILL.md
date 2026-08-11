@@ -105,9 +105,10 @@ credentials, not the Cask syntax.
 
 ## Tap API Metadata Gate
 
-After pushing `Casks/kaiba.rb`, require `tacogips/homebrew-tap`'s
-`update-api-metadata.yml` workflow to succeed for that commit. Verify the
-GitHub Raw `api/cask/kaiba.json`: its `.version` must equal the release version
-and its `.ruby_source_checksum.sha256` must equal the SHA-256 of the committed
-Cask. Do not consider the release complete while the endpoint is missing or
-stale.
+After pushing the tap Cask, require the tap's `update-api-metadata.yml`
+workflow to succeed for that commit. Derive the GitHub tap repository from
+`user/tap`, wait for the matching workflow run, then
+verify `api/cask/kaiba.json` from GitHub
+Raw. The JSON release is incomplete unless `.version` equals the release
+version and `.ruby_source_checksum.sha256` equals the SHA-256 of the committed
+Cask Ruby file.

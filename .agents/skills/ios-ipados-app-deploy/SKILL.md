@@ -29,9 +29,9 @@ Apple Developer signing, App Store Connect, TestFlight, and physical devices.
 Identify the repo's actual names before acting:
 
 ```bash
-find . -maxdepth 3 \( -name '*.xcodeproj' -o -name '*.xcworkspace' -o -name 'Package.swift' -o -name 'Taskfile.yml' \) -print
+find . -maxdepth 3 \( -name '*.xcodeproj' -o -name '*.xcworkspace' -o -name 'Package.swift' -o -name 'mise.toml' \) -print
 rg -n 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|MARKETING_VERSION|CURRENT_PROJECT_VERSION|CFBundleDisplayName|CFBundleName|ITSAppUsesNonExemptEncryption' .
-rg -n 'check:ios|archive:ios|export:ios|testflight|app-store|physical-device|APPLE_|SIGNING_IDENTITY|TEAM_ID' Taskfile.yml scripts .github 2>/dev/null
+rg -n 'check:ios|archive:ios|export:ios|testflight|app-store|physical-device|APPLE_|SIGNING_IDENTITY|TEAM_ID' mise.toml scripts .github 2>/dev/null
 ```
 
 Record:
@@ -82,6 +82,13 @@ Required local signing state:
 - App ID/provisioning profile for the bundle ID.
 - Physical iPhone/iPad trusted by the Mac for device builds and install checks.
 
+When an App ID capability or container assignment changes, treat every affected
+provisioning profile as stale. Regenerate, download, install, and inspect the
+replacement profile before archiving. Fail closed if the app's signed
+entitlements request a capability that the selected profile does not contain.
+Keep profile contents, UUIDs, and downloaded profile files out of Git and
+release evidence.
+
 Check identities without exposing secrets:
 
 ```bash
@@ -111,7 +118,7 @@ Prefer project-provided tasks. A good command path is:
 ```bash
 mise run check:ios-signing
 mise run archive:ios-app-signed
-task export:ios-app
+mise run export:ios-app
 mise run check:testflight-readiness
 ```
 
@@ -120,7 +127,7 @@ If the repo uses signing secrets, wrap only the needed commands:
 ```bash
 kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- mise run check:ios-signing
 kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- mise run archive:ios-app-signed
-kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- task export:ios-app
+kinko exec --env IOS_DISTRIBUTION_SIGNING_IDENTITY,APPLE_TEAM_ID -- mise run export:ios-app
 ```
 
 If no task exists, use `xcodebuild` with automatic signing and avoid hardcoding
@@ -192,7 +199,7 @@ xcrun devicectl device process launch \
 Prefer a repo task if one exists, for example:
 
 ```bash
-rg -n 'testflight.*device|device.*testflight|devicectl device info apps|devicectl device process launch' Taskfile.yml scripts
+rg -n 'testflight.*device|device.*testflight|devicectl device info apps|devicectl device process launch' mise.toml scripts
 mise run check:testflight-ipad-device -- '<trusted iPad name>'
 ```
 
@@ -226,7 +233,10 @@ settled. Use:
 - Access: full access unless the user asks for limited access.
 
 After the app record exists, validate and upload the IPA using the repo's
-preferred uploader, Xcode Organizer, Transporter, or `altool` when available:
+preferred uploader, Xcode Organizer, Transporter, or an App Store Connect API
+key workflow. Do not use deprecated `altool` as the primary release path;
+retain it only for repositories that still require it for comparison or
+transport diagnosis:
 
 ```bash
 kinko exec --env APPLE_ID,APPLE_PASSWORD,APPLE_TEAM_ID -- bash -lc '
@@ -250,6 +260,21 @@ xcrun altool --upload-app \
 
 If validation says it cannot determine the app from the bundle ID, verify that
 the App Store Connect app record exists for that bundle ID and team.
+
+An upload command returning successfully proves only that delivery was
+submitted unless it explicitly waits for processing. For deploy-to-TestFlight
+requests, require all of these outcomes for the exact version and build:
+
+- package and binary upload completed;
+- App Store Connect processing completed successfully;
+- the build was assigned to the intended internal group, or automatic internal
+  distribution made it available;
+- the processed version/build is newer than every previously uploaded build.
+
+If App Store Connect reports that a bundle version must be higher, consider the
+rejected number consumed even when it is not visible in TestFlight. Increment
+the project build number, rebuild and re-export the IPA, and upload the new
+artifact. Do not repeatedly retry the consumed build number.
 
 After upload:
 
