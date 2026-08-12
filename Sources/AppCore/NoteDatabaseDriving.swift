@@ -45,7 +45,14 @@ public struct TursoNoteDatabaseDriver: NoteDatabaseDriving {
   private let connection: TursoNoteDatabaseConnection
 
   public init(noteRoot: String, configuration: TursoDatabaseConfiguration) throws {
-    databasePath = SQLiteNoteDatabaseDriver.defaultDatabasePath(noteRoot: noteRoot)
+    try self.init(
+      databasePath: SQLiteNoteDatabaseDriver.defaultDatabasePath(noteRoot: noteRoot),
+      configuration: configuration
+    )
+  }
+
+  public init(databasePath: String, configuration: TursoDatabaseConfiguration) throws {
+    self.databasePath = databasePath
     self.configuration = configuration
     connection = try TursoNoteDatabaseConnection(
       databasePath: databasePath,

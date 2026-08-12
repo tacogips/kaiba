@@ -7,7 +7,7 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
   public var ai: KaibaAIConfiguration?
 
   public init(
-    database: KaibaDatabaseConfiguration = .sqlite,
+    database: KaibaDatabaseConfiguration = .sqlite(path: nil),
     storageProfiles: [KaibaS3ProfileConfiguration] = [],
     importSettings: KaibaImportConfiguration? = nil,
     ai: KaibaAIConfiguration? = nil
@@ -30,7 +30,7 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
     database = try container.decodeIfPresent(
       KaibaDatabaseConfiguration.self,
       forKey: .database
-    ) ?? .sqlite
+    ) ?? .sqlite(path: nil)
     storageProfiles = try container.decodeIfPresent(
       [KaibaS3ProfileConfiguration].self,
       forKey: .storageProfiles
@@ -192,11 +192,13 @@ public struct KaibaS3ProfileConfiguration: Codable, Equatable, Sendable {
 }
 
 public enum KaibaDatabaseConfiguration: Codable, Equatable, Sendable {
-  case sqlite
+  /// `path` overrides the default `<note-root>/note-store.sqlite` location.
+  case sqlite(path: String?)
   case turso(TursoHTTPConfiguration)
 
   private enum CodingKeys: String, CodingKey {
     case kind
+    case path
     case url
     case authTokenEnvironmentVariable
     case allowInsecureLoopbackHTTP
@@ -211,7 +213,7 @@ public enum KaibaDatabaseConfiguration: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     switch try container.decode(Kind.self, forKey: .kind) {
     case .sqlite:
-      self = .sqlite
+      self = .sqlite(path: try container.decodeIfPresent(String.self, forKey: .path))
     case .turso:
       self = .turso(TursoHTTPConfiguration(
         url: try container.decode(String.self, forKey: .url),
@@ -230,8 +232,9 @@ public enum KaibaDatabaseConfiguration: Codable, Equatable, Sendable {
   public func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
     switch self {
-    case .sqlite:
+    case .sqlite(let path):
       try container.encode(Kind.sqlite, forKey: .kind)
+      try container.encodeIfPresent(path, forKey: .path)
     case .turso(let configuration):
       try container.encode(Kind.turso, forKey: .kind)
       try container.encode(configuration.url, forKey: .url)
@@ -285,14 +288,37 @@ public enum KaibaConfigurationLoader {
     }
   }
 
+  /// Resolves the local sqlite file location. Precedence: `KAIBA_SQLITE_PATH`
+  /// environment variable, then the configured `database.path`, then the
+  /// default `<note-root>/note-store.sqlite`.
+  public static func resolveSQLiteDatabasePath(
+    configuredPath: String?,
+    noteRoot: String,
+    environment: [String: String]
+  ) -> String {
+    if let env = environment["KAIBA_SQLITE_PATH"], !env.isEmpty {
+      return (env as NSString).expandingTildeInPath
+    }
+    if let configuredPath, !configuredPath.isEmpty {
+      return (configuredPath as NSString).expandingTildeInPath
+    }
+    return SQLiteNoteDatabaseDriver.defaultDatabasePath(noteRoot: noteRoot)
+  }
+
   public static func makeDriver(
     configuration: KaibaDatabaseConfiguration,
     noteRoot: String,
     environment: [String: String]
   ) throws -> any NoteDatabaseDriving {
     switch configuration {
-    case .sqlite:
-      return SQLiteNoteDatabaseDriver(noteRoot: noteRoot)
+    case .sqlite(let path):
+      let databasePath = resolveSQLiteDatabasePath(
+        configuredPath: path,
+        noteRoot: noteRoot,
+        environment: environment
+      )
+      try ensureParentDirectoryExists(of: databasePath)
+      return SQLiteNoteDatabaseDriver(databasePath: databasePath)
     case .turso(let turso):
       guard let url = URL(string: turso.url) else {
         throw KaibaConfigurationError.invalid("database.url")
@@ -302,8 +328,14 @@ public enum KaibaConfigurationLoader {
           turso.authTokenEnvironmentVariable
         )
       }
-      return try TursoNoteDatabaseDriver(
+      let databasePath = resolveSQLiteDatabasePath(
+        configuredPath: nil,
         noteRoot: noteRoot,
+        environment: environment
+      )
+      try ensureParentDirectoryExists(of: databasePath)
+      return try TursoNoteDatabaseDriver(
+        databasePath: databasePath,
         configuration: TursoDatabaseConfiguration(
           url: url,
           authToken: token,
@@ -311,6 +343,11 @@ public enum KaibaConfigurationLoader {
         )
       )
     }
+  }
+
+  private static func ensureParentDirectoryExists(of databasePath: String) throws {
+    let parent = URL(fileURLWithPath: databasePath).deletingLastPathComponent()
+    try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
   }
 
   public static func makeS3Profiles(

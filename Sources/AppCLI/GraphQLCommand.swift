@@ -11,6 +11,12 @@ struct GraphQLCommand {
     var document: String
     var variables: JSONObject = [:]
     var operationName: String?
+    /// When set, the document is sent to this kaiba server's POST /graphql
+    /// endpoint instead of executing against the local store.
+    var endpoint: URL?
+    /// Environment-variable NAME holding the API key for --endpoint requests;
+    /// the secret value itself never appears on the command line.
+    var apiKeyEnvironmentVariable: String?
   }
 
   enum GraphQLCommandError: Error, CustomStringConvertible {
@@ -37,9 +43,17 @@ struct GraphQLCommand {
     var readStdin = false
     var variablesRaw: String?
     var operationName: String?
+    var endpointRaw: String?
+    var apiKeyEnvironmentVariable: String?
     var iterator = arguments.makeIterator()
     while let argument = iterator.next() {
       switch argument {
+      case "--endpoint":
+        guard let value = iterator.next() else { throw GraphQLCommandError.missingValue(argument) }
+        endpointRaw = value
+      case "--api-key-env":
+        guard let value = iterator.next() else { throw GraphQLCommandError.missingValue(argument) }
+        apiKeyEnvironmentVariable = value
       case "--file":
         guard let value = iterator.next() else { throw GraphQLCommandError.missingValue(argument) }
         file = value
@@ -94,36 +108,65 @@ struct GraphQLCommand {
       }
       variables = object
     }
+    var endpoint: URL?
+    if let endpointRaw {
+      guard let url = URL(string: endpointRaw), url.scheme != nil, url.host != nil else {
+        throw GraphQLCommandError.invalidUsage("--endpoint expects an http(s) URL, got: \(endpointRaw)")
+      }
+      endpoint = url
+    }
+    if apiKeyEnvironmentVariable != nil, endpoint == nil {
+      throw GraphQLCommandError.invalidUsage("--api-key-env requires --endpoint")
+    }
     return Options(
       noteRoot: noteRoot,
       configuration: configuration,
       document: query,
       variables: variables,
-      operationName: operationName
+      operationName: operationName,
+      endpoint: endpoint,
+      apiKeyEnvironmentVariable: apiKeyEnvironmentVariable
     )
   }
 
   /// Returns (output, exitCode). GraphQL-level errors exit 1 with the body
   /// still printed so scripts can inspect diagnostics.
   static func run(_ options: Options) async throws -> (String, Int32) {
-    try FileManager.default.createDirectory(
-      atPath: options.noteRoot,
-      withIntermediateDirectories: true
-    )
-    let service = try NoteService(
-      driver: KaibaConfigurationLoader.makeDriver(
-        configuration: options.configuration.database,
-        noteRoot: options.noteRoot,
-        environment: ProcessInfo.processInfo.environment
+    let executor: any GraphQLDocumentExecuting
+    if let endpoint = options.endpoint {
+      var bearerToken: String?
+      if let variableName = options.apiKeyEnvironmentVariable {
+        guard let token = ProcessInfo.processInfo.environment[variableName], !token.isEmpty else {
+          throw GraphQLCommandError.invalidUsage(
+            "environment variable \(variableName) is not set (--api-key-env)"
+          )
+        }
+        bearerToken = token
+      }
+      executor = GraphQLHTTPDocumentClient(
+        endpoint: GraphQLHTTPDocumentClient.endpointURL(from: endpoint),
+        bearerToken: bearerToken
       )
-    )
-    let executor = NoteGraphQLDocumentExecutor(
-      service: GraphQLNoteGraphQLService(service: service),
-      s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(
-        configuration: options.configuration,
-        environment: ProcessInfo.processInfo.environment
+    } else {
+      try FileManager.default.createDirectory(
+        atPath: options.noteRoot,
+        withIntermediateDirectories: true
       )
-    )
+      let service = try NoteService(
+        driver: KaibaConfigurationLoader.makeDriver(
+          configuration: options.configuration.database,
+          noteRoot: options.noteRoot,
+          environment: ProcessInfo.processInfo.environment
+        )
+      )
+      executor = NoteGraphQLDocumentExecutor(
+        service: GraphQLNoteGraphQLService(service: service),
+        s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(
+          configuration: options.configuration,
+          environment: ProcessInfo.processInfo.environment
+        )
+      )
+    }
     let response = await executor.execute(GraphQLDocumentRequest(
       query: options.document,
       variables: options.variables,

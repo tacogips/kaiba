@@ -161,6 +161,9 @@ public struct AppCommand: Sendable {
                  # GET /note/events) + web viewer SPA from --web-root
       graphql    (<document>|--file <path>|-) [--variables <json>]
                  [--operation <name>]   # execute GraphQL against the local store
+                 [--endpoint <url> [--api-key-env <VAR>]]
+                 # send the document to a running kaiba server's POST /graphql
+                 # instead; the API key is read from the named env variable
       client     issue --name <n> | list [--all] | revoke <client-id>
                  # API keys accepted as bearer tokens by kaiba serve
 
@@ -175,6 +178,8 @@ public struct AppCommand: Sendable {
       --note-root <dir>   Note store root (default ~/.kaiba, env KAIBA_NOTE_ROOT)
       --config <path>     Config file (default ~/.config/kaiba/config.json,
                           env KAIBA_CONFIG_PATH)
+      sqlite file         env KAIBA_SQLITE_PATH, else config database.path,
+                          else <note-root>/note-store.sqlite
       --help, --version
     """
   }
