@@ -112,6 +112,36 @@ a registration URL and terminal QR code are printed at startup),
 viewer with SPA fallback. `--allow-unauthenticated` disables bearer
 auth for trusted local use.
 
+### Import
+
+```bash
+kaiba import <file-path> [--title <t>] [--kind-tag <tag>]
+             [--anydoc-path <p>] [--output json|text]
+```
+
+Converts a source document (pdf, doc/docx, ppt/pptx, excel, odt/ods/odp,
+rtf, epub, csv) to markdown by spawning the installed `anydoc-swift` CLI
+with `--json`, then stores an imported-material notebook with one note
+per top-level markdown section and the original file attached with the
+`source-document` role. The binary resolves from `--anydoc-path`, then
+`import.anydocPath` in the configuration, then `PATH`. See
+`document-import.md`.
+
+### AI
+
+```bash
+kaiba ai tag (--note <id> | --notebook <id>) [--dry-run]
+kaiba ai status
+```
+
+`ai tag` extracts ontology tags with the configured agent backend
+(`agent-gateway`, spawned per invocation) and applies them with
+provenance `ai` (never overwriting human tags or redefining existing
+tags); `--dry-run` prints proposals without applying. `ai status`
+reports the `ai` configuration section and runtime availability. When
+the backend, vendor, model, or binary is missing, `ai tag` exits `1`
+with the specific reason. See `ai-agent-integration.md`.
+
 ### Storage
 
 ```bash

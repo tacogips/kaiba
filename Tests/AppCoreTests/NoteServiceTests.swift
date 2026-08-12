@@ -853,12 +853,20 @@ func makeService(function: String = #function) throws -> NoteService {
 }
 
 // Kaiba seeds the default AI-tagging actions disabled (no dispatcher ships with
-// the CLI). The vendored tests were written against enabled seeds, so the
-// shared helpers opt back in.
+// the CLI). The vendored tests were written against the enabled note-created/
+// note-updated seeds, so the shared helpers opt those two back in; the
+// notebook-created seed (added for AI notebook tagging) stays disabled here so
+// vendored expectations keep their original dispatch counts.
 func enableSeededAutoActions(driver: NoteDatabaseDriving) throws {
   try driver.withDatabase { database in
     try database.execute(
-      "UPDATE auto_actions SET enabled = 1 WHERE action_id LIKE 'default-ai-tagging-%'"
+      """
+      UPDATE auto_actions SET enabled = 1
+      WHERE action_id IN (
+        'default-ai-tagging-note-created',
+        'default-ai-tagging-note-updated'
+      )
+      """
     )
   }
 }

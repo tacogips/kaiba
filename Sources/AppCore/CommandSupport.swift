@@ -215,6 +215,7 @@ func jsonObject(_ note: Note) -> [String: Any] {
     "tags": note.tags.map(jsonObject)
   ]
   object["title"] = note.title
+  object["metaJSON"] = note.metaJSON
   return object
 }
 

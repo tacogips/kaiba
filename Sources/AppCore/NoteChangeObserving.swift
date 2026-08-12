@@ -23,6 +23,8 @@ public enum NoteChangeEventKind {
   public static let notebookDeleted = "notebook-deleted"
   public static let notebookTags = "notebook-tags"
   public static let statusSets = "status-sets"
+  public static let noteCreated = "note-created"
+  public static let noteUpdated = "note-updated"
 }
 
 /// Sync and fire-and-forget: the mutating thread must never block on a

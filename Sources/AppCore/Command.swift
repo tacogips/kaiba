@@ -63,6 +63,7 @@ public struct AppCommand: Sendable {
     case "readonly": return try runReadOnly(context)
     case "delete": return try runDelete(context)
     case "notebook": return try runNotebook(context)
+    case "import": return try runImport(context)
     case "storage": return try runStorage(context)
     case "client": return try runClient(context)
     default:
@@ -133,6 +134,18 @@ public struct AppCommand: Sendable {
       notebook   delete <notebook-id>
       notebook   progress <notebook-id> <none|progress|done|pending>
       notebook   readonly <notebook-id> (--on|--off)
+
+    Import:
+      import     <file-path> [--title <t>] [--kind-tag <tag>]
+                 [--anydoc-path <p>] [--output json|text]
+                 # convert a document (pdf, docx, pptx, epub, ...) to markdown
+                 # with anydoc-swift and store it as an imported-material
+                 # notebook (one note per top-level section, original attached)
+
+    AI (agent runtime arrives with agent-gateway; see kaiba ai status):
+      ai tag     (--note <id> | --notebook <id>) [--dry-run]
+                 # extract ontology tags with the configured agent
+      ai status  # AI configuration and runtime availability
 
     Serve and API access:
       serve      [--host <h>] [--port <p>] [--web-root <dir>]

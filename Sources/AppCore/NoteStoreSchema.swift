@@ -16,11 +16,16 @@ public enum NoteStoreSchema {
   public static let currentVersion = 8
   public static let longTermMemoryNotebookKindTag = "notebook-kind:long-term-memory"
   static let longTermMemoryNotebookKindTagId = stableTagId(for: longTermMemoryNotebookKindTag)
-  static let agentConversationNotebookKindTag = "notebook-kind:agent-conversation"
+  public static let agentConversationNotebookKindTag = "notebook-kind:agent-conversation"
   static let agentConversationNotebookKindTagId = stableTagId(
     for: agentConversationNotebookKindTag
   )
+  public static let importedMaterialNotebookKindTag = "notebook-kind:imported-material"
   public static let autoTaggingWorkflowId = "note-auto-tagging"
+  /// Chat-reply generation workflow routed by `KaibaAutoActionDispatcher`
+  /// (`design-docs/specs/ai-agent-integration.md`, AI8).
+  public static let agentChatReplyWorkflowId = "note-agent-reply"
+  public static let agentChatReplyActionId = "agent-chat-reply"
   public static let systemKanbanStatusSetId = "kanban-default"
 
   static func setV7MigrationFaultInjectorForTesting(
@@ -171,7 +176,7 @@ public enum NoteStoreSchema {
   // seeded disabled; enabling one is an explicit opt-in by whichever external
   // automation drains the dispatch outbox.
   private static func seedAutoActions(in database: SQLiteDatabase) throws {
-    for trigger in [NoteAutoActionTrigger.noteCreated, .noteUpdated] {
+    for trigger in [NoteAutoActionTrigger.noteCreated, .noteUpdated, .notebookCreated] {
       try database.execute(
         """
         INSERT INTO auto_actions (

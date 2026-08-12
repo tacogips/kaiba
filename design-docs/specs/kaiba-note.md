@@ -95,6 +95,36 @@ Kaiba ships as:
   `<note-root>/files/`. Override with `--note-root` or the
   `KAIBA_NOTE_ROOT` environment variable (highest precedence:
   `--note-root`, then env, then default).
+- **K9 — Document import spawns the `anydoc-swift` CLI.** `kaiba
+  import` converts PDF/Office/EPUB documents to markdown by running the
+  installed `anydoc-swift` binary with `--json` (versioned envelope,
+  typed error kinds) instead of adding a SwiftPM dependency, preserving
+  K3's zero-dependency policy. Import is CLI-only (the HTTP server's
+  2 MiB body cap rules out browser upload for now). See
+  `document-import.md`.
+- **K10 — Agent runtime lives in agent-gateway.** Kaiba owns an
+  `AgentInvoking` protocol seam, the `ai` configuration section, prompt
+  construction, reply validation, persistence, and all user surfaces;
+  the concrete runtime is `tacogips/agent-gateway` (an ACP stdio
+  agent), bridged by the process-spawned `AgentGatewayCLIInvoker`
+  (landed 2026-08-12). When the binary or configuration is missing,
+  every AI surface reports a clean "agent unavailable" state. See
+  `ai-agent-integration.md`.
+- **K11 — Imported documents split at H1 headings.** One note per H1
+  section (fallback H2; single note when headingless), because headings
+  are the only structure anydoc output retains, and H1 sections match
+  the reader's chapter-sized units. Oversized sections split
+  recursively under a 400 KiB guard.
+- **K12 — Note-agent chat reuses conversation notebooks.** A chat about
+  a note is an `agent-conversation` notebook whose turns are notes;
+  subject binding via notebook meta JSON plus `source-citation` links;
+  replies are produced through the auto-action outbox and delivered to
+  clients via the existing change feed (no streaming, no new tables).
+- **K13 — Chatbook web UI: hash routing and data-attribute grid.** The
+  viewer's main screen is a three-pane foldable reader; routing is
+  hash-based and pane layout is explicit `grid-template-columns` state
+  owned by a shared store, replacing `:has()` selector magic. See
+  `web-chatbook-ui.md`.
 
 ## Domain Model (inherited from Riela Note D1–D19)
 
@@ -212,13 +242,17 @@ auth-required hosts answer 401 with the registration hint.
 
 ## Non-Goals (v1)
 
-- No workflow engine or built-in AI tagging; the auto-action outbox is
-  the integration point.
+Superseded in part (2026-08-12): AI tagging, note-agent chat, and
+document import are now in scope per K9-K13,
+`ai-agent-integration.md`, `document-import.md`, and
+`web-chatbook-ui.md`. Kaiba still ships no workflow engine; the
+auto-action outbox plus the `AgentInvoking` seam remain the
+integration points, and the concrete agent runtime stays external
+(agent-gateway).
+
 - No native GUI (the Riela SwiftUI module is designed to be portable; a
   kaiba app can host it later).
 - No libSQL/Turso sync driver.
-- No note-agent / config-agent chat views (they require an agent
-  runtime kaiba does not ship).
 
 ## Verification
 

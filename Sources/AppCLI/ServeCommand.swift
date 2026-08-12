@@ -64,14 +64,57 @@ struct ServeCommand {
       withIntermediateDirectories: true
     )
     let changeFeed = NoteChangeFeed()
+    let driver = try KaibaConfigurationLoader.makeDriver(
+      configuration: options.configuration.database,
+      noteRoot: options.noteRoot,
+      environment: ProcessInfo.processInfo.environment
+    )
+    // AI wiring (design-docs/specs/ai-agent-integration.md): the invoker is
+    // nil until the agent-gateway adapter lands, so no dispatcher installs and
+    // the AI auto-actions stay force-disabled (no outbox buildup). The
+    // dispatcher gets its own service value over the same driver; its
+    // completion writes carry originatingActionId, so loops are impossible.
+    let aiConfiguration = options.configuration.ai
+    let invoker = AgentInvokerFactory.makeInvoker(configuration: aiConfiguration)
+    var dispatcher: KaibaAutoActionDispatcher?
+    if let invoker {
+      dispatcher = KaibaAutoActionDispatcher(
+        service: try NoteService(driver: driver),
+        invoker: invoker,
+        provider: aiConfiguration?.agent?.provider,
+        model: aiConfiguration?.agent?.model
+      )
+    }
     let service = try NoteService(
-      driver: KaibaConfigurationLoader.makeDriver(
-        configuration: options.configuration.database,
-        noteRoot: options.noteRoot,
-        environment: ProcessInfo.processInfo.environment
-      ),
+      driver: driver,
+      autoActionDispatcher: dispatcher,
       changeObserver: NoteChangeFeedObserver(feed: changeFeed)
     )
+    for line in try AIAutoActionReconciliation.reconcile(
+      service: service,
+      aiConfiguration: aiConfiguration,
+      invokerAvailable: invoker != nil
+    ) {
+      print("ai: \(line)")
+    }
+    // Startup recovery plus a periodic tick: rows enqueued by other processes
+    // (e.g. `kaiba import` while serve is running) stay pending until a
+    // retry entry point runs, so the serving process drains them regularly.
+    var maintenance: Task<Void, Never>?
+    if dispatcher != nil {
+      _ = try await service.recoverAndRetryAutoActionDispatches()
+      let maintenanceService = service
+      maintenance = Task {
+        while !Task.isCancelled {
+          try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+          if Task.isCancelled {
+            return
+          }
+          _ = try? await maintenanceService.recoverAndRetryAutoActionDispatches()
+        }
+      }
+    }
+    defer { maintenance?.cancel() }
     let executor = NoteGraphQLDocumentExecutor(
       service: GraphQLNoteGraphQLService(service: service),
       s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(

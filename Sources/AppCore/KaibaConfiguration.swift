@@ -3,18 +3,26 @@ import Foundation
 public struct KaibaConfiguration: Codable, Equatable, Sendable {
   public var database: KaibaDatabaseConfiguration
   public var storageProfiles: [KaibaS3ProfileConfiguration]
+  public var importSettings: KaibaImportConfiguration?
+  public var ai: KaibaAIConfiguration?
 
   public init(
     database: KaibaDatabaseConfiguration = .sqlite,
-    storageProfiles: [KaibaS3ProfileConfiguration] = []
+    storageProfiles: [KaibaS3ProfileConfiguration] = [],
+    importSettings: KaibaImportConfiguration? = nil,
+    ai: KaibaAIConfiguration? = nil
   ) {
     self.database = database
     self.storageProfiles = storageProfiles
+    self.importSettings = importSettings
+    self.ai = ai
   }
 
   private enum CodingKeys: String, CodingKey {
     case database
     case storageProfiles
+    case importSettings = "import"
+    case ai
   }
 
   public init(from decoder: any Decoder) throws {
@@ -27,6 +35,84 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
       [KaibaS3ProfileConfiguration].self,
       forKey: .storageProfiles
     ) ?? []
+    importSettings = try container.decodeIfPresent(
+      KaibaImportConfiguration.self,
+      forKey: .importSettings
+    )
+    ai = try container.decodeIfPresent(KaibaAIConfiguration.self, forKey: .ai)
+  }
+}
+
+/// Document import settings (`design-docs/specs/document-import.md`). Only a
+/// binary path; never secrets.
+public struct KaibaImportConfiguration: Codable, Equatable, Sendable {
+  public var anydocPath: String?
+
+  public init(anydocPath: String? = nil) {
+    self.anydocPath = anydocPath
+  }
+}
+
+/// AI settings (`design-docs/specs/ai-agent-integration.md`). Provider
+/// credentials never appear here; they are the agent runtime's env-routing
+/// concern.
+public struct KaibaAIConfiguration: Codable, Equatable, Sendable {
+  public var agent: KaibaAgentBackendConfiguration?
+  public var autoTag: KaibaAutoTagConfiguration?
+
+  public init(
+    agent: KaibaAgentBackendConfiguration? = nil,
+    autoTag: KaibaAutoTagConfiguration? = nil
+  ) {
+    self.agent = agent
+    self.autoTag = autoTag
+  }
+
+  public var autoTagEnabled: Bool {
+    autoTag?.auto == .on
+  }
+}
+
+public struct KaibaAgentBackendConfiguration: Codable, Equatable, Sendable {
+  /// The only recognized backend today; the concrete invoker arrives with the
+  /// agent-gateway adapter (impl-plans/active/agent-gateway-adapter.md).
+  public static let agentGatewayCLIBackend = "agent-gateway-cli"
+
+  public var backend: String
+  public var commandPath: String?
+  /// agent-gateway vendor: claude-code, codex, cursor, openai, anthropic,
+  /// gemini, or openrouter.
+  public var provider: String?
+  public var model: String?
+  /// Environment-variable NAME for the provider credential (never a value);
+  /// the gateway's per-vendor default applies when absent.
+  public var apiKeyEnvironmentVariable: String?
+
+  public init(
+    backend: String,
+    commandPath: String? = nil,
+    provider: String? = nil,
+    model: String? = nil,
+    apiKeyEnvironmentVariable: String? = nil
+  ) {
+    self.backend = backend
+    self.commandPath = commandPath
+    self.provider = provider
+    self.model = model
+    self.apiKeyEnvironmentVariable = apiKeyEnvironmentVariable
+  }
+}
+
+public struct KaibaAutoTagConfiguration: Codable, Equatable, Sendable {
+  public enum Toggle: String, Codable, Equatable, Sendable {
+    case on
+    case off
+  }
+
+  public var auto: Toggle
+
+  public init(auto: Toggle = .off) {
+    self.auto = auto
   }
 }
 

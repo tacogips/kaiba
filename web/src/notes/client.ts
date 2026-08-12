@@ -1,11 +1,16 @@
 import { api } from '../api'
 import type {
+  AgentChatMessageResult,
+  AgentConversation,
+  ControlResult,
   GraphQLEnvelope,
   HostMode,
   KanbanStatusSet,
   MutationPayload,
   Note,
   Notebook,
+  NoteComment,
+  NoteGraphNeighbor,
   NoteListSort,
   NoteSearchResult,
   NoteTag,
@@ -137,10 +142,131 @@ export class NoteGraphQLClient {
       query Notes($notebookId: String!, $limit: Int, $offset: Int) {
         notes(notebookId: $notebookId, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
-          value { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+          value { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
         }
       }
     `, { notebookId, limit: notebookPageLimit, offset }, (data) => data.notes)
+  }
+
+  /** The single-note read the reader and the Info tab share: unlike the list
+   * query it carries the note's own tag assignments. */
+  async note(noteId: string): Promise<Note> {
+    return this.queryValue<{ note: QueryPayload<Note> }, Note>('Note', `
+      query Note($noteId: String!) {
+        note(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value {
+            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON
+            tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
+          }
+        }
+      }
+    `, { noteId }, (data) => data.note)
+  }
+
+  /** Linked documents for the Links tab; `edgeKind` is the link kind the tab
+   * groups by. Depth stays at one hop so the list is the note's own links. */
+  async noteGraphNeighbors(noteId: string, limit = 20): Promise<NoteGraphNeighbor[]> {
+    return this.queryValue<{ noteGraphNeighbors: QueryPayload<NoteGraphNeighbor[]> }, NoteGraphNeighbor[]>('NoteGraphNeighbors', `
+      query NoteGraphNeighbors($noteIds: [String!]!, $depth: Int, $limit: Int) {
+        noteGraphNeighbors(noteIds: $noteIds, depth: $depth, limit: $limit) {
+          result { accepted status diagnostics }
+          value {
+            seedNoteId edgeKind weight hopCount pathNoteIds
+            note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+          }
+        }
+      }
+    `, { noteIds: [noteId], depth: 1, limit }, (data) => data.noteGraphNeighbors)
+  }
+
+  /** Stored memos for a note, oldest first (the server's own ordering). */
+  async noteComments(noteId: string): Promise<NoteComment[]> {
+    return this.queryValue<{ noteComments: QueryPayload<NoteComment[]> }, NoteComment[]>('NoteComments', `
+      query NoteComments($noteId: String!) {
+        noteComments(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value { commentId noteId bodyMarkdown author createdAt }
+        }
+      }
+    `, { noteId }, (data) => data.noteComments)
+  }
+
+  async addNoteComment(noteId: string, bodyMarkdown: string): Promise<NoteComment> {
+    const payload = await this.mutation('AddNoteComment', `
+      mutation AddNoteComment($input: AddNoteCommentInput!) {
+        addNoteComment(input: $input) {
+          result { accepted status diagnostics }
+          comment { commentId noteId bodyMarkdown author createdAt }
+        }
+      }
+    `, { input: { noteId, bodyMarkdown, author: 'kaiba-web' } }, 'addNoteComment')
+    if (!payload.comment) throw new NoteTransportError('The server did not return the memo.', 'result')
+    return payload.comment
+  }
+
+  async noteConversations(noteId: string, limit = 50): Promise<AgentConversation[]> {
+    return this.queryValue<{ noteConversations: QueryPayload<AgentConversation[]> }, AgentConversation[]>('NoteConversations', `
+      query NoteConversations($noteId: String!, $limit: Int) {
+        noteConversations(noteId: $noteId, limit: $limit) {
+          result { accepted status diagnostics }
+          value { notebookId title updatedAt turnCount subjectNoteId }
+        }
+      }
+    `, { noteId, limit }, (data) => data.noteConversations)
+  }
+
+  /** Persists the user turn. The reply is asynchronous: `agentStatus` reports
+   * whether an agent runtime accepted it, and the note events feed delivers the
+   * completion for the conversation notebook. */
+  async sendAgentChatMessage(input: {
+    subjectNoteId: string
+    conversationNotebookId?: string
+    userMarkdown: string
+    idempotencyKey?: string
+  }): Promise<AgentChatMessageResult> {
+    const data = await this.request<{ sendAgentChatMessage: AgentChatMessageResult & { result: ControlResult } }>('SendAgentChatMessage', `
+      mutation SendAgentChatMessage($input: SendAgentChatMessageInput!) {
+        sendAgentChatMessage(input: $input) {
+          result { accepted status diagnostics }
+          conversationNotebookId
+          turnNoteId
+          agentStatus
+        }
+      }
+    `, {
+      input: {
+        subjectNoteId: input.subjectNoteId,
+        ...(input.conversationNotebookId ? { conversationNotebookId: input.conversationNotebookId } : {}),
+        userMarkdown: input.userMarkdown,
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+      },
+    })
+    const payload = data.sendAgentChatMessage
+    if (!payload) throw new NoteTransportError('GraphQL response omitted sendAgentChatMessage.', 'graphql')
+    ensureAccepted(payload.result)
+    return {
+      conversationNotebookId: payload.conversationNotebookId ?? null,
+      turnNoteId: payload.turnNoteId ?? null,
+      agentStatus: payload.agentStatus,
+    }
+  }
+
+  /** Queues AI tag extraction for one note or a whole notebook; the returned
+   * status is "queued" or "agent-unavailable". */
+  async requestTagExtraction(subject: { noteId: string } | { notebookId: string }): Promise<string> {
+    const data = await this.request<{ requestTagExtraction: { result: ControlResult; status: string } }>('RequestTagExtraction', `
+      mutation RequestTagExtraction($input: RequestTagExtractionInput!) {
+        requestTagExtraction(input: $input) {
+          result { accepted status diagnostics }
+          status
+        }
+      }
+    `, { input: subject })
+    const payload = data.requestTagExtraction
+    if (!payload) throw new NoteTransportError('GraphQL response omitted requestTagExtraction.', 'graphql')
+    ensureAccepted(payload.result)
+    return payload.status
   }
 
   async defineFolder(name: string, classId: string, parentTagId?: string): Promise<NoteTag> {
@@ -283,7 +409,7 @@ export class NoteGraphQLClient {
     offset?: number
   }): Promise<NoteSearchResult[]> {
     return this.queryValue<{ searchNotes: QueryPayload<NoteSearchResult[]> }, NoteSearchResult[]>('SearchNotes', `
-      query SearchNotes($query: String!, $tagFilter: [String!], $classFilter: [String!], $sort: String, $createdAfter: String, $createdBefore: String, $includeLinked: Boolean, $limit: Int, $offset: Int) {
+      query SearchNotes($query: String!, $tagFilter: [String!], $classFilter: [String!], $sort: NoteListSort, $createdAfter: String, $createdBefore: String, $includeLinked: Boolean, $limit: Int, $offset: Int) {
         searchNotes(query: $query, tagFilter: $tagFilter, classFilter: $classFilter, sort: $sort, createdAfter: $createdAfter, createdBefore: $createdBefore, includeLinked: $includeLinked, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
           value { snippet rank isLinkedNeighbor note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } matchedTags { tagId name classId parentTagId isSystem createdAt } }

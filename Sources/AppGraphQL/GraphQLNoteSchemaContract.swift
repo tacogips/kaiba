@@ -55,6 +55,7 @@ type NoteTagsQueryPayload { result: ControlPlaneResult!, value: [NoteTag!] }
 type NoteTagClassesQueryPayload { result: ControlPlaneResult!, value: [NoteTagClass!] }
 type NoteFileQueryPayload { result: ControlPlaneResult!, value: NoteFile }
 type NoteAutoActionsQueryPayload { result: ControlPlaneResult!, value: [NoteAutoAction!] }
+type NoteCommentsQueryPayload { result: ControlPlaneResult!, value: [NoteComment!] }
 input NoteTagInput { name: String!, classId: String }
 input CreateNoteInput {
   notebookId: String
@@ -82,6 +83,15 @@ input AttachNoteFileInput { noteId: String!, contentBase64: String!, role: Strin
 input ConfigureNoteAutoActionInput { actionId: String!, trigger: String!, workflowId: String!, filterJSON: String, enabled: Boolean, position: Int }
 input NoteConversationTurnInput { userMarkdown: String!, assistantMarkdown: String!, sourceNoteIds: [String!] }
 input SaveNoteConversationInput { title: String!, transcript: [NoteConversationTurnInput!]!, assignedBy: String }
+type AgentConversation { notebookId: String!, title: String!, updatedAt: String!, turnCount: Int!, subjectNoteId: String! }
+type AgentConversationsQueryPayload { result: ControlPlaneResult!, value: [AgentConversation!] }
+# sendAgentChatMessage persists the user turn even when no agent runtime is
+# available (agentStatus "agent-unavailable"); replies arrive asynchronously via
+# the note change feed once the chat-reply auto-action completes the turn.
+input SendAgentChatMessageInput { subjectNoteId: String!, conversationNotebookId: String, userMarkdown: String!, idempotencyKey: String }
+type AgentChatMessagePayload { result: ControlPlaneResult!, conversationNotebookId: String, turnNoteId: String, agentStatus: String! }
+input RequestTagExtractionInput { noteId: String, notebookId: String }
+type TagExtractionRequestPayload { result: ControlPlaneResult!, status: String! }
 input MigrateNoteFileStorageInput {
   fileId: String!
   s3ProfileName: String!

@@ -536,6 +536,98 @@ public struct GraphQLNoteGraphQLService: Sendable {
       )
     }
   }
+
+  public func noteConversations(
+    noteId: String,
+    limit: Int = 50
+  ) async -> GraphQLNoteQueryResult<[GraphQLAgentConversationDTO]> {
+    noteResult {
+      try service.listAgentConversations(subjectNoteId: noteId, limit: limit)
+        .map(GraphQLAgentConversationDTO.init)
+    }
+  }
+
+  public func noteComments(
+    noteId: String
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteCommentDTO]> {
+    noteResult {
+      try service.listComments(noteId: noteId).map(GraphQLNoteCommentDTO.init)
+    }
+  }
+
+  public func sendAgentChatMessage(
+    _ input: GraphQLSendAgentChatMessageInput
+  ) async -> GraphQLAgentChatMessageResult {
+    do {
+      let agentAvailable = service.autoActionDispatcher != nil
+      let conversationNotebookId: String
+      if let existing = input.conversationNotebookId {
+        guard try service.chatSubjectNoteId(notebookId: existing) != nil else {
+          throw GraphQLNoteServiceError.invalidRequest(
+            "notebook is not an agent chat conversation: \(existing)"
+          )
+        }
+        conversationNotebookId = existing
+      } else {
+        conversationNotebookId = try service.startAgentConversation(
+          subjectNoteId: input.subjectNoteId
+        ).notebookId
+      }
+      let turn = try service.appendPendingAgentChatTurn(
+        conversationNotebookId: conversationNotebookId,
+        userMarkdown: input.userMarkdown,
+        agentAvailable: agentAvailable,
+        idempotencyKey: input.idempotencyKey
+      )
+      let status = NoteService.chatTurnState(of: turn)?.status ?? .pending
+      let agentStatus: String
+      switch status {
+      case .pending: agentStatus = "pending"
+      case .unavailable: agentStatus = "agent-unavailable"
+      case .answered: agentStatus = "answered"
+      case .failed: agentStatus = "failed"
+      }
+      return GraphQLAgentChatMessageResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        conversationNotebookId: conversationNotebookId,
+        turnNoteId: turn.noteId,
+        agentStatus: agentStatus
+      )
+    } catch {
+      return GraphQLAgentChatMessageResult(
+        result: graphQLNoteResult(for: error),
+        agentStatus: "error"
+      )
+    }
+  }
+
+  public func requestTagExtraction(
+    _ input: GraphQLRequestTagExtractionInput
+  ) async -> GraphQLTagExtractionRequestResult {
+    do {
+      let subject: AITagExtractionSubject
+      switch (input.noteId, input.notebookId) {
+      case (let noteId?, nil):
+        subject = .note(noteId)
+      case (nil, let notebookId?):
+        subject = .notebook(notebookId)
+      default:
+        throw GraphQLNoteServiceError.invalidRequest(
+          "requestTagExtraction requires exactly one of noteId or notebookId"
+        )
+      }
+      let queued = try service.requestManualTagExtraction(subject: subject)
+      return GraphQLTagExtractionRequestResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        status: queued ? "queued" : "agent-unavailable"
+      )
+    } catch {
+      return GraphQLTagExtractionRequestResult(
+        result: graphQLNoteResult(for: error),
+        status: "error"
+      )
+    }
+  }
 }
 
 private func estimatedBase64DecodedByteCount(_ value: String) -> Int {

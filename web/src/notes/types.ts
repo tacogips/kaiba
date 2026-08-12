@@ -67,6 +67,40 @@ export interface Note {
   readOnly: boolean
   createdAt: string
   updatedAt: string
+  /** Present on the single-note query and on chat turn notes. */
+  metaJSON?: string | null
+  tags?: NoteTagAssignment[]
+}
+
+export interface NoteComment {
+  commentId: string
+  noteId: string
+  bodyMarkdown: string
+  author: string
+  createdAt: string
+}
+
+export interface NoteGraphNeighbor {
+  seedNoteId: string
+  note: Note
+  edgeKind: string
+  weight: number
+  hopCount: number
+  pathNoteIds: string[]
+}
+
+export interface AgentConversation {
+  notebookId: string
+  title: string
+  updatedAt: string
+  turnCount: number
+  subjectNoteId: string
+}
+
+export interface AgentChatMessageResult {
+  conversationNotebookId: string | null
+  turnNoteId: string | null
+  agentStatus: string
 }
 
 export interface NoteSearchResult {
@@ -86,6 +120,7 @@ export interface MutationPayload {
   result: ControlResult
   notebook?: Notebook | null
   tag?: NoteTag | null
+  comment?: NoteComment | null
 }
 
 export interface GraphQLEnvelope<T> {

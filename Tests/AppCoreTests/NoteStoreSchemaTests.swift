@@ -66,7 +66,10 @@ final class NoteStoreSchemaTests: NoteTestCase {
       )
 
       let autoActions = try database.query("SELECT trigger, workflow_id FROM auto_actions ORDER BY trigger")
-      XCTAssertEqual(autoActions.map { $0["trigger"] }, ["note-created", "note-updated"])
+      XCTAssertEqual(
+        autoActions.map { $0["trigger"] },
+        ["note-created", "note-updated", "notebook-created"]
+      )
       XCTAssertTrue(autoActions.allSatisfy { $0["workflow_id"] == NoteStoreSchema.autoTaggingWorkflowId })
       XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
       XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))

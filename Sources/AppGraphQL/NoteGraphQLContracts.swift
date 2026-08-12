@@ -309,6 +309,51 @@ public struct GraphQLNoteAutoActionDTO: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLAgentConversationDTO: Codable, Equatable, Sendable {
+  public var notebookId: String
+  public var title: String
+  public var updatedAt: String
+  public var turnCount: Int
+  public var subjectNoteId: String
+
+  public init(conversation: AgentChatConversation) {
+    notebookId = conversation.notebook.notebookId
+    title = conversation.notebook.title
+    updatedAt = conversation.notebook.updatedAt
+    turnCount = conversation.turnCount
+    subjectNoteId = conversation.subjectNoteId
+  }
+}
+
+public struct GraphQLAgentChatMessageResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var conversationNotebookId: String?
+  public var turnNoteId: String?
+  public var agentStatus: String
+
+  public init(
+    result: GraphQLControlPlaneResult,
+    conversationNotebookId: String? = nil,
+    turnNoteId: String? = nil,
+    agentStatus: String
+  ) {
+    self.result = result
+    self.conversationNotebookId = conversationNotebookId
+    self.turnNoteId = turnNoteId
+    self.agentStatus = agentStatus
+  }
+}
+
+public struct GraphQLTagExtractionRequestResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var status: String
+
+  public init(result: GraphQLControlPlaneResult, status: String) {
+    self.result = result
+    self.status = status
+  }
+}
+
 public struct GraphQLNoteTagInput: Codable, Equatable, Sendable {
   public var name: String
   public var classId: String?

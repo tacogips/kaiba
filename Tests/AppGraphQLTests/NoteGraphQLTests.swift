@@ -764,6 +764,10 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertTrue(schema.contains("configureNoteAutoAction(input: ConfigureNoteAutoActionInput!)"))
     XCTAssertTrue(schema.contains("deleteNoteAutoAction(actionId: String!)"))
     XCTAssertTrue(schema.contains("saveNoteConversation(input: SaveNoteConversationInput!)"))
+    XCTAssertTrue(schema.contains("noteConversations(noteId: String!, limit: Int): AgentConversationsQueryPayload!"))
+    XCTAssertTrue(schema.contains("noteComments(noteId: String!): NoteCommentsQueryPayload!"))
+    XCTAssertTrue(schema.contains("sendAgentChatMessage(input: SendAgentChatMessageInput!): AgentChatMessagePayload!"))
+    XCTAssertTrue(schema.contains("requestTagExtraction(input: RequestTagExtractionInput!): TagExtractionRequestPayload!"))
     XCTAssertTrue(schema.contains("input MigrateNoteFileStorageInput {\n  fileId: String!\n  s3ProfileName: String!\n}"))
     XCTAssertFalse(schema.contains("s3Endpoint:"))
     XCTAssertFalse(schema.contains("s3AccessKeyIdEnv"))
@@ -784,7 +788,9 @@ final class NoteGraphQLTests: XCTestCase {
       "effectiveKanbanStatuses",
       "effectiveKanbanStatusesByTagId",
       "noteFile",
-      "autoActions"
+      "autoActions",
+      "noteConversations",
+      "noteComments"
     ]
     let mutationFields: Set<String> = [
       "createNote",
@@ -814,6 +820,8 @@ final class NoteGraphQLTests: XCTestCase {
       "configureNoteAutoAction",
       "deleteNoteAutoAction",
       "saveNoteConversation",
+      "sendAgentChatMessage",
+      "requestTagExtraction",
       "migrateNoteFileStorage",
       "migrateAllNoteFiles",
       "reclaimNoteFileStorage"

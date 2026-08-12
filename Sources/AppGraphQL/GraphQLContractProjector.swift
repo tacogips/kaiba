@@ -38,6 +38,8 @@ public enum GraphQLContractProjector {
     effectiveKanbanStatusesByTagId(tagId: String!): KanbanStatusSetQueryPayload!
     noteFile(fileId: String!): NoteFileQueryPayload!
     autoActions: NoteAutoActionsQueryPayload!
+    noteConversations(noteId: String!, limit: Int): AgentConversationsQueryPayload!
+    noteComments(noteId: String!): NoteCommentsQueryPayload!
   }
   type Mutation {
     createNote(input: CreateNoteInput!): NoteMutationPayload!
@@ -67,6 +69,8 @@ public enum GraphQLContractProjector {
     configureNoteAutoAction(input: ConfigureNoteAutoActionInput!): NoteMutationPayload!
     deleteNoteAutoAction(actionId: String!): ControlPlaneResult!
     saveNoteConversation(input: SaveNoteConversationInput!): NoteMutationPayload!
+    sendAgentChatMessage(input: SendAgentChatMessageInput!): AgentChatMessagePayload!
+    requestTagExtraction(input: RequestTagExtractionInput!): TagExtractionRequestPayload!
     migrateNoteFileStorage(input: MigrateNoteFileStorageInput!): NoteFileMigrationPayload!
     migrateAllNoteFiles(input: MigrateAllNoteFilesInput!): NoteFileMigrationPayload!
   }

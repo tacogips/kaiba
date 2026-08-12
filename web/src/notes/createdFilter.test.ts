@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import { createdBoundInputIsValid, createdBounds } from './createdFilter'
-import { clampImageZoom, noteExportFilename } from '../components/NoteDetailLogic'
 
 describe('createdBounds', () => {
   const now = new Date('2026-07-31T12:00:00.000Z')
@@ -41,21 +40,5 @@ describe('createdBoundInputIsValid', () => {
 
   test('rejects non-dates', () => {
     expect(createdBoundInputIsValid('yesterday-ish')).toBe(false)
-  })
-})
-
-describe('noteExportFilename', () => {
-  test('slugs to lowercase dashes capped at eight segments', () => {
-    expect(noteExportFilename('Kanban Orchestration: Add-ons & Fanout Design Review Notes Extra Tail'))
-      .toBe('kanban-orchestration-add-ons-fanout-design-review-notes.md')
-    expect(noteExportFilename('日本語タイトル')).toBe('note.md')
-  })
-})
-
-describe('clampImageZoom', () => {
-  test('clamps to the native 0.5-3.0 range in quarter steps', () => {
-    expect(clampImageZoom(0.1)).toBe(0.5)
-    expect(clampImageZoom(3.6)).toBe(3)
-    expect(clampImageZoom(1.1)).toBe(1)
   })
 })

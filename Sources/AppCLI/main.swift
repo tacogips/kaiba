@@ -79,6 +79,46 @@ if let graphqlIndex = arguments.firstIndex(of: "graphql"),
   }
 }
 
+// `ai` must be the command itself (only the global option pairs may precede
+// it) so values like `kaiba search ai` are never hijacked.
+func isCommandToken(at index: Int, in arguments: [String]) -> Bool {
+  var cursor = 0
+  while cursor < index {
+    if arguments[cursor] == "--note-root" || arguments[cursor] == "--config" {
+      cursor += 2
+    } else {
+      return false
+    }
+  }
+  return cursor == index
+}
+
+if let aiIndex = arguments.firstIndex(of: "ai"), isCommandToken(at: aiIndex, in: arguments),
+  !arguments.contains("--help"), !arguments.contains("-h") {
+  var aiArguments = arguments
+  aiArguments.remove(at: aiIndex)
+  do {
+    let global = try extractGlobalConfiguration(from: &aiArguments)
+    let options = try AICommand.parse(
+      arguments: aiArguments,
+      noteRoot: global.noteRoot,
+      configuration: global.configuration
+    )
+    let (output, exitCode) = try await AICommand.run(options)
+    if !output.isEmpty {
+      if exitCode == 0 {
+        print(output)
+      } else {
+        FileHandle.standardError.write(Data((output + "\n").utf8))
+      }
+    }
+    exit(exitCode)
+  } catch {
+    FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+    exit(1)
+  }
+}
+
 let command = AppCommand(arguments: arguments)
 
 do {

@@ -271,6 +271,11 @@ public struct NoteService: Sendable {
         kind: NoteChangeEventKind.notebookCreated,
         notebookId: createdNotebookId
       ))
+    } else {
+      publishChange(NoteChangeEvent(
+        kind: NoteChangeEventKind.noteCreated,
+        notebookId: result.note.notebookId
+      ))
     }
     return result.note
   }
@@ -681,6 +686,10 @@ public struct NoteService: Sendable {
       }
     }
     dispatchQueuedAutoActions(result.dispatches)
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteUpdated,
+      notebookId: result.note.notebookId
+    ))
     return result.note
   }
 
@@ -741,9 +750,9 @@ public struct NoteService: Sendable {
 
   @discardableResult
   public func addComment(noteId: String, bodyMarkdown: String, author: String = "user") throws -> NoteComment {
-    try driver.withDatabase { database in
-      try database.transaction { db in
-        _ = try requireNote(noteId, in: db)
+    let result = try driver.withDatabase { database in
+      try database.transaction { db -> (comment: NoteComment, notebookId: String) in
+        let note = try requireNote(noteId, in: db)
         let now = NoteStoreClock.system.now()
         let commentId = makeNoteId(prefix: "comment")
         try db.execute(
@@ -753,15 +762,21 @@ public struct NoteService: Sendable {
           """,
           bindings: [.text(commentId), .text(noteId), .text(bodyMarkdown), .text(author), .text(now)]
         )
-        return NoteComment(
+        let comment = NoteComment(
           commentId: commentId,
           noteId: noteId,
           bodyMarkdown: bodyMarkdown,
           author: author,
           createdAt: now
         )
+        return (comment, note.notebookId)
       }
     }
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteUpdated,
+      notebookId: result.notebookId
+    ))
+    return result.comment
   }
 
   public func searchNotes(

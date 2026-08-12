@@ -216,3 +216,26 @@ memory as consolidated notes in a canonical notebook, linked into the
 - Schema v8 (append-only, `currentVersion` 7 -> 8) registers the
   long-term-memory kind tag on stores that predate it; new stores get it
   from the ordinary notebook-kind seed list.
+
+## AI seam, document import, and chat surfaces (2026-08-12)
+
+- No schema version change. New behavior is data seeding plus new code
+  paths; an existing store opens unchanged.
+- `seedAutoActions` now also seeds `default-ai-tagging-notebook-created`
+  (trigger `notebook-created`, workflow `note-auto-tagging`, disabled)
+  on fresh stores. Existing stores receive it through the idempotent
+  `configureAutoAction` upsert that `kaiba serve` runs at startup while
+  reconciling AI auto-actions with `config.json` (`ai.autoTag.auto`);
+  the chat-reply action `agent-chat-reply` (workflow `note-agent-reply`,
+  filter `notebookKindTag: notebook-kind:agent-conversation`) is
+  reconciled the same way. With no agent runtime available, every AI
+  action is force-disabled so the outbox cannot accumulate rows nothing
+  drains.
+- Agent chat conversations reuse `agent-conversation` notebooks; subject
+  binding and turn state live in `meta_json` under the `kaibaChat`
+  namespace (notebook: `subjectNoteId`/`subjectNotebookId`; turn note:
+  `status`, `userMarkdown`, optional `error`, optional
+  `idempotencyKey`).
+- Document import (`kaiba import`) writes ordinary notebooks with kind
+  `notebook-kind:imported-material`, notebook `meta_json` under the
+  `source` key, and a `source-document` notebook file attachment.

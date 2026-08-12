@@ -151,6 +151,35 @@ public struct GraphQLSaveNoteConversationInput: Codable, Equatable, Sendable {
   public var originatingActionId: String?
 }
 
+public struct GraphQLSendAgentChatMessageInput: Codable, Equatable, Sendable {
+  public var subjectNoteId: String
+  public var conversationNotebookId: String?
+  public var userMarkdown: String
+  public var idempotencyKey: String?
+
+  public init(
+    subjectNoteId: String,
+    conversationNotebookId: String? = nil,
+    userMarkdown: String,
+    idempotencyKey: String? = nil
+  ) {
+    self.subjectNoteId = subjectNoteId
+    self.conversationNotebookId = conversationNotebookId
+    self.userMarkdown = userMarkdown
+    self.idempotencyKey = idempotencyKey
+  }
+}
+
+public struct GraphQLRequestTagExtractionInput: Codable, Equatable, Sendable {
+  public var noteId: String?
+  public var notebookId: String?
+
+  public init(noteId: String? = nil, notebookId: String? = nil) {
+    self.noteId = noteId
+    self.notebookId = notebookId
+  }
+}
+
 public struct GraphQLMigrateNoteFileStorageInput: Codable, Equatable, Sendable {
   public var fileId: String
   public var s3ProfileName: String?

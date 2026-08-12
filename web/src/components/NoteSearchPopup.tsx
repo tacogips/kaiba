@@ -2,7 +2,8 @@ import { For, Show, createSignal, onMount } from 'solid-js'
 import type { NoteGraphQLClient } from '../notes/client'
 import type { NoteSearchResult, NoteTag } from '../notes/types'
 import { qualifiedTagLabel } from '../notes/tree'
-import { noteDisplayTitle, searchPageSize, workspaceErrorMessage } from './NoteDetailLogic'
+import { noteDisplayTitle, searchPageSize } from '../notes/noteText'
+import { errorMessage } from '../state/appStore'
 
 /** Full-text note search presented as a popup, mirroring
  * RielaNoteSearchPopupSheet: picking a result opens that note and dismisses. */
@@ -57,7 +58,7 @@ export function NoteSearchPopup(props: {
       setSearched(true)
     } catch (searchError) {
       if (current !== generation) return
-      setError(workspaceErrorMessage(searchError))
+      setError(errorMessage(searchError))
     } finally {
       if (current === generation) setSearching(false)
     }
