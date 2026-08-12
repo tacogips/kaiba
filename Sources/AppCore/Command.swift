@@ -137,10 +137,11 @@ public struct AppCommand: Sendable {
 
     Import:
       import     <file-path> [--title <t>] [--kind-tag <tag>]
-                 [--anydoc-path <p>] [--output json|text]
-                 # convert a document (pdf, docx, pptx, epub, ...) to markdown
-                 # with anydoc-swift and store it as an imported-material
-                 # notebook (one note per top-level section, original attached)
+                 [--output json|text]
+                 # convert a document (pdf, docx, pptx, epub, ...) with
+                 # AnydocKit, or OCR an image (png, jpeg, gif, webp) with
+                 # configured import.ocr agent settings; store one note per
+                 # top-level Markdown section with the original attached
 
     AI (agent runtime arrives with agent-gateway; see kaiba ai status):
       ai tag     (--note <id> | --notebook <id>) [--dry-run]

@@ -6,16 +6,24 @@ extension AppCommand {
     let title = try cursor.extractOption("--title")
     let kindTag = try cursor.extractOption("--kind-tag")
       ?? NoteStoreSchema.importedMaterialNotebookKindTag
-    let anydocPathOverride = try cursor.extractOption("--anydoc-path")
     let output = try cursor.extractOutputMode()
     guard let path = cursor.next() else {
       throw Error.invalidUsage("import requires <file-path>")
     }
     try cursor.finish()
 
-    let converter = AnydocCLIDocumentConverter(
-      binaryPath: anydocPathOverride ?? context.configuration.importSettings?.anydocPath,
-      environment: environment
+    let importSettings = context.configuration.importSettings
+    let ocr = importSettings?.ocr.map {
+      AgentGatewayImageOCRConverter(
+        commandPath: $0.commandPath,
+        vendor: $0.vendor,
+        model: $0.model,
+        apiKeyEnvironment: $0.apiKeyEnvironmentVariable,
+        environment: environment
+      )
+    }
+    let converter = ImportDocumentConverter(
+      ocr: ocr
     )
     let service = try makeService(context)
     let result: DocumentImportResult
@@ -50,10 +58,6 @@ extension AppCommand {
 
   static func describeConversionError(_ error: DocumentConversionError) -> String {
     switch error {
-    case .toolNotFound(let path):
-      return "anydoc-swift not found (tried: \(path)). Install it "
-        + "(brew install tacogips/tap/anydoc-swift) or set import.anydocPath "
-        + "in config.json / pass --anydoc-path."
     case .unsupported(let kind, let message):
       return "document not convertible (\(kind)): \(message)"
     case .failed(let message):

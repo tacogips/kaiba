@@ -7,27 +7,23 @@ Accepted
 ## Summary
 
 `kaiba import` converts a source document (PDF, Word, PowerPoint, Excel,
-OpenDocument, RTF, EPUB, CSV) to markdown with the external `anydoc-swift`
-CLI and stores the result as an imported-material notebook: one note per
-top-level markdown section, with the original file attached to the
-notebook as a `source-document` role file. The pipeline lives entirely in
+OpenDocument, RTF, EPUB, CSV) to markdown in-process with the `AnydocKit`
+Swift library from `anydoc-swift`. Standalone PNG, JPEG, GIF, and WebP images are OCRed through the
+external `agent-gateway` CLI using the configured AI vendor and model. Kaiba
+stores the result as an imported-material notebook: one note per top-level
+markdown section, with the original file attached to the notebook as a
+`source-document` role file. The pipeline lives entirely in
 `AppCore` behind a `DocumentConverting` protocol seam, so tests never
 spawn the real binary.
 
 ## Design Decisions
 
-- **DI1 — Conversion by spawning the `anydoc-swift` CLI with `--json`.**
-  anydoc-swift links a locally built Rust static library whose artifacts
-  are gitignored, so a SwiftPM git dependency cannot link from a clean
-  checkout, and kaiba keeps its zero-external-SwiftPM-dependency policy
-  (K3). The CLI's `--json` envelope is a versioned machine contract:
-  `{"schemaVersion":1,"status":"ok","format":"pdf","markdown":...}` on
-  success (exit 0) and `{"status":"error","error":{"kind":...,
-  "message":...}}` on conversion failure (exit 1); usage errors exit 2.
-  The binary path resolves from `import.anydocPath` in
-  `config.json`, else `anydoc-swift` on `PATH`. Rejected: SwiftPM path
-  dependency (couples every dev/release machine to a sibling checkout,
-  a Rust toolchain, and `PKG_CONFIG_PATH`).
+- **DI1 — Direct `AnydocKit` Swift-library conversion.** Kaiba pins the
+  `anydoc-swift` revision in SwiftPM and calls `Anydoc.convert(contentsOf:)`
+  in-process. The resolved package's native builder compiles its exact Rust
+  crate dependency and stages pkg-config metadata under Kaiba's `.build`.
+  `mise`, Linux CI, and Homebrew cross-builds automate this prerequisite.
+  There is no installed converter executable and no runtime anydoc path.
 - **DI2 — Split at H1 boundaries; fallback H2; else a single note.**
   anydoc-swift returns one markdown string with no page or image
   structure, so ATX headings are the only available document structure.
@@ -51,19 +47,28 @@ spawn the real binary.
   The original file is stored content-addressed and attached with
   `NotebookFileRole.sourceDocument`.
 - **DI5 — Typed converter errors with actionable messages.**
-  `.toolNotFound` (binary missing: names the path tried and points at
-  `import.anydocPath`), `.unsupported` (anydoc's error kind/message
-  verbatim — covers scanned PDFs, since anydoc has no OCR),
+  `.unsupported` (anydoc's error kind/message — covers scanned PDFs, since
+  anydoc has no OCR),
   `.failed` (everything else). Non-UTF8 or oversized converter output is
   a failure, never a partial import.
+- **DI6 — Standalone images use configured AI OCR.** Image extensions route
+  to `agent-gateway client --image`; all other supported formats route to
+  anydoc-swift. `import.ocr.vendor` and `import.ocr.model` are required for
+  image import. The optional command path and credential environment-variable
+  name follow the existing agent-gateway conventions; credential values are
+  never stored in configuration. Direct API vendors use ACP image blocks.
+  The Codex CLI vendor uses agent-gateway's vendor-argument passthrough to
+  supply Codex's native `--image` flag because agent-gateway 0.1.2 does not
+  yet forward ACP image blocks to CLI vendors. Other CLI vendors are rejected
+  until their gateway image forwarding is defined.
 
 ## Components
 
 - `Sources/AppCore/DocumentConverting.swift` — `DocumentConverting`
   protocol, `DocumentConversionResult` (markdown, source format, tool
-  version), `DocumentConversionError`, and `AnydocCLIDocumentConverter`
-  (Process spawn + envelope parsing; parsing is a pure function over
-  `Data` for testability).
+  version), `DocumentConversionError`, and `AnydocKitDocumentConverter`.
+- `Sources/AppCore/ImageOCRDocumentConverter.swift` — format router and
+  agent-gateway image OCR adapter.
 - `Sources/AppCore/MarkdownHeadingSplitter.swift` — pure
   markdown-to-`[NotePageDraft]` splitter implementing DI2.
 - `Sources/AppCore/NoteService+DocumentImport.swift` —
@@ -71,26 +76,34 @@ spawn the real binary.
   records `{"source":{"originalFilename","format","tool","toolVersion",
   "importedAt"}}`), attach original file.
 - `Sources/AppCore/CommandImport.swift` — `kaiba import <file>
-  [--title <t>] [--kind-tag <tag>] [--anydoc-path <p>]`.
-- `KaibaConfiguration` gains optional `import.anydocPath`.
+  [--title <t>] [--kind-tag <tag>]`.
+- `scripts/build-anydoc-native.sh` — resolves the pinned package and stages
+  its Rust FFI for host or cross-compiled builds.
 
 ## Configuration
 
 ```json
 {
-  "import": { "anydocPath": "/opt/homebrew/bin/anydoc-swift" }
+  "import": {
+    "ocr": {
+      "commandPath": "/opt/homebrew/bin/agent-gateway",
+      "vendor": "codex",
+      "model": "gpt-5.6-luna"
+    }
+  }
 }
 ```
 
-Absent configuration falls back to `PATH` lookup. No secrets involved.
+No anydoc configuration is required. OCR configuration stores paths and
+credential environment-variable names, never credential values.
 
 ## Verification
 
-- Unit: splitter (H1/H2/no-heading/fenced-code/oversize), envelope
-  parsing fixtures (ok, error kinds, malformed JSON), import service
-  with a stub converter (notebook kind, page numbering, meta JSON,
-  source-document attachment).
-- Smoke: install anydoc-swift, `kaiba import sample.pdf`, then inspect
+- Unit: splitter (H1/H2/no-heading/fenced-code/oversize), real small PDF/EPUB
+  fixtures converted in-process with AnydocKit, mock image OCR through a fake gateway pinned to
+  the Codex vendor and `gpt-5.6-luna`, and import service with a stub converter
+  (notebook kind, page numbering, meta JSON, source-document attachment).
+- Smoke: `kaiba import sample.pdf`, then inspect
   via `kaiba notebook show` / `kaiba show` / `kaiba file`.
 
 ## Future Work
@@ -98,4 +111,4 @@ Absent configuration falls back to `PATH` lookup. No secrets involved.
 - Browser upload + server-side import (chunked upload design needed).
 - Page-aware import if anydoc-swift exposes per-page markdown
   (pdf-inspector upstream already computes it).
-- OCR fallback for scanned PDFs.
+- OCR fallback for scanned or image-only pages embedded inside PDFs.

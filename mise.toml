@@ -19,6 +19,7 @@ fi
 [tools]
 swift = "6.3.3"
 swiftlint = "latest"
+rust = "1.97.1"
 gitleaks = "latest"
 github-cli = "latest"
 awscli = "latest"
@@ -32,21 +33,42 @@ mise tasks ls
 
 [tasks."build"]
 description = "Build the Swift package"
+depends = ["anydoc:native"]
 run = '''
 swift build
 '''
 
 [tasks."run"]
 description = "Run the executable"
+depends = ["anydoc:native"]
 run = '''
 swift run kaiba "$@"
 '''
 
 [tasks."test"]
 description = "Run Swift tests"
+depends = ["anydoc:native"]
 run = '''
 swift test
 '''
+
+[tasks."anydoc:native"]
+description = "Build the anydoc-swift Rust FFI required by AnydocKit"
+run = '''
+scripts/build-anydoc-native.sh
+'''
+
+[tasks."anydoc:native".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."build".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."run".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."test".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
 
 [tasks."test:s3-gateway"]
 description = "Run Kaiba file round trips through swift-s3-gateway POSIX and MinIO backends"

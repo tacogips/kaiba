@@ -23,9 +23,9 @@ How should kaiba integrate anydoc-swift for PDF/document-to-markdown?
 ## Answer 2
 
 Make tacogips/anydoc-swift usable (mechanism left to implementation).
-Chosen mechanism: spawn the installed `anydoc-swift` CLI with `--json`;
-binary path configurable via `import.anydocPath`. No SwiftPM
-dependency.
+Superseded 2026-08-12: use `AnydocKit` directly as a pinned SwiftPM library.
+The resolved dependency builds its Rust FFI during Kaiba build preparation;
+there is no installed CLI or `import.anydocPath` runtime setting.
 
 ## Question 3
 

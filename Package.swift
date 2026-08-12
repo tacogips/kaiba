@@ -12,6 +12,12 @@ let package = Package(
     .library(name: "AppGraphQL", targets: ["AppGraphQL"]),
     .executable(name: "kaiba", targets: ["AppCLI"])
   ],
+  dependencies: [
+    .package(
+      url: "https://github.com/tacogips/anydoc-swift.git",
+      revision: "9ee68e37c9520558c166fb8832965b480ffe41f7"
+    )
+  ],
   targets: [
     .systemLibrary(
       name: "CKaibaSQLite3",
@@ -20,7 +26,13 @@ let package = Package(
         .brew(["sqlite"])
       ]
     ),
-    .target(name: "AppCore", dependencies: ["CKaibaSQLite3"]),
+    .target(
+      name: "AppCore",
+      dependencies: [
+        "CKaibaSQLite3",
+        .product(name: "AnydocKit", package: "anydoc-swift")
+      ]
+    ),
     .target(name: "AppGraphQL", dependencies: ["AppCore"]),
     .target(name: "AppServer", dependencies: ["AppCore", "AppGraphQL"]),
     .executableTarget(
@@ -29,7 +41,8 @@ let package = Package(
     ),
     .testTarget(
       name: "AppCoreTests",
-      dependencies: ["AppCore"]
+      dependencies: ["AppCore"],
+      resources: [.copy("Fixtures")]
     ),
     .testTarget(
       name: "AppGraphQLTests",

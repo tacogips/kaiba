@@ -62,8 +62,8 @@ Kaiba ships as:
   target provides the sqlite3 C API.
 - **K3 — CryptoKit replaces swift-crypto.** Kaiba targets macOS 14+
   only, so Apple CryptoKit provides the same `SHA256`/`HMAC<SHA256>` API
-  without an external package dependency. Kaiba keeps zero external
-  SwiftPM dependencies.
+  without adding swift-crypto. The only external SwiftPM dependency is
+  `anydoc-swift`, introduced by K9 for in-process document conversion.
 - **K4 — Note operations are direct library calls.** Riela routed CLI
   note operations through its GraphQL executor because GraphQL was the
   shared control plane. Kaiba has no control plane; `AppCLI` calls
@@ -95,11 +95,11 @@ Kaiba ships as:
   `<note-root>/files/`. Override with `--note-root` or the
   `KAIBA_NOTE_ROOT` environment variable (highest precedence:
   `--note-root`, then env, then default).
-- **K9 — Document import spawns the `anydoc-swift` CLI.** `kaiba
-  import` converts PDF/Office/EPUB documents to markdown by running the
-  installed `anydoc-swift` binary with `--json` (versioned envelope,
-  typed error kinds) instead of adding a SwiftPM dependency, preserving
-  K3's zero-dependency policy. Import is CLI-only (the HTTP server's
+- **K9 — Document import uses the `AnydocKit` Swift library.** `kaiba
+  import` converts PDF/Office/EPUB documents to markdown in-process through
+  a revision-pinned SwiftPM dependency. Build preparation compiles the
+  dependency's Rust FFI; no converter executable or runtime path is required.
+  Import is CLI-only (the HTTP server's
   2 MiB body cap rules out browser upload for now). See
   `document-import.md`.
 - **K10 — Agent runtime lives in agent-gateway.** Kaiba owns an

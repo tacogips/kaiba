@@ -1,7 +1,8 @@
+import AnydocKit
 import Foundation
 
-/// Seam over the external document-to-markdown converter so import logic and
-/// tests never depend on a real binary (design decision DI1).
+/// Seam over document-to-markdown conversion so import service tests can use
+/// deterministic stubs while production calls AnydocKit in-process.
 public protocol DocumentConverting: Sendable {
   func convert(inputPath: String) throws -> DocumentConversionResult
 }
@@ -9,135 +10,57 @@ public protocol DocumentConverting: Sendable {
 public struct DocumentConversionResult: Equatable, Sendable {
   public var markdown: String
   public var sourceFormat: String
+  public var toolName: String
   public var toolVersion: String?
 
-  public init(markdown: String, sourceFormat: String, toolVersion: String? = nil) {
+  public init(
+    markdown: String,
+    sourceFormat: String,
+    toolName: String = AnydocKitDocumentConverter.toolName,
+    toolVersion: String? = nil
+  ) {
     self.markdown = markdown
     self.sourceFormat = sourceFormat
+    self.toolName = toolName
     self.toolVersion = toolVersion
   }
 }
 
 public enum DocumentConversionError: Error, Equatable, Sendable {
-  /// The converter binary could not be located; carries the path that was tried.
-  case toolNotFound(String)
-  /// The converter rejected the document (e.g. scanned PDF without OCR);
-  /// carries the converter's error kind and message verbatim.
+  /// The converter rejected the document (for example an encrypted or
+  /// image-only PDF); carries the library's error kind and message.
   case unsupported(kind: String, message: String)
   case failed(String)
 }
 
-/// Spawns the installed `anydoc-swift` CLI with `--json` and parses its
-/// versioned envelope. The binary path comes from `import.anydocPath` in the
-/// configuration, else a `PATH` lookup.
-public struct AnydocCLIDocumentConverter: DocumentConverting {
-  public static let defaultBinaryName = "anydoc-swift"
-  static let maximumOutputBytes = 64 * 1024 * 1024
+/// Direct Swift-library adapter over AnydocKit. No executable lookup or
+/// runtime path configuration is involved.
+public struct AnydocKitDocumentConverter: DocumentConverting {
+  public static let toolName = "AnydocKit"
 
-  public var binaryPath: String?
-  public var environment: [String: String]
-
-  public init(
-    binaryPath: String? = nil,
-    environment: [String: String] = ProcessInfo.processInfo.environment
-  ) {
-    self.binaryPath = binaryPath
-    self.environment = environment
-  }
+  public init() {}
 
   public func convert(inputPath: String) throws -> DocumentConversionResult {
-    let resolvedBinary = try resolveBinary()
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: resolvedBinary)
-    process.arguments = [inputPath, "--json"]
-    let stdout = Pipe()
-    let stderr = Pipe()
-    process.standardOutput = stdout
-    process.standardError = stderr
     do {
-      try process.run()
-    } catch {
-      throw DocumentConversionError.toolNotFound(resolvedBinary)
-    }
-    let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-    let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    guard outputData.count <= Self.maximumOutputBytes else {
-      throw DocumentConversionError.failed(
-        "converter output exceeded \(Self.maximumOutputBytes) bytes"
-      )
-    }
-    switch process.terminationStatus {
-    case 0, 1:
-      return try Self.parseEnvelope(outputData)
-    default:
-      let message = String(data: errorData, encoding: .utf8)?
-        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      throw DocumentConversionError.failed(
-        "anydoc-swift exited with status \(process.terminationStatus)"
-          + (message.isEmpty ? "" : ": \(message)")
-      )
-    }
-  }
-
-  func resolveBinary() throws -> String {
-    if let binaryPath, !binaryPath.isEmpty {
-      let expanded = (binaryPath as NSString).expandingTildeInPath
-      guard FileManager.default.isExecutableFile(atPath: expanded) else {
-        throw DocumentConversionError.toolNotFound(expanded)
-      }
-      return expanded
-    }
-    let searchPath = environment["PATH"] ?? ""
-    for directory in searchPath.split(separator: ":") {
-      let candidate = (String(directory) as NSString)
-        .appendingPathComponent(Self.defaultBinaryName)
-      if FileManager.default.isExecutableFile(atPath: candidate) {
-        return candidate
-      }
-    }
-    throw DocumentConversionError.toolNotFound(Self.defaultBinaryName)
-  }
-
-  /// Parses the `--json` envelope. Pure over `Data` so tests exercise it with
-  /// fixtures instead of spawning a process.
-  static func parseEnvelope(_ data: Data) throws -> DocumentConversionResult {
-    let object: Any
-    do {
-      object = try JSONSerialization.jsonObject(with: data)
-    } catch {
-      throw DocumentConversionError.failed("anydoc-swift printed invalid JSON")
-    }
-    guard let envelope = object as? [String: Any],
-      let status = envelope["status"] as? String
-    else {
-      throw DocumentConversionError.failed("anydoc-swift envelope is missing status")
-    }
-    switch status {
-    case "ok":
-      guard let markdown = envelope["markdown"] as? String,
-        let format = envelope["format"] as? String
-      else {
-        throw DocumentConversionError.failed(
-          "anydoc-swift ok envelope is missing markdown or format"
-        )
-      }
-      let tool = envelope["tool"] as? [String: Any]
+      let conversion = try Anydoc.convert(contentsOf: URL(fileURLWithPath: inputPath))
       return DocumentConversionResult(
-        markdown: markdown,
-        sourceFormat: format,
-        toolVersion: tool?["version"] as? String
+        markdown: conversion.markdown,
+        sourceFormat: conversion.format.rawValue,
+        toolName: Self.toolName,
+        toolVersion: Anydoc.version
       )
-    case "error":
-      let error = envelope["error"] as? [String: Any]
-      let kind = error?["kind"] as? String ?? "unknown"
-      let message = error?["message"] as? String ?? "conversion failed"
-      if kind == "unsupported" || kind == "encrypted" {
-        throw DocumentConversionError.unsupported(kind: kind, message: message)
+    } catch let error as AnydocError {
+      switch error.kind {
+      case .unsupported, .encrypted:
+        throw DocumentConversionError.unsupported(
+          kind: error.kind.rawValue,
+          message: error.message
+        )
+      default:
+        throw DocumentConversionError.failed("\(error.kind.rawValue): \(error.message)")
       }
-      throw DocumentConversionError.failed("\(kind): \(message)")
-    default:
-      throw DocumentConversionError.failed("anydoc-swift envelope status is \(status)")
+    } catch {
+      throw DocumentConversionError.failed(String(describing: error))
     }
   }
 }

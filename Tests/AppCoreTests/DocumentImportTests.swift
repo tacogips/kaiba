@@ -84,66 +84,108 @@ final class MarkdownHeadingSplitterTests: NoteTestCase {
   }
 }
 
-final class AnydocEnvelopeParsingTests: NoteTestCase {
-  private func data(_ json: String) -> Data {
-    Data(json.utf8)
+final class DocumentConverterRoutingTests: NoteTestCase {
+  func testPDFAndEPUBFixturesConvertInProcessWithAnydocKit() throws {
+    let fixtureRoot = try XCTUnwrap(Bundle.module.resourceURL)
+      .appendingPathComponent("Fixtures", isDirectory: true)
+    let converter = ImportDocumentConverter()
+
+    let pdf = try converter.convert(inputPath: fixtureRoot.appendingPathComponent("sample.pdf").path)
+    let epub = try converter.convert(inputPath: fixtureRoot.appendingPathComponent("sample.epub").path)
+
+    XCTAssertEqual(pdf.sourceFormat, "pdf")
+    XCTAssertTrue(pdf.markdown.contains("Fixture Document"))
+    XCTAssertEqual(pdf.toolName, "AnydocKit")
+    XCTAssertEqual(pdf.toolVersion, "0.1.6")
+    XCTAssertEqual(epub.sourceFormat, "epub")
+    XCTAssertFalse(epub.markdown.isEmpty)
+    XCTAssertEqual(epub.toolName, "AnydocKit")
   }
 
-  func testParsesOkEnvelope() throws {
-    let result = try AnydocCLIDocumentConverter.parseEnvelope(data(
-      """
-      {"schemaVersion":1,"status":"ok","tool":{"version":"0.1.2","anydoc":"0.1.6"},
-       "input":{"source":"file","path":"/tmp/x.pdf","byteCount":10},
-       "format":"pdf","markdown":"# Title\\nBody","markdownByteCount":12}
-      """
-    ))
-    XCTAssertEqual(result.markdown, "# Title\nBody")
-    XCTAssertEqual(result.sourceFormat, "pdf")
-    XCTAssertEqual(result.toolVersion, "0.1.2")
-  }
-
-  func testMapsUnsupportedErrorKind() {
-    XCTAssertThrowsError(try AnydocCLIDocumentConverter.parseEnvelope(data(
-      """
-      {"status":"error","error":{"kind":"unsupported","message":"OCR is required"}}
-      """
-    ))) { error in
-      XCTAssertEqual(
-        error as? DocumentConversionError,
-        .unsupported(kind: "unsupported", message: "OCR is required")
+  func testImageUsesConfiguredLunaCodexOCRAgent() throws {
+    let scriptURL = try makeExecutableScript("""
+    #!/bin/sh
+    if [ "$1" != "client" ] || [ "$2" != "--vendor" ] || [ "$3" != "codex" ] || \
+       [ "$4" != "--model" ] || [ "$5" != "gpt-5.6-luna" ] || \
+       [ "$6" != "--prompt" ] || [ "$7" != "-" ] || \
+       [ "$8" != "--api-key-environment" ] || [ "$9" != "CODEX_TOKEN" ] || \
+       [ "${10}" != "--" ] || [ "${11}" != "--image" ] || [ -z "${12}" ]; then
+      echo 'unexpected OCR arguments' >&2
+      exit 9
+    fi
+    /bin/cat >/dev/null
+    printf '%s\n' '{"id":3,"jsonrpc":"2.0","result":{"stopReason":"end_turn","_meta":{"agentGateway":{"resultText":"# Scanned title\\nOCR body"}}}}'
+    """)
+    defer { try? FileManager.default.removeItem(at: scriptURL) }
+    let imageURL = try writeFixture(
+      named: "mock.png",
+      data: Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    )
+    defer { try? FileManager.default.removeItem(at: imageURL) }
+    let converter = ImportDocumentConverter(
+      ocr: AgentGatewayImageOCRConverter(
+        commandPath: scriptURL.path,
+        vendor: "codex",
+        model: "gpt-5.6-luna",
+        apiKeyEnvironment: "CODEX_TOKEN",
+        environment: [:]
       )
-    }
+    )
+
+    let result = try converter.convert(inputPath: imageURL.path)
+
+    XCTAssertEqual(result.sourceFormat, "png")
+    XCTAssertEqual(result.markdown, "# Scanned title\nOCR body")
+    XCTAssertEqual(result.toolName, "agent-gateway")
   }
 
-  func testMapsOtherErrorKindsToFailed() {
-    XCTAssertThrowsError(try AnydocCLIDocumentConverter.parseEnvelope(data(
-      """
-      {"status":"error","error":{"kind":"malformed","message":"broken xref"}}
-      """
-    ))) { error in
-      XCTAssertEqual(error as? DocumentConversionError, .failed("malformed: broken xref"))
-    }
-  }
+  func testImageWithoutOCRConfigurationFailsBeforeAnydoc() throws {
+    let imageURL = try writeFixture(named: "mock.jpg", data: Data([0xff, 0xd8, 0xff]))
+    defer { try? FileManager.default.removeItem(at: imageURL) }
+    let converter = ImportDocumentConverter()
 
-  func testRejectsInvalidJSON() {
-    XCTAssertThrowsError(try AnydocCLIDocumentConverter.parseEnvelope(data("not json"))) { error in
-      guard case .failed = error as? DocumentConversionError else {
-        return XCTFail("expected .failed, got \(error)")
+    XCTAssertThrowsError(try converter.convert(inputPath: imageURL.path)) { error in
+      guard case .failed(let message) = error as? DocumentConversionError else {
+        return XCTFail("expected DocumentConversionError.failed")
       }
+      XCTAssertTrue(message.contains("import.ocr.vendor"))
     }
   }
 
-  func testMissingBinaryPathThrowsToolNotFound() {
-    let converter = AnydocCLIDocumentConverter(
-      binaryPath: "/nonexistent/anydoc-swift",
+  func testUnsupportedCLIVendorFailsClearly() throws {
+    let converter = AgentGatewayImageOCRConverter(
+      commandPath: "/not-used",
+      vendor: "claude-code",
+      model: "claude-test",
       environment: [:]
     )
-    XCTAssertThrowsError(try converter.convert(inputPath: "/tmp/doc.pdf")) { error in
-      XCTAssertEqual(
-        error as? DocumentConversionError,
-        .toolNotFound("/nonexistent/anydoc-swift")
-      )
+
+    XCTAssertThrowsError(try converter.convert(inputPath: "/tmp/mock.png")) { error in
+      guard case .failed(let message) = error as? DocumentConversionError else {
+        return XCTFail("expected DocumentConversionError.failed")
+      }
+      XCTAssertTrue(message.contains("not image-capable"))
     }
+  }
+
+  private func writeFixture(named name: String, data: Data) throws -> URL {
+    let directory = URL(
+      fileURLWithPath: FileManager.default.currentDirectoryPath,
+      isDirectory: true
+    ).appendingPathComponent("tmp/AppCoreTests", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let url = directory.appendingPathComponent("\(UUID().uuidString)-\(name)")
+    try data.write(to: url)
+    return url
+  }
+
+  private func makeExecutableScript(_ script: String) throws -> URL {
+    let url = try writeFixture(named: "mock-tool.sh", data: Data(script.utf8))
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755],
+      ofItemAtPath: url.path
+    )
+    return url
   }
 }
 

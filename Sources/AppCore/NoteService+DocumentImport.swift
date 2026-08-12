@@ -42,6 +42,7 @@ public extension NoteService {
     let metaJSON = try Self.importMetaJSON(
       originalFilename: originalFilename,
       format: conversion.sourceFormat,
+      toolName: conversion.toolName,
       toolVersion: conversion.toolVersion
     )
     let ingest = try createNotebookWithNotes(
@@ -67,12 +68,13 @@ public extension NoteService {
   internal static func importMetaJSON(
     originalFilename: String,
     format: String,
+    toolName: String = AnydocKitDocumentConverter.toolName,
     toolVersion: String?
   ) throws -> String {
     var source: [String: Any] = [
       "originalFilename": originalFilename,
       "format": format,
-      "tool": AnydocCLIDocumentConverter.defaultBinaryName,
+      "tool": toolName,
       "importedAt": NoteStoreClock.system.now()
     ]
     source["toolVersion"] = toolVersion
@@ -102,6 +104,10 @@ public extension NoteService {
     case "rtf": return "application/rtf"
     case "epub": return "application/epub+zip"
     case "csv": return "text/csv"
+    case "gif": return "image/gif"
+    case "jpeg", "jpg": return "image/jpeg"
+    case "png": return "image/png"
+    case "webp": return "image/webp"
     default: return "application/octet-stream"
     }
   }

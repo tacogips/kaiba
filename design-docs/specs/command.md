@@ -116,15 +116,16 @@ auth for trusted local use.
 
 ```bash
 kaiba import <file-path> [--title <t>] [--kind-tag <tag>]
-             [--anydoc-path <p>] [--output json|text]
+             [--output json|text]
 ```
 
 Converts a source document (pdf, doc/docx, ppt/pptx, excel, odt/ods/odp,
-rtf, epub, csv) to markdown by spawning the installed `anydoc-swift` CLI
-with `--json`, then stores an imported-material notebook with one note
+rtf, epub, csv) to markdown in-process with the SwiftPM `AnydocKit` library,
+then stores an imported-material notebook with one note
 per top-level markdown section and the original file attached with the
-`source-document` role. The binary resolves from `--anydoc-path`, then
-`import.anydocPath` in the configuration, then `PATH`. See
+`source-document` role. Standalone PNG, JPEG, GIF, and WebP inputs use
+agent-gateway OCR configured under `import.ocr`; `vendor` and `model` are
+required. Document conversion requires no runtime path configuration. See
 `document-import.md`.
 
 ### AI

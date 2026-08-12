@@ -43,13 +43,36 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
   }
 }
 
-/// Document import settings (`design-docs/specs/document-import.md`). Only a
-/// binary path; never secrets.
+/// Document import settings (`design-docs/specs/document-import.md`). Paths
+/// and credential environment-variable names may appear here; secret values
+/// never do.
 public struct KaibaImportConfiguration: Codable, Equatable, Sendable {
-  public var anydocPath: String?
+  public var ocr: KaibaOCRConfiguration?
 
-  public init(anydocPath: String? = nil) {
-    self.anydocPath = anydocPath
+  public init(ocr: KaibaOCRConfiguration? = nil) {
+    self.ocr = ocr
+  }
+}
+
+/// AI OCR settings for standalone image imports. OCR is routed through the
+/// installed agent-gateway CLI so vendor and model selection stay explicit.
+public struct KaibaOCRConfiguration: Codable, Equatable, Sendable {
+  public var commandPath: String?
+  public var vendor: String
+  public var model: String
+  /// Environment-variable NAME for a provider credential, never its value.
+  public var apiKeyEnvironmentVariable: String?
+
+  public init(
+    commandPath: String? = nil,
+    vendor: String,
+    model: String,
+    apiKeyEnvironmentVariable: String? = nil
+  ) {
+    self.commandPath = commandPath
+    self.vendor = vendor
+    self.model = model
+    self.apiKeyEnvironmentVariable = apiKeyEnvironmentVariable
   }
 }
 

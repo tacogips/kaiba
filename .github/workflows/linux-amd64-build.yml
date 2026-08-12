@@ -38,6 +38,15 @@ jobs:
             bash -lc '
               set -euo pipefail
               test "$(uname -m)" = "x86_64"
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -q
+              apt-get install -q -y --no-install-recommends \
+                curl ca-certificates build-essential
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs \
+                | sh -s -- -y --profile minimal --default-toolchain 1.97.1
+              export PATH="$HOME/.cargo/bin:$PATH"
               swift --version
+              scripts/build-anydoc-native.sh
+              export PKG_CONFIG_PATH=/workspace/.build/anydoc-native/host/pkgconfig
               swift build -c release --product "$EXECUTABLE_NAME" --triple x86_64-unknown-linux-gnu
             '

@@ -26,7 +26,13 @@ final class AIConfigurationTests: NoteTestCase {
         },
         "autoTag": { "auto": "on" }
       },
-      "import": { "anydocPath": "/opt/bin/anydoc-swift" }
+      "import": {
+        "ocr": {
+          "commandPath": "/opt/bin/agent-gateway",
+          "vendor": "codex",
+          "model": "gpt-5.6-luna"
+        }
+      }
     }
     """
     let configuration = try JSONDecoder().decode(
@@ -37,7 +43,9 @@ final class AIConfigurationTests: NoteTestCase {
     XCTAssertEqual(configuration.ai?.agent?.provider, "openrouter")
     XCTAssertEqual(configuration.ai?.agent?.model, "test-model")
     XCTAssertTrue(configuration.ai?.autoTagEnabled == true)
-    XCTAssertEqual(configuration.importSettings?.anydocPath, "/opt/bin/anydoc-swift")
+    XCTAssertEqual(configuration.importSettings?.ocr?.commandPath, "/opt/bin/agent-gateway")
+    XCTAssertEqual(configuration.importSettings?.ocr?.vendor, "codex")
+    XCTAssertEqual(configuration.importSettings?.ocr?.model, "gpt-5.6-luna")
   }
 
   func testAbsentAISectionDefaults() throws {
