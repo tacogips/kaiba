@@ -269,6 +269,35 @@ export class NoteGraphQLClient {
     return payload.status
   }
 
+  /** Queues an AI translation of a whole notebook into `targetLanguage`. The
+   * pending translation notebook is created immediately; translated notes
+   * arrive via the events feed. Status is "queued" or "agent-unavailable". */
+  async requestNotebookTranslation(input: {
+    notebookId: string
+    targetLanguage: string
+    title?: string
+  }): Promise<{ translationNotebookId: string | null; status: string }> {
+    const data = await this.request<{ requestNotebookTranslation: { result: ControlResult; translationNotebookId?: string | null; status: string } }>('RequestNotebookTranslation', `
+      mutation RequestNotebookTranslation($input: RequestNotebookTranslationInput!) {
+        requestNotebookTranslation(input: $input) {
+          result { accepted status diagnostics }
+          translationNotebookId
+          status
+        }
+      }
+    `, {
+      input: {
+        notebookId: input.notebookId,
+        targetLanguage: input.targetLanguage,
+        ...(input.title ? { title: input.title } : {}),
+      },
+    })
+    const payload = data.requestNotebookTranslation
+    if (!payload) throw new NoteTransportError('GraphQL response omitted requestNotebookTranslation.', 'graphql')
+    ensureAccepted(payload.result)
+    return { translationNotebookId: payload.translationNotebookId ?? null, status: payload.status }
+  }
+
   async defineFolder(name: string, classId: string, parentTagId?: string): Promise<NoteTag> {
     const payload = await this.mutation('DefineFolder', `
       mutation DefineFolder($input: DefineNoteTagInput!) {

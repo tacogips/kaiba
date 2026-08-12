@@ -41,8 +41,11 @@ openrouter.
   concatenated `agent_message_chunk`s, and surfacing JSON-RPC error
   responses as typed failures. `AgentInvokerFactory` constructs it when
   `ai.agent` names the `agent-gateway-cli` backend with a vendor and
-  model and the binary resolves (`commandPath` else `PATH`); otherwise
-  every AI surface reports the unavailable state with the specific
+  model and the binary resolves (`commandPath` else `PATH`).
+  `AgentGatewayCLIModelCatalog` similarly delegates model discovery to
+  `agent-gateway models`, without requiring a configured model.
+  When invocation requirements are not met, every AI surface reports
+  the unavailable state with the specific
   reason, and `kaiba serve` force-disables the AI auto-actions so the
   outbox never accumulates.
 - While serving with a runtime available, a maintenance tick recovers
@@ -78,7 +81,12 @@ openrouter.
         "model": "openai/gpt-5-mini",
         "apiKeyEnvironmentVariable": null
       },
-      "autoTag": { "auto": "on" }
+      "autoTag": { "auto": "on" },
+      "translate": {
+        "provider": null,
+        "model": null,
+        "defaultTargetLanguage": null
+      }
     }
   }
   ```
@@ -89,7 +97,11 @@ openrouter.
   binary. `apiKeyEnvironmentVariable` is the credential's environment
   variable NAME (never a value); when absent the gateway's per-vendor
   default applies (e.g. `OPENROUTER_API_KEY`). `autoTag.auto` defaults
-  to `off`.
+  to `off`. `translate.provider`/`translate.model` override the agent
+  vendor for translation requests only (set `model` whenever `provider`
+  differs — model ids are vendor-specific);
+  `translate.defaultTargetLanguage` backs `kaiba ai translate` when
+  `--to` is omitted.
 - **AI3 — Tag extraction contract.** The prompt carries the subject
   markdown plus an ontology snapshot (tag classes `person`, `year`,
   `event`, `document-kind`, `topic`; existing tag names; hierarchy) and
@@ -148,6 +160,26 @@ openrouter.
   Until Phase D the action stays disabled and
   `sendAgentChatMessage` returns `agentStatus: "agent-unavailable"`
   while still persisting the user turn.
+- **AI9 — Notebook translation.** A translation is a
+  `notebook-kind:translation` notebook created up front in `pending`
+  state, with meta JSON `{"kaibaTranslation":{"sourceNotebookId":...,
+  "targetLanguage":..., "status":"pending|completed|failed",
+  "error":...?}}` (the `kaibaChat` precedent). `AITranslationService`
+  invokes the agent once per source note (purpose `translation`, prompt
+  demands the translated markdown only, structure preserved, code/URLs
+  untranslated; whole-document code fences are stripped from replies),
+  appends each translated note (provenance `ai`, note meta
+  `kaibaTranslation.sourceNoteId`, writes carry `originatingActionId`
+  so no auto-actions fire), then flips the status. Already-translated
+  notes are counted and skipped, so an outbox retry — the manual
+  dispatch uses workflow `notebook-translation`, routed by
+  `KaibaAutoActionDispatcher` — or `kaiba ai translate --resume <id>`
+  resumes where a failed run stopped instead of re-paying for finished
+  pages. The per-feature vendor override rides
+  `AgentInvocationRequest.provider/model` (`ai.translate` config, CLI
+  `--provider`/`--model`). There is no automatic trigger: translation
+  is always requested manually (CLI synchronously; UI/GraphQL via a
+  manually enqueued dispatch, like `requestTagExtraction`).
 
 ## GraphQL Surface Additions
 
@@ -164,6 +196,11 @@ the same change).
   `agentStatus` is `pending` or `agent-unavailable`.
 - Mutation `requestTagExtraction(input)` — manual tag extraction for a
   note or notebook; returns `queued` or `agent-unavailable`.
+- Mutation `requestNotebookTranslation(input)` — creates the pending
+  translation notebook and queues the run; returns
+  `{translationNotebookId, status}` where `status` is `queued` or
+  `agent-unavailable` (nothing is created when unavailable). Translated
+  notes arrive through the change feed as the dispatcher appends them.
 - Query `noteTagDetails(noteId)` — structured tag assignments
   `{name, className, provenance, parentName}` for the Info tab.
 - Turn listing reuses notes-by-notebook queries; turn status/role is

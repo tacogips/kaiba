@@ -139,4 +139,86 @@ final class AgentGatewayCLIInvokerTests: NoteTestCase {
     ))
     XCTAssertEqual(result.markdown, "scripted reply")
   }
+
+  func testModelCatalogRunsGatewayModelsCommandAndDecodesResult() async throws {
+    let script = """
+    #!/bin/sh
+    if [ "$1" != "models" ] || [ "$2" != "--vendor" ] || [ "$3" != "openrouter" ] || [ "$4" != "--api-key-environment" ] || [ "$5" != "ROUTER_TOKEN" ]; then
+      echo 'unexpected arguments' >&2
+      exit 9
+    fi
+    echo '{"protocolVersion":"1.0","vendor":"openrouter","models":[{"modelId":"openai/gpt-5-mini","name":"GPT-5 mini","description":"Fast model"}]}'
+    """
+    let scriptURL = try makeExecutableGatewayScript(script)
+    defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+    let result = try await AgentGatewayCLIModelCatalog(
+      commandPath: scriptURL.path,
+      vendor: "openrouter",
+      apiKeyEnvironment: "ROUTER_TOKEN"
+    ).models()
+
+    XCTAssertEqual(result.protocolVersion, "1.0")
+    XCTAssertEqual(result.vendor, "openrouter")
+    XCTAssertEqual(result.models, [AgentGatewayModelInfo(
+      modelId: "openai/gpt-5-mini",
+      name: "GPT-5 mini",
+      description: "Fast model"
+    )])
+  }
+
+  func testModelCatalogSurfacesGatewayFailure() async throws {
+    let scriptURL = try makeExecutableGatewayScript("""
+    #!/bin/sh
+    echo 'model listing failed (-32020): codex does not support model enumeration' >&2
+    exit 1
+    """)
+    defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+    do {
+      _ = try await AgentGatewayCLIModelCatalog(
+        commandPath: scriptURL.path,
+        vendor: "codex"
+      ).models()
+      XCTFail("expected model listing to fail")
+    } catch AgentInvocationError.failed(let message) {
+      XCTAssertEqual(
+        message,
+        "model listing failed (-32020): codex does not support model enumeration"
+      )
+    }
+  }
+
+  func testModelCatalogRejectsPreCatalogGatewayOutput() async throws {
+    let scriptURL = try makeExecutableGatewayScript("""
+    #!/bin/sh
+    echo 'Usage: agent-gateway <command> [options]'
+    """)
+    defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+    do {
+      _ = try await AgentGatewayCLIModelCatalog(
+        commandPath: scriptURL.path,
+        vendor: "openai"
+      ).models()
+      XCTFail("expected invalid catalog output to fail")
+    } catch AgentInvocationError.failed(let message) {
+      XCTAssertTrue(message.contains("version 0.1.2 or newer"))
+    }
+  }
+
+  private func makeExecutableGatewayScript(_ script: String) throws -> URL {
+    let directory = URL(
+      fileURLWithPath: FileManager.default.currentDirectoryPath,
+      isDirectory: true
+    ).appendingPathComponent("tmp/AppCoreTests", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let scriptURL = directory.appendingPathComponent("fake-agent-gateway-\(UUID().uuidString).sh")
+    try Data(script.utf8).write(to: scriptURL)
+    try FileManager.default.setAttributes(
+      [.posixPermissions: 0o755],
+      ofItemAtPath: scriptURL.path
+    )
+    return scriptURL
+  }
 }

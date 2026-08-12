@@ -61,6 +61,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
           "notebook-kind:agent-conversation",
           "notebook-kind:imported-material",
           "notebook-kind:long-term-memory",
+          "notebook-kind:translation",
           "notebook-kind:user-memo"
         ]
       )

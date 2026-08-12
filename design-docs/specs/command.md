@@ -132,13 +132,26 @@ required. Document conversion requires no runtime path configuration. See
 
 ```bash
 kaiba ai tag (--note <id> | --notebook <id>) [--dry-run]
+kaiba ai translate (--notebook <id> [--to <language>] | --resume <id>)
+                   [--provider <vendor>] [--model <model>] [--title <title>]
+kaiba ai models [--output text|json]
 kaiba ai status
 ```
 
 `ai tag` extracts ontology tags with the configured agent backend
 (`agent-gateway`, spawned per invocation) and applies them with
 provenance `ai` (never overwriting human tags or redefining existing
-tags); `--dry-run` prints proposals without applying. `ai status`
+tags); `--dry-run` prints proposals without applying. `ai translate`
+translates a whole notebook into a new `notebook-kind:translation`
+notebook, one agent invocation per note; `--to` falls back to
+`ai.translate.defaultTargetLanguage`, and the AI vendor resolves
+`--provider`/`--model`, then `ai.translate`, then `ai.agent`. On
+failure the pending notebook is kept and `--resume <id>` continues from
+the first untranslated note. `ai models`
+delegates vendor model discovery to `agent-gateway models` using the
+configured provider and credential environment-variable name. It does not
+require `ai.agent.model`, allowing users to discover a model before selecting
+one. `ai status`
 reports the `ai` configuration section and runtime availability. When
 the backend, vendor, model, or binary is missing, `ai tag` exits `1`
 with the specific reason. See `ai-agent-integration.md`.

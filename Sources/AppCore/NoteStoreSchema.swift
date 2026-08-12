@@ -21,11 +21,15 @@ public enum NoteStoreSchema {
     for: agentConversationNotebookKindTag
   )
   public static let importedMaterialNotebookKindTag = "notebook-kind:imported-material"
+  public static let translationNotebookKindTag = "notebook-kind:translation"
   public static let autoTaggingWorkflowId = "note-auto-tagging"
   /// Chat-reply generation workflow routed by `KaibaAutoActionDispatcher`
   /// (`design-docs/specs/ai-agent-integration.md`, AI8).
   public static let agentChatReplyWorkflowId = "note-agent-reply"
   public static let agentChatReplyActionId = "agent-chat-reply"
+  /// Notebook translation workflow routed by `KaibaAutoActionDispatcher`
+  /// (`design-docs/specs/ai-agent-integration.md`, AI9).
+  public static let notebookTranslationWorkflowId = "notebook-translation"
   public static let systemKanbanStatusSetId = "kanban-default"
 
   static func setV7MigrationFaultInjectorForTesting(
@@ -698,7 +702,8 @@ private let systemNotebookKindTags = [
   "notebook-kind:imported-material",
   NoteStoreSchema.agentConversationNotebookKindTag,
   "notebook-kind:user-memo",
-  NoteStoreSchema.longTermMemoryNotebookKindTag
+  NoteStoreSchema.longTermMemoryNotebookKindTag,
+  NoteStoreSchema.translationNotebookKindTag
 ]
 
 private let noteSchemaVersionTableStatement = """

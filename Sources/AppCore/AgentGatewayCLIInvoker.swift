@@ -80,6 +80,13 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
   // MARK: - Availability
 
   func resolveBinary() throws -> String {
+    try Self.resolveBinary(commandPath: commandPath, environment: environment)
+  }
+
+  static func resolveBinary(
+    commandPath: String?,
+    environment: [String: String]
+  ) throws -> String {
     if let commandPath, !commandPath.isEmpty {
       let expanded = (commandPath as NSString).expandingTildeInPath
       guard FileManager.default.isExecutableFile(atPath: expanded) else {
@@ -214,6 +221,92 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     let stdout = stdoutCollector.finish(limit: maximumOutputBytes)
     let stderr = stderrCollector.finish(limit: maximumOutputBytes)
     return Execution(exitCode: exitCode, stdout: stdout, stderr: stderr)
+  }
+}
+
+/// A model advertised by agent-gateway's vendor model catalog.
+public struct AgentGatewayModelInfo: Codable, Equatable, Sendable {
+  public var modelId: String
+  public var name: String?
+  public var description: String?
+
+  public init(modelId: String, name: String? = nil, description: String? = nil) {
+    self.modelId = modelId
+    self.name = name
+    self.description = description
+  }
+}
+
+/// The typed JSON result returned by `agent-gateway models`.
+public struct AgentGatewayModelCatalogResult: Codable, Equatable, Sendable {
+  public var protocolVersion: String
+  public var vendor: String
+  public var models: [AgentGatewayModelInfo]
+
+  public init(
+    protocolVersion: String,
+    vendor: String,
+    models: [AgentGatewayModelInfo]
+  ) {
+    self.protocolVersion = protocolVersion
+    self.vendor = vendor
+    self.models = models
+  }
+}
+
+/// Process adapter for agent-gateway's model-listing command. Listing needs a
+/// configured vendor and credential route, but deliberately does not require a
+/// selected model so callers can use the catalog to choose one.
+public struct AgentGatewayCLIModelCatalog: Sendable {
+  public var commandPath: String?
+  public var vendor: String
+  public var apiKeyEnvironment: String?
+  public var environment: [String: String]
+
+  public init(
+    commandPath: String? = nil,
+    vendor: String,
+    apiKeyEnvironment: String? = nil,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) {
+    self.commandPath = commandPath
+    self.vendor = vendor
+    self.apiKeyEnvironment = apiKeyEnvironment
+    self.environment = environment
+  }
+
+  public func models() async throws -> AgentGatewayModelCatalogResult {
+    let binary = try AgentGatewayCLIInvoker.resolveBinary(
+      commandPath: commandPath,
+      environment: environment
+    )
+    var arguments = ["models", "--vendor", vendor]
+    if let apiKeyEnvironment, !apiKeyEnvironment.isEmpty {
+      arguments += ["--api-key-environment", apiKeyEnvironment]
+    }
+    let execution = try await AgentGatewayCLIInvoker.run(
+      binary: binary,
+      arguments: arguments,
+      stdin: Data(),
+      environment: environment
+    )
+    guard execution.exitCode == 0 else {
+      let detail = String(data: execution.stderr.suffix(1_000), encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      if let detail, !detail.isEmpty {
+        throw AgentInvocationError.failed(detail)
+      }
+      throw AgentInvocationError.failed(
+        "agent-gateway model listing exited with status \(execution.exitCode)"
+      )
+    }
+    do {
+      return try JSONDecoder().decode(AgentGatewayModelCatalogResult.self, from: execution.stdout)
+    } catch {
+      throw AgentInvocationError.failed(
+        "agent-gateway returned an invalid model catalog; version 0.1.2 or newer is required"
+      )
+    }
   }
 }
 

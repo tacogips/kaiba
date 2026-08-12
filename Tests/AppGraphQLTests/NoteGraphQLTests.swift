@@ -768,6 +768,7 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertTrue(schema.contains("noteComments(noteId: String!): NoteCommentsQueryPayload!"))
     XCTAssertTrue(schema.contains("sendAgentChatMessage(input: SendAgentChatMessageInput!): AgentChatMessagePayload!"))
     XCTAssertTrue(schema.contains("requestTagExtraction(input: RequestTagExtractionInput!): TagExtractionRequestPayload!"))
+    XCTAssertTrue(schema.contains("requestNotebookTranslation(input: RequestNotebookTranslationInput!): NotebookTranslationRequestPayload!"))
     XCTAssertTrue(schema.contains("input MigrateNoteFileStorageInput {\n  fileId: String!\n  s3ProfileName: String!\n}"))
     XCTAssertFalse(schema.contains("s3Endpoint:"))
     XCTAssertFalse(schema.contains("s3AccessKeyIdEnv"))
@@ -822,6 +823,7 @@ final class NoteGraphQLTests: XCTestCase {
       "saveNoteConversation",
       "sendAgentChatMessage",
       "requestTagExtraction",
+      "requestNotebookTranslation",
       "migrateNoteFileStorage",
       "migrateAllNoteFiles",
       "reclaimNoteFileStorage"

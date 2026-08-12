@@ -4,12 +4,16 @@ import { groupTagAssignments, qualifiedTagLabel } from '../notes/tree'
 
 // Info tab: the note's own facts (kind, numbering, timestamps, lock state) and
 // its structured tag assignments grouped by tag class, each showing where the
-// assignment came from. Tag extraction can be requested for the note here.
+// assignment came from. Tag extraction can be requested for the note here, and
+// the whole notebook can be queued for AI translation.
 
 export function NoteInfoTab(): JSX.Element {
   const app = useApp()
   const [status, setStatus] = createSignal('')
   const [busy, setBusy] = createSignal(false)
+  const [language, setLanguage] = createSignal('')
+  const [translateBusy, setTranslateBusy] = createSignal(false)
+  const [translateStatus, setTranslateStatus] = createSignal('')
   const groups = createMemo(() =>
     groupTagAssignments(app.state.note?.tags ?? [], app.state.tagClasses))
 
@@ -27,6 +31,24 @@ export function NoteInfoTab(): JSX.Element {
       setStatus(errorMessage(error))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const translateNotebook = async () => {
+    const notebookId = app.state.note?.notebookId
+    const targetLanguage = language().trim()
+    if (!notebookId || !targetLanguage || translateBusy()) return
+    setTranslateBusy(true)
+    setTranslateStatus('')
+    try {
+      const result = await app.client.requestNotebookTranslation({ notebookId, targetLanguage })
+      setTranslateStatus(result.status === 'queued'
+        ? 'Translation queued. The translated notebook fills in as the agent finishes each note.'
+        : 'Agent runtime not configured, so translation was not queued.')
+    } catch (error) {
+      setTranslateStatus(errorMessage(error))
+    } finally {
+      setTranslateBusy(false)
     }
   }
 
@@ -62,6 +84,27 @@ export function NoteInfoTab(): JSX.Element {
             {busy() ? 'Requesting…' : 'Extract tags with agent'}
           </button>
           <Show when={status()}><p class="pane-note" role="status">{status()}</p></Show>
+        </section>
+
+        <section class="info-tags" aria-label="Translate notebook">
+          <h3>Translate notebook</h3>
+          <label>
+            Target language
+            <input
+              value={language()}
+              placeholder="e.g. English, 日本語"
+              onInput={(event) => setLanguage(event.currentTarget.value)}
+            />
+          </label>
+          <button
+            type="button"
+            class="secondary"
+            disabled={translateBusy() || language().trim() === ''}
+            onClick={() => void translateNotebook()}
+          >
+            {translateBusy() ? 'Requesting…' : 'Translate notebook with agent'}
+          </button>
+          <Show when={translateStatus()}><p class="pane-note" role="status">{translateStatus()}</p></Show>
         </section>
       </>}</Show>
     </div>

@@ -82,17 +82,41 @@ public struct KaibaOCRConfiguration: Codable, Equatable, Sendable {
 public struct KaibaAIConfiguration: Codable, Equatable, Sendable {
   public var agent: KaibaAgentBackendConfiguration?
   public var autoTag: KaibaAutoTagConfiguration?
+  public var translate: KaibaTranslateConfiguration?
 
   public init(
     agent: KaibaAgentBackendConfiguration? = nil,
-    autoTag: KaibaAutoTagConfiguration? = nil
+    autoTag: KaibaAutoTagConfiguration? = nil,
+    translate: KaibaTranslateConfiguration? = nil
   ) {
     self.agent = agent
     self.autoTag = autoTag
+    self.translate = translate
   }
 
   public var autoTagEnabled: Bool {
     autoTag?.auto == .on
+  }
+}
+
+/// Notebook translation settings. `provider`/`model` override the agent
+/// defaults for translation requests only, so translations can run on a
+/// different agent-gateway vendor than chat and tagging. Set `model` whenever
+/// `provider` differs from `ai.agent.provider` — model ids are vendor-specific.
+public struct KaibaTranslateConfiguration: Codable, Equatable, Sendable {
+  public var provider: String?
+  public var model: String?
+  /// Used by `kaiba ai translate` when `--to` is omitted.
+  public var defaultTargetLanguage: String?
+
+  public init(
+    provider: String? = nil,
+    model: String? = nil,
+    defaultTargetLanguage: String? = nil
+  ) {
+    self.provider = provider
+    self.model = model
+    self.defaultTargetLanguage = defaultTargetLanguage
   }
 }
 

@@ -14,17 +14,25 @@ public struct KaibaAutoActionDispatcher: AutoActionDispatching {
   public var invoker: any AgentInvoking
   public var provider: String?
   public var model: String?
+  /// Translation-only vendor overrides (`ai.translate` in config.json);
+  /// nil falls back to the agent defaults above.
+  public var translateProvider: String?
+  public var translateModel: String?
 
   public init(
     service: NoteService,
     invoker: any AgentInvoking,
     provider: String? = nil,
-    model: String? = nil
+    model: String? = nil,
+    translateProvider: String? = nil,
+    translateModel: String? = nil
   ) {
     self.service = service
     self.invoker = invoker
     self.provider = provider
     self.model = model
+    self.translateProvider = translateProvider
+    self.translateModel = translateModel
   }
 
   public func dispatch(
@@ -35,6 +43,8 @@ public struct KaibaAutoActionDispatcher: AutoActionDispatching {
       return await dispatchTagExtraction(record)
     case NoteStoreSchema.agentChatReplyWorkflowId:
       return await dispatchChatReply(record)
+    case NoteStoreSchema.notebookTranslationWorkflowId:
+      return await dispatchTranslation(record)
     default:
       return .failed("unknown auto-action workflow id: \(record.action.workflowId)")
     }
@@ -66,6 +76,29 @@ public struct KaibaAutoActionDispatcher: AutoActionDispatching {
       return .succeeded
     } catch {
       return .failed("tag extraction failed: \(error)")
+    }
+  }
+
+  private func dispatchTranslation(
+    _ record: AutoActionDispatchRecord
+  ) async -> AutoActionDispatchOutcome {
+    guard let notebookId = record.event.notebookId else {
+      return .failed("translation event carries no notebookId")
+    }
+    let translation = AITranslationService(
+      service: service,
+      invoker: invoker,
+      provider: translateProvider ?? provider,
+      model: translateModel ?? model
+    )
+    do {
+      _ = try await translation.run(
+        translationNotebookId: notebookId,
+        originatingActionId: record.action.actionId
+      )
+      return .succeeded
+    } catch {
+      return .failed("notebook translation failed: \(error)")
     }
   }
 

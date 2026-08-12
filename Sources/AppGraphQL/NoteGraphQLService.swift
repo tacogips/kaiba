@@ -628,6 +628,28 @@ public struct GraphQLNoteGraphQLService: Sendable {
       )
     }
   }
+
+  public func requestNotebookTranslation(
+    _ input: GraphQLRequestNotebookTranslationInput
+  ) async -> GraphQLNotebookTranslationRequestResult {
+    do {
+      let (notebook, queued) = try service.requestNotebookTranslation(
+        sourceNotebookId: input.notebookId,
+        targetLanguage: input.targetLanguage,
+        title: input.title
+      )
+      return GraphQLNotebookTranslationRequestResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        translationNotebookId: notebook?.notebookId,
+        status: queued ? "queued" : "agent-unavailable"
+      )
+    } catch {
+      return GraphQLNotebookTranslationRequestResult(
+        result: graphQLNoteResult(for: error),
+        status: "error"
+      )
+    }
+  }
 }
 
 private func estimatedBase64DecodedByteCount(_ value: String) -> Int {

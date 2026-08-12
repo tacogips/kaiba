@@ -180,6 +180,18 @@ public struct GraphQLRequestTagExtractionInput: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLRequestNotebookTranslationInput: Codable, Equatable, Sendable {
+  public var notebookId: String
+  public var targetLanguage: String
+  public var title: String?
+
+  public init(notebookId: String, targetLanguage: String, title: String? = nil) {
+    self.notebookId = notebookId
+    self.targetLanguage = targetLanguage
+    self.title = title
+  }
+}
+
 public struct GraphQLMigrateNoteFileStorageInput: Codable, Equatable, Sendable {
   public var fileId: String
   public var s3ProfileName: String?

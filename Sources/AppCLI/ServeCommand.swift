@@ -82,7 +82,9 @@ struct ServeCommand {
         service: try NoteService(driver: driver),
         invoker: invoker,
         provider: aiConfiguration?.agent?.provider,
-        model: aiConfiguration?.agent?.model
+        model: aiConfiguration?.agent?.model,
+        translateProvider: aiConfiguration?.translate?.provider,
+        translateModel: aiConfiguration?.translate?.model
       )
     }
     let service = try NoteService(

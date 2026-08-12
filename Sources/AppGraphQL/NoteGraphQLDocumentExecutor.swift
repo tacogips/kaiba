@@ -424,6 +424,9 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     case "requestTagExtraction":
       let input: GraphQLRequestTagExtractionInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.requestTagExtraction(input))
+    case "requestNotebookTranslation":
+      let input: GraphQLRequestNotebookTranslationInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.requestNotebookTranslation(input))
     case "saveNoteConversation":
       let input: GraphQLSaveNoteConversationInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.saveConversation(
@@ -635,6 +638,7 @@ let supportedNoteGraphQLFields: Set<String> = [
   "saveNoteConversation",
   "sendAgentChatMessage",
   "requestTagExtraction",
+  "requestNotebookTranslation",
   "noteConversations",
   "noteComments",
   "migrateNoteFileStorage",
@@ -797,6 +801,7 @@ private let noteGraphQLRootSelectionTypes: [String: String] = [
   "noteComments": "NoteCommentsQueryPayload",
   "sendAgentChatMessage": "AgentChatMessagePayload",
   "requestTagExtraction": "TagExtractionRequestPayload",
+  "requestNotebookTranslation": "NotebookTranslationRequestPayload",
   "deleteNote": "ControlPlaneResult",
   "deleteNotebook": "ControlPlaneResult",
   "deleteNoteAutoAction": "ControlPlaneResult",
@@ -853,6 +858,11 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
   ],
   "TagExtractionRequestPayload": [
     "result": "ControlPlaneResult",
+    "status": nil
+  ],
+  "NotebookTranslationRequestPayload": [
+    "result": "ControlPlaneResult",
+    "translationNotebookId": nil,
     "status": nil
   ],
   "NoteMutationPayload": [

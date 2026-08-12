@@ -92,6 +92,11 @@ input SendAgentChatMessageInput { subjectNoteId: String!, conversationNotebookId
 type AgentChatMessagePayload { result: ControlPlaneResult!, conversationNotebookId: String, turnNoteId: String, agentStatus: String! }
 input RequestTagExtractionInput { noteId: String, notebookId: String }
 type TagExtractionRequestPayload { result: ControlPlaneResult!, status: String! }
+# requestNotebookTranslation creates a pending notebook-kind:translation
+# notebook and queues the run; translated notes arrive asynchronously via the
+# note change feed. status "agent-unavailable" means nothing was created.
+input RequestNotebookTranslationInput { notebookId: String!, targetLanguage: String!, title: String }
+type NotebookTranslationRequestPayload { result: ControlPlaneResult!, translationNotebookId: String, status: String! }
 input MigrateNoteFileStorageInput {
   fileId: String!
   s3ProfileName: String!

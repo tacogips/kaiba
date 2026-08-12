@@ -354,6 +354,22 @@ public struct GraphQLTagExtractionRequestResult: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLNotebookTranslationRequestResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var translationNotebookId: String?
+  public var status: String
+
+  public init(
+    result: GraphQLControlPlaneResult,
+    translationNotebookId: String? = nil,
+    status: String
+  ) {
+    self.result = result
+    self.translationNotebookId = translationNotebookId
+    self.status = status
+  }
+}
+
 public struct GraphQLNoteTagInput: Codable, Equatable, Sendable {
   public var name: String
   public var classId: String?

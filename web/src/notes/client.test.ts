@@ -293,6 +293,25 @@ describe('Note GraphQL transport', () => {
     expect(assignedBody.query).toContain('assignKanbanStatusSetByTagId(tagId: $tagId, setId: $setId)')
   })
 
+  test('queues notebook translation and surfaces the pending notebook id', async () => {
+    const harness = environment([{ data: { requestNotebookTranslation: {
+      result: { accepted: true, status: 'ok', diagnostics: [] },
+      translationNotebookId: 'notebook-translated',
+      status: 'queued',
+    } } }])
+    const client = new NoteGraphQLClient('riela-app', harness.value)
+
+    expect(await client.requestNotebookTranslation({
+      notebookId: 'notebook-source',
+      targetLanguage: 'English',
+    })).toEqual({ translationNotebookId: 'notebook-translated', status: 'queued' })
+    const body = requestBody(harness.requests[0])
+    expect(body.variables).toEqual({
+      input: { notebookId: 'notebook-source', targetLanguage: 'English' },
+    })
+    expect(body.query).toContain('requestNotebookTranslation')
+  })
+
   test('distinguishes rejected results and GraphQL envelope failures', async () => {
     const rejected = environment([
       { data: { tags: {

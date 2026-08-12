@@ -199,6 +199,56 @@ final class AgentChatGraphQLTests: XCTestCase {
     XCTAssertEqual(attempts[0].record.action.actionId, NoteService.manualTagExtractionActionId)
   }
 
+  func testRequestNotebookTranslationStatuses() async throws {
+    let bare = try makeService()
+    let ingest = try bare.service.createNotebookWithNotes(
+      title: "Guide",
+      pages: [NotePageDraft(bodyMarkdown: "# One\nBody.")]
+    )
+
+    // Without a dispatcher: agent-unavailable, nothing created or queued.
+    let unavailable = await bare.requestNotebookTranslation(
+      GraphQLRequestNotebookTranslationInput(
+        notebookId: ingest.notebook.notebookId,
+        targetLanguage: "English"
+      )
+    )
+    XCTAssertTrue(unavailable.result.accepted)
+    XCTAssertEqual(unavailable.status, "agent-unavailable")
+    XCTAssertNil(unavailable.translationNotebookId)
+    XCTAssertTrue(try bare.service.listAutoActionDispatchAttempts().isEmpty)
+
+    // Unknown source notebook surfaces as a rejected result.
+    let missing = await bare.requestNotebookTranslation(
+      GraphQLRequestNotebookTranslationInput(
+        notebookId: "notebook-missing",
+        targetLanguage: "English"
+      )
+    )
+    XCTAssertFalse(missing.result.accepted)
+    XCTAssertEqual(missing.status, "error")
+
+    // With a dispatcher: the pending notebook is returned and the run queued.
+    let dispatcher = KaibaAutoActionDispatcher(service: bare.service, invoker: StubInvoker())
+    var withDispatcher = bare.service
+    withDispatcher.autoActionDispatcher = dispatcher
+    let service = GraphQLNoteGraphQLService(service: withDispatcher)
+    let queued = await service.requestNotebookTranslation(
+      GraphQLRequestNotebookTranslationInput(
+        notebookId: ingest.notebook.notebookId,
+        targetLanguage: "English"
+      )
+    )
+    XCTAssertEqual(queued.status, "queued")
+    let translationNotebookId = try XCTUnwrap(queued.translationNotebookId)
+    await withDispatcher.drainAutoActionDispatches()
+    let attempts = try withDispatcher.listAutoActionDispatchAttempts()
+    XCTAssertEqual(attempts.count, 1)
+    XCTAssertEqual(attempts[0].record.action.actionId, NoteService.manualTranslationActionId)
+    let finished = try withDispatcher.getNotebook(translationNotebookId)
+    XCTAssertEqual(NoteService.translationState(of: finished)?.status, .completed)
+  }
+
   // MARK: - Helpers
 
   private func makeService(function: String = #function) throws -> GraphQLNoteGraphQLService {

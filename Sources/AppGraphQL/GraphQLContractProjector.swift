@@ -71,6 +71,7 @@ public enum GraphQLContractProjector {
     saveNoteConversation(input: SaveNoteConversationInput!): NoteMutationPayload!
     sendAgentChatMessage(input: SendAgentChatMessageInput!): AgentChatMessagePayload!
     requestTagExtraction(input: RequestTagExtractionInput!): TagExtractionRequestPayload!
+    requestNotebookTranslation(input: RequestNotebookTranslationInput!): NotebookTranslationRequestPayload!
     migrateNoteFileStorage(input: MigrateNoteFileStorageInput!): NoteFileMigrationPayload!
     migrateAllNoteFiles(input: MigrateAllNoteFilesInput!): NoteFileMigrationPayload!
   }

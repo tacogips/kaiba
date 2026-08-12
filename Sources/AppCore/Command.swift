@@ -146,6 +146,12 @@ public struct AppCommand: Sendable {
     AI (agent runtime arrives with agent-gateway; see kaiba ai status):
       ai tag     (--note <id> | --notebook <id>) [--dry-run]
                  # extract ontology tags with the configured agent
+      ai translate (--notebook <id> [--to <language>] | --resume <id>)
+                 [--provider <vendor>] [--model <model>] [--title <title>]
+                 # translate a notebook into a new notebook; --provider/--model
+                 # (or ai.translate in config.json) pick the AI vendor
+      ai models  [--output text|json]
+                 # list models available from the configured agent-gateway vendor
       ai status  # AI configuration and runtime availability
 
     Serve and API access:
