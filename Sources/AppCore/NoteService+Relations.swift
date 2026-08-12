@@ -76,13 +76,118 @@ public extension NoteService {
       _ = try requireNote(noteId, in: database)
       return try database.query(
         """
-        SELECT comment_id, note_id, body_markdown, author, created_at
+        SELECT comment_id, note_id, notebook_id, body_markdown, author, created_at
         FROM note_comments
         WHERE note_id = ?
         ORDER BY created_at, comment_id
         """,
         bindings: [.text(noteId)]
       ).map(noteComment(from:))
+    }
+  }
+
+  /// Every memo in the notebook — note-anchored and notebook-level alike —
+  /// oldest first. The `note_id IN (...)` arm covers rows that predate the v9
+  /// backfill only in stores restored from partial copies; normally
+  /// `notebook_id` alone matches everything.
+  func listNotebookComments(notebookId: String) throws -> [NoteComment] {
+    try driver.withDatabase { database in
+      _ = try requireNotebook(notebookId, in: database)
+      return try database.query(
+        """
+        SELECT comment_id, note_id, notebook_id, body_markdown, author, created_at
+        FROM note_comments
+        WHERE notebook_id = ?
+          OR note_id IN (SELECT note_id FROM notes WHERE notebook_id = ?)
+        ORDER BY created_at, comment_id
+        """,
+        bindings: [.text(notebookId), .text(notebookId)]
+      ).map(noteComment(from:))
+    }
+  }
+
+  /// A notebook-level memo: anchored to the notebook only, no note.
+  @discardableResult
+  func addNotebookComment(
+    notebookId: String,
+    bodyMarkdown: String,
+    author: String = "user"
+  ) throws -> NoteComment {
+    let comment = try driver.withDatabase { database in
+      try database.transaction { db -> NoteComment in
+        _ = try requireNotebook(notebookId, in: db)
+        let now = NoteStoreClock.system.now()
+        let commentId = makeNoteId(prefix: "comment")
+        try db.execute(
+          """
+          INSERT INTO note_comments (comment_id, note_id, notebook_id, body_markdown, author, created_at)
+          VALUES (?, NULL, ?, ?, ?, ?)
+          """,
+          bindings: [.text(commentId), .text(notebookId), .text(bodyMarkdown), .text(author), .text(now)]
+        )
+        return NoteComment(
+          commentId: commentId,
+          noteId: nil,
+          notebookId: notebookId,
+          bodyMarkdown: bodyMarkdown,
+          author: author,
+          createdAt: now
+        )
+      }
+    }
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteUpdated,
+      notebookId: notebookId
+    ))
+    return comment
+  }
+
+  /// Substring search over memos (note-anchored and notebook-level), oldest
+  /// first, optionally scoped to one notebook. Backs `kaiba search --memos`
+  /// so agentic search can grep memo text too.
+  func searchComments(
+    query: String,
+    notebookId: String? = nil,
+    limit: Int = 50
+  ) throws -> [NoteComment] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      return []
+    }
+    guard (0...200).contains(limit) else {
+      throw NoteServiceError.invalidInput("limit must be between 0 and 200")
+    }
+    return try driver.withDatabase { database in
+      var sql = """
+        SELECT comment_id, note_id, notebook_id, body_markdown, author, created_at
+        FROM note_comments
+        WHERE body_markdown LIKE ? ESCAPE '\\'
+        """
+      var bindings: [SQLiteValue] = [.text("%\(escapedLikePattern(trimmed))%")]
+      if let notebookId {
+        sql += "\n  AND (notebook_id = ? OR note_id IN (SELECT note_id FROM notes WHERE notebook_id = ?))"
+        bindings.append(.text(notebookId))
+        bindings.append(.text(notebookId))
+      }
+      sql += "\nORDER BY created_at, comment_id LIMIT ?"
+      bindings.append(.int(Int64(limit)))
+      return try database.query(sql, bindings: bindings).map { row in
+        guard let commentId = row["comment_id"],
+          let bodyMarkdown = row["body_markdown"],
+          let author = row["author"],
+          let createdAt = row["created_at"]
+        else {
+          throw NoteServiceError.invalidRow("note comment row is missing required fields")
+        }
+        return NoteComment(
+          commentId: commentId,
+          noteId: row["note_id"] ?? nil,
+          notebookId: row["notebook_id"] ?? nil,
+          bodyMarkdown: bodyMarkdown,
+          author: author,
+          createdAt: createdAt
+        )
+      }
     }
   }
 
@@ -450,7 +555,6 @@ private func requireNoteLink(
 
 private func noteComment(from row: SQLiteRow) throws -> NoteComment {
   guard let commentId = row["comment_id"],
-        let noteId = row["note_id"],
         let bodyMarkdown = row["body_markdown"],
         let author = row["author"],
         let createdAt = row["created_at"] else {
@@ -458,7 +562,8 @@ private func noteComment(from row: SQLiteRow) throws -> NoteComment {
   }
   return NoteComment(
     commentId: commentId,
-    noteId: noteId,
+    noteId: row["note_id"] ?? nil,
+    notebookId: row["notebook_id"] ?? nil,
     bodyMarkdown: bodyMarkdown,
     author: author,
     createdAt: createdAt

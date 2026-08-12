@@ -6,6 +6,7 @@ public enum AgentInvocationPurpose: String, Codable, Equatable, Sendable {
   case chat
   case tagExtraction = "tag-extraction"
   case translation
+  case search
 }
 
 public struct AgentInvocationTurn: Codable, Equatable, Sendable {

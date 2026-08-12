@@ -3,6 +3,7 @@ import {
   formatRoute,
   navigate,
   parseRoute,
+  rememberReaderRoute,
   routeConversationId,
   routeNoteId,
   routeNotebookId,
@@ -51,6 +52,26 @@ describe('route parsing', () => {
     expect(parseRoute('#/note/note-1?conv=')).toEqual({ kind: 'note', noteId: 'note-1' })
   })
 
+  test('parses the search route with scope, method and notebook pin', () => {
+    expect(parseRoute('#/search?q=alpha%20beta&scope=notebook&method=grep&nb=nb-1'))
+      .toEqual({ kind: 'search', query: 'alpha beta', scope: 'notebook', method: 'grep', notebookId: 'nb-1' })
+    // Defaults: all notebooks, agentic method.
+    expect(parseRoute('#/search?q=alpha'))
+      .toEqual({ kind: 'search', query: 'alpha', scope: 'all', method: 'agentic' })
+    expect(parseRoute('#/search?q=a+b'))
+      .toEqual({ kind: 'search', query: 'a b', scope: 'all', method: 'agentic' })
+  })
+
+  test('search routes round-trip through format and parse', () => {
+    const route: Route = { kind: 'search', query: 'ヴェネツィア 貿易', scope: 'notebook', method: 'agentic', notebookId: 'nb/9' }
+    expect(parseRoute(formatRoute(route))).toEqual(route)
+  })
+
+  test('parses the config route', () => {
+    expect(parseRoute('#/config')).toEqual({ kind: 'config' })
+    expect(parseRoute(formatRoute({ kind: 'config' }))).toEqual({ kind: 'config' })
+  })
+
   test('falls back to home for empty, partial and unknown hashes', () => {
     expect(parseRoute('')).toEqual({ kind: 'home' })
     expect(parseRoute('#')).toEqual({ kind: 'home' })
@@ -94,6 +115,18 @@ describe('route formatting', () => {
     expect(formatRoute(withConversation(route, 'conv-3'))).toBe('#/note/note-1?conv=conv-3')
     expect(formatRoute(withConversation(route, undefined))).toBe('#/note/note-1')
     expect(withConversation({ kind: 'home' }, 'conv-3')).toEqual({ kind: 'home' })
+  })
+})
+
+describe('reader return route', () => {
+  test('preserves the last reader route while visiting the board', () => {
+    const note: Route = { kind: 'note', noteId: 'note-1', conversationId: 'conv-9' }
+    const remembered = rememberReaderRoute(note)
+    expect(rememberReaderRoute({ kind: 'board' }, remembered)).toEqual(note)
+  })
+
+  test('falls back to home when the board was opened directly', () => {
+    expect(rememberReaderRoute({ kind: 'board' })).toEqual({ kind: 'home' })
   })
 })
 

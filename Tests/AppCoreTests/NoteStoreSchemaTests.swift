@@ -191,7 +191,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       // Fixture setup only: remove the additive v6 column and marker so the
       // populated current-schema store represents the exact v5 input shape.
       try database.execute("ALTER TABLE notebooks DROP COLUMN read_only")
-      try database.execute("DELETE FROM note_schema_version WHERE version IN (6, 7, 8)")
+      try database.execute("DELETE FROM note_schema_version WHERE version IN (6, 7, 8, 9)")
       XCTAssertFalse(try database.query("PRAGMA table_info(notebooks)").contains { $0["name"] == "read_only" })
       XCTAssertEqual(try schemaVersions(in: database), [1, 2, 3, 4, 5])
     }
@@ -293,7 +293,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
         "DELETE FROM tags WHERE name = ?",
         bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
       )
-      try database.execute("DELETE FROM note_schema_version WHERE version = 8")
+      try database.execute("DELETE FROM note_schema_version WHERE version IN (8, 9)")
       XCTAssertEqual(try schemaVersions(in: database), Array(1...7))
     }
 

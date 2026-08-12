@@ -2,6 +2,7 @@ import Foundation
 
 private let kaibaSPAServiceNamespaces = [
   "/api",
+  "/files",
   "/graphql",
   "/healthz",
   "/note",

@@ -14,6 +14,12 @@ export interface HeadingNode extends HeadingAnchor {
   children: HeadingNode[]
 }
 
+/** Anchor id prefix scoping one note's headings inside the continuous reader,
+ * so identical headings in different notes never collide. */
+export function noteHeadingPrefix(noteId: string): string {
+  return `note-${noteId}--`
+}
+
 export function slugifyHeading(text: string): string {
   const slug = plainInlineText(text)
     .toLowerCase()
@@ -24,7 +30,7 @@ export function slugifyHeading(text: string): string {
 
 /** Assigns each heading block its anchor id, suffixing repeats (`intro`,
  * `intro-2`, `intro-3`) so ids stay unique within one rendered document. */
-export function headingAnchors(blocks: MarkdownBlock[]): HeadingAnchor[] {
+export function headingAnchors(blocks: MarkdownBlock[], idPrefix = ''): HeadingAnchor[] {
   const used = new Map<string, number>()
   const anchors: HeadingAnchor[] = []
   for (const block of blocks) {
@@ -33,7 +39,7 @@ export function headingAnchors(blocks: MarkdownBlock[]): HeadingAnchor[] {
     const seen = used.get(base) ?? 0
     used.set(base, seen + 1)
     anchors.push({
-      id: seen === 0 ? base : `${base}-${seen + 1}`,
+      id: idPrefix + (seen === 0 ? base : `${base}-${seen + 1}`),
       level: Math.min(Math.max(block.level, 1), 6),
       text: plainInlineText(block.text),
     })
@@ -43,8 +49,8 @@ export function headingAnchors(blocks: MarkdownBlock[]): HeadingAnchor[] {
 
 /** Anchor per block index, so the renderer can hand every heading element the
  * same id the Contents tab links to. */
-export function headingAnchorsByBlockIndex(blocks: MarkdownBlock[]): Map<number, HeadingAnchor> {
-  const anchors = headingAnchors(blocks)
+export function headingAnchorsByBlockIndex(blocks: MarkdownBlock[], idPrefix = ''): Map<number, HeadingAnchor> {
+  const anchors = headingAnchors(blocks, idPrefix)
   const byIndex = new Map<number, HeadingAnchor>()
   let cursor = 0
   blocks.forEach((block, index) => {
@@ -72,8 +78,8 @@ export function buildHeadingTree(anchors: HeadingAnchor[]): HeadingNode[] {
   return roots
 }
 
-export function markdownHeadingTree(markdown: string): HeadingNode[] {
-  return buildHeadingTree(headingAnchors(parseMarkdownBlocks(markdown)))
+export function markdownHeadingTree(markdown: string, idPrefix = ''): HeadingNode[] {
+  return buildHeadingTree(headingAnchors(parseMarkdownBlocks(markdown), idPrefix))
 }
 
 export function flattenHeadingTree(nodes: HeadingNode[]): HeadingAnchor[] {

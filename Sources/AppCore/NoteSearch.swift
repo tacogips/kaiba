@@ -16,6 +16,7 @@ func searchNotesInDatabase(
   query: String,
   tagFilter: [String],
   classFilter: [String],
+  notebookId: String? = nil,
   sort: NoteListSort,
   createdAfter: String?,
   createdBefore: String?,
@@ -47,6 +48,7 @@ func searchNotesInDatabase(
       results = try searchNotesByFilters(
         tagFilterIds: expandedTagFilterIds,
         classFilter: classFilter,
+        notebookId: notebookId,
         sort: sort,
         createdAfter: createdAfter,
         createdBefore: createdBefore,
@@ -58,6 +60,7 @@ func searchNotesInDatabase(
         query: query,
         tagFilterIds: expandedTagFilterIds,
         classFilter: classFilter,
+        notebookId: notebookId,
         excludedNoteIds: [],
         sort: sort,
         createdAfter: createdAfter,
@@ -72,6 +75,7 @@ func searchNotesInDatabase(
           query: query,
           tagFilterIds: expandedTagFilterIds,
           classFilter: classFilter,
+          notebookId: notebookId,
           sort: sort,
           createdAfter: createdAfter,
           createdBefore: createdBefore,
@@ -90,6 +94,10 @@ func searchNotesInDatabase(
     WHERE note_fts MATCH ?
     """
   var bindings: [SQLiteValue] = [.text(matchQuery)]
+  if let notebookId {
+    sql += "\n  AND n.notebook_id = ?"
+    bindings.append(.text(notebookId))
+  }
   appendCreatedAtPredicates(
     alias: "n",
     createdAfter: createdAfter,
@@ -147,6 +155,7 @@ func searchNotesInDatabase(
       query: query,
       tagFilterIds: expandedTagFilterIds,
       classFilter: classFilter,
+      notebookId: notebookId,
       excludedNoteIds: Set(results.map(\.note.noteId)),
       sort: sort,
       createdAfter: createdAfter,
@@ -162,6 +171,7 @@ func searchNotesInDatabase(
         query: query,
         tagFilterIds: expandedTagFilterIds,
         classFilter: classFilter,
+        notebookId: notebookId,
         sort: sort,
         createdAfter: createdAfter,
         createdBefore: createdBefore,
@@ -180,17 +190,24 @@ private func shouldRunTextLikeFallback(query: String, ftsResultCount: Int) -> Bo
 private func searchNotesByFilters(
   tagFilterIds: [String],
   classFilter: [String],
+  notebookId: String?,
   sort: NoteListSort,
   createdAfter: String?,
   createdBefore: String?,
   limit: Int,
   in database: SQLiteDatabase
 ) throws -> [NoteSearchResult] {
-  guard !tagFilterIds.isEmpty || !classFilter.isEmpty || createdAfter != nil || createdBefore != nil else {
+  guard !tagFilterIds.isEmpty || !classFilter.isEmpty || createdAfter != nil || createdBefore != nil
+    || notebookId != nil
+  else {
     return []
   }
   var predicates: [String] = []
   var bindings: [SQLiteValue] = []
+  if let notebookId {
+    predicates.append("n.notebook_id = ?")
+    bindings.append(.text(notebookId))
+  }
   if !tagFilterIds.isEmpty {
     predicates.append(
       """
@@ -257,6 +274,7 @@ private func searchNotesByTextLike(
   query: String,
   tagFilterIds: [String],
   classFilter: [String],
+  notebookId: String?,
   excludedNoteIds: Set<String>,
   sort: NoteListSort,
   createdAfter: String?,
@@ -285,6 +303,10 @@ private func searchNotesByTextLike(
     """
   ]
   var bindings: [SQLiteValue] = [.text(likePattern), .text(likePattern), .text(likePattern)]
+  if let notebookId {
+    predicates.append("n.notebook_id = ?")
+    bindings.append(.text(notebookId))
+  }
   if !excludedNoteIds.isEmpty {
     predicates.append("n.note_id NOT IN (\(placeholders(count: excludedNoteIds.count)))")
     bindings.append(contentsOf: excludedNoteIds.sorted().map(SQLiteValue.text))
@@ -351,11 +373,13 @@ private func searchNotesByTextLike(
   }
 }
 
+// swiftlint:disable:next function_parameter_count
 private func appendLinkedNeighborResults(
   to directResults: [NoteSearchResult],
   query: String,
   tagFilterIds: [String],
   classFilter: [String],
+  notebookId: String?,
   sort: NoteListSort,
   createdAfter: String?,
   createdBefore: String?,
@@ -391,6 +415,10 @@ private func appendLinkedNeighborResults(
     "n.note_id IN (\(placeholders(count: candidateIds.count)))"
   ]
   var bindings = candidateIds.map(SQLiteValue.text)
+  if let notebookId {
+    predicates.append("n.notebook_id = ?")
+    bindings.append(.text(notebookId))
+  }
   appendCreatedAtPredicates(
     alias: "n",
     createdAfter: createdAfter,
@@ -653,7 +681,7 @@ func placeholders(count: Int) -> String {
   Array(repeating: "?", count: count).joined(separator: ",")
 }
 
-private func escapedLikePattern(_ value: String) -> String {
+func escapedLikePattern(_ value: String) -> String {
   value
     .replacingOccurrences(of: "\\", with: "\\\\")
     .replacingOccurrences(of: "%", with: "\\%")

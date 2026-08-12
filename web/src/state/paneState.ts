@@ -3,24 +3,37 @@
 // stored value is user-editable and may predate a tab rename.
 
 export type LeftTab = 'files' | 'contents'
-export type RightTab = 'memos' | 'info' | 'links' | 'chat'
+export type RightTab = 'memo' | 'info' | 'links'
 
 export interface PaneState {
   leftOpen: boolean
   rightOpen: boolean
   leftTab: LeftTab
   rightTab: RightTab
+  /** Drag-resized pane widths in px; undefined keeps the stylesheet default. */
+  leftWidth?: number
+  rightWidth?: number
+}
+
+export const paneWidthBounds = {
+  left: { minimum: 170, maximum: 700 },
+  right: { minimum: 240, maximum: 1100 },
+} as const
+
+export function clampPaneWidth(side: 'left' | 'right', width: number): number {
+  const bounds = paneWidthBounds[side]
+  return Math.round(Math.min(bounds.maximum, Math.max(bounds.minimum, width)))
 }
 
 export const paneStateStorageKey = 'kaiba-chatbook-panes'
 export const leftTabs: readonly LeftTab[] = ['files', 'contents']
-export const rightTabs: readonly RightTab[] = ['memos', 'info', 'links', 'chat']
+export const rightTabs: readonly RightTab[] = ['memo', 'info', 'links']
 
 export const defaultPaneState: PaneState = {
   leftOpen: true,
   rightOpen: true,
   leftTab: 'files',
-  rightTab: 'memos',
+  rightTab: 'memo',
 }
 
 export interface PaneStateStorage {
@@ -44,10 +57,22 @@ export function parsePaneState(raw: string | null): PaneState {
     leftTab: leftTabs.includes(record.leftTab as LeftTab)
       ? record.leftTab as LeftTab
       : defaultPaneState.leftTab,
-    rightTab: rightTabs.includes(record.rightTab as RightTab)
-      ? record.rightTab as RightTab
-      : defaultPaneState.rightTab,
+    rightTab: normalizeRightTab(record.rightTab),
+    ...(typeof record.leftWidth === 'number' && Number.isFinite(record.leftWidth)
+      ? { leftWidth: clampPaneWidth('left', record.leftWidth) }
+      : {}),
+    ...(typeof record.rightWidth === 'number' && Number.isFinite(record.rightWidth)
+      ? { rightWidth: clampPaneWidth('right', record.rightWidth) }
+      : {}),
   }
+}
+
+/** Stored values from before memos and chat merged ("memos", "chat") land on
+ * the unified memo tab rather than resetting the whole pane state. */
+function normalizeRightTab(raw: unknown): RightTab {
+  if (rightTabs.includes(raw as RightTab)) return raw as RightTab
+  if (raw === 'memos' || raw === 'chat') return 'memo'
+  return defaultPaneState.rightTab
 }
 
 export function serializePaneState(state: PaneState): string {

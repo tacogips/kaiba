@@ -47,12 +47,16 @@ extension AppCommand {
         "sourceFileId": result.sourceFile.file.fileId
       ] as [String: Any])
     case .text:
-      return """
+      var lines = """
       Imported \(result.notebook.title)
       notebook \(result.notebook.notebookId)  (\(result.notes.count) notes)
       source file \(result.sourceFile.file.fileId)  \
       (\(result.sourceFile.file.mediaType), \(result.sourceFile.file.byteSize) bytes)
       """
+      if let warning = result.imageWarning {
+        lines += "\nwarning: \(warning)"
+      }
+      return lines
     }
   }
 

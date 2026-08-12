@@ -13,7 +13,7 @@ enum NoteStoreSchemaV7MigrationCheckpoint: Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 8
+  public static let currentVersion = 9
   public static let longTermMemoryNotebookKindTag = "notebook-kind:long-term-memory"
   static let longTermMemoryNotebookKindTagId = stableTagId(for: longTermMemoryNotebookKindTag)
   public static let agentConversationNotebookKindTag = "notebook-kind:agent-conversation"
@@ -384,6 +384,32 @@ public enum NoteStoreSchema {
     )
   }
 
+  /// Rebuilds `note_comments` so a memo can anchor to a notebook without a
+  /// note (`note_id` becomes nullable, `notebook_id` is added). Existing note
+  /// memos are backfilled with their note's notebook so notebook-wide memo
+  /// listings cover them without a join. The table has no incoming foreign
+  /// keys, so the rename-rebuild is safe with foreign_keys=ON.
+  fileprivate static func migrateToV9(in database: SQLiteDatabase) throws {
+    guard try !columnExists("notebook_id", in: "note_comments", database: database) else {
+      return
+    }
+    try database.transaction { db in
+      try db.execute("ALTER TABLE note_comments RENAME TO note_comments_v8")
+      try db.execute(noteCommentsTableStatement)
+      try db.execute(
+        """
+        INSERT INTO note_comments (
+          comment_id, note_id, notebook_id, body_markdown, author, created_at
+        )
+        SELECT c.comment_id, c.note_id, n.notebook_id, c.body_markdown, c.author, c.created_at
+        FROM note_comments_v8 c
+        LEFT JOIN notes n ON n.note_id = c.note_id
+        """
+      )
+      try db.execute("DROP TABLE note_comments_v8")
+    }
+  }
+
   private static func migrateToV7(in database: SQLiteDatabase) throws {
     try requireForeignKeysEnabled(in: database)
     try requireForeignKeyIntegrity(in: database)
@@ -603,7 +629,8 @@ private let schemaMigrations: [NoteSchemaMigration] = [
   NoteSchemaMigration(version: 4, apply: NoteStoreSchema.migrateToV4),
   NoteSchemaMigration(version: 5, apply: NoteStoreSchema.migrateToV5),
   NoteSchemaMigration(version: 6, apply: NoteStoreSchema.migrateToV6),
-  NoteSchemaMigration(version: 8, apply: NoteStoreSchema.migrateToV8)
+  NoteSchemaMigration(version: 8, apply: NoteStoreSchema.migrateToV8),
+  NoteSchemaMigration(version: 9, apply: NoteStoreSchema.migrateToV9)
 ]
 
 private struct V7IdentitySnapshot: Equatable {
@@ -858,13 +885,12 @@ private let schemaStatements = [
     PRIMARY KEY (from_note_id, to_note_id, link_kind)
   )
   """,
+  noteCommentsTableStatement,
   """
-  CREATE TABLE IF NOT EXISTS note_comments (
-    comment_id TEXT PRIMARY KEY,
-    note_id TEXT NOT NULL REFERENCES notes(note_id),
-    body_markdown TEXT NOT NULL,
-    author TEXT NOT NULL,
-    created_at TEXT NOT NULL
+  CREATE TABLE IF NOT EXISTS app_settings (
+    setting_key TEXT PRIMARY KEY,
+    value_json BLOB NOT NULL CHECK (json_valid(value_json, 8)),
+    updated_at TEXT NOT NULL
   )
   """,
   """
@@ -928,6 +954,21 @@ private let v7TagIndexStatements = [
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_root_folder_name_unique ON tags(name) WHERE class_id = 'folder' AND parent_tag_id IS NULL",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_nested_folder_parent_name_unique ON tags(parent_tag_id, name) WHERE class_id = 'folder' AND parent_tag_id IS NOT NULL"
 ]
+
+/// Memos attach to a note, to a whole notebook, or both (a note memo also
+/// records its notebook so notebook-wide memo listings need no join). At least
+/// one anchor must be present.
+let noteCommentsTableStatement = """
+  CREATE TABLE IF NOT EXISTS note_comments (
+    comment_id TEXT PRIMARY KEY,
+    note_id TEXT REFERENCES notes(note_id),
+    notebook_id TEXT REFERENCES notebooks(notebook_id),
+    body_markdown TEXT NOT NULL,
+    author TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    CHECK (note_id IS NOT NULL OR notebook_id IS NOT NULL)
+  )
+  """
 
 private let autoActionDispatchesTableStatement = """
   CREATE TABLE IF NOT EXISTS auto_action_dispatches (

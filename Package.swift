@@ -47,6 +47,10 @@ let package = Package(
     .testTarget(
       name: "AppGraphQLTests",
       dependencies: ["AppGraphQL", "AppCore"]
+    ),
+    .testTarget(
+      name: "AppServerTests",
+      dependencies: ["AppServer", "AppGraphQL", "AppCore"]
     )
   ],
   swiftLanguageModes: [.v6]

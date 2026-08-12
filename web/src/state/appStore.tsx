@@ -1,6 +1,6 @@
 import { createContext, onCleanup, useContext, type JSX } from 'solid-js'
 import { createStore, produce } from 'solid-js/store'
-import { NoteGraphQLClient } from '../notes/client'
+import { NoteGraphQLClient, notebookPageLimit } from '../notes/client'
 import { subscribeNoteEvents } from '../notes/events'
 import { loadNotebookPages } from '../notes/paging'
 import type { Note, Notebook, NoteTag, NoteTagClass } from '../notes/types'
@@ -9,13 +9,17 @@ import {
   formatRoute,
   navigate,
   parseRoute,
+  rememberReaderRoute,
   subscribeRoute,
   withConversation,
   type Route,
   type RouterEnvironment,
+  type SearchMethod,
+  type SearchScope,
 } from '../router'
 import {
   browserPaneStorage,
+  clampPaneWidth,
   readPaneState,
   withLeftTab,
   withRightTab,
@@ -25,6 +29,14 @@ import {
   type PaneStateStorage,
   type RightTab,
 } from './paneState'
+import {
+  clampFontScale,
+  defaultWebSettings,
+  parseWebSettings,
+  serializeWebSettings,
+  webSettingsKey,
+  type WebAppSettings,
+} from '../notes/settings'
 
 // The single owner of selection, pane layout, the note catalog and the note
 // events subscription. Panes read from here instead of receiving props drilled
@@ -58,6 +70,8 @@ export interface AppState {
    * (the chat tab's conversations) can follow store-wide changes. */
   catalogRevision: number
   searchOpen: boolean
+  /** App settings from the store's sqlite (`app_settings`, key "web"). */
+  settings: WebAppSettings
 }
 
 export interface AppStore {
@@ -69,7 +83,16 @@ export interface AppStore {
   openNote(noteId: string, notebookId?: string): void
   openNotebook(notebookId: string): void
   openBoard(): void
+  openReader(): void
   openHome(): void
+  /** Navigates to the search results screen. Scope "notebook" pins the query
+   * to the currently open notebook. */
+  openSearch(query: string, scope: SearchScope, method: SearchMethod): void
+  openConfig(): void
+  /** Applies immediately and persists to the store's sqlite (debounced). */
+  updateSettings(partial: Partial<WebAppSettings>): void
+  setPaneWidth(side: 'left' | 'right', width: number): void
+  resetPaneWidths(): void
   openConversation(conversationId?: string): void
   toggleFolder(tagId: string): void
   toggleNotebook(notebookId: string): void
@@ -83,6 +106,10 @@ export interface AppStore {
   refreshCatalog(): Promise<void>
   refreshNote(): Promise<void>
   loadNotes(notebookId: string): Promise<void>
+  loadMoreNotes(notebookId: string): Promise<void>
+  /** Clears the note selection but keeps the notebook open (its notes stay in
+   * the reader; the right pane falls back to notebook aggregates). */
+  deselectNote(): void
 }
 
 export interface AppStoreOptions {
@@ -126,11 +153,40 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     notebookRevisions: {},
     catalogRevision: 0,
     searchOpen: false,
+    settings: defaultWebSettings,
   })
 
   let catalogGeneration = 0
   let noteGeneration = 0
   let catalogTimer: ReturnType<typeof setTimeout> | undefined
+  let settingsTimer: ReturnType<typeof setTimeout> | undefined
+
+  const loadSettings = async (): Promise<void> => {
+    try {
+      setState('settings', parseWebSettings(await client.appSetting(webSettingsKey)))
+    } catch {
+      // No stored settings (or an offline host) keeps the defaults.
+    }
+  }
+
+  /** Optimistic: the new value applies immediately; the sqlite write is
+   * debounced so a slider drag is one persisted document, not dozens. */
+  const updateSettings = (partial: Partial<WebAppSettings>) => {
+    const next: WebAppSettings = {
+      ...state.settings,
+      ...partial,
+      ...(partial.fontScale !== undefined ? { fontScale: clampFontScale(partial.fontScale) } : {}),
+    }
+    setState('settings', next)
+    if (settingsTimer) clearTimeout(settingsTimer)
+    settingsTimer = setTimeout(() => {
+      settingsTimer = undefined
+      void client.setAppSetting(webSettingsKey, serializeWebSettings(state.settings))
+        .catch((error: unknown) => {
+          setState('message', `Could not save the settings: ${errorMessage(error)}`)
+        })
+    }, 500)
+  }
 
   const setPane = (next: PaneState) => {
     setState('pane', next)
@@ -141,12 +197,34 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     setState('notebookRevisions', notebookId, (revision) => (revision ?? 0) + 1)
   }
 
+  /** Reloads a notebook's notes, keeping as many pages as are already on
+   * screen so an events-feed refresh never truncates a lazily grown list. */
   const loadNotes = async (notebookId: string): Promise<void> => {
+    const target = state.notesByNotebook[notebookId]?.length ?? 0
+    const pages = Math.max(1, Math.ceil(target / notebookPageLimit))
     try {
-      const notes = await client.notes(notebookId, 0)
-      setState('notesByNotebook', notebookId, notes)
+      let all: Note[] = []
+      for (let page = 0; page < pages; page += 1) {
+        const chunk = await client.notes(notebookId, page * notebookPageLimit)
+        all = all.concat(chunk)
+        if (chunk.length < notebookPageLimit) break
+      }
+      setState('notesByNotebook', notebookId, all)
     } catch (error) {
       setState('message', `Could not load notes: ${errorMessage(error)}`)
+    }
+  }
+
+  /** Appends the next page of notes for the reader's lazy scroll. Does nothing
+   * once the last fetched page came back short (the list is complete). */
+  const loadMoreNotes = async (notebookId: string): Promise<void> => {
+    const current = state.notesByNotebook[notebookId]
+    if (!current || current.length === 0 || current.length % notebookPageLimit !== 0) return
+    try {
+      const chunk = await client.notes(notebookId, current.length)
+      if (chunk.length > 0) setState('notesByNotebook', notebookId, [...current, ...chunk])
+    } catch (error) {
+      setState('message', `Could not load more notes: ${errorMessage(error)}`)
     }
   }
 
@@ -199,13 +277,18 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       return
     }
     if (route.kind === 'notebook') {
+      // No auto-selection: the reader shows the notebook's notes as one
+      // continuous scroll, and the right pane shows notebook-level aggregates
+      // until the user clicks a note.
       setState({ notebookId: route.notebookId, noteId: undefined, note: undefined, activeHeadingId: '' })
+      setState('expandedNotebooks', (current) =>
+        current.includes(route.notebookId) ? current : [...current, route.notebookId])
       await loadNotes(route.notebookId)
-      if (generation !== noteGeneration) return
-      const first = state.notesByNotebook[route.notebookId]?.[0]
-      if (first) openNote(first.noteId, route.notebookId)
       return
     }
+    // The search and config screens keep the current selection so "this
+    // notebook" scope and the Reader button still refer to what was open.
+    if (route.kind === 'search' || route.kind === 'config') return
     setState({ notebookId: undefined, noteId: undefined, note: undefined, activeHeadingId: '' })
   }
 
@@ -242,7 +325,9 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   }
 
   let appliedSelection = ''
+  let readerRoute = rememberReaderRoute(state.route)
   const unsubscribeRoute = subscribeRoute(router, (route) => {
+    readerRoute = rememberReaderRoute(route, readerRoute)
     setState('route', route)
     const key = selectionKey(route)
     if (key === appliedSelection) return
@@ -258,6 +343,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       // notes without authentication.
       setState('message', `Client registration failed: ${errorMessage(error)}`)
     }
+    void loadSettings()
     await refreshCatalog()
   })()
 
@@ -289,6 +375,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     unsubscribeRoute()
     unsubscribeEvents()
     if (catalogTimer) clearTimeout(catalogTimer)
+    if (settingsTimer) clearTimeout(settingsTimer)
   })
 
   const store: AppStore = {
@@ -300,7 +387,32 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     openNote,
     openNotebook: (notebookId) => go({ kind: 'notebook', notebookId }),
     openBoard: () => go({ kind: 'board' }),
+    openReader: () => go(readerRoute),
     openHome: () => go({ kind: 'home' }),
+    openSearch: (query, scope, method) => {
+      const notebookId = scope === 'notebook' ? state.notebookId : undefined
+      go({
+        kind: 'search',
+        query,
+        scope: notebookId ? scope : 'all',
+        method,
+        ...(notebookId ? { notebookId } : {}),
+      })
+    },
+    openConfig: () => go({ kind: 'config' }),
+    updateSettings,
+    setPaneWidth: (side, width) => {
+      const clamped = clampPaneWidth(side, width)
+      setPane(side === 'left'
+        ? { ...state.pane, leftWidth: clamped }
+        : { ...state.pane, rightWidth: clamped })
+    },
+    resetPaneWidths: () => {
+      const next = { ...state.pane }
+      delete next.leftWidth
+      delete next.rightWidth
+      setPane(next)
+    },
     openConversation: (nextConversationId) => go(withConversation(state.route, nextConversationId)),
     toggleFolder: (tagId) => setState('expandedFolders', (current) => toggle(current, tagId)),
     toggleNotebook: (notebookId) => {
@@ -322,6 +434,12 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     },
     refreshNote,
     loadNotes,
+    loadMoreNotes,
+    deselectNote: () => {
+      const notebookId = state.notebookId
+      if (notebookId) go({ kind: 'notebook', notebookId })
+      else go({ kind: 'home' })
+    },
   }
   return store
 }
@@ -335,6 +453,7 @@ function selectionKey(route: Route): string {
     case 'note': return `note:${route.noteId}`
     case 'notebook': return `notebook:${route.notebookId}`
     case 'board': return 'board'
+    case 'search': return `search:${route.method}:${route.scope}:${route.query}`
     default: return 'home'
   }
 }

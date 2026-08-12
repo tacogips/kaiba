@@ -209,7 +209,9 @@ public struct GraphQLNoteFileAttachmentDTO: Codable, Equatable, Sendable {
 
 public struct GraphQLNoteCommentDTO: Codable, Equatable, Sendable {
   public var commentId: String
-  public var noteId: String
+  /// Nil for a notebook-level memo (anchored to the notebook, not a note).
+  public var noteId: String?
+  public var notebookId: String?
   public var bodyMarkdown: String
   public var author: String
   public var createdAt: String
@@ -217,6 +219,7 @@ public struct GraphQLNoteCommentDTO: Codable, Equatable, Sendable {
   public init(comment: NoteComment) {
     commentId = comment.commentId
     noteId = comment.noteId
+    notebookId = comment.notebookId
     bodyMarkdown = comment.bodyMarkdown
     author = comment.author
     createdAt = comment.createdAt
@@ -314,7 +317,9 @@ public struct GraphQLAgentConversationDTO: Codable, Equatable, Sendable {
   public var title: String
   public var updatedAt: String
   public var turnCount: Int
-  public var subjectNoteId: String
+  /// Nil for a notebook-scoped conversation.
+  public var subjectNoteId: String?
+  public var subjectNotebookId: String?
 
   public init(conversation: AgentChatConversation) {
     notebookId = conversation.notebook.notebookId
@@ -322,6 +327,72 @@ public struct GraphQLAgentConversationDTO: Codable, Equatable, Sendable {
     updatedAt = conversation.notebook.updatedAt
     turnCount = conversation.turnCount
     subjectNoteId = conversation.subjectNoteId
+    subjectNotebookId = conversation.subjectNotebookId
+  }
+}
+
+public struct GraphQLAgentModelDTO: Codable, Equatable, Sendable {
+  public var modelId: String
+  public var displayName: String?
+  public var description: String?
+
+  public init(model: AgentGatewayModelInfo) {
+    modelId = model.modelId
+    displayName = model.name
+    description = model.description
+  }
+
+  public init(modelId: String) {
+    self.modelId = modelId
+  }
+}
+
+public struct GraphQLAgentModelsResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var models: [GraphQLAgentModelDTO]
+  public var discoveryAvailable: Bool
+  public var configuredModel: String?
+
+  public init(
+    result: GraphQLControlPlaneResult,
+    models: [GraphQLAgentModelDTO],
+    discoveryAvailable: Bool,
+    configuredModel: String?
+  ) {
+    self.result = result
+    self.models = models
+    self.discoveryAvailable = discoveryAvailable
+    self.configuredModel = configuredModel
+  }
+}
+
+public struct GraphQLAppSettingResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var key: String
+  /// Nil when the setting has never been stored.
+  public var valueJSON: String?
+
+  public init(result: GraphQLControlPlaneResult, key: String, valueJSON: String? = nil) {
+    self.result = result
+    self.key = key
+    self.valueJSON = valueJSON
+  }
+}
+
+public struct GraphQLAgenticSearchResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  /// "ok", "agent-unavailable", or "failed".
+  public var status: String
+  public var answerMarkdown: String?
+
+  public init(
+    result: GraphQLControlPlaneResult,
+    status: String,
+    answerMarkdown: String? = nil
+  ) {
+    self.result = result
+    self.status = status
+    self.answerMarkdown = answerMarkdown
   }
 }
 

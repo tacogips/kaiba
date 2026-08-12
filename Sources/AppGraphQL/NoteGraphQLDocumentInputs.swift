@@ -82,6 +82,28 @@ public struct GraphQLAddNoteCommentInput: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLAddNotebookCommentInput: Codable, Equatable, Sendable {
+  public var notebookId: String
+  public var bodyMarkdown: String
+  public var author: String?
+
+  public init(notebookId: String, bodyMarkdown: String, author: String? = nil) {
+    self.notebookId = notebookId
+    self.bodyMarkdown = bodyMarkdown
+    self.author = author
+  }
+}
+
+public struct GraphQLSetAppSettingInput: Codable, Equatable, Sendable {
+  public var key: String
+  public var valueJSON: String
+
+  public init(key: String, valueJSON: String) {
+    self.key = key
+    self.valueJSON = valueJSON
+  }
+}
+
 public struct GraphQLLinkNotesInput: Codable, Equatable, Sendable {
   public var fromNoteId: String
   public var toNoteId: String
@@ -151,22 +173,47 @@ public struct GraphQLSaveNoteConversationInput: Codable, Equatable, Sendable {
   public var originatingActionId: String?
 }
 
+/// The subject is a note (`subjectNoteId`) or a whole notebook
+/// (`subjectNotebookId`); exactly one is required when starting a new
+/// conversation, and neither is needed when `conversationNotebookId` names an
+/// existing one.
 public struct GraphQLSendAgentChatMessageInput: Codable, Equatable, Sendable {
-  public var subjectNoteId: String
+  public var subjectNoteId: String?
+  public var subjectNotebookId: String?
   public var conversationNotebookId: String?
   public var userMarkdown: String
   public var idempotencyKey: String?
+  public var model: String?
+  public var attachments: [GraphQLAgentChatAttachmentInput]?
 
   public init(
-    subjectNoteId: String,
+    subjectNoteId: String? = nil,
+    subjectNotebookId: String? = nil,
     conversationNotebookId: String? = nil,
     userMarkdown: String,
-    idempotencyKey: String? = nil
+    idempotencyKey: String? = nil,
+    model: String? = nil,
+    attachments: [GraphQLAgentChatAttachmentInput]? = nil
   ) {
     self.subjectNoteId = subjectNoteId
+    self.subjectNotebookId = subjectNotebookId
     self.conversationNotebookId = conversationNotebookId
     self.userMarkdown = userMarkdown
     self.idempotencyKey = idempotencyKey
+    self.model = model
+    self.attachments = attachments
+  }
+}
+
+public struct GraphQLAgentChatAttachmentInput: Codable, Equatable, Sendable {
+  public var contentBase64: String
+  public var mediaType: String
+  public var originalFilename: String
+
+  public init(contentBase64: String, mediaType: String, originalFilename: String) {
+    self.contentBase64 = contentBase64
+    self.mediaType = mediaType
+    self.originalFilename = originalFilename
   }
 }
 

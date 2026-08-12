@@ -17,6 +17,9 @@ public struct NoteService: Sendable {
   public var driver: NoteDatabaseDriving
   public var autoActionDispatcher: AutoActionDispatching?
   public var autoActionDiagnosticRecorder: (any NoteAutoActionFilterDiagnosticRecording)?
+  /// Internal test seam for staged agent-chat attachment rollback. Production
+  /// always uses the local store, and persisted reads remain unchanged.
+  var chatAttachmentFileStore: (any NoteFileStore)?
   /// Window after which a live in-flight dispatch lease is treated as stale by
   /// the recovery path. A running attempt heartbeats its lease on a fraction of
   /// this window so a long workflow is never reclaimed out from under it.
@@ -38,6 +41,7 @@ public struct NoteService: Sendable {
     self.driver = driver
     self.autoActionDispatcher = autoActionDispatcher
     self.autoActionDiagnosticRecorder = autoActionDiagnosticRecorder
+    self.chatAttachmentFileStore = nil
     self.autoActionDispatchLeaseStaleness = autoActionDispatchLeaseStaleness
     self.changeObserver = changeObserver
     self.autoActionDispatchTasks = AutoActionDispatchTaskTracker()
@@ -748,64 +752,6 @@ public struct NoteService: Sendable {
     }
   }
 
-  @discardableResult
-  public func addComment(noteId: String, bodyMarkdown: String, author: String = "user") throws -> NoteComment {
-    let result = try driver.withDatabase { database in
-      try database.transaction { db -> (comment: NoteComment, notebookId: String) in
-        let note = try requireNote(noteId, in: db)
-        let now = NoteStoreClock.system.now()
-        let commentId = makeNoteId(prefix: "comment")
-        try db.execute(
-          """
-          INSERT INTO note_comments (comment_id, note_id, body_markdown, author, created_at)
-          VALUES (?, ?, ?, ?, ?)
-          """,
-          bindings: [.text(commentId), .text(noteId), .text(bodyMarkdown), .text(author), .text(now)]
-        )
-        let comment = NoteComment(
-          commentId: commentId,
-          noteId: noteId,
-          bodyMarkdown: bodyMarkdown,
-          author: author,
-          createdAt: now
-        )
-        return (comment, note.notebookId)
-      }
-    }
-    publishChange(NoteChangeEvent(
-      kind: NoteChangeEventKind.noteUpdated,
-      notebookId: result.notebookId
-    ))
-    return result.comment
-  }
-
-  public func searchNotes(
-    query: String,
-    tagFilter: [String] = [],
-    classFilter: [String] = [],
-    sort: NoteListSort = .createdAtDesc,
-    createdAfter: String? = nil,
-    createdBefore: String? = nil,
-    includeLinked: Bool = false,
-    depth: Int = 1,
-    limit: Int = 20,
-    offset: Int = 0
-  ) throws -> [NoteSearchResult] {
-    try driver.withDatabase { database in
-      try searchNotesInDatabase(
-        query: query,
-        tagFilter: tagFilter,
-        classFilter: classFilter,
-        sort: sort,
-        createdAfter: createdAfter,
-        createdBefore: createdBefore,
-        graphOptions: NoteSearchGraphOptions(includeLinked: includeLinked, depth: depth),
-        limit: limit,
-        offset: offset,
-        in: database
-      )
-    }
-  }
 }
 
 /// Resolves the title for a comment-promoted notebook: an explicit non-empty title wins,

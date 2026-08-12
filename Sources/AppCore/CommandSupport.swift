@@ -255,7 +255,8 @@ func jsonObject(_ file: FileRecord) -> [String: Any] {
 func jsonObject(_ comment: NoteComment) -> [String: Any] {
   [
     "commentId": comment.commentId,
-    "noteId": comment.noteId,
+    "noteId": comment.noteId ?? NSNull(),
+    "notebookId": comment.notebookId ?? NSNull(),
     "bodyMarkdown": comment.bodyMarkdown,
     "author": comment.author,
     "createdAt": comment.createdAt

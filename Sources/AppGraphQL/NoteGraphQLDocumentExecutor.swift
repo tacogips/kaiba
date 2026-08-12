@@ -216,6 +216,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         query: requiredString("query", variables: variables),
         tagFilter: try optionalStringArray("tagFilter", variables: variables) ?? [],
         classFilter: try optionalStringArray("classFilter", variables: variables) ?? [],
+        notebookId: try optionalString("notebookId", variables: variables),
         sort: try optionalString("sort", variables: variables),
         createdAfter: try optionalString("createdAfter", variables: variables),
         createdBefore: try optionalString("createdBefore", variables: variables),
@@ -254,6 +255,8 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "noteFile":
       return try await encodedJSONValue(service.noteFile(fileId: requiredString("fileId", variables: variables)))
+    case "noteFiles":
+      return try await encodedJSONValue(service.noteFiles(noteId: requiredString("noteId", variables: variables)))
     case "autoActions":
       return try await encodedJSONValue(service.autoActions())
     case "noteConversations":
@@ -261,9 +264,30 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         noteId: requiredString("noteId", variables: variables),
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50)
       ))
+    case "notebookConversations":
+      return try await encodedJSONValue(service.notebookConversations(
+        notebookId: requiredString("notebookId", variables: variables),
+        limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50)
+      ))
+    case "agentModels":
+      return try await encodedJSONValue(service.agentModels())
     case "noteComments":
       return try await encodedJSONValue(service.noteComments(
         noteId: requiredString("noteId", variables: variables)
+      ))
+    case "notebookComments":
+      return try await encodedJSONValue(service.notebookComments(
+        notebookId: requiredString("notebookId", variables: variables)
+      ))
+    case "agenticSearch":
+      return try await encodedJSONValue(service.agenticSearch(
+        query: requiredString("query", variables: variables),
+        notebookId: try optionalString("notebookId", variables: variables),
+        limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 20)
+      ))
+    case "appSetting":
+      return try await encodedJSONValue(service.appSetting(
+        key: requiredString("key", variables: variables)
       ))
     case "setNotebookReadOnly":
       return try await encodedJSONValue(service.setNotebookReadOnly(
@@ -387,6 +411,19 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         noteId: input.noteId,
         bodyMarkdown: input.bodyMarkdown,
         author: try noteAPIAssignedBy(input.author, field: "author", request: request) ?? "user"
+      ))
+    case "addNotebookComment":
+      let input: GraphQLAddNotebookCommentInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.addNotebookComment(
+        notebookId: input.notebookId,
+        bodyMarkdown: input.bodyMarkdown,
+        author: try noteAPIAssignedBy(input.author, field: "author", request: request) ?? "user"
+      ))
+    case "setAppSetting":
+      let input: GraphQLSetAppSettingInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.setAppSetting(
+        key: input.key,
+        valueJSON: input.valueJSON
       ))
     case "linkNotes":
       let input: GraphQLLinkNotesInput = try requiredInput("input", variables: variables)
@@ -608,6 +645,7 @@ let supportedNoteGraphQLFields: Set<String> = [
   "effectiveKanbanStatuses",
   "effectiveKanbanStatusesByTagId",
   "noteFile",
+  "noteFiles",
   "autoActions",
   "createNote",
   "createNotebook",
@@ -631,6 +669,8 @@ let supportedNoteGraphQLFields: Set<String> = [
   "applyNoteTags",
   "removeNoteTag",
   "addNoteComment",
+  "addNotebookComment",
+  "setAppSetting",
   "linkNotes",
   "attachNoteFile",
   "configureNoteAutoAction",
@@ -640,7 +680,12 @@ let supportedNoteGraphQLFields: Set<String> = [
   "requestTagExtraction",
   "requestNotebookTranslation",
   "noteConversations",
+  "notebookConversations",
+  "agentModels",
   "noteComments",
+  "notebookComments",
+  "agenticSearch",
+  "appSetting",
   "migrateNoteFileStorage",
   "migrateAllNoteFiles",
   "reclaimNoteFileStorage"
@@ -660,9 +705,15 @@ private let noteGraphQLQueryFields: Set<String> = [
   "effectiveKanbanStatuses",
   "effectiveKanbanStatusesByTagId",
   "noteFile",
+  "noteFiles",
   "autoActions",
   "noteConversations",
-  "noteComments"
+  "notebookConversations",
+  "noteComments",
+  "notebookComments",
+  "agentModels",
+  "agenticSearch",
+  "appSetting"
 ]
 
 private let noteGraphQLMutationFields = supportedNoteGraphQLFields.subtracting(noteGraphQLQueryFields)
@@ -796,9 +847,16 @@ private let noteGraphQLRootSelectionTypes: [String: String] = [
   "updateKanbanStatusSet": "KanbanStatusSetQueryPayload",
   "deleteKanbanStatusSet": "ControlPlaneResult",
   "noteFile": "NoteFileQueryPayload",
+  "noteFiles": "NoteFilesQueryPayload",
   "autoActions": "NoteAutoActionsQueryPayload",
   "noteConversations": "AgentConversationsQueryPayload",
+  "notebookConversations": "AgentConversationsQueryPayload",
+  "agentModels": "AgentModelsPayload",
   "noteComments": "NoteCommentsQueryPayload",
+  "notebookComments": "NoteCommentsQueryPayload",
+  "agenticSearch": "AgenticSearchPayload",
+  "appSetting": "AppSettingPayload",
+  "setAppSetting": "AppSettingPayload",
   "sendAgentChatMessage": "AgentChatMessagePayload",
   "requestTagExtraction": "TagExtractionRequestPayload",
   "requestNotebookTranslation": "NotebookTranslationRequestPayload",
@@ -840,21 +898,44 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "position": nil
   ],
   "NoteFileQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFile"),
+  "NoteFilesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFileAttachment"),
   "NoteAutoActionsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteAutoAction"),
   "AgentConversationsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "AgentConversation"),
+  "AgentModelsPayload": [
+    "result": "ControlPlaneResult",
+    "models": "AgentModel",
+    "discoveryAvailable": nil,
+    "configuredModel": nil
+  ],
+  "AgentModel": [
+    "modelId": nil,
+    "displayName": nil,
+    "description": nil
+  ],
   "NoteCommentsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteComment"),
   "AgentConversation": [
     "notebookId": nil,
     "title": nil,
     "updatedAt": nil,
     "turnCount": nil,
-    "subjectNoteId": nil
+    "subjectNoteId": nil,
+    "subjectNotebookId": nil
   ],
   "AgentChatMessagePayload": [
     "result": "ControlPlaneResult",
     "conversationNotebookId": nil,
     "turnNoteId": nil,
     "agentStatus": nil
+  ],
+  "AgenticSearchPayload": [
+    "result": "ControlPlaneResult",
+    "status": nil,
+    "answerMarkdown": nil
+  ],
+  "AppSettingPayload": [
+    "result": "ControlPlaneResult",
+    "key": nil,
+    "valueJSON": nil
   ],
   "TagExtractionRequestPayload": [
     "result": "ControlPlaneResult",
@@ -949,9 +1030,16 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "createdAt": nil,
     "migratedAt": nil
   ],
+  "NoteFileAttachment": [
+    "noteId": nil,
+    "file": "NoteFile",
+    "role": nil,
+    "position": nil
+  ],
   "NoteComment": [
     "commentId": nil,
     "noteId": nil,
+    "notebookId": nil,
     "bodyMarkdown": nil,
     "author": nil,
     "createdAt": nil

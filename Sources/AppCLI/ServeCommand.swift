@@ -76,6 +76,7 @@ struct ServeCommand {
     // completion writes carry originatingActionId, so loops are impossible.
     let aiConfiguration = options.configuration.ai
     let invoker = AgentInvokerFactory.makeInvoker(configuration: aiConfiguration)
+    let agentReplyStreamHub = AgentReplyStreamHub()
     var dispatcher: KaibaAutoActionDispatcher?
     if let invoker {
       dispatcher = KaibaAutoActionDispatcher(
@@ -84,7 +85,8 @@ struct ServeCommand {
         provider: aiConfiguration?.agent?.provider,
         model: aiConfiguration?.agent?.model,
         translateProvider: aiConfiguration?.translate?.provider,
-        translateModel: aiConfiguration?.translate?.model
+        translateModel: aiConfiguration?.translate?.model,
+        streamPublisher: AgentReplyStreamHubPublisher(hub: agentReplyStreamHub)
       )
     }
     let service = try NoteService(
@@ -117,12 +119,19 @@ struct ServeCommand {
       }
     }
     defer { maintenance?.cancel() }
+    let s3Profiles = try KaibaConfigurationLoader.makeS3Profiles(
+      configuration: options.configuration,
+      environment: ProcessInfo.processInfo.environment
+    )
     let executor = NoteGraphQLDocumentExecutor(
-      service: GraphQLNoteGraphQLService(service: service),
-      s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(
-        configuration: options.configuration,
-        environment: ProcessInfo.processInfo.environment
-      )
+      service: GraphQLNoteGraphQLService(
+        service: service,
+        agentInvoker: invoker,
+        agentProvider: aiConfiguration?.agent?.provider,
+        agentModel: aiConfiguration?.agent?.model,
+        agentModelCatalog: agentModelCatalog(configuration: aiConfiguration)
+      ),
+      s3Profiles: s3Profiles
     )
     let authenticator: QRClientRegistrationAuthenticator? = options.allowUnauthenticated
       ? nil
@@ -131,21 +140,31 @@ struct ServeCommand {
       graphQLExecutor: executor,
       noteAPIAuthenticator: authenticator,
       allowUnauthenticatedNoteAPI: options.allowUnauthenticated,
-      noteChangeFeed: changeFeed
+      noteChangeFeed: changeFeed,
+      agentReplyStreamHub: agentReplyStreamHub
     )
     let adapter = DeterministicServerHTTPAdapter(
       routeHandler: routeHandler,
       context: ServerRequestContext(serviceName: "kaiba")
     )
-    let httpHandler: any KaibaHTTPRouteHandling
+    let downstream: any KaibaHTTPRouteHandling
     if let webRoot = options.webRoot {
-      httpHandler = KaibaStaticSPAHTTPRouter(
+      downstream = KaibaStaticSPAHTTPRouter(
         service: adapter,
         webRoot: URL(fileURLWithPath: webRoot, isDirectory: true)
       )
     } else {
-      httpHandler = adapter
+      downstream = adapter
     }
+    // Raw attachment bytes are served ahead of the SPA/static resolution so
+    // `/files/<fileId>` never falls through to the index.html rewrite.
+    let httpHandler = KaibaNoteFileHTTPRouter(
+      service: downstream,
+      noteService: service,
+      s3Profiles: s3Profiles,
+      authenticator: authenticator,
+      allowUnauthenticated: options.allowUnauthenticated
+    )
     let server = KaibaLocalHTTPServer(routeHandler: httpHandler)
     let boundPort = try await server.start(host: options.host, port: options.port)
     let endpoint = "http://\(options.host):\(boundPort)"
@@ -169,5 +188,18 @@ struct ServeCommand {
       // SIGINT/SIGTERM cancel the entry-point task.
     }
     await server.stop()
+  }
+}
+
+private func agentModelCatalog(
+  configuration: KaibaAIConfiguration?
+) -> (@Sendable () async throws -> AgentGatewayModelCatalogResult)? {
+  guard let agent = configuration?.agent, let provider = agent.provider, !provider.isEmpty else { return nil }
+  return {
+    try await AgentGatewayCLIModelCatalog(
+      commandPath: agent.commandPath,
+      vendor: provider,
+      apiKeyEnvironment: agent.apiKeyEnvironmentVariable
+    ).models()
   }
 }

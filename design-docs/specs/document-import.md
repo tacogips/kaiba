@@ -62,6 +62,30 @@ spawn the real binary.
   yet forward ACP image blocks to CLI vendors. Other CLI vendors are rejected
   until their gateway image forwarding is defined.
 
+- **DI7 — Source images are extracted by kaiba itself (2026-08-12).**
+  AnydocKit yields only markdown, so import additionally runs a
+  `DocumentImageExtracting` pass over the original file. For PDF
+  (PDFKit/CoreGraphics, Apple platforms only): every page is rendered
+  to a JPEG capture (longest side 1600 px, quality 0.8), and embedded
+  raster XObjects are recovered conservatively — JPEG passthrough,
+  JPEG 2000 re-encoded, and raw 8-bit RGB/Gray (directly named or
+  behind an ICCBased profile, which Quartz-written PDFs use even for
+  plain RGB) rebuilt as PNG; masks, CMYK, indexed and exotic spaces
+  are skipped, as are images under 32 px / 1 KiB, with cross-page
+  byte-identical dedupe and a 200-image cap. For EPUB (a minimal
+  in-repo zip reader + XMLParser OPF/spine parse): images referenced
+  by each spine document are extracted in order; EPUB is reflowable so
+  it gets no page captures. Extraction failures never fail the import.
+  Because notes are H1 sections with no page ground truth, pages map
+  to notes via `DocumentPageNoteMapper`: a monotone first-match of
+  each note's normalized title against per-page text; unmatched pages
+  stay with the preceding note. Attachments use the existing
+  `note_files` roles: `source-page-image` (position = 1-based page
+  number) and `embedded` (position = per-note ordinal). The web reader
+  lists them via the `noteFiles` GraphQL query and streams bytes from
+  `GET /files/<fileId>` (bearer-authenticated like the other note
+  routes; media types are sanitized against header injection).
+
 ## Components
 
 - `Sources/AppCore/DocumentConverting.swift` — `DocumentConverting`
@@ -110,5 +134,10 @@ credential environment-variable names, never credential values.
 
 - Browser upload + server-side import (chunked upload design needed).
 - Page-aware import if anydoc-swift exposes per-page markdown
-  (pdf-inspector upstream already computes it).
+  (pdf-inspector upstream already computes it) — this would replace
+  the DI7 title-matching heuristic with exact page-to-note mapping.
 - OCR fallback for scanned or image-only pages embedded inside PDFs.
+- EPUB page captures (needs an HTML renderer such as WKWebView
+  snapshotting; DI7 deliberately excludes them).
+- Embedded-image recovery for CMYK/indexed color spaces and
+  Linux-side extraction (DI7 is Apple-platform only).

@@ -18,9 +18,26 @@ public struct GraphQLNoteQueryResult<Value: Codable & Equatable & Sendable>: Cod
 
 public struct GraphQLNoteGraphQLService: Sendable {
   public var service: NoteService
+  /// When set, `agenticSearch` runs synchronously against this agent runtime;
+  /// nil reports `agent-unavailable` (mirrors every other AI surface).
+  public var agentInvoker: (any AgentInvoking)?
+  public var agentProvider: String?
+  public var agentModel: String?
+  /// Server-only model discovery; its result never exposes credentials or paths.
+  public var agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)?
 
-  public init(service: NoteService) {
+  public init(
+    service: NoteService,
+    agentInvoker: (any AgentInvoking)? = nil,
+    agentProvider: String? = nil,
+    agentModel: String? = nil,
+    agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)? = nil
+  ) {
     self.service = service
+    self.agentInvoker = agentInvoker
+    self.agentProvider = agentProvider
+    self.agentModel = agentModel
+    self.agentModelCatalog = agentModelCatalog
   }
 
   public func note(noteId: String) async -> GraphQLNoteQueryResult<GraphQLNoteDTO> {
@@ -79,6 +96,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     query: String,
     tagFilter: [String] = [],
     classFilter: [String] = [],
+    notebookId: String? = nil,
     sort: String? = nil,
     createdAfter: String? = nil,
     createdBefore: String? = nil,
@@ -92,6 +110,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
         query: query,
         tagFilter: tagFilter,
         classFilter: classFilter,
+        notebookId: notebookId,
         sort: try graphQLNoteListSort(sort),
         createdAfter: createdAfter,
         createdBefore: createdBefore,
@@ -138,6 +157,13 @@ public struct GraphQLNoteGraphQLService: Sendable {
   public func noteFile(fileId: String) async -> GraphQLNoteQueryResult<GraphQLNoteFileDTO> {
     noteResult {
       GraphQLNoteFileDTO(file: try service.getFileRecord(fileId: fileId))
+    }
+  }
+
+  /// The note's attachments in store order (position, then created-at, then id).
+  public func noteFiles(noteId: String) async -> GraphQLNoteQueryResult<[GraphQLNoteFileAttachmentDTO]> {
+    noteResult {
+      try service.listFiles(noteId: noteId).map(GraphQLNoteFileAttachmentDTO.init)
     }
   }
 
@@ -432,6 +458,21 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
+  public func addNotebookComment(
+    notebookId: String,
+    bodyMarkdown: String,
+    author: String = "user"
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let comment = try service.addNotebookComment(
+        notebookId: notebookId,
+        bodyMarkdown: bodyMarkdown,
+        author: author
+      )
+      return .init(result: .ok, comment: GraphQLNoteCommentDTO(comment: comment))
+    }
+  }
+
   public func linkNotes(
     from fromNoteId: String,
     to toNoteId: String,
@@ -547,6 +588,17 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
+  /// Conversations whose subject is the whole notebook (no note selected).
+  public func notebookConversations(
+    notebookId: String,
+    limit: Int = 50
+  ) async -> GraphQLNoteQueryResult<[GraphQLAgentConversationDTO]> {
+    noteResult {
+      try service.listAgentConversations(subjectNotebookId: notebookId, limit: limit)
+        .map(GraphQLAgentConversationDTO.init)
+    }
+  }
+
   public func noteComments(
     noteId: String
   ) async -> GraphQLNoteQueryResult<[GraphQLNoteCommentDTO]> {
@@ -555,49 +607,73 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func sendAgentChatMessage(
-    _ input: GraphQLSendAgentChatMessageInput
-  ) async -> GraphQLAgentChatMessageResult {
-    do {
-      let agentAvailable = service.autoActionDispatcher != nil
-      let conversationNotebookId: String
-      if let existing = input.conversationNotebookId {
-        guard try service.chatSubjectNoteId(notebookId: existing) != nil else {
-          throw GraphQLNoteServiceError.invalidRequest(
-            "notebook is not an agent chat conversation: \(existing)"
-          )
-        }
-        conversationNotebookId = existing
-      } else {
-        conversationNotebookId = try service.startAgentConversation(
-          subjectNoteId: input.subjectNoteId
-        ).notebookId
-      }
-      let turn = try service.appendPendingAgentChatTurn(
-        conversationNotebookId: conversationNotebookId,
-        userMarkdown: input.userMarkdown,
-        agentAvailable: agentAvailable,
-        idempotencyKey: input.idempotencyKey
-      )
-      let status = NoteService.chatTurnState(of: turn)?.status ?? .pending
-      let agentStatus: String
-      switch status {
-      case .pending: agentStatus = "pending"
-      case .unavailable: agentStatus = "agent-unavailable"
-      case .answered: agentStatus = "answered"
-      case .failed: agentStatus = "failed"
-      }
-      return GraphQLAgentChatMessageResult(
+  /// Agentic search: the configured agent answers a search question over the
+  /// store, with the kaiba CLI usage in its prompt and a grep pass as
+  /// grounding context. `status` is "ok", "agent-unavailable", or "failed".
+  public func agenticSearch(
+    query: String,
+    notebookId: String? = nil,
+    limit: Int = 20
+  ) async -> GraphQLAgenticSearchResult {
+    guard let agentInvoker else {
+      return GraphQLAgenticSearchResult(
         result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
-        conversationNotebookId: conversationNotebookId,
-        turnNoteId: turn.noteId,
-        agentStatus: agentStatus
+        status: "agent-unavailable"
+      )
+    }
+    do {
+      let search = AIAgenticSearchService(
+        service: service,
+        invoker: agentInvoker,
+        provider: agentProvider,
+        model: agentModel
+      )
+      let outcome = try await search.search(query: query, notebookId: notebookId, limit: limit)
+      return GraphQLAgenticSearchResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        status: "ok",
+        answerMarkdown: outcome.answerMarkdown
       )
     } catch {
-      return GraphQLAgentChatMessageResult(
+      return GraphQLAgenticSearchResult(
         result: graphQLNoteResult(for: error),
-        agentStatus: "error"
+        status: "failed"
       )
+    }
+  }
+
+  public func appSetting(key: String) async -> GraphQLAppSettingResult {
+    do {
+      let value = try service.appSetting(key: key)
+      return GraphQLAppSettingResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        key: key,
+        valueJSON: value
+      )
+    } catch {
+      return GraphQLAppSettingResult(result: graphQLNoteResult(for: error), key: key)
+    }
+  }
+
+  public func setAppSetting(key: String, valueJSON: String) async -> GraphQLAppSettingResult {
+    do {
+      let stored = try service.setAppSetting(key: key, valueJSON: valueJSON)
+      return GraphQLAppSettingResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        key: key,
+        valueJSON: stored
+      )
+    } catch {
+      return GraphQLAppSettingResult(result: graphQLNoteResult(for: error), key: key)
+    }
+  }
+
+  /// Every memo in the notebook, note-anchored and notebook-level alike.
+  public func notebookComments(
+    notebookId: String
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteCommentDTO]> {
+    noteResult {
+      try service.listNotebookComments(notebookId: notebookId).map(GraphQLNoteCommentDTO.init)
     }
   }
 
@@ -661,7 +737,7 @@ private func estimatedBase64DecodedByteCount(_ value: String) -> Int {
   return max(0, (sanitized.count / 4) * 3 - padding)
 }
 
-private enum GraphQLNoteServiceError: Error, Equatable {
+enum GraphQLNoteServiceError: Error, Equatable {
   case invalidRequest(String)
 }
 
@@ -709,7 +785,7 @@ private func noteControlResult(_ body: () throws -> Void) -> GraphQLControlPlane
   }
 }
 
-private func graphQLNoteResult(for error: Error) -> GraphQLControlPlaneResult {
+func graphQLNoteResult(for error: Error) -> GraphQLControlPlaneResult {
   switch error {
   case NoteServiceError.notFound:
     return .init(accepted: false, status: "not_found", diagnostics: [graphQLNotePublicDiagnostic(for: error)])

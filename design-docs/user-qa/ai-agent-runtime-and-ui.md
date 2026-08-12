@@ -16,6 +16,13 @@ wire agent chat and tagging only after the runtime is extracted into
 agent-gateway. Kaiba defines the `AgentInvoking` seam and configuration
 now; the adapter and end-to-end verification are a blocked final phase.
 
+Superseded and resolved 2026-08-12: agent-gateway now exposes the ACP stdio
+runtime, and Kaiba integrates it through
+`Sources/AppCore/AgentGatewayCLIInvoker.swift`. Agent chat, tagging, model
+discovery, streaming, and end-to-end verification are no longer blocked by
+runtime extraction. Codex and Cursor remain vendor choices behind this shared
+adapter rather than direct provider-specific integrations.
+
 ## Question 2
 
 How should kaiba integrate anydoc-swift for PDF/document-to-markdown?

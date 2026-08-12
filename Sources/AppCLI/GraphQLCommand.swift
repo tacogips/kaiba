@@ -159,8 +159,15 @@ struct GraphQLCommand {
           environment: ProcessInfo.processInfo.environment
         )
       )
+      let aiConfiguration = options.configuration.ai
       executor = NoteGraphQLDocumentExecutor(
-        service: GraphQLNoteGraphQLService(service: service),
+        service: GraphQLNoteGraphQLService(
+          service: service,
+          agentInvoker: AgentInvokerFactory.makeInvoker(configuration: aiConfiguration),
+          agentProvider: aiConfiguration?.agent?.provider,
+          agentModel: aiConfiguration?.agent?.model,
+          agentModelCatalog: graphQLAgentModelCatalog(configuration: aiConfiguration)
+        ),
         s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(
           configuration: options.configuration,
           environment: ProcessInfo.processInfo.environment
@@ -183,5 +190,18 @@ struct GraphQLCommand {
     ) ?? "{}"
     let failed = response.status >= 400 || response.body["errors"] != nil
     return (body, failed ? 1 : 0)
+  }
+}
+
+private func graphQLAgentModelCatalog(
+  configuration: KaibaAIConfiguration?
+) -> (@Sendable () async throws -> AgentGatewayModelCatalogResult)? {
+  guard let agent = configuration?.agent, let provider = agent.provider, !provider.isEmpty else { return nil }
+  return {
+    try await AgentGatewayCLIModelCatalog(
+      commandPath: agent.commandPath,
+      vendor: provider,
+      apiKeyEnvironment: agent.apiKeyEnvironmentVariable
+    ).models()
   }
 }

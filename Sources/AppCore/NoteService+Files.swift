@@ -10,16 +10,52 @@ public extension NoteService {
     originalFilename: String? = nil,
     position: Int = 0
   ) throws -> NoteFileAttachment {
+    try storeNoteFileAttachment(
+      noteId: noteId,
+      data: data,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      position: position,
+      requiresWritableNote: true
+    )
+  }
+}
+
+internal extension NoteService {
+  /// Shared implementation behind `attachFile(noteId:data:…)`.
+  ///
+  /// `requiresWritableNote` exists for document import: imported material is
+  /// created read-only on purpose, yet its page captures and embedded images
+  /// are part of that same import rather than a later edit, so the import path
+  /// attaches them with the guard lifted.
+  @discardableResult
+  func storeNoteFileAttachment(
+    noteId: String,
+    data: Data,
+    role: NoteFileRole,
+    mediaType: String,
+    originalFilename: String?,
+    position: Int,
+    requiresWritableNote: Bool
+  ) throws -> NoteFileAttachment {
+    let requireNoteForAttachment: (String, SQLiteDatabase) throws -> Void = { noteId, database in
+      if requiresWritableNote {
+        _ = try requireWritableNote(noteId, in: database)
+      } else {
+        _ = try requireNote(noteId, in: database)
+      }
+    }
     let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
     let fileId = makeNoteId(prefix: "file")
     try driver.withDatabase { database in
-      _ = try requireWritableNote(noteId, in: database)
+      try requireNoteForAttachment(noteId, database)
     }
     let stored = try fileStore.store(data: data, fileId: fileId)
     do {
       return try driver.withDatabase { database in
         try database.transaction { db in
-          _ = try requireWritableNote(noteId, in: db)
+          try requireNoteForAttachment(noteId, db)
           let record = try insertFileRecord(
             fileId: fileId,
             stored: stored,
@@ -54,7 +90,9 @@ public extension NoteService {
       throw error
     }
   }
+}
 
+public extension NoteService {
   @discardableResult
   func attachFile(
     noteId: String,

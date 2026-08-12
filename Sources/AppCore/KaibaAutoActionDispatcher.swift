@@ -18,6 +18,9 @@ public struct KaibaAutoActionDispatcher: AutoActionDispatching {
   /// nil falls back to the agent defaults above.
   public var translateProvider: String?
   public var translateModel: String?
+  /// When serving, the stream hub that fans incremental chat-reply chunks out
+  /// to long-polling web clients. Nil outside serve (no streaming surface).
+  public var streamPublisher: (any AgentReplyStreamPublishing)?
 
   public init(
     service: NoteService,
@@ -25,7 +28,8 @@ public struct KaibaAutoActionDispatcher: AutoActionDispatching {
     provider: String? = nil,
     model: String? = nil,
     translateProvider: String? = nil,
-    translateModel: String? = nil
+    translateModel: String? = nil,
+    streamPublisher: (any AgentReplyStreamPublishing)? = nil
   ) {
     self.service = service
     self.invoker = invoker
@@ -33,6 +37,7 @@ public struct KaibaAutoActionDispatcher: AutoActionDispatching {
     self.model = model
     self.translateProvider = translateProvider
     self.translateModel = translateModel
+    self.streamPublisher = streamPublisher
   }
 
   public func dispatch(
@@ -114,7 +119,8 @@ public struct KaibaAutoActionDispatcher: AutoActionDispatching {
         invoker: invoker,
         provider: provider,
         model: model,
-        originatingActionId: record.action.actionId
+        originatingActionId: record.action.actionId,
+        streamPublisher: streamPublisher
       )
       return .succeeded
     } catch {

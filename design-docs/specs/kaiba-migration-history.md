@@ -239,3 +239,47 @@ memory as consolidated notes in a canonical notebook, linked into the
 - Document import (`kaiba import`) writes ordinary notebooks with kind
   `notebook-kind:imported-material`, notebook `meta_json` under the
   `source` key, and a `source-document` notebook file attachment.
+
+## Unified memo feature, notebook subjects, and streaming (2026-08-12)
+
+- Schema v9 (`currentVersion` 8 -> 9): `note_comments` is rebuilt so a
+  memo can anchor to a notebook without a note. `note_id` becomes
+  nullable, `notebook_id TEXT REFERENCES notebooks(notebook_id)` is
+  added, with `CHECK (note_id IS NOT NULL OR notebook_id IS NOT NULL)`.
+  The migration backfills `notebook_id` for every existing note memo
+  from its note, so notebook-wide memo listings need no join. The table
+  has no incoming foreign keys; the rename-rebuild is safe with
+  foreign_keys=ON.
+- Chat conversations may now bind a whole-notebook subject: notebook
+  meta `kaibaChat.subjectNotebookId` without `subjectNoteId`. Reply
+  context for such a conversation is the notebook title plus its notes'
+  markdown, capped at 200KB. `sendAgentChatMessage` accepts exactly one
+  of `subjectNoteId` / `subjectNotebookId`.
+- New GraphQL fields: `notebookComments`, `addNotebookComment`,
+  `notebookConversations`, `agenticSearch`, plus a `notebookId` scope
+  argument on `searchNotes`. `NoteComment.noteId` became nullable and
+  `NoteComment.notebookId` / `AgentConversation.subjectNotebookId` were
+  added.
+- Streaming: `AgentGatewayCLIInvoker` conforms to
+  `AgentStreamingInvoking`, parsing ACP `agent_message_chunk` lines
+  incrementally; the serve layer's `AgentReplyStreamHub` fans chunks out
+  through the long-poll route `GET /note/agent-stream?turn=<id>&cursor=N`
+  so the web memo pane renders replies as they generate. No new tables.
+- CLI: `kaiba search` gained `--notebook <id>` and `--memos`;
+  `kaiba ai search <query> [--notebook <id>]` runs agentic search, whose
+  system prompt carries the kaiba CLI search usage so command-running
+  agent vendors grep the store themselves (a keyword grep pass grounds
+  text-only vendors).
+
+## App settings in sqlite (2026-08-12)
+
+- No schema version change: `app_settings (setting_key TEXT PRIMARY KEY,
+  value_json BLOB CHECK json_valid, updated_at)` is created by the
+  idempotent base statement list, so fresh and existing stores both gain
+  it at `prepare`. Values are whole JSON documents keyed by short names
+  (the web UI uses key "web", e.g. `{"fontScale":1.15}`).
+- GraphQL: query `appSetting(key)`, mutation `setAppSetting(input)`,
+  both returning `AppSettingPayload { result, key, valueJSON }`.
+- The web UI's `#/config` screen edits the font scale; the `--fs` CSS
+  variable multiplies every font size, pane widths are drag-resizable
+  (persisted per browser with the fold state, not in sqlite).

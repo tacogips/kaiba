@@ -1,14 +1,18 @@
-import { Show, onCleanup, onMount, type JSX } from 'solid-js'
+import { Show, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { LeftPane } from '../panes/LeftPane'
 import { ReaderPane } from '../panes/ReaderPane'
 import { RightPane } from '../panes/RightPane'
 import { NoteSearchPopup } from '../components/NoteSearchPopup'
 import { BoardView } from './BoardView'
+import { SearchView } from './SearchView'
+import { ConfigView } from './ConfigView'
 import { useApp } from '../state/appStore'
+import type { SearchMethod, SearchScope } from '../router'
 
 // The chatbook shell: a three-column grid whose fold state is expressed as data
 // attributes so the layout never depends on selector tricks, plus the shared
-// header, the search popup and the keyboard shortcuts.
+// header with the store-wide search form, the search popup and the keyboard
+// shortcuts.
 
 export function ChatbookView(): JSX.Element {
   const app = useApp()
@@ -34,12 +38,34 @@ export function ChatbookView(): JSX.Element {
     onCleanup(() => window.removeEventListener('keydown', shortcut))
   })
 
+  const view = () => {
+    switch (app.state.route.kind) {
+      case 'board': return 'board'
+      case 'search': return 'search'
+      case 'config': return 'config'
+      default: return 'reader'
+    }
+  }
+
+  // Custom pane widths apply only while the pane is open — an inline custom
+  // property would otherwise beat the stylesheet's collapsed rail width.
+  const shellStyle = () => ({
+    '--fs': String(app.state.settings.fontScale),
+    ...(app.state.pane.leftOpen && app.state.pane.leftWidth !== undefined
+      ? { '--pane-left': `${app.state.pane.leftWidth}px` }
+      : {}),
+    ...(app.state.pane.rightOpen && app.state.pane.rightWidth !== undefined
+      ? { '--pane-right': `${app.state.pane.rightWidth}px` }
+      : {}),
+  })
+
   return (
     <div
       class="chatbook"
+      style={shellStyle()}
       data-left={app.state.pane.leftOpen ? 'open' : 'closed'}
       data-right={app.state.pane.rightOpen ? 'open' : 'closed'}
-      data-view={app.state.route.kind === 'board' ? 'board' : 'reader'}
+      data-view={view()}
     >
       <a class="skip-link" href="#main-content">Skip to content</a>
       <header class="chatbook-head">
@@ -47,18 +73,19 @@ export function ChatbookView(): JSX.Element {
           <span class="brand-mark">K</span>
           <span class="brand-copy"><strong>Kaiba</strong><span>Note reader</span></span>
         </button>
+        <HeaderSearch />
         <div class="chatbook-head-actions">
           <span class="server-status" role="status" aria-live="polite">
             <span classList={{ dot: true, live: app.state.live }} />
             {app.state.live ? 'Live' : 'Offline'}
           </span>
-          <button type="button" class="secondary" onClick={() => app.setSearchOpen(true)}>Search</button>
           <Show
-            when={app.state.route.kind === 'board'}
+            when={view() !== 'reader'}
             fallback={<button type="button" class="secondary" onClick={app.openBoard}>Board</button>}
           >
-            <button type="button" class="secondary" onClick={app.openHome}>Reader</button>
+            <button type="button" class="secondary" onClick={app.openReader}>Reader</button>
           </Show>
+          <button type="button" class="secondary" onClick={app.openConfig}>Config</button>
           <button type="button" class="secondary" onClick={() => void app.refreshCatalog()}>Refresh</button>
         </div>
       </header>
@@ -74,14 +101,23 @@ export function ChatbookView(): JSX.Element {
         </div>
       </Show>
 
-      <Show when={app.state.route.kind === 'board'} fallback={
+      <Show when={view() === 'reader'}>
         <div class="chatbook-grid">
           <LeftPane />
+          <PaneSplitter side="left" />
           <ReaderPane />
+          <PaneSplitter side="right" />
           <RightPane />
         </div>
-      }>
+      </Show>
+      <Show when={view() === 'board'}>
         <BoardView />
+      </Show>
+      <Show when={view() === 'search'}>
+        <SearchView />
+      </Show>
+      <Show when={view() === 'config'}>
+        <ConfigView />
       </Show>
 
       <Show when={app.state.searchOpen}>
@@ -93,5 +129,110 @@ export function ChatbookView(): JSX.Element {
         />
       </Show>
     </div>
+  )
+}
+
+/** A draggable divider beside a side pane: dragging it resizes the pane. The
+ * new width persists with the fold state. Inert while the pane is collapsed. */
+function PaneSplitter(props: { side: 'left' | 'right' }): JSX.Element {
+  const app = useApp()
+  const open = () => props.side === 'left' ? app.state.pane.leftOpen : app.state.pane.rightOpen
+
+  const down = (event: PointerEvent & { currentTarget: HTMLElement }) => {
+    if (!open()) return
+    const pane = props.side === 'left'
+      ? event.currentTarget.previousElementSibling
+      : event.currentTarget.nextElementSibling
+    if (!(pane instanceof HTMLElement)) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const startX = event.clientX
+    const startWidth = pane.getBoundingClientRect().width
+    handle.setPointerCapture(event.pointerId)
+    const move = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientX - startX
+      app.setPaneWidth(props.side, props.side === 'left' ? startWidth + delta : startWidth - delta)
+    }
+    const finish = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', finish)
+      handle.removeEventListener('pointercancel', finish)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', finish)
+    handle.addEventListener('pointercancel', finish)
+  }
+
+  return (
+    <div
+      classList={{ 'pane-splitter': true, inert: !open() }}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Resize the ${props.side} pane`}
+      onPointerDown={down}
+      onDblClick={() => app.resetPaneWidths()}
+    />
+  )
+}
+
+/** The header search form: query, scope (all notebooks / the open notebook)
+ * and method (agentic by default, or grep). Submitting navigates to the
+ * search results screen. */
+function HeaderSearch(): JSX.Element {
+  const app = useApp()
+  const [query, setQuery] = createSignal('')
+  const [scope, setScope] = createSignal<SearchScope>('all')
+  const [method, setMethod] = createSignal<SearchMethod>('agentic')
+
+  // Landing on (or navigating within) the search screen reflects the route
+  // back into the form so the fields show what is being searched.
+  createEffect(() => {
+    const route = app.state.route
+    if (route.kind !== 'search') return
+    setQuery(route.query)
+    setScope(route.scope)
+    setMethod(route.method)
+  })
+
+  const submit = (event: Event) => {
+    event.preventDefault()
+    const trimmed = query().trim()
+    if (trimmed.length === 0) return
+    app.openSearch(trimmed, scope(), method())
+  }
+
+  return (
+    <form class="header-search" role="search" onSubmit={submit}>
+      <label>
+        <span class="sr-only">Search query</span>
+        <input
+          type="search"
+          placeholder="Search notes and memos"
+          value={query()}
+          onInput={(event) => setQuery(event.currentTarget.value)}
+        />
+      </label>
+      <label>
+        <span class="sr-only">Search scope</span>
+        <select
+          value={scope()}
+          onChange={(event) => setScope(event.currentTarget.value as SearchScope)}
+        >
+          <option value="all">All notebooks</option>
+          <option value="notebook" disabled={!app.state.notebookId}>This notebook</option>
+        </select>
+      </label>
+      <label>
+        <span class="sr-only">Search method</span>
+        <select
+          value={method()}
+          onChange={(event) => setMethod(event.currentTarget.value as SearchMethod)}
+        >
+          <option value="agentic">Agentic</option>
+          <option value="grep">Grep</option>
+        </select>
+      </label>
+      <button type="submit" class="secondary" disabled={query().trim().length === 0}>Search</button>
+    </form>
   )
 }

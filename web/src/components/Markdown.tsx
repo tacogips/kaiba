@@ -28,20 +28,22 @@ function InlineText(props: { text: string }): JSX.Element {
   )
 }
 
-export function MarkdownBody(props: { markdown: string }): JSX.Element {
+export function MarkdownBody(props: { markdown: string; anchorIds?: boolean; anchorPrefix?: string }): JSX.Element {
   const blocks = createMemo(() => parseMarkdownBlocks(props.markdown))
-  const anchors = createMemo(() => headingAnchorsByBlockIndex(blocks()))
+  const anchors = createMemo(() => headingAnchorsByBlockIndex(blocks(), props.anchorPrefix ?? ''))
   return (
     <div class="markdown-body">
       <For each={blocks()}>{(block, index) => {
         switch (block.kind) {
           case 'heading': {
             const level = Math.min(Math.max(block.level, 1), 6)
+            // Anchor ids stay unique document-wide: in the continuous reader
+            // each note namespaces its anchors with a per-note prefix.
             return <Dynamic
               component={`h${level}`}
               class="md-heading"
               data-md-heading={level}
-              id={anchors().get(index())?.id}
+              id={props.anchorIds === false ? undefined : anchors().get(index())?.id}
             ><InlineText text={block.text} /></Dynamic>
           }
           case 'code':

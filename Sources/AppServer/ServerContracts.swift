@@ -105,17 +105,20 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
   public var noteAPIAuthenticator: (any NoteAPIAuthenticating)?
   public var allowUnauthenticatedNoteAPI: Bool
   public var noteChangeFeed: NoteChangeFeed?
+  public var agentReplyStreamHub: AgentReplyStreamHub?
 
   public init(
     graphQLExecutor: (any GraphQLDocumentExecuting)? = nil,
     noteAPIAuthenticator: (any NoteAPIAuthenticating)? = nil,
     allowUnauthenticatedNoteAPI: Bool = false,
-    noteChangeFeed: NoteChangeFeed? = nil
+    noteChangeFeed: NoteChangeFeed? = nil,
+    agentReplyStreamHub: AgentReplyStreamHub? = nil
   ) {
     self.graphQLExecutor = graphQLExecutor
     self.noteAPIAuthenticator = noteAPIAuthenticator
     self.allowUnauthenticatedNoteAPI = allowUnauthenticatedNoteAPI
     self.noteChangeFeed = noteChangeFeed
+    self.agentReplyStreamHub = agentReplyStreamHub
   }
 
   public func route(_ request: ServerRequestEnvelope, context: ServerRequestContext) async -> ServerResponseDescriptor {
@@ -142,8 +145,10 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
       response = await routeNoteRegistration(request, context: contextWithHeaders)
     case ("GET", "/note/events"):
       response = await routeNoteEvents(request, context: contextWithHeaders)
+    case ("GET", "/note/agent-stream"):
+      response = await routeAgentReplyStream(request, context: contextWithHeaders)
     case (_, "/"), (_, "/overview"), (_, "/healthz"), (_, "/graphql"), (_, "/note/register"),
-      (_, "/note/events"):
+      (_, "/note/events"), (_, "/note/agent-stream"):
       response = .init(status: 405, body: [
         "error": .string("unsupported method"),
         "method": .string(normalizedMethod),
@@ -334,6 +339,55 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
       "events": .array(polled.events.map(noteChangeEventJSON))
     ])
   }
+
+  /// Long-poll chunk feed for a generating chat reply. `turn` names the turn
+  /// note; `cursor` is the number of chunks the caller has already seen. The
+  /// response carries the chunks past the cursor, the new cursor, and whether
+  /// the reply finished (with its final status).
+  private func routeAgentReplyStream(
+    _ request: ServerRequestEnvelope,
+    context: ServerRequestContext
+  ) async -> ServerResponseDescriptor {
+    guard let agentReplyStreamHub else {
+      return .init(status: 404, body: [
+        "error": .string("agent reply streaming is not enabled")
+      ])
+    }
+    if let noteAPIAuthenticator {
+      switch await noteAPIAuthenticator.authenticate(request: request, context: context) {
+      case .accepted:
+        break
+      case let .rejected(response):
+        return response
+      }
+    } else if !allowUnauthenticatedNoteAPI {
+      return noteAPIUnavailableResponse("note API authentication is not configured")
+    }
+    let parameters = request.queryParameters
+    guard let turnNoteId = parameters["turn"], !turnNoteId.isEmpty else {
+      return .init(status: 400, body: [
+        "error": .string("turn query parameter is required")
+      ])
+    }
+    let cursor = parameters["cursor"].flatMap(Int.init) ?? 0
+    let timeoutMilliseconds = min(
+      parameters["timeoutMs"].flatMap(UInt64.init) ?? NoteEventPollLimits.defaultTimeoutMilliseconds,
+      NoteEventPollLimits.maximumTimeoutMilliseconds
+    )
+    let polled = await agentReplyStreamHub.poll(
+      turnNoteId: turnNoteId,
+      cursor: cursor,
+      timeoutNanoseconds: timeoutMilliseconds * 1_000_000
+    )
+    var body: JSONObject = [
+      "cursor": .integer(Int64(polled.cursor)),
+      "chunks": .array(polled.chunks.map(JSONValue.string)),
+      "done": .bool(polled.done)
+    ]
+    body["status"] = polled.status.map(JSONValue.string) ?? .null
+    body["message"] = polled.message.map(JSONValue.string) ?? .null
+    return .init(status: 200, body: body)
+  }
 }
 
 public enum NoteEventPollLimits {
@@ -354,7 +408,7 @@ public enum GraphQLEnvelopeParseResult: Equatable, Sendable {
   case failure(String)
 }
 
-private extension ServerRequestContext {
+extension ServerRequestContext {
   func withHeaders(from headers: [String: String]) -> ServerRequestContext {
     var copy = self
     var lowercased: [String: String] = [:]

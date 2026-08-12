@@ -152,7 +152,9 @@ extension AppCommand {
     var cursor = context.cursor
     let tagFilter = try cursor.extractOptionValues("--tag")
     let classFilter = try cursor.extractOptionValues("--class")
+    let notebookId = try cursor.extractOption("--notebook")
     let includeLinked = cursor.extractFlag("--include-linked")
+    let includeMemos = cursor.extractFlag("--memos")
     let sort = try cursor.extractSort()
     let createdAfter = try cursor.extractOption("--created-after")
     let createdBefore = try cursor.extractOption("--created-before")
@@ -169,6 +171,7 @@ extension AppCommand {
       query: query,
       tagFilter: tagFilter,
       classFilter: classFilter,
+      notebookId: notebookId,
       sort: sort,
       createdAfter: createdAfter,
       createdBefore: createdBefore,
@@ -176,17 +179,40 @@ extension AppCommand {
       limit: limit,
       offset: offset
     )
+    let memoMatches = includeMemos
+      ? try service.searchComments(query: query, notebookId: notebookId, limit: min(limit, 200))
+      : []
     switch output {
     case .json:
-      return try renderJSON(results.map(jsonObject))
+      var payload: [[String: Any]] = results.map(jsonObject)
+      payload.append(contentsOf: memoMatches.map { memo in
+        [
+          "kind": "memo",
+          "commentId": memo.commentId,
+          "noteId": memo.noteId ?? NSNull(),
+          "notebookId": memo.notebookId ?? NSNull(),
+          "author": memo.author,
+          "createdAt": memo.createdAt,
+          "bodyMarkdown": memo.bodyMarkdown
+        ]
+      })
+      return try renderJSON(payload)
     case .text:
-      guard !results.isEmpty else {
+      guard !results.isEmpty || !memoMatches.isEmpty else {
         return "No matches."
       }
-      return results.map { result in
+      var lines = results.map { result in
         let linked = result.isLinkedNeighbor ? "  [linked]" : ""
         return renderNoteLine(result.note) + linked + "\n    \(result.snippet)"
-      }.joined(separator: "\n")
+      }
+      lines.append(contentsOf: memoMatches.map { memo in
+        let anchor = memo.noteId.map { "note \($0)" }
+          ?? memo.notebookId.map { "notebook \($0)" }
+          ?? "unanchored"
+        let body = memo.bodyMarkdown.replacingOccurrences(of: "\n", with: " ")
+        return "memo \(memo.commentId)  [\(anchor)]\n    \(String(body.prefix(200)))"
+      })
+      return lines.joined(separator: "\n")
     }
   }
 

@@ -766,6 +766,8 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertTrue(schema.contains("saveNoteConversation(input: SaveNoteConversationInput!)"))
     XCTAssertTrue(schema.contains("noteConversations(noteId: String!, limit: Int): AgentConversationsQueryPayload!"))
     XCTAssertTrue(schema.contains("noteComments(noteId: String!): NoteCommentsQueryPayload!"))
+    XCTAssertTrue(schema.contains("noteFiles(noteId: String!): NoteFilesQueryPayload!"))
+    XCTAssertTrue(schema.contains("type NoteFilesQueryPayload { result: ControlPlaneResult!, value: [NoteFileAttachment!] }"))
     XCTAssertTrue(schema.contains("sendAgentChatMessage(input: SendAgentChatMessageInput!): AgentChatMessagePayload!"))
     XCTAssertTrue(schema.contains("requestTagExtraction(input: RequestTagExtractionInput!): TagExtractionRequestPayload!"))
     XCTAssertTrue(schema.contains("requestNotebookTranslation(input: RequestNotebookTranslationInput!): NotebookTranslationRequestPayload!"))
@@ -789,9 +791,15 @@ final class NoteGraphQLTests: XCTestCase {
       "effectiveKanbanStatuses",
       "effectiveKanbanStatusesByTagId",
       "noteFile",
+      "noteFiles",
       "autoActions",
       "noteConversations",
-      "noteComments"
+      "notebookConversations",
+      "noteComments",
+      "notebookComments",
+      "agentModels",
+      "agenticSearch",
+      "appSetting"
     ]
     let mutationFields: Set<String> = [
       "createNote",
@@ -816,6 +824,8 @@ final class NoteGraphQLTests: XCTestCase {
       "applyNoteTags",
       "removeNoteTag",
       "addNoteComment",
+      "addNotebookComment",
+      "setAppSetting",
       "linkNotes",
       "attachNoteFile",
       "configureNoteAutoAction",

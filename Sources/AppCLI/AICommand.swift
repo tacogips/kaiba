@@ -17,6 +17,7 @@ enum AICommand {
     case tag(subject: AITagExtractionSubject, dryRun: Bool)
     case translate(TranslateRequest)
     case models(output: Output)
+    case search(query: String, notebookId: String?, limit: Int)
     case status
   }
 
@@ -62,6 +63,7 @@ enum AICommand {
         "ai requires a subcommand: tag (--note <id> | --notebook <id>) [--dry-run] | "
           + "translate (--notebook <id> [--to <language>] | --resume <id>) "
           + "[--provider <vendor>] [--model <model>] [--title <title>] | "
+          + "search <query> [--notebook <id>] [--limit N] | "
           + "models [--output text|json] | status"
       )
     }
@@ -95,6 +97,37 @@ enum AICommand {
         noteRoot: noteRoot,
         configuration: configuration,
         subcommand: .translate(try parseTranslate(&iterator))
+      )
+    case "search":
+      var query: String?
+      var notebookId: String?
+      var limit = 20
+      while let argument = iterator.next() {
+        switch argument {
+        case "--notebook":
+          guard let value = iterator.next() else {
+            throw AICommandError.missingValue(argument)
+          }
+          notebookId = value
+        case "--limit":
+          guard let value = iterator.next(), let parsed = Int(value) else {
+            throw AICommandError.missingValue(argument)
+          }
+          limit = parsed
+        default:
+          guard !argument.hasPrefix("-"), query == nil else {
+            throw AICommandError.invalidArgument(argument)
+          }
+          query = argument
+        }
+      }
+      guard let query else {
+        throw AICommandError.invalidUsage("ai search requires <query>")
+      }
+      return Options(
+        noteRoot: noteRoot,
+        configuration: configuration,
+        subcommand: .search(query: query, notebookId: notebookId, limit: limit)
       )
     case "tag":
       var noteId: String?
@@ -306,6 +339,35 @@ enum AICommand {
             1
           )
         }
+      }
+    case .search(let query, let notebookId, let limit):
+      guard let invoker else {
+        return (
+          "Error: "
+            + AgentInvokerFactory.describeAvailability(configuration: aiConfiguration),
+          1
+        )
+      }
+      try FileManager.default.createDirectory(
+        atPath: options.noteRoot,
+        withIntermediateDirectories: true
+      )
+      let service = try NoteService(driver: KaibaConfigurationLoader.makeDriver(
+        configuration: options.configuration.database,
+        noteRoot: options.noteRoot,
+        environment: ProcessInfo.processInfo.environment
+      ))
+      let search = AIAgenticSearchService(
+        service: service,
+        invoker: invoker,
+        provider: aiConfiguration?.agent?.provider,
+        model: aiConfiguration?.agent?.model
+      )
+      do {
+        let result = try await search.search(query: query, notebookId: notebookId, limit: limit)
+        return (result.answerMarkdown, 0)
+      } catch {
+        return ("Error: agentic search failed: \(error)", 1)
       }
     case .tag(let subject, let dryRun):
       guard let invoker else {

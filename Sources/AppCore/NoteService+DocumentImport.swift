@@ -4,25 +4,39 @@ public struct DocumentImportResult: Equatable, Sendable {
   public var notebook: Notebook
   public var notes: [Note]
   public var sourceFile: NotebookFileAttachment
+  /// Page captures and embedded images attached to the imported notes.
+  public var imageFiles: [NoteFileAttachment]
+  /// Set when image extraction failed. The import itself still succeeded.
+  public var imageWarning: String?
 
-  public init(notebook: Notebook, notes: [Note], sourceFile: NotebookFileAttachment) {
+  public init(
+    notebook: Notebook,
+    notes: [Note],
+    sourceFile: NotebookFileAttachment,
+    imageFiles: [NoteFileAttachment] = [],
+    imageWarning: String? = nil
+  ) {
     self.notebook = notebook
     self.notes = notes
     self.sourceFile = sourceFile
+    self.imageFiles = imageFiles
+    self.imageWarning = imageWarning
   }
 }
 
 public extension NoteService {
   /// Imports a source document as an imported-material notebook: converts it
   /// to markdown, splits into per-section notes (`MarkdownHeadingSplitter`),
-  /// and attaches the original file with the `source-document` role. See
-  /// `design-docs/specs/document-import.md`.
+  /// attaches the original file with the `source-document` role, and attaches
+  /// the page captures and embedded images the source carries to the notes they
+  /// belong to. See `design-docs/specs/document-import.md`.
   @discardableResult
   func importDocument(
     at path: String,
     title: String? = nil,
     kindTagName: String = NoteStoreSchema.importedMaterialNotebookKindTag,
-    converter: DocumentConverting
+    converter: DocumentConverting,
+    imageExtractor: any DocumentImageExtracting = DocumentImageExtractor()
   ) throws -> DocumentImportResult {
     let expandedPath = (path as NSString).expandingTildeInPath
     guard FileManager.default.fileExists(atPath: expandedPath) else {
@@ -58,11 +72,77 @@ public extension NoteService {
       mediaType: Self.mediaType(forSourceFormat: conversion.sourceFormat),
       originalFilename: originalFilename
     )
+    // Images are additive: a document whose rasters cannot be read still
+    // imports as markdown, with the reason reported back to the caller.
+    var imageFiles: [NoteFileAttachment] = []
+    var imageWarning: String?
+    do {
+      let extraction = try imageExtractor.extractImages(
+        fileURL: URL(fileURLWithPath: expandedPath),
+        sourceFormat: conversion.sourceFormat
+      )
+      imageFiles = try attachExtractedImages(extraction, to: ingest.notes)
+    } catch {
+      imageWarning = "image extraction skipped: \(error)"
+    }
     return DocumentImportResult(
       notebook: ingest.notebook,
       notes: ingest.notes,
-      sourceFile: attachment
+      sourceFile: attachment,
+      imageFiles: imageFiles,
+      imageWarning: imageWarning
     )
+  }
+
+  /// Attaches every extracted image to the note that owns its page. Page
+  /// captures keep the page number as their position so a note's captures stay
+  /// in reading order; embedded images are numbered per note in emission order.
+  @discardableResult
+  internal func attachExtractedImages(
+    _ extraction: DocumentImageExtractionResult,
+    to notes: [Note]
+  ) throws -> [NoteFileAttachment] {
+    guard !notes.isEmpty, !extraction.images.isEmpty else {
+      return []
+    }
+    let noteIndexByPage = DocumentPageNoteMapper.noteIndexByPage(
+      pageTexts: extraction.pageTexts,
+      noteTitles: notes.map(\.title)
+    )
+    var embeddedPositionByNote: [Int: Int] = [:]
+    var attachments: [NoteFileAttachment] = []
+    for image in extraction.images {
+      let pageIndex = image.pageNumber - 1
+      // Without per-page text there is nothing to map against, so the whole
+      // document belongs to its first note.
+      let noteIndex = noteIndexByPage.indices.contains(pageIndex)
+        ? min(noteIndexByPage[pageIndex], notes.count - 1)
+        : 0
+      let noteId = notes[noteIndex].noteId
+      let position: Int
+      let role: NoteFileRole
+      switch image.kind {
+      case .pageCapture:
+        role = .sourcePageImage
+        position = image.pageNumber
+      case .embedded:
+        role = .embedded
+        position = embeddedPositionByNote[noteIndex, default: 0]
+        embeddedPositionByNote[noteIndex] = position + 1
+      }
+      // Imported notes are created read-only; their own source images are part
+      // of the import rather than an edit to it.
+      attachments.append(try storeNoteFileAttachment(
+        noteId: noteId,
+        data: image.data,
+        role: role,
+        mediaType: image.mediaType,
+        originalFilename: image.suggestedFilename,
+        position: position,
+        requiresWritableNote: false
+      ))
+    }
+    return attachments
   }
 
   internal static func importMetaJSON(

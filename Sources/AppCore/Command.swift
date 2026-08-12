@@ -106,10 +106,13 @@ public struct AppCommand: Sendable {
       edit       <note-id> (--body <md>|--body-file <path>) [--append]
       show       <note-id> [--output json|text]
       list       [--notebook <id>] [--tag <name>]... [--limit N] [--offset N]
-      search     <query> [--tag <name>]... [--class <id>] [--include-linked]
+      search     <query> [--notebook <id>] [--tag <name>]... [--class <id>]
+                 [--include-linked] [--memos]
                  [--sort created-desc|created-asc|updated-desc|title]
                  [--created-after <iso8601>] [--created-before <iso8601>]
                  [--limit N] [--offset N]
+                 # full-text (grep) search over notes; --notebook scopes to one
+                 # notebook, --memos also greps memo text
       readonly   <note-id> (--on|--off)
       delete     <note-id>
 
@@ -152,6 +155,10 @@ public struct AppCommand: Sendable {
                  # (or ai.translate in config.json) pick the AI vendor
       ai models  [--output text|json]
                  # list models available from the configured agent-gateway vendor
+      ai search  <query> [--notebook <id>] [--limit N]
+                 # agentic search: the configured agent answers the question,
+                 # searching notes and memos with the kaiba CLI (when its
+                 # runtime can run commands) plus a built-in grep pass
       ai status  # AI configuration and runtime availability
 
     Serve and API access:

@@ -37,6 +37,15 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
   }
 
   public func invoke(_ request: AgentInvocationRequest) async throws -> AgentInvocationResult {
+    try await invokeGateway(request, onChunk: nil)
+  }
+
+  /// Deliberately not named `invoke`: an overload would make the streaming
+  /// conformance below resolve to itself and recurse.
+  private func invokeGateway(
+    _ request: AgentInvocationRequest,
+    onChunk: (@Sendable (String) -> Void)?
+  ) async throws -> AgentInvocationResult {
     let binary = try resolveBinary()
     var arguments = [
       "client",
@@ -51,11 +60,20 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
       arguments += ["--api-key-environment", apiKeyEnvironment]
     }
     let promptText = Self.flattenedPrompt(request)
+    var lineHandler: (@Sendable (Data) -> Void)?
+    if let onChunk {
+      lineHandler = { line in
+        if let text = Self.agentMessageChunkText(fromACPLine: line) {
+          onChunk(text)
+        }
+      }
+    }
     let execution = try await Self.run(
       binary: binary,
       arguments: arguments,
       stdin: Data(promptText.utf8),
-      environment: environment
+      environment: environment,
+      onStdoutLine: lineHandler
     )
     let parsed = Self.parseACPOutput(execution.stdout)
     if let errorMessage = parsed.errorMessage {
@@ -135,6 +153,22 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
 
   // MARK: - ACP output parsing
 
+  /// Extracts the text of a single ACP `agent_message_chunk` update line;
+  /// nil for every other line kind.
+  static func agentMessageChunkText(fromACPLine lineData: Data) -> String? {
+    guard let object = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any],
+      object["method"] as? String == "session/update",
+      let params = object["params"] as? [String: Any],
+      let update = params["update"] as? [String: Any],
+      update["sessionUpdate"] as? String == "agent_message_chunk",
+      let content = update["content"] as? [String: Any],
+      let text = content["text"] as? String
+    else {
+      return nil
+    }
+    return text
+  }
+
   struct ParsedACPOutput: Equatable {
     var resultText: String?
     var streamedText: String = ""
@@ -190,7 +224,8 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     binary: String,
     arguments: [String],
     stdin: Data,
-    environment: [String: String]
+    environment: [String: String],
+    onStdoutLine: (@Sendable (Data) -> Void)? = nil
   ) async throws -> Execution {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: binary)
@@ -203,7 +238,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     process.standardOutput = output
     process.standardError = errorPipe
 
-    let stdoutCollector = PipeCollector(handle: output.fileHandleForReading)
+    let stdoutCollector = PipeCollector(handle: output.fileHandleForReading, onLine: onStdoutLine)
     let stderrCollector = PipeCollector(handle: errorPipe.fileHandleForReading)
     do {
       try process.run()
@@ -310,15 +345,31 @@ public struct AgentGatewayCLIModelCatalog: Sendable {
   }
 }
 
+extension AgentGatewayCLIInvoker: AgentStreamingInvoking {
+  /// Streaming invocation: `onChunk` fires for every ACP `agent_message_chunk`
+  /// as the gateway emits it, while the final result stays authoritative.
+  public func invoke(
+    _ request: AgentInvocationRequest,
+    onChunk: @escaping @Sendable (String) -> Void
+  ) async throws -> AgentInvocationResult {
+    try await invokeGateway(request, onChunk: onChunk)
+  }
+}
+
 /// Accumulates a pipe's bytes off the calling thread so large streams never
-/// deadlock the spawned process against a full pipe buffer.
+/// deadlock the spawned process against a full pipe buffer. When `onLine` is
+/// set, complete newline-terminated lines are also surfaced as they arrive
+/// (the streaming path's incremental ACP parse).
 private final class PipeCollector: @unchecked Sendable {
   private let lock = NSLock()
   private var buffer = Data()
+  private var lineBuffer = Data()
   private let handle: FileHandle
+  private let onLine: (@Sendable (Data) -> Void)?
 
-  init(handle: FileHandle) {
+  init(handle: FileHandle, onLine: (@Sendable (Data) -> Void)? = nil) {
     self.handle = handle
+    self.onLine = onLine
     handle.readabilityHandler = { [weak self] readable in
       let data = readable.availableData
       guard let self else {
@@ -330,8 +381,30 @@ private final class PipeCollector: @unchecked Sendable {
       }
       self.lock.lock()
       self.buffer.append(data)
+      let lines = self.consumeCompleteLinesLocked(appending: data)
       self.lock.unlock()
+      for line in lines {
+        self.onLine?(line)
+      }
     }
+  }
+
+  /// Must be called with `lock` held; returns the complete lines the new data
+  /// finished, keeping any trailing partial line buffered.
+  private func consumeCompleteLinesLocked(appending data: Data) -> [Data] {
+    guard onLine != nil else {
+      return []
+    }
+    lineBuffer.append(data)
+    var lines: [Data] = []
+    while let newlineIndex = lineBuffer.firstIndex(of: UInt8(ascii: "\n")) {
+      let line = lineBuffer.subdata(in: lineBuffer.startIndex..<newlineIndex)
+      lineBuffer.removeSubrange(lineBuffer.startIndex...newlineIndex)
+      if !line.isEmpty {
+        lines.append(line)
+      }
+    }
+    return lines
   }
 
   func finish(limit: Int) -> Data {

@@ -6,6 +6,7 @@ import {
   headingAnchors,
   headingAnchorsByBlockIndex,
   markdownHeadingTree,
+  noteHeadingPrefix,
   slugifyHeading,
 } from './toc'
 
@@ -24,6 +25,21 @@ describe('heading slugs', () => {
   test('de-duplicates repeated headings in document order', () => {
     const anchors = headingAnchors(parseMarkdownBlocks('# Notes\n\n## Notes\n\n## Notes\n'))
     expect(anchors.map((anchor) => anchor.id)).toEqual(['notes', 'notes-2', 'notes-3'])
+  })
+
+  test('a note prefix namespaces every anchor so notes never collide in the reader', () => {
+    const prefix = noteHeadingPrefix('n-42')
+    const anchors = headingAnchors(parseMarkdownBlocks('# Notes\n\n## Notes\n'), prefix)
+    expect(anchors.map((anchor) => anchor.id)).toEqual(['note-n-42--notes', 'note-n-42--notes-2'])
+    const tree = markdownHeadingTree('# Notes\n', noteHeadingPrefix('other'))
+    expect(tree[0]?.id).toBe('note-other--notes')
+  })
+
+  test('prefixed block-index anchors match the prefixed anchor list', () => {
+    const blocks = parseMarkdownBlocks('# One\n\ntext\n\n## Two\n')
+    const byIndex = headingAnchorsByBlockIndex(blocks, noteHeadingPrefix('x'))
+    expect(byIndex.get(0)?.id).toBe('note-x--one')
+    expect(byIndex.get(2)?.id).toBe('note-x--two')
   })
 
   test('maps anchors back to their block index so the renderer and the TOC agree', () => {

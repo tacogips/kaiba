@@ -307,22 +307,27 @@ public struct NotebookFileAttachment: Equatable, Sendable {
   }
 }
 
+/// A memo. Anchored to a note (`noteId` set) or to a whole notebook
+/// (`noteId` nil); `notebookId` names the containing notebook either way.
 public struct NoteComment: Equatable, Sendable {
   public var commentId: String
-  public var noteId: String
+  public var noteId: String?
+  public var notebookId: String?
   public var bodyMarkdown: String
   public var author: String
   public var createdAt: String
 
   public init(
     commentId: String,
-    noteId: String,
+    noteId: String?,
+    notebookId: String? = nil,
     bodyMarkdown: String,
     author: String,
     createdAt: String
   ) {
     self.commentId = commentId
     self.noteId = noteId
+    self.notebookId = notebookId
     self.bodyMarkdown = bodyMarkdown
     self.author = author
     self.createdAt = createdAt

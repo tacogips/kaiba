@@ -1,17 +1,18 @@
-import { Show, type JSX } from 'solid-js'
+import { Show, createMemo, type JSX } from 'solid-js'
 import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
 import { FileTreeTab } from '../components/FileTreeTab'
 import { TocTab } from '../components/TocTab'
 import { useApp } from '../state/appStore'
 import type { LeftTab } from '../state/paneState'
 
-const tabs: readonly TabDescriptor<LeftTab>[] = [
-  { value: 'files', label: 'Files' },
-  { value: 'contents', label: 'Contents' },
-]
-
 export function LeftPane(): JSX.Element {
   const app = useApp()
+  const hasContents = () => Boolean(app.state.notebookId || app.state.note)
+  const tabs = createMemo<readonly TabDescriptor<LeftTab>[]>(() => [
+    { value: 'files', label: 'Files' },
+    { value: 'contents', label: 'Contents', disabled: !hasContents() },
+  ])
+  const activeTab = (): LeftTab => hasContents() ? app.state.pane.leftTab : 'files'
   return (
     <aside class="pane pane-left" aria-label="Library and contents">
       <Show
@@ -32,8 +33,8 @@ export function LeftPane(): JSX.Element {
         <div class="pane-head">
           <Tabs
             label="Library and contents"
-            tabs={tabs}
-            active={app.state.pane.leftTab}
+            tabs={tabs()}
+            active={activeTab()}
             idPrefix="left"
             onSelect={app.setLeftTab}
           />
@@ -46,10 +47,10 @@ export function LeftPane(): JSX.Element {
           >‹</button>
         </div>
         <div class="pane-body">
-          <TabPanel idPrefix="left" value="files" active={app.state.pane.leftTab}>
+          <TabPanel idPrefix="left" value="files" active={activeTab()}>
             <FileTreeTab />
           </TabPanel>
-          <TabPanel idPrefix="left" value="contents" active={app.state.pane.leftTab}>
+          <TabPanel idPrefix="left" value="contents" active={activeTab()}>
             <TocTab />
           </TabPanel>
         </div>

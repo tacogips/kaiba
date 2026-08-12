@@ -6,6 +6,7 @@ import { For, Show, type JSX } from 'solid-js'
 export interface TabDescriptor<Value extends string> {
   value: Value
   label: string
+  disabled?: boolean
 }
 
 export function Tabs<Value extends string>(props: {
@@ -16,16 +17,8 @@ export function Tabs<Value extends string>(props: {
   onSelect: (value: Value) => void
 }): JSX.Element {
   const move = (event: KeyboardEvent, index: number) => {
-    const count = props.tabs.length
-    if (count === 0) return
-    let next = index
-    switch (event.key) {
-      case 'ArrowRight': next = (index + 1) % count; break
-      case 'ArrowLeft': next = (index - 1 + count) % count; break
-      case 'Home': next = 0; break
-      case 'End': next = count - 1; break
-      default: return
-    }
+    const next = nextEnabledTabIndex(props.tabs, index, event.key)
+    if (next === undefined) return
     event.preventDefault()
     const target = props.tabs[next]
     if (!target) return
@@ -37,20 +30,48 @@ export function Tabs<Value extends string>(props: {
     <div class="pane-tabs" role="tablist" aria-label={props.label}>
       <For each={props.tabs}>{(tab, index) => {
         const selected = () => tab.value === props.active
+        const disabled = () => tab.disabled ?? false
         return <button
           type="button"
           role="tab"
           id={tabId(props.idPrefix, tab.value)}
           aria-selected={selected()}
           aria-controls={tabPanelId(props.idPrefix, tab.value)}
-          tabIndex={selected() ? 0 : -1}
+          disabled={disabled()}
+          tabIndex={selected() && !disabled() ? 0 : -1}
           classList={{ 'pane-tab': true, active: selected() }}
           onKeyDown={(event) => move(event, index())}
-          onClick={() => props.onSelect(tab.value)}
+          onClick={() => { if (!disabled()) props.onSelect(tab.value) }}
         >{tab.label}</button>
       }}</For>
     </div>
   )
+}
+
+export function nextEnabledTabIndex<Value extends string>(
+  tabs: readonly TabDescriptor<Value>[],
+  currentIndex: number,
+  key: string,
+): number | undefined {
+  if (tabs.length === 0) return undefined
+  if (key === 'Home') return validIndex(tabs.findIndex((tab) => !tab.disabled))
+  if (key === 'End') {
+    for (let index = tabs.length - 1; index >= 0; index -= 1) {
+      if (!tabs[index]?.disabled) return index
+    }
+    return undefined
+  }
+  const direction = key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0
+  if (direction === 0) return undefined
+  for (let offset = 1; offset <= tabs.length; offset += 1) {
+    const candidate = (currentIndex + direction * offset + tabs.length) % tabs.length
+    if (!tabs[candidate]?.disabled) return candidate
+  }
+  return undefined
+}
+
+function validIndex(index: number): number | undefined {
+  return index >= 0 ? index : undefined
 }
 
 /** The panel element always exists so the tab's `aria-controls` resolves, but

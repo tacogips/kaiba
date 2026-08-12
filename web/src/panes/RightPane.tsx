@@ -1,23 +1,33 @@
-import { Show, type JSX } from 'solid-js'
+import { Show, createMemo, type JSX } from 'solid-js'
 import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
-import { MemoListTab } from '../components/MemoListTab'
+import { MemoTab } from '../components/MemoTab'
 import { NoteInfoTab } from '../components/NoteInfoTab'
 import { LinkedDocsTab } from '../components/LinkedDocsTab'
-import { AgentChatTab } from '../components/AgentChatTab'
+import { NotebookLinksTab, NotebookTagsTab } from '../components/NotebookAggregateTabs'
 import { useApp } from '../state/appStore'
 import type { RightTab } from '../state/paneState'
 
-const tabs: readonly TabDescriptor<RightTab>[] = [
-  { value: 'memos', label: 'Memos' },
-  { value: 'info', label: 'Info' },
-  { value: 'links', label: 'Links' },
-  { value: 'chat', label: 'Chat' },
-]
+// The right pane follows the selection: with a note selected it shows that
+// note's memo timeline, info and links; with only a notebook open it shows the
+// notebook-wide aggregates (all memos with note attribution, deduped tags,
+// all links). Agent chat and plain memos share the Agent tab.
 
 export function RightPane(): JSX.Element {
   const app = useApp()
+  const noteMode = createMemo(() => Boolean(app.state.noteId))
+  const tabs = createMemo<readonly TabDescriptor<RightTab>[]>(() => noteMode()
+    ? [
+        { value: 'memo', label: 'Agent' },
+        { value: 'info', label: 'Info' },
+        { value: 'links', label: 'Links' },
+      ]
+    : [
+        { value: 'memo', label: 'Agent' },
+        { value: 'info', label: 'Tags' },
+        { value: 'links', label: 'Links' },
+      ])
   return (
-    <aside class="pane pane-right" aria-label="Note details">
+    <aside class="pane pane-right" aria-label={noteMode() ? 'Note details' : 'Notebook details'}>
       <Show
         when={app.state.pane.rightOpen}
         fallback={
@@ -29,7 +39,7 @@ export function RightPane(): JSX.Element {
               aria-expanded={false}
               onClick={app.toggleRightPane}
             >‹</button>
-            <span class="rail-label">Details</span>
+            <span class="rail-label">Agent</span>
           </div>
         }
       >
@@ -42,25 +52,26 @@ export function RightPane(): JSX.Element {
             onClick={app.toggleRightPane}
           >›</button>
           <Tabs
-            label="Note details"
-            tabs={tabs}
+            label={noteMode() ? 'Note details' : 'Notebook details'}
+            tabs={tabs()}
             active={app.state.pane.rightTab}
             idPrefix="right"
             onSelect={app.setRightTab}
           />
         </div>
         <div class="pane-body">
-          <TabPanel idPrefix="right" value="memos" active={app.state.pane.rightTab}>
-            <MemoListTab />
+          <TabPanel idPrefix="right" value="memo" active={app.state.pane.rightTab}>
+            <MemoTab />
           </TabPanel>
           <TabPanel idPrefix="right" value="info" active={app.state.pane.rightTab}>
-            <NoteInfoTab />
+            <Show when={noteMode()} fallback={<NotebookTagsTab />}>
+              <NoteInfoTab />
+            </Show>
           </TabPanel>
           <TabPanel idPrefix="right" value="links" active={app.state.pane.rightTab}>
-            <LinkedDocsTab />
-          </TabPanel>
-          <TabPanel idPrefix="right" value="chat" active={app.state.pane.rightTab}>
-            <AgentChatTab />
+            <Show when={noteMode()} fallback={<NotebookLinksTab />}>
+              <LinkedDocsTab />
+            </Show>
           </TabPanel>
         </div>
       </Show>

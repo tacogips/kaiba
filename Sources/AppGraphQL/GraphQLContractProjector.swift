@@ -25,7 +25,7 @@ public enum GraphQLContractProjector {
     ): NotebooksQueryPayload!
     notes(limit: Int, offset: Int, notebookId: String, tagFilter: [String!]): NotesQueryPayload!
     searchNotes(
-      query: String!, tagFilter: [String!], classFilter: [String!],
+      query: String!, tagFilter: [String!], classFilter: [String!], notebookId: String,
       sort: NoteListSort, createdAfter: String, createdBefore: String,
       includeLinked: Boolean, depth: Int, limit: Int, offset: Int
     ): NoteSearchQueryPayload!
@@ -37,9 +37,15 @@ public enum GraphQLContractProjector {
     effectiveKanbanStatuses(tagName: String): KanbanStatusSetQueryPayload!
     effectiveKanbanStatusesByTagId(tagId: String!): KanbanStatusSetQueryPayload!
     noteFile(fileId: String!): NoteFileQueryPayload!
+    noteFiles(noteId: String!): NoteFilesQueryPayload!
     autoActions: NoteAutoActionsQueryPayload!
     noteConversations(noteId: String!, limit: Int): AgentConversationsQueryPayload!
+    notebookConversations(notebookId: String!, limit: Int): AgentConversationsQueryPayload!
     noteComments(noteId: String!): NoteCommentsQueryPayload!
+    notebookComments(notebookId: String!): NoteCommentsQueryPayload!
+    agentModels: AgentModelsPayload!
+    agenticSearch(query: String!, notebookId: String, limit: Int): AgenticSearchPayload!
+    appSetting(key: String!): AppSettingPayload!
   }
   type Mutation {
     createNote(input: CreateNoteInput!): NoteMutationPayload!
@@ -64,6 +70,8 @@ public enum GraphQLContractProjector {
     applyNoteTags(input: ApplyNoteTagsInput!): NoteMutationPayload!
     removeNoteTag(noteId: String!, tagName: String!, provenance: String): NoteMutationPayload!
     addNoteComment(input: AddNoteCommentInput!): NoteMutationPayload!
+    addNotebookComment(input: AddNotebookCommentInput!): NoteMutationPayload!
+    setAppSetting(input: SetAppSettingInput!): AppSettingPayload!
     linkNotes(input: LinkNotesInput!): NoteMutationPayload!
     attachNoteFile(input: AttachNoteFileInput!): NoteMutationPayload!
     configureNoteAutoAction(input: ConfigureNoteAutoActionInput!): NoteMutationPayload!

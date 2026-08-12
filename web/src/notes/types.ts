@@ -72,9 +72,34 @@ export interface Note {
   tags?: NoteTagAssignment[]
 }
 
+/** A file stored for a note attachment. Only the fields the web reader needs
+ * are queried; bytes are served separately via `GET /files/<fileId>`. */
+export interface NoteFileRecord {
+  fileId: string
+  storageKind: string
+  mediaType: string
+  byteSize: number
+  sha256: string
+  originalFilename: string | null
+  createdAt: string
+}
+
+/** A file attached to a note. Role "source-page-image" is a captured page of
+ * the imported source document (position = 1-based page number); role
+ * "embedded" is an image that appeared on those pages. */
+export interface NoteFileAttachment {
+  noteId: string
+  file: NoteFileRecord
+  role: string
+  position: number
+}
+
+/** A memo: anchored to a note (`noteId` set) or to a whole notebook
+ * (`noteId` null); `notebookId` names the containing notebook either way. */
 export interface NoteComment {
   commentId: string
-  noteId: string
+  noteId: string | null
+  notebookId?: string | null
   bodyMarkdown: string
   author: string
   createdAt: string
@@ -94,13 +119,48 @@ export interface AgentConversation {
   title: string
   updatedAt: string
   turnCount: number
-  subjectNoteId: string
+  /** Null for a notebook-scoped conversation (started with no note selected). */
+  subjectNoteId: string | null
+  subjectNotebookId?: string | null
+}
+
+export interface AgenticSearchResult {
+  /** "ok", "agent-unavailable", or "failed". */
+  status: string
+  answerMarkdown: string | null
+}
+
+/** One long-poll response of the agent reply chunk stream. */
+export interface AgentReplyStreamPoll {
+  cursor: number
+  chunks: string[]
+  done: boolean
+  status: string | null
+  message: string | null
 }
 
 export interface AgentChatMessageResult {
   conversationNotebookId: string | null
   turnNoteId: string | null
   agentStatus: string
+}
+
+export interface AgentChatAttachmentInput {
+  contentBase64: string
+  mediaType: string
+  originalFilename: string
+}
+
+export interface AgentModel {
+  modelId: string
+  displayName?: string | null
+  description?: string | null
+}
+
+export interface AgentModelsResult {
+  models: AgentModel[]
+  discoveryAvailable: boolean
+  configuredModel: string | null
 }
 
 export interface NoteSearchResult {

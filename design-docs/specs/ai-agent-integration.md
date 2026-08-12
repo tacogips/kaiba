@@ -2,7 +2,29 @@
 
 ## Status
 
-Accepted (invocation deferred: see "Deferral Boundary")
+Accepted
+
+## Traceability
+
+- Workflow issue: `direct-workflow:comm-002100`
+- Composition reference: the user's desktop screenshot
+  `Screenshot 2026-08-12 at 21.13.56.png` (kept outside the repository)
+- Agent contract references:
+  `Sources/AppCore/AgentInvoking.swift` and
+  `Sources/AppCore/AgentGatewayCLIInvoker.swift`
+
+## Issue Scope: `direct-workflow:comm-002100`
+
+- **In scope:** AI10-AI11 and only the minimum GraphQL, service, persistence,
+  prompt-construction, model-catalog, and adapter integration necessary for
+  the right-pane model selector and bounded agent-turn attachments.
+- **Out of scope:** AI1-AI9 except where their existing contracts are consumed
+  unchanged, plus auto-tagging, translation, search, provider selection,
+  runtime replacement, and other AI feature expansion.
+- The existing `AgentInvoking`, `AgentStreamingInvoking`, outbox, persisted-turn,
+  and change-feed flows are compatibility boundaries. This issue may carry the
+  snapshotted model and validated attachment context through them but must not
+  redesign those flows.
 
 ## Summary
 
@@ -13,14 +35,14 @@ Kaiba gains three AI capabilities without depending on riela:
 2. **Ontology tag auto-extraction** — AI proposes tags (with tag
    classes) for notes and notebooks, applied with provenance `ai`.
 3. **A pluggable agent runtime seam** — `AgentInvoking` — whose concrete
-   implementation is the agent-gateway CLI once the agent runtime is
-   extracted from riela into `tacogips/agent-gateway`.
+   implementation is the extracted `tacogips/agent-gateway` CLI runtime.
 
-Everything except the actual model invocation ships now: configuration,
-persistence, dispatch wiring, CLI, GraphQL, and web UI all land with a
-well-defined "agent unavailable" state.
+Configuration, model invocation, persistence, dispatch wiring, CLI, GraphQL,
+streaming progress, and web UI share the same runtime boundary. When that
+runtime is absent or invalid, every surface retains a well-defined
+`agent-unavailable` state.
 
-## Deferral Boundary (resolved 2026-08-12)
+## Runtime and Provider Adapter Boundary
 
 The agent runtime was extracted from riela into `tacogips/agent-gateway`,
 which now ships an ACP (Agent Client Protocol) stdio agent: `agent-gateway
@@ -34,6 +56,13 @@ openrouter.
   schema, prompt construction, reply validation, persistence, dispatch,
   and every user-facing surface.
 - agent-gateway owns: the runtime that actually talks to a model.
+- Codex and Cursor remain provider choices behind the same
+  `AgentGatewayCLIInvoker` ACP adapter. Kaiba does not launch either vendor
+  CLI directly, add provider-specific composer behavior, or interpolate
+  provider/model values into shell commands. This intentionally diverges
+  from copying a Codex- or Cursor-specific client integration: the desktop
+  capture informs composition only, while agent-gateway owns vendor
+  differences and Kaiba owns validation, prompt construction, and persistence.
 - The bridge is `AgentGatewayCLIInvoker: AgentInvoking`
   (`Sources/AppCore/AgentGatewayCLIInvoker.swift`): process spawn
   mirroring the anydoc pattern (zero SwiftPM dependencies), flattening
@@ -64,11 +93,18 @@ openrouter.
   }
   ```
 
-  `AgentInvocationRequest` = purpose (`chat` | `tagExtraction`) + system
-  prompt + prior turns + optional subject context markdown + optional
-  provider/model. `AgentInvocationResult` = reply markdown. No streaming
-  in the protocol: the HTTP server writes single responses, so replies
-  land via persistence and the existing change feed.
+  `AgentInvocationRequest` = purpose (`chat` | `tagExtraction` |
+  `translation` | `search`) + system prompt + prior turns + optional
+  subject context markdown + optional provider/model.
+  `AgentInvocationResult` = reply markdown. Streaming rides a separate
+  seam (2026-08-12): `AgentStreamingInvoking` adds
+  `invoke(_:onChunk:)`, which `AgentGatewayCLIInvoker` implements by
+  parsing ACP `agent_message_chunk` lines incrementally. During serve,
+  the dispatcher publishes chunks through `AgentReplyStreamPublishing`
+  into `AgentReplyStreamHub`, and clients long-poll
+  `GET /note/agent-stream?turn=<turnNoteId>&cursor=N` — the HTTP server
+  still writes single responses; the final reply stays authoritative
+  via persistence and the change feed.
 - **AI2 — Configuration in the `ai` section of `config.json`.**
 
   ```json
@@ -148,18 +184,22 @@ openrouter.
   `failChatTurn` (status `answered` / `failed`; completion writes pass
   `originatingActionId` to suppress auto-action loops), and
   `listConversations(subjectNoteId:)`.
-- **AI8 — Reply transport: outbox + change feed.** When an invoker
+- **AI8 — Reply transport: outbox + transient chunks + durable change feed.**
+  When an invoker
   exists, serve upserts auto-action `agent-chat-reply` (trigger
   `noteCreated`, filter `{"notebookKindTag":
   "notebook-kind:agent-conversation"}`, workflow `note-agent-reply`).
   A pending turn note fires it; the dispatcher invokes the agent with
-  prior turns plus subject markdown and completes the turn. The web
-  client observes the existing `GET /note/events` long-poll and
-  refetches. Rejected: response streaming (requires rewriting the
-  single-write HTTP server); a new push route (duplicates the feed).
-  Until Phase D the action stays disabled and
-  `sendAgentChatMessage` returns `agentStatus: "agent-unavailable"`
-  while still persisting the user turn.
+  prior turns, bounded attachments, and subject markdown. During invocation,
+  ordered `agent_message_chunk` values flow through
+  `AgentReplyStreamPublishing` to `AgentReplyStreamHub`; the web pane reads
+  them through the turn-scoped `GET /note/agent-stream` long-poll route.
+  This preserves the HTTP server's single-response boundary and deliberately
+  avoids SSE, WebSocket, and a store-wide push channel. The completed or
+  failed turn is persisted as the authority, then `GET /note/events` causes
+  clients to refetch and replace transient stream state. If the invoker is
+  unavailable, `sendAgentChatMessage` still persists the user turn and returns
+  `agentStatus: "agent-unavailable"`; no stream is opened.
 - **AI9 — Notebook translation.** A translation is a
   `notebook-kind:translation` notebook created up front in `pending`
   state, with meta JSON `{"kaibaTranslation":{"sourceNotebookId":...,
@@ -180,6 +220,83 @@ openrouter.
   `--provider`/`--model`). There is no automatic trigger: translation
   is always requested manually (CLI synchronously; UI/GraphQL via a
   manually enqueued dispatch, like `requestTagExtraction`).
+- **AI10 — Chat model choice is an immutable turn snapshot.** Model
+  discovery uses `AgentGatewayCLIModelCatalog` for the configured provider
+  and exposes ids and display metadata to authenticated web clients. The
+  configured `ai.agent.model` is always present as the fallback option even
+  when the vendor cannot enumerate models. `sendAgentChatMessage` accepts an
+  optional model id, validates it against the current-provider catalog (or
+  the configured fallback), and records it in turn `kaibaChat.model` before
+  dispatch. Reply generation reads that snapshot and supplies it as
+  `AgentInvocationRequest.model`; later app-setting or config changes do not
+  alter queued or retried turns. Provider remains server-configured. Model
+  ids are data passed as a discrete process argument, never interpolated
+  into a command string. Idempotent replay returns the original turn and
+  cannot mutate its model.
+- **AI11 — Agent-turn attachments reuse file storage without becoming
+  ambient subject context.** `sendAgentChatMessage` accepts zero to four
+  inline attachment values (base64 content, declared media type, original
+  filename). The GraphQL/service boundary estimates base64 size before
+  decoding, rejects malformed encodings, then enforces a 1 MiB decoded
+  aggregate, filename validation, a UTF-8 textual media allowlist, and
+  content decoding. Validation of all attachments completes before a turn
+  is created. The core append operation stores each file through the
+  existing SHA-256-tracked, file-ID-addressed file store and associates it
+  with the generated turn note in the same dispatch boundary; rollback removes newly stored
+  content or leaves it eligible for existing orphan reclamation. Reply
+  dispatch must not observe the pending turn before its file associations
+  exist.
+
+  Reply prompt construction resolves only files attached to turns in the
+  active conversation. Its file-content budget is exactly 1 MiB (1,048,576)
+  of UTF-8 bytes and excludes framing. A separate 4 KiB allowance covers the
+  fixed delimiters, normalized filename/media-type headers, and omission
+  markers; accepted filenames are capped at 255 UTF-8 bytes, so four
+  current-turn headers fit that allowance. Prompt construction adds whole,
+  delimited sections in this order: current-turn attachments by stored
+  position, then prior turns newest-to-oldest and their attachments by stored
+  position. Current-turn validation guarantees all current file content fits
+  the 1 MiB content budget, including an aggregate exactly at the limit. A
+  prior file whose content would exceed the remaining content budget is
+  omitted and represented by a stable filename/media-type omission marker;
+  no file is partially truncated. If prior-file headers or omission markers
+  would exhaust the framing allowance, remaining prior files are omitted
+  without adding further markers. Sections label normalized filename and
+  media type, treat contents as untrusted reference data, and never follow
+  paths or URLs found inside a file. A retry uses persisted attachment
+  positions and the model snapshot, producing the same ordering. Subject note
+  and notebook files are not implicitly disclosed. Memo-only comments remain
+  text-only because comments have no file relation; adding a comment-file
+  schema is outside this change.
+
+## Chat Composer Security and Validation Boundary
+
+- Authentication, subject/conversation ownership, read-only enforcement,
+  idempotency, and file validation are server-authoritative; client checks
+  exist only for immediate feedback.
+- A supplied `conversationNotebookId` must be an agent conversation for the
+  supplied subject. Attachment file records cannot be borrowed by id from
+  another note, notebook, client, or request.
+- Original filenames are display metadata, never storage paths. The server
+  rejects empty names, path-like names (any `/` or `\\`, including absolute
+  paths and traversal components), control characters, and names longer than
+  255 UTF-8 bytes before creating a turn; it does not silently strip or
+  truncate them. Accepted names are preserved for display only.
+- After removing parameters such as `charset`, the normalized media type must
+  be one of `text/plain`, `text/markdown`, `text/csv`,
+  `text/tab-separated-values`, `application/json`, `application/xml`,
+  `application/yaml`, or `application/x-yaml`, and decoded bytes must be valid
+  UTF-8. Empty or generic browser MIME values may use a recognized extension
+  as a candidate type, but content validation remains mandatory. `text/html`,
+  SVG, scripts, executables, archives, and other active or binary types are
+  rejected even if a filename claims an allowed extension.
+- Prompt inclusion has the independent 1 MiB UTF-8 file-content cap and 4 KiB
+  framing allowance defined by AI11, deterministic whole-file ordering, and
+  explicit delimiters. Attachment text cannot change the system prompt or
+  introduce agent-gateway arguments.
+- The inline aggregate remains at 1 MiB so base64 plus the GraphQL envelope
+  fits the existing 2 MiB HTTP request limit. The global parser limit is not
+  increased.
 
 ## GraphQL Surface Additions
 
@@ -190,8 +307,12 @@ the same change).
 
 - Query `noteConversations(noteId, limit)` — conversations whose
   subject is the note.
+- Query `agentModels` — authenticated catalog for the configured provider,
+  including configured fallback and discovery availability; no credentials,
+  command paths, or environment values are returned.
 - Mutation `sendAgentChatMessage(input)` — creates the conversation on
-  first message, appends a pending turn, returns
+  first message, validates and persists optional `model` and bounded textual
+  `attachments`, appends a pending turn, returns
   `{conversationNotebookId, turnNoteId, agentStatus}` where
   `agentStatus` is `pending` or `agent-unavailable`.
 - Mutation `requestTagExtraction(input)` — manual tag extraction for a
@@ -221,5 +342,19 @@ the same change).
    conversation persisted with kind tag, meta JSON, and
    `source-citation` links; idempotent resends do not duplicate turns.
 6. `requestTagExtraction` from the Info tab queues and completes.
-7. Failure modes: invalid model yields a `failed` turn with a message;
-   removing the agent binary yields `agent-unavailable` in UI and CLI.
+7. Failure modes: an unsupported client-selected model is rejected before
+   turn creation; a catalog-approved or configured model later rejected by
+   the runtime yields a `failed` turn with a message; removing the agent
+   binary yields `agent-unavailable` in UI and CLI.
+8. Model contract: catalog fallback works when enumeration is unavailable;
+   selection persists in app setting `web.agentModel`; queued/retried turns
+   invoke their snapshotted model; unsupported model ids are rejected before
+   turn creation.
+9. Attachment contract: accepted UTF-8 files round-trip through turn file
+   associations and reach prompt context; malformed base64, spoofed/binary
+   media, invalid UTF-8, empty filenames, path-like filenames, filenames with
+   control characters, filenames over 255 UTF-8 bytes, more than four files,
+   and aggregate payloads over 1 MiB are rejected without dispatch. Boundary tests
+   verify that exactly 1,048,576 content bytes across four maximum-length
+   filenames fit with framing kept within 4 KiB, while one additional content
+   byte is rejected before turn creation.

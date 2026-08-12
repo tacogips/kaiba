@@ -87,7 +87,7 @@ export function BoardView(): JSX.Element {
             onClick={toggleLock}
           >{locked() ? 'Locked' : 'Editable'}</button>
           <button type="button" class="secondary" onClick={() => void app.refreshCatalog()}>Refresh</button>
-          <button type="button" onClick={app.openHome}>Back to reader</button>
+          <button type="button" onClick={app.openReader}>Back to reader</button>
         </div>
       </header>
       <Show when={message()}>

@@ -11,6 +11,202 @@ private struct StubInvoker: AgentInvoking {
 }
 
 final class AgentChatGraphQLTests: XCTestCase {
+  func testAgentModelsQueryProjectsConfiguredFallback() async throws {
+    let base = try makeService()
+    let service = GraphQLNoteGraphQLService(
+      service: base.service,
+      agentProvider: "openai",
+      agentModel: "configured-model"
+    )
+    let response = await NoteGraphQLDocumentExecutor(service: service).execute(GraphQLDocumentRequest(
+      query: """
+      query AgentModels {
+        agentModels {
+          result { accepted status }
+          discoveryAvailable
+          configuredModel
+          models { modelId displayName }
+        }
+      }
+      """,
+      variables: [:],
+      operationName: "AgentModels"
+    ))
+    XCTAssertTrue(response.handled)
+    let payload = try graphQLPayload(response.body, field: "agentModels")
+    XCTAssertEqual(try resultObject(payload)["accepted"], .bool(true))
+    XCTAssertEqual(payload["configuredModel"], .string("configured-model"))
+    XCTAssertEqual(try arrayValue(payload["models"], field: "agentModels.models").count, 1)
+  }
+
+  func testAgentModelsReturnsConfiguredFallbackAndRejectsUnknownModel() async throws {
+    let base = try makeService()
+    let subject = try base.service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let service = GraphQLNoteGraphQLService(
+      service: base.service,
+      agentProvider: "openai",
+      agentModel: "configured-model"
+    )
+    let models = await service.agentModels()
+    XCTAssertTrue(models.result.accepted)
+    XCTAssertFalse(models.discoveryAvailable)
+    XCTAssertEqual(models.models.map(\.modelId), ["configured-model"])
+    let rejected = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId, userMarkdown: "Question", model: "unknown-model"
+    ))
+    XCTAssertFalse(rejected.result.accepted)
+  }
+
+  func testAgentModelsUsesSuccessfulCatalogAndKeepsConfiguredModelSelectable() async throws {
+    let base = try makeService()
+    let service = GraphQLNoteGraphQLService(
+      service: base.service,
+      agentProvider: "openai",
+      agentModel: "configured-model",
+      agentModelCatalog: {
+        AgentGatewayModelCatalogResult(
+          protocolVersion: "1", vendor: "openai",
+          models: [AgentGatewayModelInfo(modelId: "catalog-model", name: "Catalog model")]
+        )
+      }
+    )
+
+    let models = await service.agentModels()
+    XCTAssertTrue(models.discoveryAvailable)
+    XCTAssertEqual(models.result.status, "ok")
+    XCTAssertEqual(models.models.map(\.modelId), ["configured-model", "catalog-model"])
+    XCTAssertEqual(models.models.last?.displayName, "Catalog model")
+  }
+
+  func testAgentModelsReportsFallbackWhenCatalogThrows() async throws {
+    struct CatalogFailure: Error {}
+    let base = try makeService()
+    let service = GraphQLNoteGraphQLService(
+      service: base.service,
+      agentProvider: "openai",
+      agentModel: "configured-model",
+      agentModelCatalog: { throw CatalogFailure() }
+    )
+
+    let models = await service.agentModels()
+    XCTAssertFalse(models.discoveryAvailable)
+    XCTAssertEqual(models.result.status, "fallback")
+    XCTAssertEqual(models.models.map(\.modelId), ["configured-model"])
+  }
+
+  func testAttachmentInputRejectsBeforeConversationCreation() async throws {
+    let service = try makeService()
+    let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let sent = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId,
+      userMarkdown: "Question",
+      attachments: [GraphQLAgentChatAttachmentInput(
+        contentBase64: "not-base64", mediaType: "text/plain", originalFilename: "x.txt"
+      )]
+    ))
+    XCTAssertFalse(sent.result.accepted)
+    XCTAssertTrue(try service.service.listAgentConversations(subjectNoteId: subject.noteId).isEmpty)
+  }
+
+  func testAttachmentInputRejectsExcessFilesBeforeConversationCreation() async throws {
+    let service = try makeService()
+    let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let attachments = (0..<5).map { index in
+      GraphQLAgentChatAttachmentInput(
+        contentBase64: Data("file \(index)".utf8).base64EncodedString(),
+        mediaType: "text/plain",
+        originalFilename: "\(index).txt"
+      )
+    }
+    let sent = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId,
+      userMarkdown: "Question",
+      attachments: attachments
+    ))
+    XCTAssertFalse(sent.result.accepted)
+    XCTAssertTrue(try service.service.listAgentConversations(subjectNoteId: subject.noteId).isEmpty)
+  }
+
+  func testAttachmentInputRoundTripsToTurnFile() async throws {
+    let service = try makeService()
+    let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let sent = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId,
+      userMarkdown: "Question",
+      attachments: [GraphQLAgentChatAttachmentInput(
+        contentBase64: Data("attached text".utf8).base64EncodedString(),
+        mediaType: "text/plain",
+        originalFilename: "reference.txt"
+      )]
+    ))
+    XCTAssertTrue(sent.result.accepted)
+    let turnNoteId = try XCTUnwrap(sent.turnNoteId)
+    let attachment = try XCTUnwrap(try service.service.listFiles(noteId: turnNoteId).first)
+    XCTAssertEqual(attachment.file.originalFilename, "reference.txt")
+    XCTAssertEqual(try service.service.resolveFileContent(fileId: attachment.file.fileId), Data("attached text".utf8))
+  }
+
+  func testAttachmentInputRequiresCanonicalBase64AndUsesFilenameFallbackForGenericMIME() async throws {
+    let service = try makeService()
+    let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let rejected = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId,
+      userMarkdown: "Question",
+      attachments: [GraphQLAgentChatAttachmentInput(
+        contentBase64: "YQ", mediaType: "text/plain", originalFilename: "not-canonical.txt"
+      )]
+    ))
+    XCTAssertFalse(rejected.result.accepted)
+
+    let accepted = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId,
+      userMarkdown: "Question",
+      attachments: [GraphQLAgentChatAttachmentInput(
+        contentBase64: Data("fallback".utf8).base64EncodedString(),
+        mediaType: "application/octet-stream",
+        originalFilename: "fallback.md"
+      )]
+    ))
+    XCTAssertTrue(accepted.result.accepted)
+    let attachment = try XCTUnwrap(try service.service.listFiles(
+      noteId: try XCTUnwrap(accepted.turnNoteId)
+    ).first)
+    XCTAssertEqual(attachment.file.mediaType, "text/markdown")
+  }
+
+  func testAttachmentInputRejectsSpoofedOrUnsupportedDeclaredMediaTypesBeforeConversationCreation() async throws {
+    let service = try makeService()
+    let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
+    for mediaType in ["text/html", "application/pdf"] {
+      let sent = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+        subjectNoteId: subject.noteId,
+        userMarkdown: "Question",
+        attachments: [GraphQLAgentChatAttachmentInput(
+          contentBase64: Data("plain text".utf8).base64EncodedString(),
+          mediaType: mediaType,
+          originalFilename: "appears-safe.txt"
+        )]
+      ))
+      XCTAssertFalse(sent.result.accepted, mediaType)
+    }
+    XCTAssertTrue(try service.service.listAgentConversations(subjectNoteId: subject.noteId).isEmpty)
+  }
+
+  func testExistingConversationRejectsDifferentSubject() async throws {
+    let service = try makeService()
+    let first = try service.service.createNote(bodyMarkdown: "# First\nBody.")
+    let second = try service.service.createNote(bodyMarkdown: "# Second\nBody.")
+    let sent = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: first.noteId, userMarkdown: "Question"
+    ))
+    let rejected = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: second.noteId,
+      conversationNotebookId: try XCTUnwrap(sent.conversationNotebookId),
+      userMarkdown: "Question"
+    ))
+    XCTAssertFalse(rejected.result.accepted)
+  }
+
   func testSendAgentChatMessageCreatesConversationAndReportsUnavailable() async throws {
     let service = try makeService()
     let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")

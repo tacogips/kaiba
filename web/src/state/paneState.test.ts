@@ -22,7 +22,7 @@ function storage(initial?: string): PaneStateStorage & { values: Map<string, str
   }
 }
 
-const folded: PaneState = { leftOpen: false, rightOpen: true, leftTab: 'contents', rightTab: 'chat' }
+const folded: PaneState = { leftOpen: false, rightOpen: true, leftTab: 'contents', rightTab: 'links' }
 
 describe('pane state persistence', () => {
   test('round-trips fold and tab selection', () => {
@@ -47,6 +47,21 @@ describe('pane state persistence', () => {
     expect(parsePaneState('{"rightOpen":"yes"}')).toEqual(defaultPaneState)
   })
 
+  test('pre-merge tab names land on the unified memo tab', () => {
+    expect(parsePaneState('{"rightTab":"memos"}').rightTab).toBe('memo')
+    expect(parsePaneState('{"rightTab":"chat"}').rightTab).toBe('memo')
+  })
+
+  test('drag-resized pane widths persist, clamp, and ignore junk', () => {
+    expect(parsePaneState('{"leftWidth":300,"rightWidth":500}'))
+      .toEqual({ ...defaultPaneState, leftWidth: 300, rightWidth: 500 })
+    expect(parsePaneState('{"leftWidth":5,"rightWidth":99999}'))
+      .toEqual({ ...defaultPaneState, leftWidth: 170, rightWidth: 1100 })
+    expect(parsePaneState('{"leftWidth":"wide"}')).toEqual(defaultPaneState)
+    const resized: PaneState = { ...defaultPaneState, leftWidth: 320 }
+    expect(parsePaneState(serializePaneState(resized))).toEqual(resized)
+  })
+
   test('a storage that throws never breaks the layout', () => {
     const throwing: PaneStateStorage = {
       getItem: () => { throw new Error('blocked') },
@@ -61,12 +76,12 @@ describe('tab selection', () => {
   test('picking a tab opens its pane', () => {
     expect(withLeftTab({ ...defaultPaneState, leftOpen: false }, 'contents'))
       .toEqual({ ...defaultPaneState, leftOpen: true, leftTab: 'contents' })
-    expect(withRightTab({ ...defaultPaneState, rightOpen: false }, 'chat'))
-      .toEqual({ ...defaultPaneState, rightOpen: true, rightTab: 'chat' })
+    expect(withRightTab({ ...defaultPaneState, rightOpen: false }, 'links'))
+      .toEqual({ ...defaultPaneState, rightOpen: true, rightTab: 'links' })
   })
 
   test('the other pane is untouched', () => {
-    expect(withLeftTab(folded, 'files').rightTab).toBe('chat')
+    expect(withLeftTab(folded, 'files').rightTab).toBe('links')
     expect(withRightTab(folded, 'info').leftOpen).toBe(false)
   })
 })
