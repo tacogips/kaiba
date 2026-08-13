@@ -100,6 +100,12 @@ machine. The server exposes `POST /graphql`, `GET /note/events`
 (long-poll live updates), `GET|POST /note/register`, and serves the
 viewer SPA.
 
+The viewer treats attached tags as navigation subjects. Click an underlined
+tag term or tag chip to open its Memo, History, and Links tabs across every
+notebook. Tag memo creation is safe under concurrent submissions, agent context
+respects its UTF-8 byte budget, and Links loads the complete paginated occurrence
+set while clearing results immediately when the selected tag changes.
+
 ## API Access
 
 ```bash

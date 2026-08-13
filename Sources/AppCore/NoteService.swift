@@ -61,48 +61,14 @@ public struct NoteService: Sendable {
   ) throws -> Notebook {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
-        let now = NoteStoreClock.system.now()
-        let notebookId = makeNoteId(prefix: "notebook")
-        try db.execute(
-          """
-          INSERT INTO notebooks (notebook_id, title, created_at, updated_at, meta_json)
-          VALUES (?, ?, ?, ?, jsonb(?))
-          """,
-          bindings: [
-            .text(notebookId),
-            .text(title),
-            .text(now),
-            .text(now),
-            .optionalText(metaJSON)
-          ]
-        )
-        if let kindTagName {
-          let kindTag = try ensureNotebookKindTag(kindTagName, in: db)
-          try applyNotebookTag(
-            notebookId: notebookId,
-            tagId: kindTag.tagId,
-            provenance: .system,
-            assignedBy: "kaiba-note",
-            deletable: false,
-            in: db
-          )
-        }
-        if let leaf = try defineNotebookFolderPath(folderPath, in: db) {
-          try applyNotebookTag(
-            notebookId: notebookId, tagId: leaf.tagId, provenance: .system,
-            assignedBy: "kaiba-note", deletable: false, in: db
-          )
-        }
-        let notebook = try requireNotebook(notebookId, in: db)
-        let dispatches = try enqueueAutoActions(
-          for: NoteAutoActionEvent(
-            trigger: .notebookCreated,
-            notebookId: notebook.notebookId,
-            originatingActionId: originatingActionId
-          ),
+        try insertNotebook(
+          title: title,
+          kindTagName: kindTagName,
+          folderPath: folderPath,
+          metaJSON: metaJSON,
+          originatingActionId: originatingActionId,
           in: db
         )
-        return (notebook: notebook, dispatches: dispatches)
       }
     }
     dispatchQueuedAutoActions(result.dispatches)
@@ -112,6 +78,54 @@ public struct NoteService: Sendable {
       tagNames: folderTagNames(of: result.notebook)
     ))
     return result.notebook
+  }
+
+  /// Creates the notebook record, its optional system tags, and queued
+  /// notebook-created actions on an already-open transaction. Callers publish
+  /// the change and dispatch the returned actions only after that transaction
+  /// commits.
+  func insertNotebook(
+    title: String,
+    kindTagName: String?,
+    folderPath: [String] = [],
+    metaJSON: String?,
+    originatingActionId: String?,
+    in db: SQLiteDatabase
+  ) throws -> (notebook: Notebook, dispatches: [QueuedAutoActionDispatch]) {
+    let now = NoteStoreClock.system.now()
+    let notebookId = makeNoteId(prefix: "notebook")
+    try db.execute(
+      """
+      INSERT INTO notebooks (notebook_id, title, created_at, updated_at, meta_json)
+      VALUES (?, ?, ?, ?, jsonb(?))
+      """,
+      bindings: [
+        .text(notebookId), .text(title), .text(now), .text(now), .optionalText(metaJSON)
+      ]
+    )
+    if let kindTagName {
+      let kindTag = try ensureNotebookKindTag(kindTagName, in: db)
+      try applyNotebookTag(
+        notebookId: notebookId, tagId: kindTag.tagId, provenance: .system,
+        assignedBy: "kaiba-note", deletable: false, in: db
+      )
+    }
+    if let leaf = try defineNotebookFolderPath(folderPath, in: db) {
+      try applyNotebookTag(
+        notebookId: notebookId, tagId: leaf.tagId, provenance: .system,
+        assignedBy: "kaiba-note", deletable: false, in: db
+      )
+    }
+    let notebook = try requireNotebook(notebookId, in: db)
+    let dispatches = try enqueueAutoActions(
+      for: NoteAutoActionEvent(
+        trigger: .notebookCreated,
+        notebookId: notebook.notebookId,
+        originatingActionId: originatingActionId
+      ),
+      in: db
+    )
+    return (notebook, dispatches)
   }
 
   /// Creates or reuses a hierarchy of `folder` tags without silently changing

@@ -45,6 +45,12 @@ public struct TagAttributedComment: Equatable, Sendable {
   }
 }
 
+private struct TagMemoNotebookCreationResult {
+  var notebook: Notebook
+  var dispatches: [QueuedAutoActionDispatch]
+  var created: Bool
+}
+
 public extension NoteService {
   /// The tag plus its class and cross-notebook aggregate counts. Counts expand
   /// to descendant tags like every tag filter (D16/D17).
@@ -138,29 +144,39 @@ public extension NoteService {
   }
 
   /// Finds or creates the tag's memo notebook (kind `tag-memo`, subject bound
-  /// via `kaibaTagMemo.subjectTagId` meta JSON). Concurrent creation races
-  /// resolve deterministically to the earliest-created notebook.
+  /// via `kaibaTagMemo.subjectTagId` meta JSON). Lookup and creation share one
+  /// database transaction, so concurrent callers observe one notebook and one
+  /// set of notebook-created side effects.
   @discardableResult
   func ensureTagMemoNotebook(tagId: String) throws -> Notebook {
-    let (tag, existingId) = try driver.withDatabase { database -> (Tag, String?) in
-      let tag = try requireTag(id: tagId, in: database)
-      return (tag, try findTagMemoNotebookId(tagId: tagId, in: database))
+    let result = try driver.withDatabase { database in
+      try database.transaction { db -> TagMemoNotebookCreationResult in
+        let tag = try requireTag(id: tagId, in: db)
+        if let existingId = try findTagMemoNotebookId(tagId: tagId, in: db) {
+          return TagMemoNotebookCreationResult(
+            notebook: try requireNotebook(existingId, in: db), dispatches: [], created: false
+          )
+        }
+        let created = try insertNotebook(
+          title: "Tag: \(tag.name)",
+          kindTagName: NoteStoreSchema.tagMemoNotebookKindTag,
+          metaJSON: try Self.tagMemoNotebookMetaJSON(subjectTagId: tagId),
+          originatingActionId: nil,
+          in: db
+        )
+        return TagMemoNotebookCreationResult(
+          notebook: created.notebook, dispatches: created.dispatches, created: true
+        )
+      }
     }
-    if let existingId {
-      return try getNotebook(existingId)
+    if result.created {
+      dispatchQueuedAutoActions(result.dispatches)
+      publishChange(NoteChangeEvent(
+        kind: NoteChangeEventKind.notebookCreated,
+        notebookId: result.notebook.notebookId
+      ))
     }
-    let created = try createNotebook(
-      title: "Tag: \(tag.name)",
-      kindTagName: NoteStoreSchema.tagMemoNotebookKindTag,
-      metaJSON: Self.tagMemoNotebookMetaJSON(subjectTagId: tagId)
-    )
-    let resolvedId = try driver.withDatabase { database in
-      try findTagMemoNotebookId(tagId: tagId, in: database)
-    }
-    guard let resolvedId, resolvedId != created.notebookId else {
-      return created
-    }
-    return try getNotebook(resolvedId)
+    return result.notebook
   }
 
   /// Agent-chat subject context for a tag: the tag identity followed by the
@@ -188,16 +204,18 @@ public extension NoteService {
         """,
         bindings: expanded.map(SQLiteValue.text)
       )
-      var sections = [heading]
-      var budget = limitBytes
+      var context = utf8Prefix(heading, limit: limitBytes)
+      guard context.utf8.count == heading.utf8.count else { return context }
       for row in rows {
-        guard budget > 0 else { break }
+        let remaining = limitBytes - context.utf8.count
+        guard remaining > 0 else { break }
         guard let markdown = row["body_markdown"] else { continue }
-        let body = String(markdown.prefix(budget))
-        budget -= body.utf8.count
-        sections.append(body)
+        let section = "\n\n---\n\n" + markdown
+        let fitted = utf8Prefix(section, limit: remaining)
+        context += fitted
+        if fitted.utf8.count < section.utf8.count { break }
       }
-      return sections.joined(separator: "\n\n---\n\n")
+      return context
     }
   }
 
@@ -227,6 +245,21 @@ public extension NoteService {
     }
     return json
   }
+}
+
+/// Returns the longest prefix whose UTF-8 encoding is at most `limit` bytes.
+/// Iterating Unicode scalars avoids splitting a multi-byte scalar encoding.
+func utf8Prefix(_ value: String, limit: Int) -> String {
+  guard limit > 0 else { return "" }
+  var result = ""
+  var used = 0
+  for scalar in value.unicodeScalars {
+    let scalarBytes = String(scalar).utf8.count
+    guard used + scalarBytes <= limit else { break }
+    result.unicodeScalars.append(scalar)
+    used += scalarBytes
+  }
+  return result
 }
 
 func findTagMemoNotebookId(tagId: String, in database: SQLiteDatabase) throws -> String? {

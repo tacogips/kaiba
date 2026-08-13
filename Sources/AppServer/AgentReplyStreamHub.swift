@@ -7,9 +7,13 @@ import AppCore
 /// reply incrementally, which gives a streaming chat UX over the server's
 /// single-write HTTP responses.
 public actor AgentReplyStreamHub {
+  typealias GraceExpiryScheduling = @Sendable (
+    UInt64,
+    @escaping @Sendable () -> Void
+  ) -> Void
   /// Finished streams linger so a poller that raced the finish still reads the
   /// tail; the oldest are dropped past this cap.
-  static let maximumStreams = 64
+  public static let maximumStreams = 64
 
   public struct Poll: Equatable, Sendable {
     public var cursor: Int
@@ -25,19 +29,60 @@ public actor AgentReplyStreamHub {
     var status: String?
     var message: String?
     var sequence: UInt64
+    var terminalSequence: UInt64?
+    var deliveryObligations: Set<UUID> = []
+    var firstTerminalDeliverySatisfied = false
+    var graceGeneration: UUID?
+  }
+
+  private struct PendingPoll {
+    var turnNoteId: String
+    var continuation: CheckedContinuation<Void, Never>
+    var resumed = false
   }
 
   private var streams: [String: Stream] = [:]
   private var sequence: UInt64 = 0
-  private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+  /// A request remains registered until its HTTP response is about to return.
+  /// This intentionally includes requests already woken by a chunk: finishing
+  /// the turn before that response returns must still protect the tail.
+  private var pendingPolls: [UUID: PendingPoll] = [:]
+  private var deferredPollResponses: [UUID: CheckedContinuation<Void, Never>] = [:]
+  private let maximumRetainedStreams: Int
+  private let firstTerminalDeliveryGraceNanoseconds: UInt64
+  private let graceExpiryScheduling: GraceExpiryScheduling
+  private let defersPollResponsesForTesting: Bool
 
-  public init() {}
+  public init(
+    maximumRetainedStreams: Int = maximumStreams,
+    firstTerminalDeliveryGraceNanoseconds: UInt64 = 35_000_000_000
+  ) {
+    self.init(
+      maximumRetainedStreams: maximumRetainedStreams,
+      firstTerminalDeliveryGraceNanoseconds: firstTerminalDeliveryGraceNanoseconds,
+      graceExpiryScheduling: Self.scheduleSystemGraceExpiry,
+      defersPollResponsesForTesting: false
+    )
+  }
+
+  init(
+    maximumRetainedStreams: Int,
+    firstTerminalDeliveryGraceNanoseconds: UInt64,
+    graceExpiryScheduling: @escaping GraceExpiryScheduling,
+    defersPollResponsesForTesting: Bool = false
+  ) {
+    self.maximumRetainedStreams = max(0, maximumRetainedStreams)
+    self.firstTerminalDeliveryGraceNanoseconds = firstTerminalDeliveryGraceNanoseconds
+    self.graceExpiryScheduling = graceExpiryScheduling
+    self.defersPollResponsesForTesting = defersPollResponsesForTesting
+  }
 
   public func publish(turnNoteId: String, text: String) {
     var stream = streams[turnNoteId] ?? makeStream()
     stream.chunks.append(text)
     streams[turnNoteId] = stream
-    wakeAll()
+    wakePolls(for: turnNoteId)
+    cleanupEligibleTerminalStreams()
   }
 
   public func finish(turnNoteId: String, status: String, message: String?) {
@@ -45,8 +90,17 @@ public actor AgentReplyStreamHub {
     stream.done = true
     stream.status = status
     stream.message = message
+    sequence += 1
+    stream.terminalSequence = sequence
+    stream.deliveryObligations = Set(pendingPolls.compactMap { id, poll in
+      poll.turnNoteId == turnNoteId ? id : nil
+    })
+    let graceGeneration = UUID()
+    stream.graceGeneration = graceGeneration
     streams[turnNoteId] = stream
-    wakeAll()
+    wakePolls(for: turnNoteId)
+    scheduleGraceExpiry(turnNoteId: turnNoteId, generation: graceGeneration)
+    cleanupEligibleTerminalStreams()
   }
 
   /// Suspends until the stream has chunks past `cursor` or finished, or until
@@ -58,6 +112,7 @@ public actor AgentReplyStreamHub {
     timeoutNanoseconds: UInt64
   ) async -> Poll {
     if let ready = snapshot(turnNoteId: turnNoteId, cursor: cursor) {
+      recordTerminalDelivery(for: turnNoteId, pollId: nil, delivered: ready.done)
       return ready
     }
     let id = UUID()
@@ -71,24 +126,23 @@ public actor AgentReplyStreamHub {
           continuation.resume()
           return
         }
-        waiters[id] = continuation
+        pendingPolls[id] = PendingPoll(turnNoteId: turnNoteId, continuation: continuation)
       }
     } onCancel: {
       Task { await self.wake(id) }
     }
     timeout.cancel()
-    return snapshot(turnNoteId: turnNoteId, cursor: cursor)
+    await deferPollResponseIfNeeded(id)
+    let poll = snapshot(turnNoteId: turnNoteId, cursor: cursor)
       ?? Poll(cursor: cursor, chunks: [], done: false, status: nil, message: nil)
+    let cancelled = Task.isCancelled
+    pendingPolls.removeValue(forKey: id)
+    recordTerminalDelivery(for: turnNoteId, pollId: id, delivered: poll.done && !cancelled)
+    return poll
   }
 
   private func makeStream() -> Stream {
     sequence += 1
-    if streams.count >= Self.maximumStreams {
-      let oldest = streams.min { $0.value.sequence < $1.value.sequence }
-      if let oldest {
-        streams.removeValue(forKey: oldest.key)
-      }
-    }
     return Stream(sequence: sequence)
   }
 
@@ -111,15 +165,110 @@ public actor AgentReplyStreamHub {
   }
 
   private func wake(_ id: UUID) {
-    waiters.removeValue(forKey: id)?.resume()
+    resumePoll(id)
+    resumeDeferredPollResponse(id)
   }
 
-  private func wakeAll() {
-    let resumed = waiters
-    waiters.removeAll()
-    for continuation in resumed.values {
-      continuation.resume()
+  private func wakePolls(for turnNoteId: String) {
+    for (id, poll) in pendingPolls where poll.turnNoteId == turnNoteId {
+      resumePoll(id)
     }
+  }
+
+  private func resumePoll(_ id: UUID) {
+    guard var poll = pendingPolls[id], !poll.resumed else { return }
+    poll.resumed = true
+    pendingPolls[id] = poll
+    poll.continuation.resume()
+  }
+
+  private func deferPollResponseIfNeeded(_ id: UUID) async {
+    guard defersPollResponsesForTesting else { return }
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        if Task.isCancelled {
+          continuation.resume()
+        } else {
+          deferredPollResponses[id] = continuation
+        }
+      }
+    } onCancel: {
+      Task { await self.resumeDeferredPollResponse(id) }
+    }
+  }
+
+  private func resumeDeferredPollResponse(_ id: UUID) {
+    deferredPollResponses.removeValue(forKey: id)?.resume()
+  }
+
+  private func recordTerminalDelivery(for turnNoteId: String, pollId: UUID?, delivered: Bool) {
+    guard var stream = streams[turnNoteId], stream.done else { return }
+    if let pollId {
+      stream.deliveryObligations.remove(pollId)
+    }
+    if delivered {
+      stream.firstTerminalDeliverySatisfied = true
+    }
+    streams[turnNoteId] = stream
+    cleanupEligibleTerminalStreams()
+  }
+
+  private func scheduleGraceExpiry(turnNoteId: String, generation: UUID) {
+    graceExpiryScheduling(firstTerminalDeliveryGraceNanoseconds) { [weak self] in
+      Task {
+        await self?.expireGrace(turnNoteId: turnNoteId, generation: generation)
+      }
+    }
+  }
+
+  private static func scheduleSystemGraceExpiry(
+    delay: UInt64,
+    action: @escaping @Sendable () -> Void
+  ) {
+    Task {
+      try? await Task.sleep(nanoseconds: delay)
+      action()
+    }
+  }
+
+  private func expireGrace(turnNoteId: String, generation: UUID) {
+    guard var stream = streams[turnNoteId], stream.graceGeneration == generation else { return }
+    stream.firstTerminalDeliverySatisfied = true
+    streams[turnNoteId] = stream
+    cleanupEligibleTerminalStreams()
+  }
+
+  /// Active streams and terminal streams that still owe a poller a response
+  /// are deliberately not candidates. This can temporarily exceed the target
+  /// while preserving the delivery contract.
+  private func cleanupEligibleTerminalStreams() {
+    let eligible = streams.compactMap { id, stream -> (String, UInt64)? in
+      guard stream.done,
+            stream.deliveryObligations.isEmpty,
+            stream.firstTerminalDeliverySatisfied,
+            let terminalSequence = stream.terminalSequence else {
+        return nil
+      }
+      return (id, terminalSequence)
+    }.sorted { $0.1 < $1.1 }
+    let excess = max(0, eligible.count - maximumRetainedStreams)
+    for (id, _) in eligible.prefix(excess) {
+      streams.removeValue(forKey: id)
+    }
+  }
+
+  // Internal observability for actor-level regression coverage. These are not
+  // part of the HTTP contract.
+  func pendingPollCount(for turnNoteId: String) -> Int {
+    pendingPolls.values.filter { $0.turnNoteId == turnNoteId }.count
+  }
+
+  func deferredPollResponseCount() -> Int {
+    deferredPollResponses.count
+  }
+
+  func containsStream(for turnNoteId: String) -> Bool {
+    streams[turnNoteId] != nil
   }
 }
 

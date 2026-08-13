@@ -132,3 +132,9 @@ occurrence links, and register mouse-selected text as a tag.
   viewport and dismisses on scroll. Full `swift test` (371 green),
   `swiftlint` (pre-existing warning only), tsc/bun test/vitest/eslint/
   build all green.
+- 2026-08-13: Follow-up review findings were resolved under
+  `codex-design-and-implement-review-loop-session-690`: tag-memo creation is
+  transactional, tag context honors UTF-8 byte limits, Links loads every page
+  and rejects stale tag generations, and active reply streams remain protected
+  through terminal delivery. The follow-up plan is archived as
+  `impl-plans/completed/recent-change-blocking-findings.md`.

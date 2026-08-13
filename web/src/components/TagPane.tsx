@@ -1,9 +1,10 @@
-import { For, Show, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
 import { MarkdownBody } from './Markdown'
 import { MemoTab, type MemoSubject } from './MemoTab'
 import { TabPanel, Tabs, type TabDescriptor } from './Tabs'
 import { errorMessage, useApp } from '../state/appStore'
 import { noteDisplayTitle } from '../notes/noteText'
+import { loadTagOccurrences, transitionTagOccurrences } from '../notes/tagOccurrences'
 import type { Note, TagComment, TagDetail } from '../notes/types'
 
 // The right pane's tag mode (design-docs/specs/tag-detail-pane.md): the
@@ -214,22 +215,38 @@ function TagLinksTab(props: { tagId: string; tagName?: string }): JSX.Element {
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
   let generation = 0
+  let loadedTagId = ''
 
   createEffect(() => {
+    const tagId = props.tagId
     const tagName = props.tagName
     void revisionPulse(app.state.notebookRevisions, app.state.catalogRevision)
-    if (!tagName) return
-    void load(tagName)
+    const requested = ++generation
+    if (tagId !== loadedTagId) {
+      setOccurrences(transitionTagOccurrences(loadedTagId, tagId, untrack(occurrences)))
+      loadedTagId = tagId
+    }
+    setError('')
+    if (!tagName) {
+      setOccurrences([])
+      setLoading(false)
+      return
+    }
+    void load(tagName, requested)
   })
 
-  const load = async (tagName: string) => {
-    const requested = ++generation
+  onCleanup(() => { generation += 1 })
+
+  const load = async (tagName: string, requested: number) => {
     setLoading(true)
-    setError('')
     try {
-      const notes = await app.client.notesByTag(tagName)
+      const notes = await loadTagOccurrences(
+        tagName,
+        (name, offset) => app.client.notesByTag(name, offset),
+        () => requested === generation,
+      )
       if (requested !== generation) return
-      setOccurrences(notes)
+      setOccurrences(notes ?? [])
     } catch (loadError) {
       if (requested !== generation) return
       setOccurrences([])
