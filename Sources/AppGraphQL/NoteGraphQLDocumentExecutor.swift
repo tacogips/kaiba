@@ -243,16 +243,6 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.tags())
     case "tagClasses":
       return try await encodedJSONValue(service.tagClasses())
-    case "kanbanStatusSets":
-      return try await encodedJSONValue(service.kanbanStatusSets())
-    case "effectiveKanbanStatuses":
-      return try await encodedJSONValue(service.effectiveKanbanStatuses(
-        tagName: try optionalString("tagName", variables: variables)
-      ))
-    case "effectiveKanbanStatusesByTagId":
-      return try await encodedJSONValue(service.effectiveKanbanStatusesByTagId(
-        tagId: requiredString("tagId", variables: variables)
-      ))
     case "noteFile":
       return try await encodedJSONValue(service.noteFile(fileId: requiredString("fileId", variables: variables)))
     case "noteFiles":
@@ -278,6 +268,16 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     case "notebookComments":
       return try await encodedJSONValue(service.notebookComments(
         notebookId: requiredString("notebookId", variables: variables)
+      ))
+    case "tagDetail":
+      return try await encodedJSONValue(service.tagDetail(
+        tagId: requiredString("tagId", variables: variables)
+      ))
+    case "tagComments":
+      return try await encodedJSONValue(service.tagComments(
+        tagId: requiredString("tagId", variables: variables),
+        limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
+        offset: validatedOffset(try optionalInt("offset", variables: variables))
       ))
     case "agenticSearch":
       return try await encodedJSONValue(service.agenticSearch(
@@ -344,47 +344,10 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         tagId: requiredString("tagId", variables: variables),
         provenance: try optionalString("provenance", variables: variables) ?? "human"
       ))
-    case "setNotebookProgress":
-      return try await encodedJSONValue(service.setNotebookProgress(
-        notebookId: requiredString("notebookId", variables: variables),
-        progress: requiredString("progress", variables: variables),
-        expectedProgress: try optionalString("expectedProgress", variables: variables)
-      ))
     case "setNotebookReadOnly":
       return try await encodedJSONValue(service.setNotebookReadOnly(
         notebookId: requiredString("notebookId", variables: variables),
         readOnly: requiredBool("readOnly", variables: variables)
-      ))
-    case "createKanbanStatusSet":
-      return try await encodedJSONValue(service.createKanbanStatusSet(
-        name: requiredString("name", variables: variables),
-        statuses: requiredInput("statuses", variables: variables)
-      ))
-    case "updateKanbanStatusSet":
-      let reassignments: [GraphQLKanbanStatusReassignmentInput]
-      if let value = variables["reassignments"], value != .null {
-        reassignments = try requiredInput("reassignments", variables: variables)
-      } else {
-        reassignments = []
-      }
-      return try await encodedJSONValue(service.updateKanbanStatusSet(
-        setId: requiredString("setId", variables: variables),
-        statuses: requiredInput("statuses", variables: variables),
-        reassignments: reassignments
-      ))
-    case "deleteKanbanStatusSet":
-      return try await encodedJSONValue(service.deleteKanbanStatusSet(
-        setId: requiredString("setId", variables: variables)
-      ))
-    case "assignKanbanStatusSet":
-      return try await encodedJSONValue(service.assignKanbanStatusSet(
-        tagName: requiredString("tagName", variables: variables),
-        setId: try optionalString("setId", variables: variables)
-      ))
-    case "assignKanbanStatusSetByTagId":
-      return try await encodedJSONValue(service.assignKanbanStatusSetByTagId(
-        tagId: requiredString("tagId", variables: variables),
-        setId: try optionalString("setId", variables: variables)
       ))
     case "setNoteReadOnly":
       return try await encodedJSONValue(service.setReadOnly(
@@ -458,6 +421,10 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     case "sendAgentChatMessage":
       let input: GraphQLSendAgentChatMessageInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.sendAgentChatMessage(input))
+    case "ensureTagMemoNotebook":
+      return try await encodedJSONValue(service.ensureTagMemoNotebook(
+        tagId: requiredString("tagId", variables: variables)
+      ))
     case "requestTagExtraction":
       let input: GraphQLRequestTagExtractionInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.requestTagExtraction(input))
@@ -641,9 +608,6 @@ let supportedNoteGraphQLFields: Set<String> = [
   "proposeNoteLinks",
   "tags",
   "tagClasses",
-  "kanbanStatusSets",
-  "effectiveKanbanStatuses",
-  "effectiveKanbanStatusesByTagId",
   "noteFile",
   "noteFiles",
   "autoActions",
@@ -658,13 +622,7 @@ let supportedNoteGraphQLFields: Set<String> = [
   "applyNotebookTagIds",
   "removeNotebookTag",
   "removeNotebookTagById",
-  "setNotebookProgress",
   "setNotebookReadOnly",
-  "createKanbanStatusSet",
-  "updateKanbanStatusSet",
-  "deleteKanbanStatusSet",
-  "assignKanbanStatusSet",
-  "assignKanbanStatusSetByTagId",
   "setNoteReadOnly",
   "applyNoteTags",
   "removeNoteTag",
@@ -684,6 +642,9 @@ let supportedNoteGraphQLFields: Set<String> = [
   "agentModels",
   "noteComments",
   "notebookComments",
+  "tagDetail",
+  "tagComments",
+  "ensureTagMemoNotebook",
   "agenticSearch",
   "appSetting",
   "migrateNoteFileStorage",
@@ -701,9 +662,6 @@ private let noteGraphQLQueryFields: Set<String> = [
   "proposeNoteLinks",
   "tags",
   "tagClasses",
-  "kanbanStatusSets",
-  "effectiveKanbanStatuses",
-  "effectiveKanbanStatusesByTagId",
   "noteFile",
   "noteFiles",
   "autoActions",
@@ -711,6 +669,8 @@ private let noteGraphQLQueryFields: Set<String> = [
   "notebookConversations",
   "noteComments",
   "notebookComments",
+  "tagDetail",
+  "tagComments",
   "agentModels",
   "agenticSearch",
   "appSetting"
@@ -840,12 +800,6 @@ private let noteGraphQLRootSelectionTypes: [String: String] = [
   "proposeNoteLinks": "NoteLinkProposalQueryPayload",
   "tags": "NoteTagsQueryPayload",
   "tagClasses": "NoteTagClassesQueryPayload",
-  "kanbanStatusSets": "KanbanStatusSetsQueryPayload",
-  "effectiveKanbanStatuses": "KanbanStatusSetQueryPayload",
-  "effectiveKanbanStatusesByTagId": "KanbanStatusSetQueryPayload",
-  "createKanbanStatusSet": "KanbanStatusSetQueryPayload",
-  "updateKanbanStatusSet": "KanbanStatusSetQueryPayload",
-  "deleteKanbanStatusSet": "ControlPlaneResult",
   "noteFile": "NoteFileQueryPayload",
   "noteFiles": "NoteFilesQueryPayload",
   "autoActions": "NoteAutoActionsQueryPayload",
@@ -854,6 +808,8 @@ private let noteGraphQLRootSelectionTypes: [String: String] = [
   "agentModels": "AgentModelsPayload",
   "noteComments": "NoteCommentsQueryPayload",
   "notebookComments": "NoteCommentsQueryPayload",
+  "tagDetail": "TagDetailQueryPayload",
+  "tagComments": "TagCommentsQueryPayload",
   "agenticSearch": "AgenticSearchPayload",
   "appSetting": "AppSettingPayload",
   "setAppSetting": "AppSettingPayload",
@@ -883,20 +839,6 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
   "NoteLinkProposalQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteLinkProposal"),
   "NoteTagsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteTag"),
   "NoteTagClassesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteTagClass"),
-  "KanbanStatusSetQueryPayload": noteGraphQLQueryPayloadFields(valueType: "KanbanStatusSet"),
-  "KanbanStatusSetsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "KanbanStatusSet"),
-  "KanbanStatusSet": [
-    "setId": nil,
-    "name": nil,
-    "isSystem": nil,
-    "statuses": "KanbanStatus"
-  ],
-  "KanbanStatus": [
-    "statusId": nil,
-    "name": nil,
-    "category": nil,
-    "position": nil
-  ],
   "NoteFileQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFile"),
   "NoteFilesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFileAttachment"),
   "NoteAutoActionsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteAutoAction"),
@@ -913,6 +855,20 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "description": nil
   ],
   "NoteCommentsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteComment"),
+  "TagDetailQueryPayload": noteGraphQLQueryPayloadFields(valueType: "TagDetail"),
+  "TagDetail": [
+    "tag": "NoteTag",
+    "tagClass": "NoteTagClass",
+    "noteCount": nil,
+    "notebookCount": nil,
+    "memoNotebookId": nil
+  ],
+  "TagCommentsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "TagComment"),
+  "TagComment": [
+    "comment": "NoteComment",
+    "noteTitle": nil,
+    "notebookTitle": nil
+  ],
   "AgentConversation": [
     "notebookId": nil,
     "title": nil,
@@ -984,7 +940,6 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
   "Notebook": [
     "notebookId": nil,
     "title": nil,
-    "progress": nil,
     "readOnly": nil,
     "createdAt": nil,
     "updatedAt": nil,
@@ -1005,7 +960,6 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "name": nil,
     "classId": nil,
     "parentTagId": nil,
-    "statusSetId": nil,
     "isSystem": nil,
     "createdAt": nil
   ],

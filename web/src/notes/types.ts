@@ -1,18 +1,3 @@
-export type KanbanStatusCategory = 'none' | 'pending' | 'progress' | 'review' | 'done'
-
-export interface KanbanStatus {
-  statusId: string
-  name: string
-  category: KanbanStatusCategory
-  position: number
-}
-
-export interface KanbanStatusSet {
-  setId: string
-  name: string
-  isSystem: boolean
-  statuses: KanbanStatus[]
-}
 export type NoteListSort = 'updatedAtDesc' | 'title' | 'createdAtDesc' | 'createdAtAsc'
 export type HostMode = 'riela-app' | 'cli-serve'
 
@@ -27,7 +12,6 @@ export interface NoteTag {
   name: string
   classId: string | null
   parentTagId: string | null
-  statusSetId?: string | null
   isSystem: boolean
   createdAt: string
 }
@@ -49,7 +33,6 @@ export interface NoteTagAssignment {
 export interface Notebook {
   notebookId: string
   title: string
-  progress: string
   readOnly: boolean
   createdAt: string
   updatedAt: string
@@ -103,6 +86,24 @@ export interface NoteComment {
   bodyMarkdown: string
   author: string
   createdAt: string
+}
+
+/** Cross-notebook tag detail (design-docs/specs/tag-detail-pane.md). */
+export interface TagDetail {
+  tag: NoteTag
+  tagClass: NoteTagClass | null
+  noteCount: number
+  notebookCount: number
+  /** The tag's memo/chat notebook, once one has been created. */
+  memoNotebookId: string | null
+}
+
+/** A memo in a tag's cross-notebook history, attributed with the titles of
+ * its anchoring note/notebook. */
+export interface TagComment {
+  comment: NoteComment
+  noteTitle: string | null
+  notebookTitle: string | null
 }
 
 export interface NoteGraphNeighbor {

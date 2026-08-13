@@ -4,7 +4,7 @@ extension AppCommand {
   func runNotebook(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     guard let subcommand = cursor.next() else {
-      throw Error.invalidUsage("notebook requires a subcommand: list|show|create|delete|progress")
+      throw Error.invalidUsage("notebook requires a subcommand: list|show|create|delete|readonly")
     }
     var subContext = context
     subContext.cursor = cursor
@@ -13,7 +13,6 @@ extension AppCommand {
     case "show": return try runNotebookShow(subContext)
     case "create": return try runNotebookCreate(subContext)
     case "delete": return try runNotebookDelete(subContext)
-    case "progress": return try runNotebookProgress(subContext)
     case "readonly": return try runNotebookReadOnly(subContext)
     default:
       throw Error.invalidUsage("unknown notebook subcommand: \(subcommand)")
@@ -133,18 +132,6 @@ extension AppCommand {
     let service = try makeService(context)
     try service.deleteNotebook(notebookId: notebookId)
     return "Deleted notebook \(notebookId)"
-  }
-
-  private func runNotebookProgress(_ context: CommandContext) throws -> String {
-    var cursor = context.cursor
-    guard let notebookId = cursor.next(), let progress = cursor.next() else {
-      throw Error.invalidUsage("notebook progress requires <notebook-id> <state>")
-    }
-    try cursor.finish()
-
-    let service = try makeService(context)
-    let notebook = try service.setNotebookProgress(notebookId: notebookId, progress: progress)
-    return "Notebook \(notebook.notebookId) progress: \(notebook.progress)"
   }
 
   func runComment(_ context: CommandContext) throws -> String {

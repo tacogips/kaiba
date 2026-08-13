@@ -3,13 +3,14 @@ import {
   formatRoute,
   navigate,
   parseRoute,
-  rememberReaderRoute,
   routeConversationId,
   routeNoteId,
   routeNotebookId,
   routesEqual,
+  routeTagId,
   subscribeRoute,
   withConversation,
+  withTag,
   type Route,
   type RouterEnvironment,
 } from './router'
@@ -41,7 +42,7 @@ describe('route parsing', () => {
     expect(parseRoute('#/')).toEqual({ kind: 'home' })
     expect(parseRoute('#/notebook/nb-1')).toEqual({ kind: 'notebook', notebookId: 'nb-1' })
     expect(parseRoute('#/note/note-1')).toEqual({ kind: 'note', noteId: 'note-1' })
-    expect(parseRoute('#/board')).toEqual({ kind: 'board' })
+    expect(parseRoute('#/board')).toEqual({ kind: 'home' })
   })
 
   test('reads the open conversation from the query', () => {
@@ -93,7 +94,6 @@ describe('route formatting', () => {
   test('round-trips every route', () => {
     const routes: Route[] = [
       { kind: 'home' },
-      { kind: 'board' },
       { kind: 'notebook', notebookId: 'nb-1' },
       { kind: 'note', noteId: 'note-1' },
       { kind: 'note', noteId: 'note/1', conversationId: 'conv 9' },
@@ -116,17 +116,33 @@ describe('route formatting', () => {
     expect(formatRoute(withConversation(route, undefined))).toBe('#/note/note-1')
     expect(withConversation({ kind: 'home' }, 'conv-3')).toEqual({ kind: 'home' })
   })
-})
 
-describe('reader return route', () => {
-  test('preserves the last reader route while visiting the board', () => {
-    const note: Route = { kind: 'note', noteId: 'note-1', conversationId: 'conv-9' }
-    const remembered = rememberReaderRoute(note)
-    expect(rememberReaderRoute({ kind: 'board' }, remembered)).toEqual(note)
+  test('parses and formats the tag detail selection', () => {
+    expect(parseRoute('#/note/note-1?tag=tag-7')).toEqual({ kind: 'note', noteId: 'note-1', tagId: 'tag-7' })
+    expect(parseRoute('#/notebook/nb-1?conv=conv-2&tag=tag-7')).toEqual({
+      kind: 'notebook',
+      notebookId: 'nb-1',
+      conversationId: 'conv-2',
+      tagId: 'tag-7',
+    })
+    expect(formatRoute({ kind: 'note', noteId: 'note-1', tagId: 'tag-7' })).toBe('#/note/note-1?tag=tag-7')
+    expect(formatRoute({ kind: 'note', noteId: 'note-1', conversationId: 'conv-2', tagId: 'tag-7' }))
+      .toBe('#/note/note-1?conv=conv-2&tag=tag-7')
   })
 
-  test('falls back to home when the board was opened directly', () => {
-    expect(rememberReaderRoute({ kind: 'board' })).toEqual({ kind: 'home' })
+  test('withTag opens and closes the tag pane without touching the conversation', () => {
+    const route = parseRoute('#/note/note-1?conv=conv-9')
+    expect(formatRoute(withTag(route, 'tag-7'))).toBe('#/note/note-1?conv=conv-9&tag=tag-7')
+    expect(formatRoute(withTag(parseRoute('#/note/note-1?conv=conv-9&tag=tag-7'), undefined)))
+      .toBe('#/note/note-1?conv=conv-9')
+    expect(withTag({ kind: 'home' }, 'tag-7')).toEqual({ kind: 'home' })
+    expect(routeTagId(parseRoute('#/notebook/nb-1?tag=tag-7'))).toBe('tag-7')
+    expect(routeTagId(parseRoute('#/notebook/nb-1'))).toBeUndefined()
+  })
+
+  test('withConversation keeps an open tag pane', () => {
+    const route = parseRoute('#/note/note-1?tag=tag-7')
+    expect(formatRoute(withConversation(route, 'conv-3'))).toBe('#/note/note-1?conv=conv-3&tag=tag-7')
   })
 })
 

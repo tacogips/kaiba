@@ -8,7 +8,6 @@ import { TocTab } from './TocTab'
 const notebook: Notebook = {
   notebookId: 'notebook-1',
   title: 'Research',
-  progress: 'active',
   readOnly: false,
   createdAt: '2026-08-13T00:00:00Z',
   updatedAt: '2026-08-13T00:00:00Z',

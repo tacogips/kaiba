@@ -6,7 +6,6 @@ public enum NoteServiceError: Error, Equatable, Sendable {
   case protectedTag(String)
   case invalidInput(String)
   case invalidRow(String)
-  case progressConflict(expected: String, actual: String)
 }
 
 public struct NoteService: Sendable {
@@ -24,8 +23,8 @@ public struct NoteService: Sendable {
   /// the recovery path. A running attempt heartbeats its lease on a fraction of
   /// this window so a long workflow is never reclaimed out from under it.
   public var autoActionDispatchLeaseStaleness: TimeInterval
-  /// Notified after each committed board-visible mutation. Nil disables the
-  /// change feed entirely.
+  /// Notified after each committed mutation visible to live clients. Nil
+  /// disables the change feed entirely.
   public var changeObserver: (any NoteChangeObserving)?
   /// Shared registry of background dispatch tasks fired by this service value,
   /// awaited by `drainAutoActionDispatches()`.
@@ -526,43 +525,6 @@ public struct NoteService: Sendable {
     }
   }
 
-  @discardableResult
-  public func setNotebookProgress(
-    notebookId: String,
-    progress: String,
-    expectedProgress: String? = nil
-  ) throws -> Notebook {
-    let updated = try driver.withDatabase { database in
-      try database.transaction { db in
-        let notebook = try requireNotebook(notebookId, in: db)
-        let allowed = try allowedKanbanStatusNames(notebookId: notebookId, in: db)
-        guard allowed.contains(progress) else {
-          throw NoteServiceError.invalidInput(
-            "unsupported notebook progress: \(progress); allowed: \(allowed.sorted().joined(separator: ", "))"
-          )
-        }
-        if let expectedProgress, expectedProgress != notebook.progress {
-          throw NoteServiceError.progressConflict(expected: expectedProgress, actual: notebook.progress)
-        }
-        try db.execute(
-          "UPDATE notebooks SET status = ?, updated_at = ? WHERE notebook_id = ?",
-          bindings: [
-            .text(progress),
-            .text(NoteStoreClock.system.now()),
-            .text(notebookId)
-          ]
-        )
-        return try requireNotebook(notebookId, in: db)
-      }
-    }
-    publishChange(NoteChangeEvent(
-      kind: NoteChangeEventKind.notebookProgress,
-      notebookId: updated.notebookId,
-      tagNames: folderTagNames(of: updated)
-    ))
-    return updated
-  }
-
   public func listNotes(notebookId: String, limit: Int = 100, offset: Int = 0) throws -> [Note] {
     try driver.withDatabase { database in
       _ = try requireNotebook(notebookId, in: database)
@@ -704,7 +666,7 @@ public struct NoteService: Sendable {
     provenance: NoteProvenance,
     assignedBy: String? = nil
   ) throws -> Note {
-    try driver.withDatabase { database in
+    let note = try driver.withDatabase { database in
       try database.transaction { db in
         _ = try requireNote(noteId, in: db)
         let previous = try ftsPayload(noteId: noteId, in: db)
@@ -722,15 +684,22 @@ public struct NoteService: Sendable {
         return try requireNote(noteId, in: db)
       }
     }
+    // Tag assignments drive inline tag underlining, the tag detail pane, and
+    // the tag catalog, so other clients need waking just like notebook tags.
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteTags,
+      notebookId: note.notebookId
+    ))
+    return note
   }
 
   @discardableResult
   public func removeTag(noteId: String, tagName: String, removedBy provenance: NoteProvenance) throws -> Note {
-    try driver.withDatabase { database in
-      try database.transaction { db in
+    let result = try driver.withDatabase { database in
+      try database.transaction { db -> (note: Note, removed: Bool) in
         let existing = try tagAssignment(noteId: noteId, tagName: tagName, in: db)
         guard let existing else {
-          return try requireNote(noteId, in: db)
+          return (try requireNote(noteId, in: db), false)
         }
         guard existing.deletable else {
           throw NoteServiceError.protectedTag(tagName)
@@ -747,9 +716,16 @@ public struct NoteService: Sendable {
           bindings: [.text(noteId), .text(existing.tag.tagId)]
         )
         try refreshFTS(noteId: noteId, previous: previous, in: db)
-        return try requireNote(noteId, in: db)
+        return (try requireNote(noteId, in: db), true)
       }
     }
+    if result.removed {
+      publishChange(NoteChangeEvent(
+        kind: NoteChangeEventKind.noteTags,
+        notebookId: result.note.notebookId
+      ))
+    }
+    return result.note
   }
 
 }

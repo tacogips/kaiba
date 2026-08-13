@@ -5,7 +5,6 @@ import {
   notebookPageLimit,
   type NoteClientEnvironment,
 } from './client'
-import type { KanbanStatusSet } from './types'
 
 function environment(
   responses: unknown[],
@@ -58,7 +57,7 @@ describe('Note GraphQL transport', () => {
     })
     expect(body.query).toContain('$tagFilterIdGroups: [[String!]!]')
     expect(body.query).toContain('firstNotePreview noteCount')
-    expect(body.query).toContain('progress readOnly')
+    expect(body.query).toContain('title readOnly')
     expect(body.query).toContain('classId parentTagId')
     expect(harness.requests[0]?.init?.credentials).toBe('same-origin')
   })
@@ -67,7 +66,6 @@ describe('Note GraphQL transport', () => {
     const canonical = {
       notebookId: 'notebook-system-memory',
       title: 'System Memory',
-      progress: 'none',
       readOnly: false,
       createdAt: '',
       updatedAt: '',
@@ -85,49 +83,10 @@ describe('Note GraphQL transport', () => {
     expect(body.query).toContain('setNotebookReadOnly')
   })
 
-  test('preserves custom status names verbatim on reads and writes', async () => {
-    const raw = {
-      notebookId: 'book',
-      title: 'Book',
-      progress: 'future',
-      createdAt: '',
-      updatedAt: '',
-      tags: [],
-    }
-    const canonical = { ...raw, progress: 'done' }
-    const harness = environment([
-      { data: { notebooks: {
-        result: { accepted: true, status: 'ok', diagnostics: [] },
-        value: [raw],
-      } } },
-      { data: { setNotebookProgress: {
-        result: { accepted: true, status: 'ok', diagnostics: [] },
-        notebook: raw,
-      } } },
-      { data: { notebook: {
-        result: { accepted: true, status: 'ok', diagnostics: [] },
-        value: canonical,
-      } } },
-    ])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
-    // Custom status names must survive verbatim: coercing them (the old
-    // unknown→'none' behavior) would poison expectedProgress CAS writes.
-    expect(await client.notebooks(0, 'updatedAtDesc', [])).toMatchObject([
-      { progress: 'future' },
-    ])
-    expect(await client.setProgress('book', 'done')).toMatchObject({
-      progress: 'future',
-    })
-    expect(await client.notebook('book')).toMatchObject({
-      progress: 'done',
-    })
-  })
-
   test('projects notebook read-only state and persists explicit unlocks', async () => {
     const notebook = {
       notebookId: 'system-memory',
       title: 'Riela System Memory',
-      progress: 'none',
       readOnly: true,
       createdAt: '',
       updatedAt: '',
@@ -187,7 +146,7 @@ describe('Note GraphQL transport', () => {
   test('sends explicit human provenance for catalog-selected tag membership', async () => {
     const harness = environment([{ data: { applyNotebookTagIds: {
       result: { accepted: true, status: 'ok', diagnostics: [] },
-      notebook: { notebookId: 'book', title: 'Book', progress: 'none', createdAt: '', updatedAt: '', tags: [] },
+      notebook: { notebookId: 'book', title: 'Book', createdAt: '', updatedAt: '', tags: [] },
     } } }])
     const client = new NoteGraphQLClient('riela-app', harness.value)
     await client.applyTagById('book', 'tag-urgent')
@@ -214,7 +173,6 @@ describe('Note GraphQL transport', () => {
     const notebook = {
       notebookId: 'book',
       title: 'Book',
-      progress: 'none',
       createdAt: '',
       updatedAt: '',
       tags: [],
@@ -250,47 +208,6 @@ describe('Note GraphQL transport', () => {
     })
     expect(removeBody.operationName).toBe('RemoveNotebookTagById')
     expect(removeBody.query).toContain('firstNotePreview noteCount')
-  })
-
-  test('uses tag IDs for effective and assigned Kanban status sets', async () => {
-    const statusSet: KanbanStatusSet = {
-      setId: 'kanban-branch',
-      name: 'Branch board',
-      isSystem: false,
-      statuses: [{ statusId: 'queued', name: 'queued', category: 'pending', position: 0 }],
-    }
-    const folder = {
-      tagId: 'folder-archive-launch',
-      name: 'Launch',
-      classId: 'folder',
-      parentTagId: 'folder-archive',
-      statusSetId: statusSet.setId,
-      isSystem: false,
-      createdAt: '',
-    }
-    const harness = environment([
-      { data: { effectiveKanbanStatusesByTagId: {
-        result: { accepted: true, status: 'ok', diagnostics: [] },
-        value: statusSet,
-      } } },
-      { data: { assignKanbanStatusSetByTagId: {
-        result: { accepted: true, status: 'ok', diagnostics: [] },
-        tag: folder,
-      } } },
-    ])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
-
-    expect(await client.effectiveKanbanStatusesByTagId(folder.tagId)).toEqual(statusSet)
-    expect(await client.assignKanbanStatusSetByTagId(folder.tagId, statusSet.setId)).toEqual(folder)
-
-    const effectiveBody = requestBody(harness.requests[0])
-    expect(effectiveBody.operationName).toBe('EffectiveKanbanStatusesByTagId')
-    expect(effectiveBody.variables).toEqual({ tagId: folder.tagId })
-    expect(effectiveBody.query).toContain('effectiveKanbanStatusesByTagId(tagId: $tagId)')
-    const assignedBody = requestBody(harness.requests[1])
-    expect(assignedBody.operationName).toBe('AssignKanbanStatusSetByTagId')
-    expect(assignedBody.variables).toEqual({ tagId: folder.tagId, setId: statusSet.setId })
-    expect(assignedBody.query).toContain('assignKanbanStatusSetByTagId(tagId: $tagId, setId: $setId)')
   })
 
   test('queues notebook translation and surfaces the pending notebook id', async () => {

@@ -33,7 +33,7 @@ import {
 // composer offers "Send" (the default agent answers, streaming) and
 // "Memo only" (persist without the agent).
 
-interface Subject {
+export interface MemoSubject {
   kind: 'note' | 'notebook'
   id: string
 }
@@ -42,6 +42,19 @@ export interface MemoTabProps {
   /** An explicit store keeps the pane embeddable and enables integration tests
    * without changing the production context path. */
   app?: AppStore
+  /** Overrides the selection-derived subject. `null` means "no subject yet"
+   * (the timeline stays empty but the composer renders when `ensureSubject`
+   * can create one on first submit) — the tag pane binds its memo notebook
+   * this way. */
+  subject?: MemoSubject | null
+  /** Called on submit when no subject exists yet; the returned subject is
+   * used for that submission (the tag pane creates its memo notebook here). */
+  ensureSubject?: () => Promise<MemoSubject>
+  /** Composer placeholder for the agent mode; defaults to the document
+   * wording. */
+  composerPlaceholder?: string
+  /** Empty-timeline wording override. */
+  emptyMessage?: string
 }
 
 export function MemoTab(props: MemoTabProps = {}): JSX.Element {
@@ -67,7 +80,8 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   let generation = 0
   let streamGeneration = 0
 
-  const subject = createMemo<Subject | undefined>(() => {
+  const subject = createMemo<MemoSubject | undefined>(() => {
+    if (props.subject !== undefined) return props.subject ?? undefined
     if (app.state.noteId) return { kind: 'note', id: app.state.noteId }
     if (app.state.notebookId) return { kind: 'notebook', id: app.state.notebookId }
     return undefined
@@ -139,6 +153,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     const current = subject()
     // Reload on any change the events feed reports for the subject notebook or
     // any loaded conversation notebook.
+    if (current?.kind === 'notebook') void app.state.notebookRevisions[current.id]
     if (app.state.notebookId) void app.state.notebookRevisions[app.state.notebookId]
     for (const conversationId of conversationIds().split('\n')) {
       if (conversationId) void app.state.notebookRevisions[conversationId]
@@ -167,7 +182,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
   onCleanup(() => { streamGeneration += 1 })
 
-  const load = async (current: Subject) => {
+  const load = async (current: MemoSubject) => {
     const requested = ++generation
     setLoading(true)
     setError('')
@@ -241,12 +256,15 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   }
 
   const send = async (userMarkdown: string) => {
-    const current = subject()
     const body = userMarkdown.trim()
-    if (!current || !body || busy()) return
+    if (!body || busy()) return
+    let current = subject()
+    if (!current && !props.ensureSubject) return
     setBusy(true)
     setError('')
     try {
+      current = current ?? await props.ensureSubject?.()
+      if (!current) return
       const attachmentInputs = await Promise.all(attachments().map(fileToAttachment))
       const result = await app.client.sendAgentChatMessage(buildAgentChatComposerRequest({
         subject: current,
@@ -274,12 +292,15 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   }
 
   const addMemoOnly = async () => {
-    const current = subject()
     const body = draft().trim()
-    if (!current || !body || busy()) return
+    if (!body || busy()) return
+    let current = subject()
+    if (!current && !props.ensureSubject) return
     setBusy(true)
     setError('')
     try {
+      current = current ?? await props.ensureSubject?.()
+      if (!current) return
       if (current.kind === 'note') await app.client.addNoteComment(current.id, body)
       else await app.client.addNotebookComment(current.id, body)
       setDraft('')
@@ -403,7 +424,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   return (
     <div class="pane-section chat">
       <Show
-        when={subject()}
+        when={Boolean(subject()) || Boolean(props.ensureSubject)}
         fallback={<p class="pane-empty">Open a notebook or note to read and write memos.</p>}
       >
         <button type="button" class="new-chat-button" aria-label="New chat" title="New chat" onClick={startNewChat}>＋</button>
@@ -420,9 +441,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         <div class="chat-transcript" aria-label="Memo timeline" aria-busy={Boolean(streamTurnId())}>
           <Show when={!loading() && entries().length === 0 && !error()}>
             <p class="pane-empty">
-              {subject()?.kind === 'note'
-                ? 'No memos on this note yet.'
-                : 'No memos in this notebook yet.'}
+              {props.emptyMessage
+                ?? (subject()?.kind === 'note'
+                  ? 'No memos on this note yet.'
+                  : 'No memos in this notebook yet.')}
             </p>
           </Show>
           <For each={entriesBeforeBoundary()}>{renderTimelineEntry}</For>
@@ -437,6 +459,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         <MemoComposerControls
           memoOnly={memoOnly()}
           busy={busy()}
+          placeholder={props.composerPlaceholder}
           draft={draft()}
           attachments={attachments()}
           models={models()}
@@ -462,6 +485,8 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 export interface MemoComposerControlsProps {
   memoOnly: boolean
   busy: boolean
+  /** Agent-mode placeholder override (memo-only keeps its own wording). */
+  placeholder?: string
   draft: string
   attachments: readonly File[]
   models: readonly AgentModel[]
@@ -505,7 +530,7 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         <textarea
           aria-label="New memo or agent message"
           rows={2}
-          placeholder={props.memoOnly ? 'Write a memo' : 'Ask about this document'}
+          placeholder={props.memoOnly ? 'Write a memo' : props.placeholder ?? 'Ask about this document'}
           value={props.draft}
           disabled={props.busy}
           onInput={(event) => props.onDraftChange(event.currentTarget.value)}

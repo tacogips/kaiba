@@ -13,7 +13,7 @@ enum NoteStoreSchemaV7MigrationCheckpoint: Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 9
+  public static let currentVersion = 10
   public static let longTermMemoryNotebookKindTag = "notebook-kind:long-term-memory"
   static let longTermMemoryNotebookKindTagId = stableTagId(for: longTermMemoryNotebookKindTag)
   public static let agentConversationNotebookKindTag = "notebook-kind:agent-conversation"
@@ -22,6 +22,8 @@ public enum NoteStoreSchema {
   )
   public static let importedMaterialNotebookKindTag = "notebook-kind:imported-material"
   public static let translationNotebookKindTag = "notebook-kind:translation"
+  /// Per-tag memo/chat notebooks (`design-docs/specs/tag-detail-pane.md`, T4).
+  public static let tagMemoNotebookKindTag = "notebook-kind:tag-memo"
   public static let autoTaggingWorkflowId = "note-auto-tagging"
   /// Chat-reply generation workflow routed by `KaibaAutoActionDispatcher`
   /// (`design-docs/specs/ai-agent-integration.md`, AI8).
@@ -30,7 +32,6 @@ public enum NoteStoreSchema {
   /// Notebook translation workflow routed by `KaibaAutoActionDispatcher`
   /// (`design-docs/specs/ai-agent-integration.md`, AI9).
   public static let notebookTranslationWorkflowId = "notebook-translation"
-  public static let systemKanbanStatusSetId = "kanban-default"
 
   static func setV7MigrationFaultInjectorForTesting(
     _ injector: (@Sendable (NoteStoreSchemaV7MigrationCheckpoint) throws -> Void)?
@@ -67,14 +68,16 @@ public enum NoteStoreSchema {
     if !isFirstSchemaCreation, !appliedVersions.contains(7) {
       try migrateToV7(in: database)
     }
+    if !appliedVersions.contains(10) {
+      try migrateToV10(in: database)
+    }
     try database.transaction { db in
-      try validateV7Schema(in: db)
+      try validateCurrentSchema(in: db)
       try requireForeignKeysEnabled(in: db)
       try requireForeignKeyIntegrity(in: db)
       try ensureNoteFTSUsesTrigram(in: db)
       try seedTagClasses(in: db)
       try seedNotebookKindTags(in: db)
-      try seedKanbanDefaultStatusSet(in: db)
       if isFirstSchemaCreation {
         try seedAutoActions(in: db)
       }
@@ -137,42 +140,6 @@ public enum NoteStoreSchema {
           row?["class_id"] == "document-kind",
           row?["is_system"] == "1" else {
       throw NoteStoreSchemaError.systemTagCollision(name: tagName)
-    }
-  }
-
-  private static func seedKanbanDefaultStatusSet(in database: SQLiteDatabase) throws {
-    let now = NoteStoreClock.system.now()
-    try database.execute(
-      """
-      INSERT INTO kanban_status_sets (set_id, name, is_system, created_at, updated_at)
-      VALUES (?, 'default', 1, ?, ?)
-      ON CONFLICT(set_id) DO NOTHING
-      """,
-      bindings: [.text(systemKanbanStatusSetId), .text(now), .text(now)]
-    )
-    let defaultStatuses: [(name: String, category: String, position: Int)] = [
-      ("none", "none", 0),
-      ("pending", "pending", 1),
-      ("progress", "progress", 2),
-      ("review", "review", 3),
-      ("done", "done", 4)
-    ]
-    for status in defaultStatuses {
-      try database.execute(
-        """
-        INSERT INTO kanban_statuses (status_id, set_id, name, category, position, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(status_id) DO NOTHING
-        """,
-        bindings: [
-          .text("\(systemKanbanStatusSetId)-\(status.name)"),
-          .text(systemKanbanStatusSetId),
-          .text(status.name),
-          .text(status.category),
-          .int(Int64(status.position)),
-          .text(now)
-        ]
-      )
     }
   }
 
@@ -316,39 +283,9 @@ public enum NoteStoreSchema {
         "ALTER TABLE tags ADD COLUMN parent_tag_id TEXT REFERENCES tags(tag_id)"
       )
     }
-    // Fresh stores no longer carry the legacy CHECK-constrained progress
-    // column, so v4's ALTER only applies to stores that predate v4 AND v5;
-    // those gain the column here and copy it into `status` in migrateToV5.
-    if try !columnExists("status", in: "notebooks", database: database),
-       try !columnExists("progress", in: "notebooks", database: database) {
-      try database.execute(
-        """
-        ALTER TABLE notebooks
-        ADD COLUMN progress TEXT NOT NULL DEFAULT 'none'
-          CHECK (progress IN ('none','progress','done','pending'))
-        """
-      )
-    }
   }
 
   fileprivate static func migrateToV5(in database: SQLiteDatabase) throws {
-    if try !columnExists("status_set_id", in: "tags", database: database) {
-      try database.execute(
-        "ALTER TABLE tags ADD COLUMN status_set_id TEXT REFERENCES kanban_status_sets(set_id)"
-      )
-    }
-    // The legacy CHECK-constrained `progress` column cannot be dropped or
-    // rebuilt away: `notebooks` has incoming FKs (notes, notebook_tags,
-    // notebook_files) and the store runs with foreign_keys=ON, where a
-    // rename-rebuild rewrites child FK targets and the final drop fails.
-    // Instead the un-CHECKed `status` column supersedes it; `progress`
-    // stays behind, unread, its DEFAULT satisfying the old CHECK forever.
-    if try !columnExists("status", in: "notebooks", database: database) {
-      try database.execute(
-        "ALTER TABLE notebooks ADD COLUMN status TEXT NOT NULL DEFAULT 'none'"
-      )
-      try database.execute("UPDATE notebooks SET status = progress")
-    }
   }
 
   fileprivate static func migrateToV6(in database: SQLiteDatabase) throws {
@@ -410,6 +347,66 @@ public enum NoteStoreSchema {
     }
   }
 
+  /// Removes the retired board/status persistence while preserving notebook,
+  /// tag, and assignment identities. Parent tables are replaced with foreign
+  /// keys disabled so their existing child tables continue to reference the
+  /// canonical table names after the replacements are renamed into place.
+  private static func migrateToV10(in database: SQLiteDatabase) throws {
+    try requireForeignKeysEnabled(in: database)
+    try requireForeignKeyIntegrity(in: database)
+    do {
+      try database.execute("PRAGMA foreign_keys = OFF")
+      try requireForeignKeysDisabled(in: database)
+      try database.transaction { db in
+        try db.execute(v10ReplacementNotebooksTableStatement)
+        try db.execute(
+          """
+          INSERT INTO notebooks_v10 (
+            notebook_id, title, read_only, created_at, updated_at, meta_json
+          )
+          SELECT notebook_id, title, read_only, created_at, updated_at, meta_json
+          FROM notebooks
+          """
+        )
+        try db.execute(v10ReplacementTagsTableStatement)
+        try db.execute(
+          """
+          INSERT INTO tags_v10 (
+            tag_id, name, class_id, parent_tag_id, is_system, created_at
+          )
+          SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
+          FROM tags
+          """
+        )
+        try db.execute("DROP TABLE tags")
+        try db.execute("DROP TABLE notebooks")
+        try db.execute("DROP TABLE IF EXISTS kanban_statuses")
+        try db.execute("DROP TABLE IF EXISTS kanban_status_sets")
+        try db.execute("ALTER TABLE notebooks_v10 RENAME TO notebooks")
+        try db.execute("ALTER TABLE tags_v10 RENAME TO tags")
+        try createV7TagIndexes(in: db)
+      }
+      try database.execute("PRAGMA foreign_keys = ON")
+      try requireForeignKeysEnabled(in: database)
+      try requireForeignKeyIntegrity(in: database)
+      try database.transaction { db in
+        try validateCurrentSchema(in: db)
+        try recordSchemaVersion(10, in: db)
+      }
+    } catch {
+      do {
+        try database.execute("PRAGMA foreign_keys = ON")
+        try requireForeignKeysEnabled(in: database)
+        try requireForeignKeyIntegrity(in: database)
+      } catch let restorationError {
+        throw NoteStoreSchemaError.migrationInvariant(
+          "schema v10 migration failed and foreign-key restoration could not be verified: \(restorationError)"
+        )
+      }
+      throw error
+    }
+  }
+
   private static func migrateToV7(in database: SQLiteDatabase) throws {
     try requireForeignKeysEnabled(in: database)
     try requireForeignKeyIntegrity(in: database)
@@ -428,9 +425,9 @@ public enum NoteStoreSchema {
         try db.execute(
           """
           INSERT INTO tags_v7 (
-            tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+            tag_id, name, class_id, parent_tag_id, is_system, created_at
           )
-          SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+          SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
           FROM tags
           """
         )
@@ -484,6 +481,17 @@ public enum NoteStoreSchema {
     }
   }
 
+  private static func validateCurrentSchema(in database: SQLiteDatabase) throws {
+    try validateV7Schema(in: database)
+    guard try !columnExists("status", in: "notebooks", database: database),
+          try !columnExists("progress", in: "notebooks", database: database),
+          try !columnExists("status_set_id", in: "tags", database: database),
+          try !tableExists("kanban_statuses", database: database),
+          try !tableExists("kanban_status_sets", database: database) else {
+      throw NoteStoreSchemaError.migrationInvariant("retired board/status schema is still present")
+    }
+  }
+
   private static func isV7TagSchema(in database: SQLiteDatabase) throws -> Bool {
     let tableSQL = try database.query(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tags'"
@@ -493,7 +501,6 @@ public enum NoteStoreSchema {
       "nametextnotnull",
       "class_idtextreferencestag_classes(class_id)",
       "parent_tag_idtextreferencestags(tag_id)",
-      "status_set_idtextreferenceskanban_status_sets(set_id)",
       "is_systemintegernotnulldefault0",
       "created_attextnotnull"
     ]
@@ -575,7 +582,6 @@ public enum NoteStoreSchema {
   private static func requireTagReferenceIntegrity(in database: SQLiteDatabase) throws {
     let orphanQueries = [
       "SELECT 1 FROM tags child LEFT JOIN tags parent ON parent.tag_id = child.parent_tag_id WHERE child.parent_tag_id IS NOT NULL AND parent.tag_id IS NULL LIMIT 1",
-      "SELECT 1 FROM tags LEFT JOIN kanban_status_sets sets ON sets.set_id = tags.status_set_id WHERE tags.status_set_id IS NOT NULL AND sets.set_id IS NULL LIMIT 1",
       "SELECT 1 FROM note_tags assignments LEFT JOIN tags ON tags.tag_id = assignments.tag_id WHERE tags.tag_id IS NULL LIMIT 1",
       "SELECT 1 FROM notebook_tags assignments LEFT JOIN tags ON tags.tag_id = assignments.tag_id WHERE tags.tag_id IS NULL LIMIT 1"
     ]
@@ -591,6 +597,13 @@ public enum NoteStoreSchema {
   ) throws -> Bool {
     try database.query("PRAGMA table_info(\(tableName))")
       .contains { $0["name"] == columnName }
+  }
+
+  private static func tableExists(_ tableName: String, database: SQLiteDatabase) throws -> Bool {
+    try !database.query(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      bindings: [.text(tableName)]
+    ).isEmpty
   }
 }
 
@@ -745,7 +758,6 @@ private let schemaStatements = [
   CREATE TABLE IF NOT EXISTS notebooks (
     notebook_id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'none',
     read_only INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -779,33 +791,11 @@ private let schemaStatements = [
   )
   """,
   """
-  CREATE TABLE IF NOT EXISTS kanban_status_sets (
-    set_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    is_system INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  )
-  """,
-  """
-  CREATE TABLE IF NOT EXISTS kanban_statuses (
-    status_id TEXT PRIMARY KEY,
-    set_id TEXT NOT NULL REFERENCES kanban_status_sets(set_id),
-    name TEXT NOT NULL,
-    category TEXT NOT NULL CHECK (category IN ('none','pending','progress','review','done')),
-    position INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (set_id, name),
-    UNIQUE (set_id, position)
-  )
-  """,
-  """
   CREATE TABLE IF NOT EXISTS tags (
     tag_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     class_id TEXT REFERENCES tag_classes(class_id),
     parent_tag_id TEXT REFERENCES tags(tag_id),
-    status_set_id TEXT REFERENCES kanban_status_sets(set_id),
     is_system INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )
@@ -937,7 +927,28 @@ private let v7ReplacementTagsTableStatement = """
     name TEXT NOT NULL,
     class_id TEXT REFERENCES tag_classes(class_id),
     parent_tag_id TEXT REFERENCES tags(tag_id),
-    status_set_id TEXT REFERENCES kanban_status_sets(set_id),
+    is_system INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  )
+  """
+
+private let v10ReplacementNotebooksTableStatement = """
+  CREATE TABLE notebooks_v10 (
+    notebook_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    read_only INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    meta_json BLOB CHECK (meta_json IS NULL OR json_valid(meta_json, 8))
+  )
+  """
+
+private let v10ReplacementTagsTableStatement = """
+  CREATE TABLE tags_v10 (
+    tag_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    class_id TEXT REFERENCES tag_classes(class_id),
+    parent_tag_id TEXT REFERENCES tags(tag_id),
     is_system INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )

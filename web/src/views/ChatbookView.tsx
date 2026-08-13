@@ -3,7 +3,6 @@ import { LeftPane } from '../panes/LeftPane'
 import { ReaderPane } from '../panes/ReaderPane'
 import { RightPane } from '../panes/RightPane'
 import { NoteSearchPopup } from '../components/NoteSearchPopup'
-import { BoardView } from './BoardView'
 import { SearchView } from './SearchView'
 import { ConfigView } from './ConfigView'
 import { useApp } from '../state/appStore'
@@ -40,7 +39,6 @@ export function ChatbookView(): JSX.Element {
 
   const view = () => {
     switch (app.state.route.kind) {
-      case 'board': return 'board'
       case 'search': return 'search'
       case 'config': return 'config'
       default: return 'reader'
@@ -79,10 +77,7 @@ export function ChatbookView(): JSX.Element {
             <span classList={{ dot: true, live: app.state.live }} />
             {app.state.live ? 'Live' : 'Offline'}
           </span>
-          <Show
-            when={view() !== 'reader'}
-            fallback={<button type="button" class="secondary" onClick={app.openBoard}>Board</button>}
-          >
+          <Show when={view() !== 'reader'}>
             <button type="button" class="secondary" onClick={app.openReader}>Reader</button>
           </Show>
           <button type="button" class="secondary" onClick={app.openConfig}>Config</button>
@@ -109,9 +104,6 @@ export function ChatbookView(): JSX.Element {
           <PaneSplitter side="right" />
           <RightPane />
         </div>
-      </Show>
-      <Show when={view() === 'board'}>
-        <BoardView />
       </Show>
       <Show when={view() === 'search'}>
         <SearchView />

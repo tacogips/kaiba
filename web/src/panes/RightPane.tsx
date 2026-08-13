@@ -4,17 +4,20 @@ import { MemoTab } from '../components/MemoTab'
 import { NoteInfoTab } from '../components/NoteInfoTab'
 import { LinkedDocsTab } from '../components/LinkedDocsTab'
 import { NotebookLinksTab, NotebookTagsTab } from '../components/NotebookAggregateTabs'
+import { TagPane } from '../components/TagPane'
 import { useApp } from '../state/appStore'
 import type { RightTab } from '../state/paneState'
 
 // The right pane follows the selection: with a note selected it shows that
 // note's memo timeline, info and links; with only a notebook open it shows the
 // notebook-wide aggregates (all memos with note attribution, deduped tags,
-// all links). Agent chat and plain memos share the Agent tab.
+// all links). Agent chat and plain memos share the Agent tab. A tag selection
+// (`?tag=` on the route) replaces all of it with the cross-notebook tag pane.
 
 export function RightPane(): JSX.Element {
   const app = useApp()
   const noteMode = createMemo(() => Boolean(app.state.noteId))
+  const tagId = createMemo(() => app.tagPaneTagId())
   const tabs = createMemo<readonly TabDescriptor<RightTab>[]>(() => noteMode()
     ? [
         { value: 'memo', label: 'Agent' },
@@ -27,7 +30,7 @@ export function RightPane(): JSX.Element {
         { value: 'links', label: 'Links' },
       ])
   return (
-    <aside class="pane pane-right" aria-label={noteMode() ? 'Note details' : 'Notebook details'}>
+    <aside class="pane pane-right" aria-label={tagId() ? 'Tag details' : noteMode() ? 'Note details' : 'Notebook details'}>
       <Show
         when={app.state.pane.rightOpen}
         fallback={
@@ -43,6 +46,7 @@ export function RightPane(): JSX.Element {
           </div>
         }
       >
+        <Show when={!tagId()} fallback={<TagPane tagId={tagId() ?? ''} />}>
         <div class="pane-head">
           <button
             type="button"
@@ -74,6 +78,7 @@ export function RightPane(): JSX.Element {
             </Show>
           </TabPanel>
         </div>
+        </Show>
       </Show>
     </aside>
   )

@@ -334,6 +334,33 @@
 .link-list button { display: grid; width: 100%; gap: 3px; text-align: left; }
 .link-meta { color: #63788b; font-size: calc(9px * var(--fs, 1)); }
 
+/* Tag detail pane -------------------------------------------------------- */
+.tag-pane-head { gap: 8px; }
+.tag-pane-title { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.tag-pane-name {
+  overflow: hidden; color: #9fd3d7; font-size: calc(13px * var(--fs, 1));
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.tag-pane-meta { color: #63788b; font-size: calc(9px * var(--fs, 1)); }
+.tag-pane-meta em { margin-right: 6px; padding: 1px 6px; border: 1px solid #2a4650; border-radius: 999px; color: #8fc3c7; font-style: normal; font-size: calc(8px * var(--fs, 1)); letter-spacing: .06em; text-transform: uppercase; }
+.tag-pane-close { width: 30px; height: 30px; flex: none; padding: 0 !important; border-radius: 50% !important; }
+.tag-pane-tabs { padding: 0 12px 6px; }
+.tag-chip-open {
+  padding: 0 !important; border: 0 !important; background: transparent !important;
+  color: inherit !important; font: inherit; cursor: pointer;
+}
+.tag-chip-open:hover { color: #b7e6e9 !important; text-decoration: underline; }
+.tag-select-popover {
+  position: fixed; z-index: 60; max-width: min(320px, 80vw);
+  padding: 4px; border: 1px solid #2f4756; border-radius: 9px;
+  background: #142230; box-shadow: 0 8px 22px rgba(0, 0, 0, .45);
+}
+.tag-select-popover button {
+  overflow: hidden; max-width: 100%; white-space: nowrap; text-overflow: ellipsis;
+  font-size: calc(10px * var(--fs, 1));
+}
+.reader-back { white-space: nowrap; }
+
 /* Chat ------------------------------------------------------------------- */
 .chat { min-height: 0; }
 .chat-picker { flex-direction: column; }
@@ -417,12 +444,6 @@
   border: 1px dashed #24374a; border-radius: 8px;
   color: #c6d4e2; font-size: calc(15px * var(--fs, 1)); line-height: 1.6;
 }
-
-/* Board ------------------------------------------------------------------ */
-.board-view { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 20px clamp(14px, 3vw, 40px) 60px; }
-.board-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
-.board-head h1 { margin: 4px 0 0; font-family: Georgia, serif; font-size: calc(24px * var(--fs, 1)); font-weight: 400; }
-.board-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 @media (max-width: 1100px) {
   .chatbook { --pane-left: 232px; --pane-right: minmax(260px, .8fr); }

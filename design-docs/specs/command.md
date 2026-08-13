@@ -65,13 +65,12 @@ kaiba notebook list     [--tag <name>]... [--sort <order>]
 kaiba notebook show     <notebook-id>
 kaiba notebook create   --title <t> [--kind <kind-tag>]
 kaiba notebook delete   <notebook-id>
-kaiba notebook progress <notebook-id> <none|progress|done|pending>
 kaiba notebook readonly <notebook-id> (--on|--off)
 ```
 
 Notebook read-only blocks note creation, body edits, attachments, and
 deletion inside the notebook while still allowing comments, tags,
-links, and progress changes.
+and links.
 
 ### GraphQL from the CLI
 

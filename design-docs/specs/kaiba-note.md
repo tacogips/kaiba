@@ -125,6 +125,11 @@ Kaiba ships as:
   hash-based and pane layout is explicit `grid-template-columns` state
   owned by a shared store, replacing `:has()` selector magic. See
   `web-chatbook-ui.md`.
+- **K14 — Tags are navigation subjects (2026-08-13).** The web reader
+  underlines in-body occurrences of a note's attached tag names; tag
+  clicks open a cross-notebook tag detail pane whose memos and agent
+  chat bind to a lazily created per-tag `tag-memo` notebook. See
+  `tag-detail-pane.md`.
 
 ## Domain Model (inherited from Riela Note D1–D19)
 
@@ -147,9 +152,6 @@ Kept unchanged; see `design-riela-note.md` for full rationale:
 - Files are content-addressed records with `local` | `s3` storage
   locators; local→S3 migration (single and bulk) is supported; mixed
   storage is normal (D8). The S3 client is signed HTTP (SigV4), no SDK.
-- Notebook progress is a typed state (`none`, `progress`, `done`,
-  `pending`), plus the kanban status-set extension for per-tag boards
-  (D19 and the kanban follow-up).
 - Search is FTS5 (trigram) over title/body/tags with tag/class filters
   and a LIKE fallback for sub-trigram queries; results carry snippets,
   rank, and linked-neighbor expansion (D13).
@@ -162,9 +164,8 @@ Kept unchanged; see `design-riela-note.md` for full rationale:
 
 ## Data Model (SQLite)
 
-The schema is vendored verbatim from `NoteStoreSchema.swift` (current
-Riela schema version, including hierarchical tags, notebook progress,
-kanban status sets, auto-action outbox, and API-client registry tables).
+The schema is defined by `NoteStoreSchema.swift` and includes hierarchical
+tags, the auto-action outbox, and API-client registry tables.
 Database file: `<note-root>/note-store.sqlite`, WAL mode, FTS5 required.
 Kaiba starts at the same schema version and reuses the guarded
 additive-migration machinery, so an existing Riela note store opens
@@ -198,7 +199,6 @@ kaiba notebook   list [--tag <name>]... [--sort <order>]
 kaiba notebook   show <notebook-id>
 kaiba notebook   create --title <t> [--kind <kind-tag>]
 kaiba notebook   delete <notebook-id>
-kaiba notebook   progress <notebook-id> (none|progress|done|pending)
 kaiba notebook   readonly <notebook-id> --on|--off
 kaiba storage    migrate (<file-id>|--all) --profile <name>
                  --endpoint <url> --region <r> --bucket <b>
@@ -232,10 +232,10 @@ starts a local HTTP server (Network.framework listener, default bind
   fallback for non-API paths.
 
 The web viewer (`web/`) is the riela SolidJS notes workspace ported
-verbatim minus riela-app-only surfaces: notebook list/board with
-folders, hierarchical tags, kanban status sets, progress, read-only
-locks, note detail with markdown reader/editor, search popup, compose
-panel, and live refresh via the events feed. It always runs in the
+minus riela-app-only surfaces: notebook navigation with folders,
+hierarchical tags, read-only locks, note detail with markdown
+reader/editor, search popup, compose panel, and live refresh via the
+events feed. It always runs in the
 `cli-serve` host mode against kaiba serve. A missing bearer no longer
 blocks requests client-side: unauthenticated hosts accept them and
 auth-required hosts answer 401 with the registration hint.

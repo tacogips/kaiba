@@ -97,11 +97,3 @@ export function subscribeNoteEvents(options: NoteEventStreamOptions): () => void
     abort.abort()
   }
 }
-
-/** True when the event could affect a board scoped to the given tag names. */
-export function eventAffectsScope(event: NoteChangeEvent, scopeTagNames: string[]): boolean {
-  if (!event.tagNames || event.tagNames.length === 0) return true
-  if (scopeTagNames.length === 0) return true
-  const scope = new Set(scopeTagNames)
-  return event.tagNames.some((name) => scope.has(name))
-}

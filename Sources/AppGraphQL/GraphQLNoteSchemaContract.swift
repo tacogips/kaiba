@@ -6,18 +6,11 @@
 // non-integral, or the wrong type) is rejected with an invalidVariable error
 // rather than silently clamped.
 let graphQLNoteSchemaContract = """
-type NoteTag { tagId: String!, name: String!, classId: String, parentTagId: String, statusSetId: String, isSystem: Boolean!, createdAt: String! }
+type NoteTag { tagId: String!, name: String!, classId: String, parentTagId: String, isSystem: Boolean!, createdAt: String! }
 type NoteTagClass { classId: String!, label: String!, description: String, isSystem: Boolean!, createdAt: String! }
 type NoteTagAssignment { tag: NoteTag!, provenance: String!, assignedBy: String, deletable: Boolean!, createdAt: String! }
-enum KanbanStatusCategory { none pending progress review done }
-type KanbanStatus { statusId: String!, name: String!, category: KanbanStatusCategory!, position: Int! }
-type KanbanStatusSet { setId: String!, name: String!, isSystem: Boolean!, statuses: [KanbanStatus!]! }
-type KanbanStatusSetQueryPayload { result: ControlPlaneResult!, value: KanbanStatusSet }
-type KanbanStatusSetsQueryPayload { result: ControlPlaneResult!, value: [KanbanStatusSet!] }
-input KanbanStatusInput { statusId: String, name: String!, category: KanbanStatusCategory! }
-input KanbanStatusReassignmentInput { removedName: String!, reassignTo: String! }
 type Notebook {
-  notebookId: String!, title: String!, progress: String!, readOnly: Boolean!
+  notebookId: String!, title: String!, readOnly: Boolean!
   createdAt: String!, updatedAt: String!, metaJSON: String
   tags: [NoteTagAssignment!]!, firstNotePreview: String, noteCount: Int
 }
@@ -57,6 +50,14 @@ type NoteFileQueryPayload { result: ControlPlaneResult!, value: NoteFile }
 type NoteFilesQueryPayload { result: ControlPlaneResult!, value: [NoteFileAttachment!] }
 type NoteAutoActionsQueryPayload { result: ControlPlaneResult!, value: [NoteAutoAction!] }
 type NoteCommentsQueryPayload { result: ControlPlaneResult!, value: [NoteComment!] }
+# Cross-notebook tag detail surface (design-docs/specs/tag-detail-pane.md).
+# tagComments aggregates memos of notes/notebooks carrying the tag (descendant
+# tags included), newest first; ensureTagMemoNotebook (a NoteMutationPayload
+# mutation) lazily finds or creates the tag's memo/chat notebook.
+type TagDetail { tag: NoteTag!, tagClass: NoteTagClass, noteCount: Int!, notebookCount: Int!, memoNotebookId: String }
+type TagDetailQueryPayload { result: ControlPlaneResult!, value: TagDetail }
+type TagComment { comment: NoteComment!, noteTitle: String, notebookTitle: String }
+type TagCommentsQueryPayload { result: ControlPlaneResult!, value: [TagComment!] }
 input NoteTagInput { name: String!, classId: String }
 input CreateNoteInput {
   notebookId: String

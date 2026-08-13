@@ -20,37 +20,6 @@ private final class RecordingNoteChangeObserver: NoteChangeObserving, @unchecked
 }
 
 final class NoteChangeObserverTests: NoteTestCase {
-  func testSetNotebookProgressPublishesAChangeEventCarryingFolderScope() throws {
-    let observer = RecordingNoteChangeObserver()
-    let service = try NoteService(driver: makeNoteDriver(), changeObserver: observer)
-    _ = try service.defineTag(name: "proj/alpha", classId: "folder")
-    let notebook = try service.createNotebook(title: "Card")
-    try service.applyNotebookTags(
-      notebookId: notebook.notebookId,
-      tags: ["proj/alpha"],
-      provenance: .human
-    )
-
-    _ = try service.setNotebookProgress(notebookId: notebook.notebookId, progress: "progress")
-
-    let progressEvents = observer.events.filter { $0.kind == NoteChangeEventKind.notebookProgress }
-    XCTAssertEqual(progressEvents.count, 1)
-    XCTAssertEqual(progressEvents.first?.notebookId, notebook.notebookId)
-    XCTAssertEqual(progressEvents.first?.tagNames, ["proj/alpha"])
-  }
-
-  func testARejectedProgressWritePublishesNothing() throws {
-    let observer = RecordingNoteChangeObserver()
-    let service = try NoteService(driver: makeNoteDriver(), changeObserver: observer)
-    let notebook = try service.createNotebook(title: "Card")
-    let baseline = observer.events.count
-
-    XCTAssertThrowsError(
-      try service.setNotebookProgress(notebookId: notebook.notebookId, progress: "not-a-status")
-    )
-    XCTAssertEqual(observer.events.count, baseline, "a failed transaction must not publish")
-  }
-
   func testSetNotebookReadOnlyPublishesLockAndUnlockEvents() throws {
     let observer = RecordingNoteChangeObserver()
     let service = try NoteService(driver: makeNoteDriver(), changeObserver: observer)
@@ -94,32 +63,32 @@ final class NoteChangeObserverTests: NoteTestCase {
       NoteChangeEventKind.notebookTags,
       NoteChangeEventKind.notebookDeleted
     ])
-    // A removal still names the tag it left so that board wakes up too.
+    // A removal still names the tag it left for scoped catalog refreshes.
     XCTAssertEqual(observer.events[2].tagNames, ["proj/alpha"])
   }
 
-  func testStatusSetMutationsPublishTheStatusSetsKind() throws {
+  func testNoteTagApplyAndRemovePublishNoteTagsEvents() throws {
     let observer = RecordingNoteChangeObserver()
     let service = try NoteService(driver: makeNoteDriver(), changeObserver: observer)
-    let set = try service.createKanbanStatusSet(
-      name: "Delivery",
-      statuses: [
-        KanbanStatusUpsert(name: "queued", category: .pending),
-        KanbanStatusUpsert(name: "shipped", category: .done)
-      ]
+    let note = try service.createNote(bodyMarkdown: "# Tagged\nbody")
+    _ = try service.applyTags(
+      noteId: note.noteId,
+      tags: [NoteTagInput(name: "sakura")],
+      provenance: .human,
+      assignedBy: "test"
     )
-    try service.deleteKanbanStatusSet(setId: set.setId)
+    _ = try service.removeTag(noteId: note.noteId, tagName: "sakura", removedBy: .human)
+    // A removal of an absent tag changes nothing and must stay silent.
+    _ = try service.removeTag(noteId: note.noteId, tagName: "sakura", removedBy: .human)
 
-    XCTAssertEqual(
-      observer.events.map(\.kind),
-      [NoteChangeEventKind.statusSets, NoteChangeEventKind.statusSets]
-    )
+    let events = observer.events.filter { $0.kind == NoteChangeEventKind.noteTags }
+    XCTAssertEqual(events.count, 2)
+    XCTAssertEqual(events.map(\.notebookId), [note.notebookId, note.notebookId])
   }
 
   func testAServiceWithoutAnObserverStillMutates() throws {
     let service = try NoteService(driver: makeNoteDriver())
     let notebook = try service.createNotebook(title: "Card")
-    let updated = try service.setNotebookProgress(notebookId: notebook.notebookId, progress: "progress")
-    XCTAssertEqual(updated.progress, "progress")
+    XCTAssertEqual(try service.getNotebook(notebook.notebookId), notebook)
   }
 }

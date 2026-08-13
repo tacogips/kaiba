@@ -139,7 +139,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
-  func testPrepareMigratesV5NotebookRowsToV6WithoutDataLoss() throws {
+  func testPrepareMigratesV9StoreByRemovingBoardStatusWithoutDataLoss() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
     let notebook = try service.createNotebook(
@@ -184,16 +184,12 @@ final class NoteStoreSchemaTests: NoteTestCase {
     )
 
     try driver.withDatabase { database in
-      try database.execute(
-        "UPDATE notebooks SET status = 'progress' WHERE notebook_id = ?",
-        bindings: [.text(notebook.notebookId)]
-      )
-      // Fixture setup only: remove the additive v6 column and marker so the
-      // populated current-schema store represents the exact v5 input shape.
-      try database.execute("ALTER TABLE notebooks DROP COLUMN read_only")
-      try database.execute("DELETE FROM note_schema_version WHERE version IN (6, 7, 8, 9)")
-      XCTAssertFalse(try database.query("PRAGMA table_info(notebooks)").contains { $0["name"] == "read_only" })
-      XCTAssertEqual(try schemaVersions(in: database), [1, 2, 3, 4, 5])
+      try database.execute("ALTER TABLE notebooks ADD COLUMN status TEXT NOT NULL DEFAULT 'none'")
+      try database.execute("ALTER TABLE tags ADD COLUMN status_set_id TEXT")
+      try database.execute("CREATE TABLE kanban_status_sets (set_id TEXT PRIMARY KEY)")
+      try database.execute("CREATE TABLE kanban_statuses (status_id TEXT PRIMARY KEY)")
+      try database.execute("DELETE FROM note_schema_version WHERE version = 10")
+      XCTAssertEqual(try schemaVersions(in: database), Array(1...9))
     }
 
     try NoteStoreSchema.prepare(on: driver)
@@ -202,7 +198,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       let notebookRow = try XCTUnwrap(
         database.query(
           """
-          SELECT notebook_id, title, status, read_only, json(meta_json) AS meta_json
+          SELECT notebook_id, title, read_only, json(meta_json) AS meta_json
           FROM notebooks WHERE notebook_id = ?
           """,
           bindings: [.text(notebook.notebookId)]
@@ -210,7 +206,6 @@ final class NoteStoreSchemaTests: NoteTestCase {
       )
       XCTAssertEqual(notebookRow["notebook_id"], notebook.notebookId)
       XCTAssertEqual(notebookRow["title"], "Existing notebook")
-      XCTAssertEqual(notebookRow["status"], "progress")
       XCTAssertEqual(notebookRow["read_only"], "0")
       XCTAssertEqual(notebookRow["meta_json"], #"{"source":"v5-fixture"}"#)
 
@@ -266,6 +261,13 @@ final class NoteStoreSchemaTests: NoteTestCase {
         bindings: [.text(notebook.notebookId), .text(notebookFile.file.fileId)]
       ).first)
       XCTAssertEqual(notebookFileRow["role"], "source-document")
+      let notebookColumns = try database.query("PRAGMA table_info(notebooks)").compactMap { $0["name"] }
+      let tagColumns = try database.query("PRAGMA table_info(tags)").compactMap { $0["name"] }
+      XCTAssertFalse(notebookColumns.contains("status"))
+      XCTAssertFalse(notebookColumns.contains("progress"))
+      XCTAssertFalse(tagColumns.contains("status_set_id"))
+      XCTAssertFalse(try database.tableExists("kanban_status_sets"))
+      XCTAssertFalse(try database.tableExists("kanban_statuses"))
       XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
     }
     let filesRoot = URL(fileURLWithPath: driver.databasePath)
@@ -293,7 +295,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
         "DELETE FROM tags WHERE name = ?",
         bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
       )
-      try database.execute("DELETE FROM note_schema_version WHERE version IN (8, 9)")
+      try database.execute("DELETE FROM note_schema_version WHERE version IN (8, 9, 10)")
       XCTAssertEqual(try schemaVersions(in: database), Array(1...7))
     }
 
@@ -519,15 +521,10 @@ final class NoteStoreSchemaTests: NoteTestCase {
       classId: "folder",
       parentTagId: parent.tagId
     )
-    let statusSet = try service.createKanbanStatusSet(
-      name: "Migration board",
-      statuses: [KanbanStatusUpsert(name: "queued", category: .pending)]
-    )
-    _ = try service.assignKanbanStatusSetByTagId(tagId: child.tagId, setId: statusSet.setId)
     let tagRowsBefore = try driver.withDatabase { database in
       try database.query(
         """
-        SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+        SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
         FROM tags ORDER BY tag_id
         """
       )
@@ -556,13 +553,12 @@ final class NoteStoreSchemaTests: NoteTestCase {
     try driver.withDatabase { database in
       XCTAssertEqual(try database.query(
         """
-        SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+        SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
         FROM tags ORDER BY tag_id
         """
       ), tagRowsBefore)
       let migratedChild = try XCTUnwrap(tagRowsBefore.first { $0["tag_id"] == child.tagId })
       XCTAssertEqual(migratedChild["parent_tag_id"], parent.tagId)
-      XCTAssertEqual(migratedChild["status_set_id"], statusSet.setId)
       XCTAssertEqual(try database.query(
         """
         SELECT note_id, tag_id, provenance, assigned_by, deletable, created_at
@@ -721,7 +717,6 @@ private func downgradeTagSchemaToV6(on driver: NoteDatabaseDriving) throws {
           name TEXT NOT NULL UNIQUE,
           class_id TEXT REFERENCES tag_classes(class_id),
           parent_tag_id TEXT REFERENCES tags(tag_id),
-          status_set_id TEXT REFERENCES kanban_status_sets(set_id),
           is_system INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL
         )
@@ -730,7 +725,7 @@ private func downgradeTagSchemaToV6(on driver: NoteDatabaseDriving) throws {
       try db.execute(
         """
         INSERT INTO tags_v6
-        SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+        SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
         FROM tags
         """
       )

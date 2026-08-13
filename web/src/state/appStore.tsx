@@ -10,13 +10,16 @@ import {
   navigate,
   parseRoute,
   rememberReaderRoute,
+  routeTagId,
   subscribeRoute,
   withConversation,
+  withTag,
   type Route,
   type RouterEnvironment,
   type SearchMethod,
   type SearchScope,
 } from '../router'
+import { popReturn, pushReturn } from './returnStack'
 import {
   browserPaneStorage,
   clampPaneWidth,
@@ -72,6 +75,9 @@ export interface AppState {
   searchOpen: boolean
   /** App settings from the store's sqlite (`app_settings`, key "web"). */
   settings: WebAppSettings
+  /** Route hashes to restore via the Back control, pushed by right-pane
+   * navigation (tag occurrences, linked docs). */
+  returnStack: string[]
 }
 
 export interface AppStore {
@@ -82,7 +88,17 @@ export interface AppStore {
   conversationId(): string | undefined
   openNote(noteId: string, notebookId?: string): void
   openNotebook(notebookId: string): void
-  openBoard(): void
+  /** The tag whose detail pane is open (`?tag=` on the route). */
+  tagPaneTagId(): string | undefined
+  /** Opens the right pane in tag mode for the tag. */
+  openTagPane(tagId: string): void
+  closeTagPane(): void
+  /** Right-pane navigation that remembers where the reader was: pushes the
+   * current route onto the return stack before jumping. */
+  openNoteWithReturn(noteId: string, notebookId?: string): void
+  openNotebookWithReturn(notebookId: string): void
+  /** Pops the return stack, restoring the previous reader route. */
+  goBack(): void
   openReader(): void
   openHome(): void
   /** Navigates to the search results screen. Scope "notebook" pins the query
@@ -154,6 +170,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     catalogRevision: 0,
     searchOpen: false,
     settings: defaultWebSettings,
+    returnStack: [],
   })
 
   let catalogGeneration = 0
@@ -315,6 +332,15 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   }
   const conversationId = () =>
     state.route.kind === 'note' || state.route.kind === 'notebook' ? state.route.conversationId : undefined
+  const tagPaneTagId = () => routeTagId(state.route)
+
+  /** Pushes the current location, then navigates keeping the tag pane open so
+   * a jump from the pane does not close what drove it. */
+  const goWithReturn = (route: Route) => {
+    setState('returnStack', (stack) => pushReturn(stack, formatRoute(state.route)))
+    const tagId = tagPaneTagId()
+    go(tagId ? withTag(route, tagId) : route)
+  }
 
   const scheduleCatalogRefresh = () => {
     if (catalogTimer) return
@@ -386,7 +412,32 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     conversationId,
     openNote,
     openNotebook: (notebookId) => go({ kind: 'notebook', notebookId }),
-    openBoard: () => go({ kind: 'board' }),
+    tagPaneTagId,
+    openTagPane: (tagId) => {
+      // The pane must be visible for the selection to mean anything.
+      if (!state.pane.rightOpen) setPane({ ...state.pane, rightOpen: true })
+      if (state.route.kind === 'note' || state.route.kind === 'notebook') {
+        go(withTag(state.route, tagId))
+        return
+      }
+      // No reader selection on the route (home): fall back to the open
+      // notebook so the pane still has a place to live.
+      if (state.notebookId) go({ kind: 'notebook', notebookId: state.notebookId, tagId })
+    },
+    closeTagPane: () => go(withTag(state.route, undefined)),
+    openNoteWithReturn: (noteId, notebookId) => {
+      if (notebookId) {
+        setState('expandedNotebooks', (current) =>
+          current.includes(notebookId) ? current : [...current, notebookId])
+      }
+      goWithReturn({ kind: 'note', noteId })
+    },
+    openNotebookWithReturn: (notebookId) => goWithReturn({ kind: 'notebook', notebookId }),
+    goBack: () => {
+      const popped = popReturn(state.returnStack)
+      setState('returnStack', popped.stack)
+      if (popped.hash) navigate(router, parseRoute(popped.hash))
+    },
     openReader: () => go(readerRoute),
     openHome: () => go({ kind: 'home' }),
     openSearch: (query, scope, method) => {
@@ -452,7 +503,6 @@ function selectionKey(route: Route): string {
   switch (route.kind) {
     case 'note': return `note:${route.noteId}`
     case 'notebook': return `notebook:${route.notebookId}`
-    case 'board': return 'board'
     case 'search': return `search:${route.method}:${route.scope}:${route.query}`
     default: return 'home'
   }

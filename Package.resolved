@@ -1,12 +1,12 @@
 {
-  "originHash" : "2be8d89057333c4c034fad88c739e72858a53be5160656be91190ca975918744",
+  "originHash" : "96e05205c793218fea6e344f7984adc845dfca20a61137834efaa36f85d53c6a",
   "pins" : [
     {
       "identity" : "anydoc-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tacogips/anydoc-swift.git",
       "state" : {
-        "revision" : "9ee68e37c9520558c166fb8832965b480ffe41f7"
+        "revision" : "d957c08372786b7062553e83fe9c29880fdee7a4"
       }
     }
   ],

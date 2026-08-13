@@ -191,7 +191,6 @@ func jsonObject(_ tag: Tag) -> [String: Any] {
   ]
   object["classId"] = tag.classId
   object["parentTagId"] = tag.parentTagId
-  object["statusSetId"] = tag.statusSetId
   return object
 }
 
@@ -223,7 +222,6 @@ func jsonObject(_ notebook: Notebook) -> [String: Any] {
   var object: [String: Any] = [
     "notebookId": notebook.notebookId,
     "title": notebook.title,
-    "progress": notebook.progress,
     "readOnly": notebook.readOnly,
     "createdAt": notebook.createdAt,
     "updatedAt": notebook.updatedAt,
@@ -298,7 +296,6 @@ func renderNoteLine(_ note: Note) -> String {
 
 func renderNotebookLine(_ notebook: Notebook) -> String {
   let count = notebook.noteCount.map { " (\($0) notes)" } ?? ""
-  let progress = notebook.progress == "none" ? "" : "  [\(notebook.progress)]"
   let preview = notebook.firstNotePreview.map { "  \u{2014} \($0)" } ?? ""
-  return "\(notebook.notebookId)  \(notebook.createdAt)  \(notebook.title)\(count)\(progress)\(preview)"
+  return "\(notebook.notebookId)  \(notebook.createdAt)  \(notebook.title)\(count)\(preview)"
 }

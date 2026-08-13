@@ -193,10 +193,8 @@ private func noteId(fromJSON output: String) throws -> String {
       .trimmingCharacters(in: CharacterSet(charactersIn: ":"))
   )
 
-  _ = try run(["notebook", "progress", notebookId, "done"], root: root)
   let shown = try run(["notebook", "show", notebookId], root: root)
   #expect(shown.contains("Lifecycle"))
-  #expect(shown.contains("[done]"))
   #expect(shown.contains("notebook-kind:user-memo"))
 
   _ = try run(["notebook", "delete", notebookId], root: root)

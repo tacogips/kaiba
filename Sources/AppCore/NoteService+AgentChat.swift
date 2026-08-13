@@ -523,7 +523,13 @@ public extension NoteService {
     case let .note(subjectNoteId):
       subjectMarkdown = (try? getNote(subjectNoteId))?.bodyMarkdown
     case let .notebook(subjectNotebookId):
-      subjectMarkdown = try? notebookContextMarkdown(notebookId: subjectNotebookId)
+      // A tag-memo subject notebook holds only chat/memo state; ground the
+      // agent on the tag's occurrences across notebooks instead (T4).
+      if let subjectTagId = (try? tagMemoSubjectTagId(notebookId: subjectNotebookId)) ?? nil {
+        subjectMarkdown = try? tagContextMarkdown(tagId: subjectTagId)
+      } else {
+        subjectMarkdown = try? notebookContextMarkdown(notebookId: subjectNotebookId)
+      }
     }
     let request = AgentInvocationRequest(
       purpose: .chat,

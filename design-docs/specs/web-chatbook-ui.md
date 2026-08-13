@@ -53,7 +53,7 @@ The web viewer's main screen becomes a chatbook-style three-pane reader
   open notebook) and method (agentic by default, or grep) — navigating
   to a `#/search` results screen.
 
-This fully replaces the current notebook list/board main screen
+This fully replaces the previous notebook-list main screen
 (user decision 2026-08-12: full redesign, not an additional view).
 (2026-08-12 revision: continuous scroll, unified memo, notebook-level
 memo subjects, streaming replies, and header search replaced the
@@ -177,6 +177,12 @@ original per-note reader + separate Memos/Chat tabs described below.)
   control is unavailable while selected. This is an intentional safe
   boundary, not silent attachment loss.
 
+- **W14 — Tag detail pane (2026-08-13).** Inline tag-term underlining in
+  the reader, the cross-notebook tag-mode right pane (Memo | History |
+  Links), the in-app return stack, and drag-select tag registration are
+  specified separately in `tag-detail-pane.md` (decisions T1-T9). They
+  extend the right pane and reader without changing W1-W13.
+
 - **W13 — Note source images open as a page-flip carousel
   (2026-08-12).** A note whose attachments include image files (role
   `source-page-image` = captured pages of the imported document, role
@@ -256,7 +262,6 @@ web/src/
 - Memo (comment) list and add
 - Tag display (now structured with class + provenance)
 - Search popup
-- Kanban board entry point (or an explicit relocation decision)
 - QR client registration flow
 - Events-driven live refresh
 

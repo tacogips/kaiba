@@ -113,8 +113,8 @@ extension NoteService {
         try db.execute(
           """
           INSERT INTO notebooks (
-            notebook_id, title, status, read_only, created_at, updated_at, meta_json
-          ) VALUES (?, ?, 'none', 0, ?, ?, NULL)
+            notebook_id, title, read_only, created_at, updated_at, meta_json
+          ) VALUES (?, ?, 0, ?, ?, NULL)
           """,
           bindings: [
             .text(notebookId),

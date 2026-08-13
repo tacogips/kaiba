@@ -17,7 +17,7 @@ Homebrew. See `kaiba-note.md` for the note domain design.
 - `AppCore`: the note domain and command logic — SQLite wrapper
   (`SQLiteDatabase`), store schema and migrations (`NoteStoreSchema`),
   the `NoteService` facade (notes, notebooks, ontology tags, links,
-  comments, files, FTS5 search, kanban, system memory, auto-action
+  comments, files, FTS5 search, system memory, auto-action
   outbox), local/S3 file stores, and the `AppCommand` CLI router.
 - `AppGraphQL`: note GraphQL document executor — parsing, variable
   validation, projection, DTO contracts, and the authoritative

@@ -57,7 +57,7 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     XCTAssertTrue(GraphQLContractProjector.schemaContract.contains("createOnly: Boolean"))
   }
 
-  func testGraphQLProjectsHierarchyProgressFolderAndExpandedNotebookFilters() async throws {
+  func testGraphQLProjectsHierarchyFolderAndExpandedNotebookFilters() async throws {
     let service = try makeHierarchyGraphQLService()
     let parentResult = await service.defineTag(
       GraphQLDefineNoteTagInput(name: "portfolio", classId: "topic")
@@ -86,15 +86,8 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     )
     XCTAssertTrue(tagged.result.accepted)
 
-    let progressed = await service.setNotebookProgress(
-      notebookId: notebookId,
-      progress: "progress"
-    )
-    XCTAssertEqual(progressed.notebook?.progress, "progress")
-
     let parentFiltered = await service.notebooks(tagFilter: ["portfolio"])
     XCTAssertEqual(parentFiltered.value?.map(\.notebookId), [notebookId])
-    XCTAssertEqual(parentFiltered.value?.first?.progress, "progress")
 
     let folderResult = await service.defineTag(
       GraphQLDefineNoteTagInput(name: "Work", classId: "folder")
@@ -113,95 +106,6 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
         $0.tag.name == "Work" && $0.tag.classId == "folder"
       } == true
     )
-  }
-
-  func testDocumentExecutorRunsSetNotebookProgressAndProjectsNewFields() async throws {
-    let service = try makeHierarchyGraphQLService()
-    let parent = await service.defineTag(GraphQLDefineNoteTagInput(name: "root"))
-    let parentId = try XCTUnwrap(parent.tag?.tagId)
-    _ = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "child", parentTagId: parentId)
-    )
-    let created = await service.createNotebook(GraphQLCreateNotebookInput(title: "Board Card"))
-    let notebookId = try XCTUnwrap(created.notebook?.notebookId)
-    _ = await service.applyNotebookTags(
-      GraphQLApplyNotebookTagsInput(notebookId: notebookId, tags: ["child"])
-    )
-    let executor = NoteGraphQLDocumentExecutor(service: service)
-
-    let mutation = await executor.execute(
-      GraphQLDocumentRequest(
-        query: """
-        mutation SetProgress($notebookId: String!, $progress: String!) {
-          setNotebookProgress(notebookId: $notebookId, progress: $progress) {
-            result { accepted status }
-            notebook { notebookId progress tags { tag { name parentTagId } } }
-          }
-        }
-        """,
-        variables: [
-          "notebookId": .string(notebookId),
-          "progress": .string("done")
-        ],
-        operationName: "SetProgress"
-      )
-    )
-
-    XCTAssertTrue(mutation.handled)
-    XCTAssertEqual(mutation.status, 200)
-    let mutationPayload = try payloadObject(mutation.body, field: "setNotebookProgress")
-    let notebook = try objectValue(mutationPayload["notebook"], field: "notebook")
-    XCTAssertEqual(notebook["progress"], .string("done"))
-
-    let invalidMutation = await executor.execute(
-      GraphQLDocumentRequest(
-        query: """
-        mutation RejectInvalidProgress($notebookId: String!, $progress: String!) {
-          setNotebookProgress(notebookId: $notebookId, progress: $progress) {
-            result { accepted status }
-            notebook { notebookId progress }
-          }
-        }
-        """,
-        variables: [
-          "notebookId": .string(notebookId),
-          "progress": .string("blocked")
-        ],
-        operationName: "RejectInvalidProgress"
-      )
-    )
-    let invalidPayload = try payloadObject(
-      invalidMutation.body,
-      field: "setNotebookProgress"
-    )
-    let invalidResult = try objectValue(invalidPayload["result"], field: "result")
-    XCTAssertEqual(invalidResult["accepted"], .bool(false))
-    XCTAssertEqual(invalidResult["status"], .string("invalid_request"))
-    let persistedAfterInvalid = await service.notebook(notebookId: notebookId)
-    XCTAssertEqual(persistedAfterInvalid.value?.progress, "done")
-
-    let query = await executor.execute(
-      GraphQLDocumentRequest(
-        query: """
-        query ParentNotebooks($tagFilter: [String!]) {
-          notebooks(tagFilter: $tagFilter) {
-            result { accepted }
-            value { notebookId progress tags { tag { name parentTagId } } }
-          }
-        }
-        """,
-        variables: ["tagFilter": .array([.string("root")])],
-        operationName: "ParentNotebooks"
-      )
-    )
-    XCTAssertEqual(query.status, 200)
-    let queryPayload = try payloadObject(query.body, field: "notebooks")
-    guard case let .array(values)? = queryPayload["value"],
-          case let .object(projectedNotebook) = values.first else {
-      return XCTFail("expected a projected notebook")
-    }
-    XCTAssertEqual(projectedNotebook["notebookId"], .string(notebookId))
-    XCTAssertEqual(projectedNotebook["progress"], .string("done"))
   }
 
   func testDocumentExecutorValidatesAndDispatchesGroupedNotebookFilters() async throws {
@@ -416,7 +320,7 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     }
   }
 
-  func testDocumentExecutorUsesTagIdsForAmbiguousFolderMutationsAndScope() async throws {
+  func testDocumentExecutorUsesTagIdsForAmbiguousFolderMutationsAndFilters() async throws {
     let service = try makeHierarchyGraphQLService()
     let firstParent = await service.defineTag(
       GraphQLDefineNoteTagInput(name: "Workflow A", classId: "folder")
@@ -437,29 +341,6 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     let firstHistoryId = try XCTUnwrap(firstHistory.tag?.tagId)
     let secondHistoryId = try XCTUnwrap(secondHistory.tag?.tagId)
     XCTAssertNotEqual(firstHistoryId, secondHistoryId)
-    let firstBoard = await service.createKanbanStatusSet(
-      name: "Workflow A Board",
-      statuses: [
-        GraphQLKanbanStatusInput(name: "queued-a", category: "pending"),
-        GraphQLKanbanStatusInput(name: "done-a", category: "done")
-      ]
-    )
-    let secondBoard = await service.createKanbanStatusSet(
-      name: "Workflow B Board",
-      statuses: [
-        GraphQLKanbanStatusInput(name: "queued-b", category: "pending"),
-        GraphQLKanbanStatusInput(name: "done-b", category: "done")
-      ]
-    )
-    let firstBoardId = try XCTUnwrap(firstBoard.value?.setId)
-    let secondBoardId = try XCTUnwrap(secondBoard.value?.setId)
-    let firstAssignment = await service.assignKanbanStatusSetByTagId(
-      tagId: firstHistoryId,
-      setId: firstBoardId
-    )
-    XCTAssertEqual(firstAssignment.tag?.tagId, firstHistoryId)
-    XCTAssertEqual(firstAssignment.tag?.statusSetId, firstBoardId)
-
     let created = await service.createNotebook(GraphQLCreateNotebookInput(title: "ID scoped"))
     let notebookId = try XCTUnwrap(created.notebook?.notebookId)
     let executor = NoteGraphQLDocumentExecutor(service: service)
@@ -514,53 +395,6 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     let legacyAmbiguous = await service.notebooks(tagFilter: ["history"])
     XCTAssertFalse(legacyAmbiguous.result.accepted)
     XCTAssertEqual(legacyAmbiguous.result.status, "invalid_request")
-
-    let assigned = await executor.execute(GraphQLDocumentRequest(
-      query: """
-      mutation AssignKanbanById($tagId: String!, $setId: String) {
-        assignKanbanStatusSetByTagId(tagId: $tagId, setId: $setId) {
-          result { accepted status }
-          tag { tagId statusSetId }
-        }
-      }
-      """,
-      variables: ["tagId": .string(secondHistoryId), "setId": .string(secondBoardId)],
-      operationName: "AssignKanbanById"
-    ))
-    let assignedPayload = try payloadObject(
-      assigned.body,
-      field: "assignKanbanStatusSetByTagId"
-    )
-    let assignedResult = try objectValue(assignedPayload["result"], field: "result")
-    XCTAssertEqual(assignedResult["accepted"], .bool(true))
-    let assignedTag = try objectValue(assignedPayload["tag"], field: "tag")
-    XCTAssertEqual(assignedTag["tagId"], .string(secondHistoryId))
-    XCTAssertEqual(assignedTag["statusSetId"], .string(secondBoardId))
-
-    let effective = await executor.execute(GraphQLDocumentRequest(
-      query: """
-      query EffectiveById($tagId: String!) {
-        effectiveKanbanStatusesByTagId(tagId: $tagId) {
-          result { accepted status }
-          value { setId name }
-        }
-      }
-      """,
-      variables: ["tagId": .string(secondHistoryId)],
-      operationName: "EffectiveById"
-    ))
-    let effectivePayload = try payloadObject(
-      effective.body,
-      field: "effectiveKanbanStatusesByTagId"
-    )
-    let effectiveResult = try objectValue(effectivePayload["result"], field: "result")
-    XCTAssertEqual(effectiveResult["accepted"], .bool(true))
-    let effectiveSet = try objectValue(effectivePayload["value"], field: "value")
-    XCTAssertEqual(effectiveSet["setId"], .string(secondBoardId))
-    XCTAssertEqual(effectiveSet["name"], .string("Workflow B Board"))
-    let firstEffective = await service.effectiveKanbanStatusesByTagId(tagId: firstHistoryId)
-    XCTAssertEqual(firstEffective.value?.setId, firstBoardId)
-    XCTAssertNotEqual(effectiveSet["setId"], .string(firstBoardId))
 
     let removed = await executor.execute(GraphQLDocumentRequest(
       query: """

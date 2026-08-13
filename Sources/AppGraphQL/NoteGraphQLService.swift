@@ -308,21 +308,6 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func setNotebookProgress(
-    notebookId: String,
-    progress: String,
-    expectedProgress: String? = nil
-  ) async -> GraphQLNoteMutationResult {
-    noteMutation {
-      let notebook = try service.setNotebookProgress(
-        notebookId: notebookId,
-        progress: progress,
-        expectedProgress: expectedProgress
-      )
-      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
-    }
-  }
-
   public func setNotebookReadOnly(
     notebookId: String,
     readOnly: Bool
@@ -333,82 +318,6 @@ public struct GraphQLNoteGraphQLService: Sendable {
         readOnly: readOnly
       )
       return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
-    }
-  }
-
-  public func kanbanStatusSets() async -> GraphQLNoteQueryResult<[GraphQLKanbanStatusSetDTO]> {
-    noteResult {
-      try service.listKanbanStatusSets().map(GraphQLKanbanStatusSetDTO.init)
-    }
-  }
-
-  public func effectiveKanbanStatuses(tagName: String?) async -> GraphQLNoteQueryResult<GraphQLKanbanStatusSetDTO> {
-    noteResult {
-      GraphQLKanbanStatusSetDTO(set: try service.effectiveKanbanStatuses(tagName: tagName))
-    }
-  }
-
-  public func effectiveKanbanStatusesByTagId(
-    tagId: String
-  ) async -> GraphQLNoteQueryResult<GraphQLKanbanStatusSetDTO> {
-    noteResult {
-      GraphQLKanbanStatusSetDTO(set: try service.effectiveKanbanStatusesByTagId(tagId: tagId))
-    }
-  }
-
-  public func createKanbanStatusSet(
-    name: String,
-    statuses: [GraphQLKanbanStatusInput]
-  ) async -> GraphQLNoteQueryResult<GraphQLKanbanStatusSetDTO> {
-    noteResult {
-      GraphQLKanbanStatusSetDTO(
-        set: try service.createKanbanStatusSet(
-          name: name,
-          statuses: try statuses.map { try $0.upsert() }
-        )
-      )
-    }
-  }
-
-  public func updateKanbanStatusSet(
-    setId: String,
-    statuses: [GraphQLKanbanStatusInput],
-    reassignments: [GraphQLKanbanStatusReassignmentInput] = []
-  ) async -> GraphQLNoteQueryResult<GraphQLKanbanStatusSetDTO> {
-    noteResult {
-      GraphQLKanbanStatusSetDTO(
-        set: try service.updateKanbanStatusSet(
-          setId: setId,
-          statuses: try statuses.map { try $0.upsert() },
-          removedReassignTo: Dictionary(
-            reassignments.map { ($0.removedName, $0.reassignTo) },
-            uniquingKeysWith: { _, last in last }
-          )
-        )
-      )
-    }
-  }
-
-  public func deleteKanbanStatusSet(setId: String) async -> GraphQLControlPlaneResult {
-    noteControlResult {
-      try service.deleteKanbanStatusSet(setId: setId)
-    }
-  }
-
-  public func assignKanbanStatusSet(tagName: String, setId: String?) async -> GraphQLNoteMutationResult {
-    noteMutation {
-      let tag = try service.assignKanbanStatusSet(tagName: tagName, setId: setId)
-      return .init(result: .ok, tag: GraphQLNoteTagDTO(tag: tag))
-    }
-  }
-
-  public func assignKanbanStatusSetByTagId(
-    tagId: String,
-    setId: String?
-  ) async -> GraphQLNoteMutationResult {
-    noteMutation {
-      let tag = try service.assignKanbanStatusSetByTagId(tagId: tagId, setId: setId)
-      return .init(result: .ok, tag: GraphQLNoteTagDTO(tag: tag))
     }
   }
 
@@ -607,6 +516,34 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
+  /// Cross-notebook tag detail (design-docs/specs/tag-detail-pane.md).
+  public func tagDetail(tagId: String) async -> GraphQLNoteQueryResult<GraphQLTagDetailDTO> {
+    noteResult {
+      GraphQLTagDetailDTO(detail: try service.tagDetail(tagId: tagId))
+    }
+  }
+
+  /// Memos of notes/notebooks carrying the tag (descendants included),
+  /// newest first, across all notebooks.
+  public func tagComments(
+    tagId: String,
+    limit: Int = 50,
+    offset: Int = 0
+  ) async -> GraphQLNoteQueryResult<[GraphQLTagCommentDTO]> {
+    noteResult {
+      try service.listTagComments(tagId: tagId, limit: limit, offset: offset)
+        .map(GraphQLTagCommentDTO.init)
+    }
+  }
+
+  /// Finds or creates the tag's memo/chat notebook.
+  public func ensureTagMemoNotebook(tagId: String) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.ensureTagMemoNotebook(tagId: tagId)
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
   /// Agentic search: the configured agent answers a search question over the
   /// store, with the kaiba CLI usage in its prompt and a grep pass as
   /// grounding context. `status` is "ok", "agent-unavailable", or "failed".
@@ -793,8 +730,6 @@ func graphQLNoteResult(for error: Error) -> GraphQLControlPlaneResult {
     return .init(accepted: false, status: "rejected", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
   case NoteServiceError.invalidInput:
     return .init(accepted: false, status: "invalid_request", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
-  case NoteServiceError.progressConflict:
-    return .init(accepted: false, status: "progress_conflict", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
   case GraphQLNoteServiceError.invalidRequest:
     return .init(accepted: false, status: "invalid_request", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
   default:
@@ -812,8 +747,6 @@ func graphQLNotePublicDiagnostic(for error: Error) -> String {
     return "tag is protected"
   case let NoteServiceError.invalidInput(message):
     return "invalid note request: \(message)"
-  case let NoteServiceError.progressConflict(expected, actual):
-    return "notebook progress conflict: expected '\(expected)' but found '\(actual)'"
   case let NoteServiceError.invalidRow(message):
     return "invalid note store row: \(message)"
   case let GraphQLNoteServiceError.invalidRequest(message):

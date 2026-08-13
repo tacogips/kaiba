@@ -28,48 +28,9 @@ public enum NoteAutoActionTrigger: String, Codable, Equatable, Sendable {
   case notebookCreated = "notebook-created"
 }
 
-public enum KanbanStatusCategory: String, Codable, Equatable, Sendable, CaseIterable {
-  case none
-  case pending
-  case progress
-  case review
-  case done
-}
-
-public struct KanbanStatus: Equatable, Sendable {
-  public var statusId: String
-  public var setId: String
-  public var name: String
-  public var category: KanbanStatusCategory
-  public var position: Int
-
-  public init(statusId: String, setId: String, name: String, category: KanbanStatusCategory, position: Int) {
-    self.statusId = statusId
-    self.setId = setId
-    self.name = name
-    self.category = category
-    self.position = position
-  }
-}
-
-public struct KanbanStatusSet: Equatable, Sendable {
-  public var setId: String
-  public var name: String
-  public var isSystem: Bool
-  public var statuses: [KanbanStatus]
-
-  public init(setId: String, name: String, isSystem: Bool, statuses: [KanbanStatus]) {
-    self.setId = setId
-    self.name = name
-    self.isSystem = isSystem
-    self.statuses = statuses
-  }
-}
-
 public struct Notebook: Equatable, Sendable {
   public var notebookId: String
   public var title: String
-  public var progress: String
   public var readOnly: Bool
   public var createdAt: String
   public var updatedAt: String
@@ -81,7 +42,6 @@ public struct Notebook: Equatable, Sendable {
   public init(
     notebookId: String,
     title: String,
-    progress: String = "none",
     readOnly: Bool = false,
     createdAt: String,
     updatedAt: String,
@@ -92,7 +52,6 @@ public struct Notebook: Equatable, Sendable {
   ) {
     self.notebookId = notebookId
     self.title = title
-    self.progress = progress
     self.readOnly = readOnly
     self.createdAt = createdAt
     self.updatedAt = updatedAt
@@ -193,7 +152,6 @@ public struct Tag: Equatable, Sendable {
   public var name: String
   public var classId: String?
   public var parentTagId: String?
-  public var statusSetId: String?
   public var isSystem: Bool
   public var createdAt: String
 
@@ -202,7 +160,6 @@ public struct Tag: Equatable, Sendable {
     name: String,
     classId: String?,
     parentTagId: String? = nil,
-    statusSetId: String? = nil,
     isSystem: Bool,
     createdAt: String
   ) {
@@ -210,7 +167,6 @@ public struct Tag: Equatable, Sendable {
     self.name = name
     self.classId = classId
     self.parentTagId = parentTagId
-    self.statusSetId = statusSetId
     self.isSystem = isSystem
     self.createdAt = createdAt
   }

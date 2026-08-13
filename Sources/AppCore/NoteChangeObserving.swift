@@ -2,8 +2,7 @@ import Foundation
 
 /// A committed store change a live view may need to react to. `tagNames` holds
 /// the folder-class tags of the affected notebook when they are cheaply
-/// available; an empty array means "unknown scope" and subscribers must treat
-/// the event as affecting every board.
+/// available; an empty array means the affected tag scope is unknown.
 public struct NoteChangeEvent: Equatable, Sendable {
   public var kind: String
   public var notebookId: String?
@@ -17,12 +16,11 @@ public struct NoteChangeEvent: Equatable, Sendable {
 }
 
 public enum NoteChangeEventKind {
-  public static let notebookProgress = "notebook-progress"
   public static let notebookReadOnly = "notebook-read-only"
   public static let notebookCreated = "notebook-created"
   public static let notebookDeleted = "notebook-deleted"
   public static let notebookTags = "notebook-tags"
-  public static let statusSets = "status-sets"
+  public static let noteTags = "note-tags"
   public static let noteCreated = "note-created"
   public static let noteUpdated = "note-updated"
 }

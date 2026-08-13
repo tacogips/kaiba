@@ -10,7 +10,7 @@ func isSQLiteUniqueConstraintViolation(_ error: SQLiteError) -> Bool {
 func requireNotebook(_ notebookId: String, in database: SQLiteDatabase) throws -> Notebook {
   let rows = try database.query(
     """
-    SELECT notebook_id, title, status AS progress, read_only, created_at, updated_at,
+    SELECT notebook_id, title, read_only, created_at, updated_at,
       CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
     FROM notebooks
     WHERE notebook_id = ?
@@ -90,7 +90,7 @@ func requireNotes(_ noteIds: [String], in database: SQLiteDatabase) throws -> [S
 func findTag(name: String, in database: SQLiteDatabase) throws -> Tag? {
   let rows = try database.query(
     """
-    SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+    SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
     FROM tags
     WHERE name = ?
     ORDER BY tag_id
@@ -113,7 +113,7 @@ func requireTag(name: String, in database: SQLiteDatabase) throws -> Tag {
 func requireTag(id tagId: String, in database: SQLiteDatabase) throws -> Tag {
   let rows = try database.query(
     """
-    SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+    SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
     FROM tags
     WHERE tag_id = ?
     """,
@@ -133,7 +133,7 @@ func findFolderTag(
   let parentPredicate = parentTagId == nil ? "parent_tag_id IS NULL" : "parent_tag_id = ?"
   let rows = try database.query(
     """
-    SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+    SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
     FROM tags
     WHERE name = ? AND class_id = 'folder' AND \(parentPredicate)
     """,
@@ -148,7 +148,7 @@ func findFolderTag(
 func findNonFolderTag(name: String, in database: SQLiteDatabase) throws -> Tag? {
   let rows = try database.query(
     """
-    SELECT tag_id, name, class_id, parent_tag_id, status_set_id, is_system, created_at
+    SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
     FROM tags
     WHERE name = ? AND (class_id IS NULL OR class_id <> 'folder')
     ORDER BY tag_id
@@ -171,7 +171,6 @@ func requireNonFolderTag(name: String, in database: SQLiteDatabase) throws -> Ta
 func notebook(from row: SQLiteRow, in database: SQLiteDatabase) throws -> Notebook {
   guard let notebookId = row["notebook_id"],
         let title = row["title"],
-        let progress = row["progress"],
         let createdAt = row["created_at"],
         let updatedAt = row["updated_at"] else {
     throw NoteServiceError.invalidRow("notebook row is missing required fields")
@@ -179,7 +178,6 @@ func notebook(from row: SQLiteRow, in database: SQLiteDatabase) throws -> Notebo
   return Notebook(
     notebookId: notebookId,
     title: title,
-    progress: progress,
     readOnly: row["read_only"] == "1",
     createdAt: createdAt,
     updatedAt: updatedAt,
@@ -241,7 +239,6 @@ func tag(from row: SQLiteRow) throws -> Tag {
     name: name,
     classId: row["class_id"] ?? nil,
     parentTagId: row["parent_tag_id"] ?? nil,
-    statusSetId: row["status_set_id"] ?? nil,
     isSystem: row["is_system"] == "1",
     createdAt: createdAt
   )

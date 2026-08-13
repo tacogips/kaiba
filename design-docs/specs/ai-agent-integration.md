@@ -197,8 +197,35 @@ openrouter.
   This preserves the HTTP server's single-response boundary and deliberately
   avoids SSE, WebSocket, and a store-wide push channel. The completed or
   failed turn is persisted as the authority, then `GET /note/events` causes
-  clients to refetch and replace transient stream state. If the invoker is
-  unavailable, `sendAgentChatMessage` still persists the user turn and returns
+  clients to refetch and replace transient stream state. Poll waiters are
+  turn-scoped and remain tracked from registration until response return:
+  publishing or finishing a turn wakes only that turn's waiters, while response
+  completion, timeout, or client cancellation unregisters the request. Finishing
+  a stream captures its in-flight poll requests as terminal-delivery obligations,
+  including requests woken by a preceding chunk whose response has not returned.
+  The stream remains protected until every captured request has
+  returned a snapshot containing all buffered chunks after its cursor and the
+  terminal status, or that request is cancelled. New polls after the terminal
+  transition read the retained terminal snapshot immediately but do not add a
+  delivery obligation. A terminal stream also receives a 35-second delivery
+  grace measured from its terminal transition. This exceeds the route's 30-second
+  maximum long-poll timeout by five seconds, covering the normal gap in which a
+  client consumes a non-terminal response and starts its next poll. The grace is
+  satisfied when at least one poll response returns a terminal snapshot, or when
+  its deadline expires; cancellation alone does not satisfy it. Only after all
+  captured obligations are discharged and the grace is satisfied does the stream
+  enter the bounded late-poller retention set. Capacity cleanup evicts only
+  entries in that set, oldest terminal transition first. Cleanup runs when a
+  stream finishes, a poll returns or cancels, a poll or publication accesses the
+  hub, and when the grace deadline fires, so a terminal stream with no poller
+  eventually becomes eligible without requiring unrelated traffic. Active
+  streams, terminal streams with undelivered obligations, and terminal streams
+  still awaiting first delivery within grace are never capacity-evicted; the hub
+  may temporarily exceed its target until protection ends. This guarantees
+  concurrent and between-polls terminal delivery within the bounded grace without
+  promising indefinite replay after an old terminal entry becomes eligible and
+  is capacity-evicted. If the invoker is unavailable,
+  `sendAgentChatMessage` still persists the user turn and returns
   `agentStatus: "agent-unavailable"`; no stream is opened.
 - **AI9 — Notebook translation.** A translation is a
   `notebook-kind:translation` notebook created up front in `pending`
@@ -358,3 +385,14 @@ the same change).
    verify that exactly 1,048,576 content bytes across four maximum-length
    filenames fit with framing kept within 4 KiB, while one additional content
    byte is rejected before turn creation.
+10. Stream capacity: register turn-scoped pollers for more concurrent active
+    turns than the hub's retention target, publish chunks and terminal states
+    for every turn, and verify every already-waiting poll returns its buffered
+    chunks and terminal status before its stream becomes eviction-eligible.
+    Verify an unrelated turn does not wake a waiter, cancellation releases its
+    delivery obligation without satisfying first-delivery grace, and a client
+    between sequential polls receives the retained terminal snapshot within the
+    35-second window. Using a controllable clock, verify a terminal stream with no
+    poller becomes eligible at the deadline, temporary excess retention is allowed
+    while obligations or grace remain, and cleanup converges to the target by
+    removing only the oldest eligible terminal streams.

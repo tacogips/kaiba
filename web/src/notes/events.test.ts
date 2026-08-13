@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { eventAffectsScope, subscribeNoteEvents, type NoteChangeEvent } from './events'
+import { subscribeNoteEvents, type NoteChangeEvent } from './events'
 
 interface PollCall {
   url: string
@@ -42,8 +42,8 @@ describe('subscribeNoteEvents', () => {
         body: {
           revision: 3,
           events: [
-            { kind: 'notebook-progress', notebookId: 'nb-1', tagNames: ['proj/alpha'] },
-            { kind: 'status-sets', notebookId: null, tagNames: [] },
+            { kind: 'notebook-read-only', notebookId: 'nb-1', tagNames: ['proj/alpha'] },
+            { kind: 'notebook-tags', notebookId: null, tagNames: [] },
           ],
         },
       },
@@ -57,7 +57,7 @@ describe('subscribeNoteEvents', () => {
     await settle()
     unsubscribe()
 
-    expect(events.map((event) => event.kind)).toEqual(['notebook-progress', 'status-sets'])
+    expect(events.map((event) => event.kind)).toEqual(['notebook-read-only', 'notebook-tags'])
     expect(events[0]?.tagNames).toEqual(['proj/alpha'])
     expect(events[0]?.notebookId).toBe('nb-1')
   })
@@ -163,28 +163,5 @@ describe('subscribeNoteEvents', () => {
     await settle()
 
     expect(calls.length).toBe(seen)
-  })
-})
-
-describe('eventAffectsScope', () => {
-  test('treats an empty tagNames list as unknown scope affecting every board', () => {
-    expect(eventAffectsScope({ kind: 'status-sets', tagNames: [] }, ['proj/alpha'])).toBe(true)
-    expect(eventAffectsScope({ kind: 'status-sets' }, ['proj/alpha'])).toBe(true)
-    expect(eventAffectsScope({ kind: 'status-sets', tagNames: null }, ['proj/alpha'])).toBe(true)
-  })
-
-  test('matches when any event tag is in the board scope', () => {
-    const event: NoteChangeEvent = { kind: 'notebook-progress', tagNames: ['proj/beta'] }
-    expect(eventAffectsScope(event, ['proj/alpha', 'proj/beta'])).toBe(true)
-  })
-
-  test('rejects an event scoped entirely outside the board', () => {
-    const event: NoteChangeEvent = { kind: 'notebook-progress', tagNames: ['proj/gamma'] }
-    expect(eventAffectsScope(event, ['proj/alpha'])).toBe(false)
-  })
-
-  test('treats an unscoped board as accepting every event', () => {
-    const event: NoteChangeEvent = { kind: 'notebook-progress', tagNames: ['proj/gamma'] }
-    expect(eventAffectsScope(event, [])).toBe(true)
   })
 })

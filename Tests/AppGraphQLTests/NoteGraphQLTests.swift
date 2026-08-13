@@ -774,6 +774,8 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertTrue(schema.contains("input MigrateNoteFileStorageInput {\n  fileId: String!\n  s3ProfileName: String!\n}"))
     XCTAssertFalse(schema.contains("s3Endpoint:"))
     XCTAssertFalse(schema.contains("s3AccessKeyIdEnv"))
+    XCTAssertFalse(schema.contains("Kanban"))
+    XCTAssertFalse(schema.contains("setNotebookProgress"))
   }
 
   func testPublishedNoteSchemaRootFieldsAreRoutableByExecutor() {
@@ -787,9 +789,6 @@ final class NoteGraphQLTests: XCTestCase {
       "proposeNoteLinks",
       "tags",
       "tagClasses",
-      "kanbanStatusSets",
-      "effectiveKanbanStatuses",
-      "effectiveKanbanStatusesByTagId",
       "noteFile",
       "noteFiles",
       "autoActions",
@@ -797,6 +796,8 @@ final class NoteGraphQLTests: XCTestCase {
       "notebookConversations",
       "noteComments",
       "notebookComments",
+      "tagDetail",
+      "tagComments",
       "agentModels",
       "agenticSearch",
       "appSetting"
@@ -813,13 +814,7 @@ final class NoteGraphQLTests: XCTestCase {
       "applyNotebookTagIds",
       "removeNotebookTag",
       "removeNotebookTagById",
-      "setNotebookProgress",
       "setNotebookReadOnly",
-      "createKanbanStatusSet",
-      "updateKanbanStatusSet",
-      "deleteKanbanStatusSet",
-      "assignKanbanStatusSet",
-      "assignKanbanStatusSetByTagId",
       "setNoteReadOnly",
       "applyNoteTags",
       "removeNoteTag",
@@ -832,6 +827,7 @@ final class NoteGraphQLTests: XCTestCase {
       "deleteNoteAutoAction",
       "saveNoteConversation",
       "sendAgentChatMessage",
+      "ensureTagMemoNotebook",
       "requestTagExtraction",
       "requestNotebookTranslation",
       "migrateNoteFileStorage",

@@ -130,8 +130,8 @@ public extension NoteService {
   }
 }
 
-/// A tag change can move a notebook onto or off a board, so subscribers on both
-/// the old and the new scope need waking.
+/// A tag change can move a notebook between filtered catalog scopes, so
+/// subscribers on both the old and the new scope need waking.
 func affectedFolderTagNames(before: Notebook, after: Notebook) -> [String] {
   Array(Set(folderTagNames(of: before)).union(folderTagNames(of: after))).sorted()
 }

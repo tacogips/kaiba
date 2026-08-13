@@ -3,13 +3,16 @@ import { MarkdownBody } from '../components/Markdown'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
 import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
 import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
+import { normalizeSelectionTagName, tagTermsFromAssignments } from '../notes/tagMatch'
 import { noteHeadingPrefix } from '../notes/toc'
-import { useApp } from '../state/appStore'
+import { errorMessage, useApp } from '../state/appStore'
 import type { Note } from '../notes/types'
 
 // Center reader: the open notebook's notes as one continuous scroll. Notes lazy-
 // render as they approach the viewport, a click selects (or deselects) a note
 // for the right pane, and a goto-page control jumps within the notebook.
+// In-body occurrences of a note's attached tag names render underlined and open
+// the tag detail pane; drag-selecting text offers to register it as a tag.
 
 /** Notes this close to the start always render eagerly so the first paint has
  * content without waiting for the observer. */
@@ -27,6 +30,48 @@ export function ReaderPane(): JSX.Element {
 
   const notes = createMemo(() => app.notes())
   const index = createMemo(() => notes().findIndex((note) => note.noteId === app.state.noteId))
+  const [selectionTag, setSelectionTag] =
+    createSignal<{ noteId: string; name: string; x: number; y: number }>()
+  const [selectionBusy, setSelectionBusy] = createSignal(false)
+
+  // A completed drag selection inside one note offers registration as a tag
+  // (design T8). The microtask lets the browser finalize the selection first.
+  const offerSelectionTag = (event: MouseEvent) => {
+    const { clientX, clientY } = event
+    queueMicrotask(() => {
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed) return
+      const name = normalizeSelectionTagName(selection.toString())
+      if (!name) return
+      const anchorSection = selectionElement(selection.anchorNode)?.closest('[data-note-id]')
+      const focusSection = selectionElement(selection.focusNode)?.closest('[data-note-id]')
+      if (!anchorSection || anchorSection !== focusSection) return
+      const noteId = anchorSection.getAttribute('data-note-id')
+      if (!noteId) return
+      setSelectionTag({ noteId, name, x: clientX, y: clientY })
+    })
+  }
+
+  const registerSelectionTag = async () => {
+    const staged = selectionTag()
+    if (!staged || selectionBusy()) return
+    setSelectionBusy(true)
+    try {
+      await app.client.applyNoteTag(staged.noteId, staged.name)
+      setSelectionTag(undefined)
+      window.getSelection()?.removeAllRanges()
+      app.setMessage(`Tagged “${staged.name}”.`)
+      // The catalog refresh makes the (possibly new) tag known store-wide and
+      // refetches the open notebook's notes, so underlines and the Info tab's
+      // qualified labels update immediately instead of waiting for the events
+      // feed round trip.
+      void app.refreshCatalog()
+    } catch (error) {
+      app.setMessage(`Could not register the tag: ${errorMessage(error)}`)
+    } finally {
+      setSelectionBusy(false)
+    }
+  }
 
   // The heading observer feeds the Contents tab. Every mounted note's headings
   // carry per-note-prefixed ids; notes mount lazily, so a MutationObserver
@@ -156,6 +201,9 @@ export function ReaderPane(): JSX.Element {
             <h1>{app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</h1>
           </div>
           <div class="reader-actions">
+            <Show when={app.state.returnStack.length > 0}>
+              <button type="button" class="secondary reader-back" onClick={app.goBack}>← Back</button>
+            </Show>
             <Show when={app.state.note?.readOnly}><span class="note-readonly-badge">Read-only</span></Show>
             <form class="reader-goto" onSubmit={gotoPage}>
               <label>
@@ -181,7 +229,14 @@ export function ReaderPane(): JSX.Element {
             </Show>
           </div>
         </header>
-        <article class="reader-body" ref={setBody} onClick={backgroundClick}>
+        <article
+          class="reader-body"
+          ref={setBody}
+          onClick={backgroundClick}
+          onMouseDown={() => setSelectionTag(undefined)}
+          onMouseUp={offerSelectionTag}
+          onScroll={() => setSelectionTag(undefined)}
+        >
           <Show when={notes().length === 0}>
             <p class="pane-empty">This notebook has no notes.</p>
           </Show>
@@ -196,9 +251,31 @@ export function ReaderPane(): JSX.Element {
           )}</For>
           <LoadMoreSentinel />
         </article>
+        <Show when={selectionTag()}>{(staged) => (
+          <div
+            class="tag-select-popover"
+            role="dialog"
+            aria-label="Register the selection as a tag"
+            style={{
+              left: `${Math.max(8, Math.min(staged().x, window.innerWidth - 336))}px`,
+              top: `${Math.min(staged().y + 12, window.innerHeight - 60)}px`,
+            }}
+          >
+            <button
+              type="button"
+              disabled={selectionBusy()}
+              onClick={() => void registerSelectionTag()}
+            >{selectionBusy() ? 'Registering…' : `Add tag “${staged().name}”`}</button>
+          </div>
+        )}</Show>
       </Show>
     </main>
   )
+}
+
+function selectionElement(node: Node | null): Element | null {
+  if (!node) return null
+  return node instanceof Element ? node : node.parentElement
 }
 
 /** One note in the continuous scroll. The section element always exists (so
@@ -250,6 +327,10 @@ function NoteSection(props: {
     props.onSelect()
   }
 
+  // Underline terms come from the note's own tags plus the open notebook's.
+  const tagTerms = createMemo(() =>
+    tagTermsFromAssignments([props.note.tags, app.notebook()?.tags]))
+
   return (
     <section
       ref={element}
@@ -277,7 +358,12 @@ function NoteSection(props: {
           when={!imagesOpen()}
           fallback={<NoteImageCarousel entries={images()} onClose={() => setImagesOpen(false)} />}
         >
-          <MarkdownBody markdown={props.note.bodyMarkdown} anchorPrefix={noteHeadingPrefix(props.note.noteId)} />
+          <MarkdownBody
+            markdown={props.note.bodyMarkdown}
+            anchorPrefix={noteHeadingPrefix(props.note.noteId)}
+            tagTerms={tagTerms()}
+            onTagClick={(tagId) => app.openTagPane(tagId)}
+          />
         </Show>
       </Show>
     </section>

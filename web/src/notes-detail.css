@@ -28,6 +28,14 @@
 .markdown-body .md-code { overflow-x: auto; margin: 0; padding: 9px 10px; border: 1px solid #1d2d3a; border-radius: 6px; background: #08111a; color: #b8c7d2; font: 11px/1.55 "SFMono-Regular", Consolas, monospace; }
 .markdown-body .md-inline-code { padding: 1px 4px; border-radius: 4px; background: rgba(64, 104, 128, .22); font: 11px "SFMono-Regular", Consolas, monospace; }
 .markdown-body a { color: #6fc7cd; }
+.markdown-body .tag-term {
+  display: inline; margin: 0; padding: 0 !important; border: 0 !important; border-radius: 0 !important;
+  background: transparent !important; color: #8fd0d4 !important; font: inherit; cursor: pointer;
+  text-decoration: underline dotted; text-decoration-color: #4f8b90; text-underline-offset: 3px;
+}
+.markdown-body .tag-term:hover, .markdown-body .tag-term:focus-visible {
+  color: #b7e6e9 !important; text-decoration-style: solid;
+}
 .markdown-body hr { height: 1px; margin: 12px 0; border: 0; background: #1d2d3a; }
 
 .note-editor { display: grid; gap: 10px; }

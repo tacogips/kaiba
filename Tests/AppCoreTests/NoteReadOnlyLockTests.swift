@@ -99,16 +99,10 @@ final class NoteReadOnlyLockTests: NoteTestCase {
       tags: ["project/locked"],
       provenance: .human
     )
-    let progressed = try service.setNotebookProgress(
-      notebookId: notebook.notebookId,
-      progress: "progress"
-    )
-
     XCTAssertEqual(comment.noteId, note.noteId)
     XCTAssertEqual(link.fromNoteId, note.noteId)
     XCTAssertTrue(taggedNote.tags.contains { $0.tag.name == "reviewed" })
     XCTAssertTrue(taggedNotebook.tags.contains { $0.tag.name == "project/locked" })
-    XCTAssertEqual(progressed.progress, "progress")
     XCTAssertTrue(try service.getNotebook(notebook.notebookId).readOnly)
   }
 

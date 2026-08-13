@@ -86,7 +86,7 @@ extension NoteService {
       bindings.append(.int(Int64(offset)))
       var notebooks = try database.query(
         """
-        SELECT notebook_id, title, status AS progress, read_only, created_at, updated_at,
+        SELECT notebook_id, title, read_only, created_at, updated_at,
           CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
         FROM notebooks
         \(whereClause)

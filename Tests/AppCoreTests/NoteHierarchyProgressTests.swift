@@ -47,7 +47,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
     XCTAssertNil(updated.parentTagId)
   }
 
-  func testV3MigrationPreservesRowsAndAddsHierarchyAndProgressConstraints() throws {
+  func testV3MigrationPreservesRowsAndAddsHierarchyWithoutStatusFields() throws {
     let driver = try makeNoteDriver()
     try driver.withDatabase { database in
       try database.execute(
@@ -107,23 +107,19 @@ final class NoteHierarchyProgressTests: NoteTestCase {
         .compactMap { $0["name"] }
       let tagColumns = try database.query("PRAGMA table_info(tags)")
         .compactMap { $0["name"] }
-      XCTAssertTrue(notebookColumns.contains("progress"))
+      XCTAssertFalse(notebookColumns.contains("progress"))
+      XCTAssertFalse(notebookColumns.contains("status"))
       XCTAssertTrue(tagColumns.contains("parent_tag_id"))
       XCTAssertEqual(
         try database.query(
-          "SELECT title, progress FROM notebooks WHERE notebook_id = 'existing-notebook'"
-        ).first?["progress"],
-        "none"
+          "SELECT title FROM notebooks WHERE notebook_id = 'existing-notebook'"
+        ).first?["title"],
+        "Existing"
       )
       XCTAssertNil(
         try database.query(
           "SELECT parent_tag_id FROM tags WHERE tag_id = 'existing-tag'"
         ).first?["parent_tag_id"] ?? nil
-      )
-      XCTAssertThrowsError(
-        try database.execute(
-          "UPDATE notebooks SET progress = 'invalid' WHERE notebook_id = 'existing-notebook'"
-        )
       )
     }
   }
@@ -566,7 +562,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
     XCTAssertEqual(Set(expanded), Set([parent.tagId, child.tagId]))
   }
 
-  func testFolderTagsAndTypedProgressRoundTrip() throws {
+  func testFolderTagsRoundTrip() throws {
     let service = try NoteService(driver: makeNoteDriver())
     let folder = try service.defineTag(name: "Work", classId: "folder")
     let notebook = try service.createNotebook(title: "Quarterly Plan")
@@ -576,15 +572,6 @@ final class NoteHierarchyProgressTests: NoteTestCase {
       provenance: .human
     )
     XCTAssertEqual(tagged.tags.first?.tag.classId, "folder")
-    XCTAssertEqual(tagged.progress, "none")
-
-    for progress in ["none", "pending", "progress", "review", "done"] {
-      let updated = try service.setNotebookProgress(
-        notebookId: notebook.notebookId,
-        progress: progress
-      )
-      XCTAssertEqual(updated.progress, progress)
-      XCTAssertEqual(try service.getNotebook(notebook.notebookId).progress, progress)
-    }
+    XCTAssertEqual(try service.getNotebook(notebook.notebookId), tagged)
   }
 }

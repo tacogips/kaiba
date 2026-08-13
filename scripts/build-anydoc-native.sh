@@ -18,6 +18,17 @@ fi
 cd "$repo_root"
 swift package resolve
 
+# anydoc-swift v0.1.3 and newer ships a release XCFramework for Apple
+# consumers. Keep the source-built pkg-config path for Linux, explicit custom
+# FFI builds, and cross-compilation, but avoid compiling an unused Rust archive
+# during normal macOS development.
+if [ "$(uname -s)" = "Darwin" ] \
+  && [ "${ANYDOC_FORCE_SYSTEM_FFI:-0}" != "1" ] \
+  && [ -z "$rust_target" ]; then
+  echo "Using anydoc-swift's SwiftPM XCFramework on macOS."
+  exit 0
+fi
+
 anydoc_checkout="$repo_root/.build/checkouts/anydoc-swift"
 if [ ! -x "$anydoc_checkout/scripts/build-native.sh" ]; then
   echo "error: resolved anydoc-swift checkout is missing its native builder" >&2

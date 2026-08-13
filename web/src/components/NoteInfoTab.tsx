@@ -61,7 +61,6 @@ export function NoteInfoTab(): JSX.Element {
           <div><dt>Created</dt><dd>{formatTimestamp(note().createdAt)}</dd></div>
           <div><dt>Updated</dt><dd>{formatTimestamp(note().updatedAt)}</dd></div>
           <div><dt>Notebook</dt><dd>{app.notebook()?.title ?? note().notebookId}</dd></div>
-          <div><dt>Progress</dt><dd>{app.notebook()?.progress ?? '—'}</dd></div>
         </dl>
 
         <section class="info-tags" aria-label="Tags">
@@ -73,7 +72,12 @@ export function NoteInfoTab(): JSX.Element {
               <div class="detail-chips">
                 <For each={group.assignments}>{(assignment) =>
                   <span class="folder-chip" title={`${assignment.provenance}${assignment.assignedBy ? ` · ${assignment.assignedBy}` : ''}`}>
-                    {qualifiedTagLabel(app.state.tags, assignment.tag.tagId)}
+                    <button
+                      type="button"
+                      class="tag-chip-open"
+                      title={`Open tag details: ${assignment.tag.name}`}
+                      onClick={() => app.openTagPane(assignment.tag.tagId)}
+                    >{qualifiedTagLabel(app.state.tags, assignment.tag.tagId)}</button>
                     <em class="tag-provenance">{assignment.provenance}</em>
                   </span>}
                 </For>

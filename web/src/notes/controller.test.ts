@@ -1,20 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  NotebookProgressController,
   NotebookReadOnlyController,
   NotebookScopeController,
   pruneNotebookActivatorEntries,
-  replaceNotebook,
-  stageNotebookUpdate,
   tagRemovalCanAffectConstraints,
-  type PendingNotebookCommit,
 } from './controller'
 import type { Notebook } from './types'
 
-const notebook = (progress: string): Notebook => ({
+const notebook = (): Notebook => ({
   notebookId: 'book-1',
   title: 'Launch',
-  progress,
   readOnly: false,
   createdAt: '2026-07-25T00:00:00Z',
   updatedAt: '2026-07-25T00:00:00Z',
@@ -36,116 +31,13 @@ const folderAssignment = {
   createdAt: '2026-07-25T00:00:01Z',
 }
 
-describe('progress convergence', () => {
-  test('serializes writes and replays the newest intent outside view context', async () => {
-    const writes: string[] = []
-    let releaseFirst: (() => void) | undefined
-    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve })
-    const updates: string[] = []
-    const controller = new NotebookProgressController({
-      setProgress: async (_id, progress) => {
-        writes.push(progress)
-        if (writes.length === 1) await firstGate
-        return notebook(progress)
-      },
-      readNotebook: async () => notebook('none'),
-    }, (updated) => updates.push(updated.progress))
-
-    const first = controller.move(notebook('none'), 'progress')
-    const second = controller.move(notebook('progress'), 'done')
-    releaseFirst?.()
-    await Promise.all([first, second])
-    expect(writes).toEqual(['progress', 'done'])
-    expect(updates.at(-1)).toBe('done')
-  })
-
-  test('reconciles canonical state after current failure', async () => {
-    const updates: Array<{ progress: string; error?: string }> = []
-    const controller = new NotebookProgressController({
-      setProgress: async () => { throw new Error('offline') },
-      readNotebook: async () => notebook('pending'),
-    }, (updated, error) => updates.push({ progress: updated.progress, error }))
-    await controller.move(notebook('none'), 'done')
-    expect(updates.at(-1)).toEqual({ progress: 'pending', error: 'offline' })
-  })
-
-  test('falls back to the last canonical state when write and refresh both fail', async () => {
-    const updates: Array<{ progress: string; error?: string }> = []
-    const controller = new NotebookProgressController({
-      setProgress: async () => { throw new Error('write offline') },
-      readNotebook: async () => { throw new Error('read offline') },
-    }, (updated, error) => updates.push({ progress: updated.progress, error }))
-    controller.adopt(notebook('none'))
-
-    await controller.move(notebook('none'), 'done')
-    expect(updates.at(-1)).toEqual({
-      progress: 'none',
-      error: 'write offline; canonical refresh failed: read offline',
-    })
-  })
-
-  test('rejects a refresh snapshot older than a completed progress mutation', async () => {
-    const controller = new NotebookProgressController({
-      setProgress: async (_id, progress) => notebook(progress),
-      readNotebook: async () => notebook('none'),
-    }, () => {})
-    controller.adopt(notebook('none'))
-    const refreshSnapshot = controller.snapshot()
-
-    await controller.move(notebook('none'), 'done')
-
-    const staleProgressRefresh = { ...notebook('none'), title: 'Renamed on refresh' }
-    expect(controller.adopt(staleProgressRefresh, refreshSnapshot)).toMatchObject({
-      progress: 'done',
-      title: 'Renamed on refresh',
-    })
-    expect(controller.adopt(notebook('done'), controller.snapshot()).progress).toBe('done')
-  })
-
-  test('stages a converge confirmation until an active drag ends', async () => {
-    let releaseWrite: (() => void) | undefined
-    const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve })
-    let visible = [notebook('none')]
-    let draggingNotebookId: string | undefined
-    let pending: PendingNotebookCommit | undefined
-    const controller = new NotebookProgressController({
-      setProgress: async (_id, progress) => {
-        await writeGate
-        return notebook(progress)
-      },
-      readNotebook: async () => notebook('none'),
-    }, (updated) => {
-      if (draggingNotebookId) {
-        pending = stageNotebookUpdate(visible, pending, updated, 1)
-      } else {
-        visible = replaceNotebook(visible, updated)
-      }
-    })
-
-    const convergence = controller.move(notebook('none'), 'done')
-    const draggedCard = visible[0]
-    draggingNotebookId = draggedCard?.notebookId
-    releaseWrite?.()
-    await convergence
-
-    expect(draggingNotebookId).toBe('book-1')
-    expect(visible[0]).toBe(draggedCard)
-    expect(pending?.notebooks[0]?.progress).toBe('done')
-
-    draggingNotebookId = undefined
-    visible = pending?.notebooks ?? visible
-    pending = undefined
-    expect(visible[0]?.progress).toBe('done')
-  })
-})
-
 describe('read-only convergence', () => {
   test('rejects a refresh snapshot older than a completed unlock', async () => {
     const updates: Notebook[] = []
     const controller = new NotebookReadOnlyController({
-      setReadOnly: async (_id, readOnly) => ({ ...notebook('none'), readOnly }),
+      setReadOnly: async (_id, readOnly) => ({ ...notebook(), readOnly }),
     }, (updated) => updates.push(updated))
-    const locked = { ...notebook('none'), readOnly: true }
+    const locked = { ...notebook(), readOnly: true }
     controller.adopt(locked)
     const refreshSnapshot = controller.snapshot()
 
@@ -164,10 +56,10 @@ describe('read-only convergence', () => {
       setReadOnly: async (_id, readOnly) => {
         writes.push(readOnly)
         if (writes.length === 1) await firstGate
-        return { ...notebook('none'), readOnly }
+        return { ...notebook(), readOnly }
       },
     }, (updated) => updates.push(updated.readOnly))
-    const locked = { ...notebook('none'), readOnly: true }
+    const locked = { ...notebook(), readOnly: true }
 
     const unlock = controller.set(locked, false)
     const relock = controller.set({ ...locked, readOnly: false }, true)
@@ -183,7 +75,7 @@ describe('read-only convergence', () => {
     const controller = new NotebookReadOnlyController({
       setReadOnly: async () => { throw new Error('offline') },
     }, (updated, error) => updates.push({ readOnly: updated.readOnly, error }))
-    const locked = { ...notebook('none'), readOnly: true }
+    const locked = { ...notebook(), readOnly: true }
 
     await controller.set(locked, false)
 
@@ -193,7 +85,7 @@ describe('read-only convergence', () => {
   test('preserves a newer tag response when an older unlock response finishes later', async () => {
     let releaseUnlock: (() => void) | undefined
     const unlockGate = new Promise<void>((resolve) => { releaseUnlock = resolve })
-    const locked = { ...notebook('none'), readOnly: true }
+    const locked = { ...notebook(), readOnly: true }
     const updates: Notebook[] = []
     const controller = new NotebookReadOnlyController({
       setReadOnly: async (_id, readOnly) => {
@@ -220,7 +112,7 @@ describe('read-only convergence', () => {
   })
 
   test('preserves a newer unlock when an older tag response finishes later', async () => {
-    const locked = { ...notebook('none'), readOnly: true }
+    const locked = { ...notebook(), readOnly: true }
     const controller = new NotebookReadOnlyController({
       setReadOnly: async (_id, readOnly) => ({ ...locked, readOnly }),
     }, () => {})
@@ -239,66 +131,6 @@ describe('read-only convergence', () => {
       updatedAt: '2026-07-25T00:00:01Z',
       tags: [folderAssignment],
     })
-  })
-})
-
-describe('cross-field notebook convergence', () => {
-  test('preserves a completed unlock when an older progress response finishes later', async () => {
-    let releaseProgress: (() => void) | undefined
-    const progressGate = new Promise<void>((resolve) => { releaseProgress = resolve })
-    const locked = { ...notebook('none'), readOnly: true }
-    let visible = locked
-    const progressController = new NotebookProgressController({
-      setProgress: async (_id, progress) => {
-        await progressGate
-        return { ...notebook(progress), readOnly: true }
-      },
-      readNotebook: async () => locked,
-    }, (updated) => { visible = reconcile(updated) })
-    const readOnlyController = new NotebookReadOnlyController({
-      setReadOnly: async (_id, readOnly) => ({ ...notebook('none'), readOnly }),
-    }, (updated) => { visible = reconcile(updated) })
-    const reconcile = (updated: Notebook): Notebook =>
-      readOnlyController.visible(progressController.visible(updated))
-    progressController.adopt(locked)
-    readOnlyController.adopt(locked)
-
-    const progressWrite = progressController.move(locked, 'done')
-    await readOnlyController.set(visible, false)
-    expect(visible).toMatchObject({ progress: 'done', readOnly: false })
-
-    releaseProgress?.()
-    await progressWrite
-    expect(visible).toMatchObject({ progress: 'done', readOnly: false })
-  })
-
-  test('preserves completed progress when an older unlock response finishes later', async () => {
-    let releaseUnlock: (() => void) | undefined
-    const unlockGate = new Promise<void>((resolve) => { releaseUnlock = resolve })
-    const locked = { ...notebook('none'), readOnly: true }
-    let visible = locked
-    const progressController = new NotebookProgressController({
-      setProgress: async (_id, progress) => ({ ...notebook(progress), readOnly: true }),
-      readNotebook: async () => locked,
-    }, (updated) => { visible = reconcile(updated) })
-    const readOnlyController = new NotebookReadOnlyController({
-      setReadOnly: async (_id, readOnly) => {
-        await unlockGate
-        return { ...notebook('none'), readOnly }
-      },
-    }, (updated) => { visible = reconcile(updated) })
-    const reconcile = (updated: Notebook): Notebook =>
-      readOnlyController.visible(progressController.visible(updated))
-    progressController.adopt(locked)
-    readOnlyController.adopt(locked)
-
-    const unlock = readOnlyController.set(locked, false)
-    await progressController.move(locked, 'done')
-    expect(visible).toMatchObject({ progress: 'done', readOnly: true })
-
-    releaseUnlock?.()
-    await unlock
-    expect(visible).toMatchObject({ progress: 'done', readOnly: false })
   })
 })
 

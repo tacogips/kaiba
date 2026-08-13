@@ -135,7 +135,6 @@ public struct AppCommand: Sendable {
       notebook   show <notebook-id>
       notebook   create --title <t> [--kind <kind-tag>]
       notebook   delete <notebook-id>
-      notebook   progress <notebook-id> <none|progress|done|pending>
       notebook   readonly <notebook-id> (--on|--off)
 
     Import:

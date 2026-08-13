@@ -15,7 +15,7 @@ let package = Package(
   dependencies: [
     .package(
       url: "https://github.com/tacogips/anydoc-swift.git",
-      revision: "9ee68e37c9520558c166fb8832965b480ffe41f7"
+      revision: "d957c08372786b7062553e83fe9c29880fdee7a4"
     )
   ],
   targets: [

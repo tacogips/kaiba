@@ -53,7 +53,7 @@ swift test
 '''
 
 [tasks."anydoc:native"]
-description = "Build the anydoc-swift Rust FFI required by AnydocKit"
+description = "Resolve the Apple XCFramework or build anydoc-swift's native Linux FFI"
 run = '''
 scripts/build-anydoc-native.sh
 '''
