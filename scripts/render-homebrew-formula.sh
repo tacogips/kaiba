@@ -67,6 +67,7 @@ main() {
 class Kaiba < Formula
   desc "System-memory service for AI agents"
   homepage "https://github.com/tacogips/kaiba"
+  version "$version"
   license "MIT"
 
   livecheck do
