@@ -48,6 +48,7 @@ function testStore(requests: Array<Record<string, unknown>>, memoWrites: string[
   const state = {
     noteId: subject.noteId,
     notebookId: subject.notebookId,
+    note: subject,
     settings: { agentModel: 'configured', fontScale: 1 },
     notebookRevisions: {},
     catalogRevision: 0,
@@ -84,6 +85,7 @@ function testStore(requests: Array<Record<string, unknown>>, memoWrites: string[
     state,
     client,
     notes: () => [subject],
+    notebook: () => ({ notebookId: subject.notebookId, title: 'Notebook', readOnly: false }),
     updateSettings: (partial: Partial<WebAppSettings>) => Object.assign(state.settings, partial),
   } as unknown as AppStore
 }
@@ -170,6 +172,20 @@ describe('MemoTab integration', () => {
       composer!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       await waitFor(() => expect(requests).toHaveLength(2))
       expect(requests[1]?.conversationNotebookId).toBe('conversation-new')
+      expect(requests[1]?.mode).toBeUndefined()
+
+      // Switching to note edit mode mid-conversation keeps the thread and
+      // marks the next turn as an edit request.
+      const noteEdit = host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')
+      expect(noteEdit).not.toBeNull()
+      expect(noteEdit!.disabled).toBe(false)
+      noteEdit!.click()
+      expect(noteEdit!.getAttribute('aria-pressed')).toBe('true')
+      composer!.value = 'Apply what we discussed to the note'
+      composer!.dispatchEvent(new Event('input', { bubbles: true }))
+      composer!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await waitFor(() => expect(requests).toHaveLength(3))
+      expect(requests[2]).toMatchObject({ conversationNotebookId: 'conversation-new', mode: 'edit' })
     } finally {
       dispose()
       host.remove()

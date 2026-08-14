@@ -177,6 +177,19 @@ original per-note reader + separate Memos/Chat tabs described below.)
   control is unavailable while selected. This is an intentional safe
   boundary, not silent attachment loss.
 
+- **W15 — Center-pane diary list (2026-08-14).** The center pane has
+  `List | Notebook` display tabs. List is the home/default surface and shows
+  user-facing notebooks by descending `updatedAt`, with the first note's
+  whitespace-normalized text capped at 80 Unicode characters, note count,
+  update time, and non-kind tag assignments including provenance. Selecting a
+  card opens that notebook through the canonical route and switches to the
+  Notebook tab. Tag chips above the list filter the overview by notebook tag,
+  so hierarchical AI classifications remain useful without requiring the
+  writer to file an entry first. Internal agent-conversation, long-term-memory,
+  and tag-memo backing notebooks are excluded; imported and translated writing
+  remains visible. Automatic classification continues to use AI4's configured
+  `ai.autoTag.auto` boundary and existing provenance protections.
+
 - **W14 — Tag detail pane (2026-08-13).** Inline tag-term underlining in
   the reader, the cross-notebook tag-mode right pane (Memo | History |
   Links), the in-app return stack, and drag-select tag registration are
@@ -227,6 +240,18 @@ original per-note reader + separate Memos/Chat tabs described below.)
    A web client receiving an unavailable catalog shows only the configured
    model; an older server must leave model and attachment controls disabled
    rather than sending unsupported fields.
+6. The composer's note edit toggle sends `mode: "edit"` on the agent
+   submission. It is enabled only for a note subject whose own read-only
+   flag and whose notebook's flag are both clear (the client mirror of the
+   server's `updateNoteBody` gate; imported documents lock the notebook),
+   drops automatically when the subject changes or stops being writable,
+   and is mutually exclusive with memo-only. The mode is per turn, so a
+   conversation started in memo mode can switch to edit mid-thread and the
+   prior turns ground the edit. Like model/attachments, the field is only
+   sent when the composer-extension catalog is available — an older server
+   would silently answer as a memo, which must never masquerade as an
+   applied edit. Turns whose meta records `mode: "edit"` render a
+   "Note edit" badge in the timeline.
 
 The 1 MiB aggregate limit deliberately stays below
 `KaibaHTTPRequestParser.maximumBodyBytes` after base64 and JSON overhead.
@@ -241,10 +266,11 @@ web/src/
   state/appStore.tsx       context + createStore, events subscription
   views/ChatbookView.tsx   3-pane shell, fold state, keyboard shortcuts
   panes/LeftPane.tsx       Tabs: Files | Contents
-  panes/ReaderPane.tsx     markdown reader + notebook page navigation
+  panes/ReaderPane.tsx     List | Notebook center tabs + markdown navigation
   panes/RightPane.tsx      Tabs: Memo | Info | Links + New chat boundary
   components/Tabs.tsx      shared tab strip
   components/FileTreeTab.tsx    (reuses notes/tree.ts)
+  components/NotebookListTab.tsx chronological notebook cards + tag filters
   components/TocTab.tsx
   components/MemoTab.tsx        merged comments/agent turns + composer
   components/NotebookAggregateTabs.tsx notebook-wide Memo/Info/Links
@@ -252,6 +278,7 @@ web/src/
   components/LinkedDocsTab.tsx  (link queries, grouped by kind)
   notes/memoTimeline.ts          deterministic merged-timeline projection
   notes/chatState.ts             agent lifecycle projection
+  notes/notebookList.ts          diary ordering, visibility, preview projection
   notes/settings.ts              defensive web setting persistence
 ```
 

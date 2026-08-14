@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Resolve anydoc-swift and stage its Rust FFI for AnydocKit linkage.
+# Resolve anydoc-swift and stage its native Linux fallback for AnydocKit linkage.
 # Usage: scripts/build-anydoc-native.sh [rust-target]
 set -euo pipefail
 
@@ -19,9 +19,9 @@ cd "$repo_root"
 swift package resolve
 
 # anydoc-swift v0.1.3 and newer ships a release XCFramework for Apple
-# consumers. Keep the source-built pkg-config path for Linux, explicit custom
-# FFI builds, and cross-compilation, but avoid compiling an unused Rust archive
-# during normal macOS development.
+# consumers. Keep the source-built pkg-config path for Linux and explicit
+# custom system-FFI builds, but avoid compiling an unused Rust archive during
+# normal macOS development and Apple release packaging.
 if [ "$(uname -s)" = "Darwin" ] \
   && [ "${ANYDOC_FORCE_SYSTEM_FFI:-0}" != "1" ] \
   && [ -z "$rust_target" ]; then

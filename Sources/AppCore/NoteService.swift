@@ -303,6 +303,7 @@ public struct NoteService: Sendable {
     kindTagName: String? = nil,
     metaJSON: String? = nil,
     pages: [NotePageDraft],
+    notebookReadOnly: Bool = false,
     provenance: NoteProvenance = .system,
     assignedBy: String? = "kaiba-note-ingest",
     originatingActionId: String? = nil
@@ -318,6 +319,7 @@ public struct NoteService: Sendable {
           kindTagName: kindTagName,
           metaJSON: metaJSON,
           pages: pages,
+          notebookReadOnly: notebookReadOnly,
           provenance: provenance,
           assignedBy: assignedBy,
           originatingActionId: originatingActionId,
@@ -346,6 +348,7 @@ public struct NoteService: Sendable {
     kindTagName: String?,
     metaJSON: String?,
     pages: [NotePageDraft],
+    notebookReadOnly: Bool,
     provenance: NoteProvenance,
     assignedBy: String?,
     originatingActionId: String?,
@@ -355,12 +358,13 @@ public struct NoteService: Sendable {
     let notebookId = makeNoteId(prefix: "notebook")
     try db.execute(
       """
-      INSERT INTO notebooks (notebook_id, title, created_at, updated_at, meta_json)
-      VALUES (?, ?, ?, ?, jsonb(?))
+      INSERT INTO notebooks (notebook_id, title, read_only, created_at, updated_at, meta_json)
+      VALUES (?, ?, ?, ?, ?, jsonb(?))
       """,
       bindings: [
         .text(notebookId),
         .text(title),
+        .int(notebookReadOnly ? 1 : 0),
         .text(now),
         .text(now),
         .optionalText(metaJSON)
@@ -477,6 +481,7 @@ public struct NoteService: Sendable {
           kindTagName: nil,
           metaJSON: nil,
           pages: [NotePageDraft(bodyMarkdown: commentBody, readOnly: false)],
+          notebookReadOnly: false,
           provenance: provenance,
           assignedBy: assignedBy,
           originatingActionId: nil,

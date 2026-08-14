@@ -5,6 +5,7 @@ import {
   parsePaneState,
   readPaneState,
   serializePaneState,
+  withCenterTab,
   withLeftTab,
   withRightTab,
   writePaneState,
@@ -22,7 +23,13 @@ function storage(initial?: string): PaneStateStorage & { values: Map<string, str
   }
 }
 
-const folded: PaneState = { leftOpen: false, rightOpen: true, leftTab: 'contents', rightTab: 'links' }
+const folded: PaneState = {
+  leftOpen: false,
+  rightOpen: true,
+  leftTab: 'contents',
+  centerTab: 'notebook',
+  rightTab: 'links',
+}
 
 describe('pane state persistence', () => {
   test('round-trips fold and tab selection', () => {
@@ -78,10 +85,13 @@ describe('tab selection', () => {
       .toEqual({ ...defaultPaneState, leftOpen: true, leftTab: 'contents' })
     expect(withRightTab({ ...defaultPaneState, rightOpen: false }, 'links'))
       .toEqual({ ...defaultPaneState, rightOpen: true, rightTab: 'links' })
+    expect(withCenterTab(defaultPaneState, 'notebook'))
+      .toEqual({ ...defaultPaneState, centerTab: 'notebook' })
   })
 
   test('the other pane is untouched', () => {
     expect(withLeftTab(folded, 'files').rightTab).toBe('links')
     expect(withRightTab(folded, 'info').leftOpen).toBe(false)
+    expect(withCenterTab(folded, 'list').leftTab).toBe('contents')
   })
 })

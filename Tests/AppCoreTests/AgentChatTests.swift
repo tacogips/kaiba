@@ -595,4 +595,160 @@ final class AgentChatTests: NoteTestCase {
       .answered
     )
   }
+
+  // MARK: - Note edit mode
+
+  func testNoteEditReplyParsesBodyAndCommentary() {
+    let reply = """
+    Intro remark.
+    <kaiba-note-body>
+    # Revised
+    New content.
+    </kaiba-note-body>
+    Tightened the wording.
+    """
+    let parsed = NoteService.noteEditReply(from: reply)
+    XCTAssertEqual(parsed.bodyMarkdown, "# Revised\nNew content.")
+    XCTAssertTrue(parsed.commentary.contains("Intro remark."))
+    XCTAssertTrue(parsed.commentary.contains("Tightened the wording."))
+
+    let plain = NoteService.noteEditReply(from: "Which section should change?")
+    XCTAssertNil(plain.bodyMarkdown)
+    XCTAssertEqual(plain.commentary, "Which section should change?")
+
+    // A blank replacement or an unterminated marker must never blank the note.
+    XCTAssertNil(NoteService.noteEditReply(from: "<kaiba-note-body>\n  \n</kaiba-note-body>").bodyMarkdown)
+    XCTAssertNil(NoteService.noteEditReply(from: "<kaiba-note-body>\n# Half").bodyMarkdown)
+  }
+
+  func testAppendEditTurnSnapshotsModeAndRequiresWritableNoteSubject() throws {
+    let service = try makeService()
+    let subject = try service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
+
+    let turn = try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Fix the title",
+      agentAvailable: true,
+      mode: .edit
+    )
+    XCTAssertEqual(NoteService.chatTurnState(of: turn)?.mode, .edit)
+    let answered = try service.completeAgentChatTurn(
+      turnNoteId: turn.noteId,
+      assistantMarkdown: "Done."
+    )
+    XCTAssertEqual(NoteService.chatTurnState(of: answered)?.mode, .edit)
+
+    _ = try service.setReadOnly(noteId: subject.noteId, readOnly: true)
+    XCTAssertThrowsError(try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Edit a locked note",
+      agentAvailable: true,
+      mode: .edit
+    ))
+    _ = try service.setReadOnly(noteId: subject.noteId, readOnly: false)
+    _ = try service.setNotebookReadOnly(notebookId: subject.notebookId, readOnly: true)
+    XCTAssertThrowsError(try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Edit inside a locked notebook",
+      agentAvailable: true,
+      mode: .edit
+    ))
+    // Memo turns stay available on exactly the subjects edit mode refuses.
+    XCTAssertNoThrow(try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "A memo question about a locked note",
+      agentAvailable: true
+    ))
+
+    let other = try service.createNote(bodyMarkdown: "# Other\nBody.")
+    let notebookConversation = try service.startAgentConversation(subjectNotebookId: other.notebookId)
+    XCTAssertThrowsError(try service.appendPendingAgentChatTurn(
+      conversationNotebookId: notebookConversation.notebookId,
+      userMarkdown: "Edit the notebook",
+      agentAvailable: true,
+      mode: .edit
+    ))
+  }
+
+  func testGenerateEditReplyAppliesBodyAndRecordsSummary() async throws {
+    let service = try makeService()
+    let subject = try service.createNote(bodyMarkdown: "# Subject\nOriginal body.")
+    let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
+    let turn = try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Reword the body",
+      agentAvailable: true,
+      mode: .edit
+    )
+    let reply = """
+    <kaiba-note-body>
+    # Subject
+    Reworded body.
+    </kaiba-note-body>
+    Reworded the body as requested.
+    """
+    try await service.generateAgentChatReply(
+      turnNoteId: turn.noteId,
+      invoker: StubChatInvoker(reply: reply)
+    )
+    XCTAssertEqual(
+      try service.getNote(subject.noteId).bodyMarkdown,
+      "# Subject\nReworded body."
+    )
+    let answered = try service.getNote(turn.noteId)
+    XCTAssertEqual(NoteService.chatTurnState(of: answered)?.status, .answered)
+    XCTAssertTrue(answered.bodyMarkdown.contains("Reworded the body as requested."))
+    XCTAssertFalse(answered.bodyMarkdown.contains(NoteService.noteEditBodyOpening))
+  }
+
+  func testGenerateEditReplyUsesEditPromptAndPlainReplyLeavesNoteUntouched() async throws {
+    let service = try makeService()
+    let subject = try service.createNote(bodyMarkdown: "# Subject\nOriginal body.")
+    let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
+    let turn = try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Improve it somehow",
+      agentAvailable: true,
+      mode: .edit
+    )
+    let invoker = CapturingChatInvoker()
+    try await service.generateAgentChatReply(turnNoteId: turn.noteId, invoker: invoker)
+    let capturedRequest = await invoker.latestRequest()
+    let request = try XCTUnwrap(capturedRequest)
+    XCTAssertEqual(request.systemPrompt, NoteService.noteEditSystemPrompt)
+
+    // "captured" carries no markers: the reply lands as a plain answer and the
+    // note is untouched.
+    XCTAssertEqual(try service.getNote(subject.noteId).bodyMarkdown, "# Subject\nOriginal body.")
+    let answered = try service.getNote(turn.noteId)
+    XCTAssertEqual(NoteService.chatTurnState(of: answered)?.status, .answered)
+    XCTAssertTrue(answered.bodyMarkdown.contains("captured"))
+  }
+
+  func testGenerateEditReplyFailsWhenNoteLockedAfterAccept() async throws {
+    let service = try makeService()
+    let subject = try service.createNote(bodyMarkdown: "# Subject\nOriginal body.")
+    let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
+    let turn = try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Reword the body",
+      agentAvailable: true,
+      mode: .edit
+    )
+    _ = try service.setReadOnly(noteId: subject.noteId, readOnly: true)
+    let reply = "<kaiba-note-body>\n# Subject\nReworded.\n</kaiba-note-body>"
+    do {
+      try await service.generateAgentChatReply(
+        turnNoteId: turn.noteId,
+        invoker: StubChatInvoker(reply: reply)
+      )
+      XCTFail("expected the locked note to refuse the edit")
+    } catch {}
+    XCTAssertEqual(
+      NoteService.chatTurnState(of: try service.getNote(turn.noteId))?.status,
+      .failed
+    )
+    XCTAssertEqual(try service.getNote(subject.noteId).bodyMarkdown, "# Subject\nOriginal body.")
+  }
 }

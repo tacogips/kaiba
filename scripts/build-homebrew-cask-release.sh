@@ -193,9 +193,11 @@ swift_release_bin_path() {
 
   (
     cd "$repo_root"
-    DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" \
+    env -u PKG_CONFIG_PATH \
+      DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" ANYDOC_FORCE_SYSTEM_FFI=0 \
       "$swift_exe" build -c release --product "$product" --triple "$triple" >/dev/null
-    DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" \
+    env -u PKG_CONFIG_PATH \
+      DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" ANYDOC_FORCE_SYSTEM_FFI=0 \
       "$swift_exe" build -c release --product "$product" --triple "$triple" --show-bin-path
   )
 }

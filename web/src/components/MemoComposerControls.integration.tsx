@@ -8,6 +8,8 @@ describe('MemoComposerControls', () => {
     const container = document.createElement('div')
     const dispose = render(() => createComponent(MemoComposerControls, {
       memoOnly: true,
+      noteEdit: false,
+      canNoteEdit: true,
       busy: false,
       draft: 'Capture this',
       attachments: [{ name: 'reference.txt' } as File],
@@ -17,6 +19,7 @@ describe('MemoComposerControls', () => {
       catalogAvailable: true,
       onStageFiles: () => undefined,
       onToggleMemoOnly: () => undefined,
+      onToggleNoteEdit: () => undefined,
       onDraftChange: () => undefined,
       onRemoveAttachment: () => undefined,
       onModelChange: () => undefined,
@@ -28,6 +31,8 @@ describe('MemoComposerControls', () => {
     expect(html).toContain('aria-label="Memo only"')
     expect(html).toContain('aria-pressed="true"')
     expect(html).toContain('title="Memo only"')
+    expect(html).toContain('aria-label="Edit note mode"')
+    expect(html).toContain('title="Edit note mode"')
     expect(html).toContain('reference.txt')
     expect(html).toContain('title="Remove reference.txt"')
     expect(html).toContain('aria-label="Agent model"')
@@ -40,6 +45,8 @@ describe('MemoComposerControls', () => {
     const container = document.createElement('div')
     const dispose = render(() => createComponent(MemoComposerControls, {
       memoOnly: false,
+      noteEdit: false,
+      canNoteEdit: false,
       busy: false,
       draft: 'Ask',
       attachments: [],
@@ -48,6 +55,7 @@ describe('MemoComposerControls', () => {
       catalogAvailable: false,
       onStageFiles: () => undefined,
       onToggleMemoOnly: () => undefined,
+      onToggleNoteEdit: () => undefined,
       onDraftChange: () => undefined,
       onRemoveAttachment: () => undefined,
       onModelChange: () => undefined,
@@ -57,6 +65,7 @@ describe('MemoComposerControls', () => {
 
     expect(html).toContain('title="Attachments require a newer server"')
     expect(html).toContain('aria-disabled="true"')
+    expect(html).toContain('title="Note edit mode requires a writable note"')
     expect(html).toContain('aria-label="Send message"')
     dispose()
   })

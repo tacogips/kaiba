@@ -24,9 +24,11 @@ import {
   browserPaneStorage,
   clampPaneWidth,
   readPaneState,
+  withCenterTab,
   withLeftTab,
   withRightTab,
   writePaneState,
+  type CenterTab,
   type LeftTab,
   type PaneState,
   type PaneStateStorage,
@@ -40,6 +42,7 @@ import {
   webSettingsKey,
   type WebAppSettings,
 } from '../notes/settings'
+import { NotebookReadOnlyController } from '../notes/controller'
 
 // The single owner of selection, pane layout, the note catalog and the note
 // events subscription. Panes read from here instead of receiving props drilled
@@ -113,6 +116,7 @@ export interface AppStore {
   toggleFolder(tagId: string): void
   toggleNotebook(notebookId: string): void
   setLeftTab(tab: LeftTab): void
+  setCenterTab(tab: CenterTab): void
   setRightTab(tab: RightTab): void
   toggleLeftPane(): void
   toggleRightPane(): void
@@ -123,6 +127,8 @@ export interface AppStore {
   refreshNote(): Promise<void>
   loadNotes(notebookId: string): Promise<void>
   loadMoreNotes(notebookId: string): Promise<void>
+  /** Changes the open or named notebook's persisted access mode. */
+  setNotebookReadOnly(notebookId: string, readOnly: boolean): Promise<void>
   /** Clears the note selection but keeps the notebook open (its notes stay in
    * the reader; the right pane falls back to notebook aggregates). */
   deselectNote(): void
@@ -177,6 +183,13 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   let noteGeneration = 0
   let catalogTimer: ReturnType<typeof setTimeout> | undefined
   let settingsTimer: ReturnType<typeof setTimeout> | undefined
+  const readOnlyController = new NotebookReadOnlyController({
+    setReadOnly: (notebookId, readOnly) => client.setNotebookReadOnly(notebookId, readOnly),
+  }, (updated, error) => {
+    setState('notebooks', (notebooks) => notebooks.map((notebook) =>
+      notebook.notebookId === updated.notebookId ? updated : notebook))
+    if (error) setState('message', `Could not change notebook access: ${error}`)
+  })
 
   const loadSettings = async (): Promise<void> => {
     try {
@@ -247,6 +260,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
 
   const refreshCatalog = async (): Promise<void> => {
     const generation = ++catalogGeneration
+    const readOnlySnapshot = readOnlyController.snapshot()
     setState({ loading: true, error: '' })
     try {
       const [tags, tagClasses] = await Promise.all([client.tags(), client.tagClasses()])
@@ -258,11 +272,15 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
         [],
         () => generation === catalogGeneration,
         (values) => {
-          if (generation === catalogGeneration) setState('notebooks', values)
+          if (generation === catalogGeneration) {
+            setState('notebooks', values.map((notebook) =>
+              readOnlyController.adopt(notebook, readOnlySnapshot)))
+          }
         },
       )
       if (!notebooks || generation !== catalogGeneration) return
-      setState('notebooks', notebooks)
+      setState('notebooks', notebooks.map((notebook) =>
+        readOnlyController.adopt(notebook, readOnlySnapshot)))
       setState('catalogRevision', (revision) => revision + 1)
     } catch (error) {
       if (generation !== catalogGeneration) return
@@ -324,6 +342,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
 
   const go = (route: Route) => navigate(router, route)
   const openNote = (noteId: string, notebookId?: string) => {
+    setPane(withCenterTab(state.pane, 'notebook'))
     if (notebookId) {
       setState('expandedNotebooks', (current) =>
         current.includes(notebookId) ? current : [...current, notebookId])
@@ -358,6 +377,11 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     const key = selectionKey(route)
     if (key === appliedSelection) return
     appliedSelection = key
+    if (route.kind === 'note' || route.kind === 'notebook') {
+      setPane(withCenterTab(state.pane, 'notebook'))
+    } else if (route.kind === 'home') {
+      setPane(withCenterTab(state.pane, 'list'))
+    }
     void applySelection(route)
   })
 
@@ -411,7 +435,10 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     notebook: () => state.notebooks.find((notebook) => notebook.notebookId === state.notebookId),
     conversationId,
     openNote,
-    openNotebook: (notebookId) => go({ kind: 'notebook', notebookId }),
+    openNotebook: (notebookId) => {
+      setPane(withCenterTab(state.pane, 'notebook'))
+      go({ kind: 'notebook', notebookId })
+    },
     tagPaneTagId,
     openTagPane: (tagId) => {
       // The pane must be visible for the selection to mean anything.
@@ -426,20 +453,27 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     },
     closeTagPane: () => go(withTag(state.route, undefined)),
     openNoteWithReturn: (noteId, notebookId) => {
+      setPane(withCenterTab(state.pane, 'notebook'))
       if (notebookId) {
         setState('expandedNotebooks', (current) =>
           current.includes(notebookId) ? current : [...current, notebookId])
       }
       goWithReturn({ kind: 'note', noteId })
     },
-    openNotebookWithReturn: (notebookId) => goWithReturn({ kind: 'notebook', notebookId }),
+    openNotebookWithReturn: (notebookId) => {
+      setPane(withCenterTab(state.pane, 'notebook'))
+      goWithReturn({ kind: 'notebook', notebookId })
+    },
     goBack: () => {
       const popped = popReturn(state.returnStack)
       setState('returnStack', popped.stack)
       if (popped.hash) navigate(router, parseRoute(popped.hash))
     },
     openReader: () => go(readerRoute),
-    openHome: () => go({ kind: 'home' }),
+    openHome: () => {
+      setPane(withCenterTab(state.pane, 'list'))
+      go({ kind: 'home' })
+    },
     openSearch: (query, scope, method) => {
       const notebookId = scope === 'notebook' ? state.notebookId : undefined
       go({
@@ -471,6 +505,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       if (!state.notesByNotebook[notebookId]) void loadNotes(notebookId)
     },
     setLeftTab: (tab) => setPane(withLeftTab(state.pane, tab)),
+    setCenterTab: (tab) => setPane(withCenterTab(state.pane, tab)),
     setRightTab: (tab) => setPane(withRightTab(state.pane, tab)),
     toggleLeftPane: () => setPane({ ...state.pane, leftOpen: !state.pane.leftOpen }),
     toggleRightPane: () => setPane({ ...state.pane, rightOpen: !state.pane.rightOpen }),
@@ -486,6 +521,14 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     refreshNote,
     loadNotes,
     loadMoreNotes,
+    setNotebookReadOnly: async (notebookId, readOnly) => {
+      const notebook = state.notebooks.find((candidate) => candidate.notebookId === notebookId)
+      if (!notebook) {
+        setState('message', 'Could not change notebook access: notebook is not loaded.')
+        return
+      }
+      await readOnlyController.set(notebook, readOnly)
+    },
     deselectNote: () => {
       const notebookId = state.notebookId
       if (notebookId) go({ kind: 'notebook', notebookId })

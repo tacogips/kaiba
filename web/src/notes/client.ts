@@ -48,10 +48,6 @@ export class NoteTransportError extends Error {
   }
 }
 
-export function isProgressConflict(error: unknown): boolean {
-  return error instanceof NoteTransportError && error.resultStatus === 'progress_conflict'
-}
-
 export class NoteGraphQLClient {
   private readonly environment: NoteClientEnvironment
 
@@ -377,6 +373,7 @@ export class NoteGraphQLClient {
     userMarkdown: string
     idempotencyKey?: string
     model?: string
+    mode?: 'edit'
     attachments?: AgentChatAttachmentInput[]
   }): Promise<AgentChatMessageResult> {
     const data = await this.request<{ sendAgentChatMessage: AgentChatMessageResult & { result: ControlResult } }>('SendAgentChatMessage', `
@@ -396,6 +393,7 @@ export class NoteGraphQLClient {
         userMarkdown: input.userMarkdown,
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
         ...(input.model ? { model: input.model } : {}),
+        ...(input.mode ? { mode: input.mode } : {}),
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       },
     })

@@ -222,6 +222,8 @@ final class DocumentImportServiceTests: NoteTestCase {
     XCTAssertEqual(result.notebook.title, "My Book")
     XCTAssertEqual(result.notes.count, 2)
     XCTAssertEqual(result.notes.map(\.noteNumber), [1, 2])
+    XCTAssertTrue(result.notebook.readOnly)
+    XCTAssertTrue(result.notes.allSatisfy { !$0.readOnly })
     XCTAssertTrue(result.notebook.tags.contains {
       $0.tag.name == NoteStoreSchema.importedMaterialNotebookKindTag
     })
@@ -233,7 +235,7 @@ final class DocumentImportServiceTests: NoteTestCase {
     XCTAssertEqual(attachments[0].file.originalFilename, "sample.pdf")
 
     let notebook = try service.getNotebook(result.notebook.notebookId)
-    XCTAssertNotNil(notebook)
+    XCTAssertTrue(notebook.readOnly)
     let meta = try XCTUnwrap(fetchNotebookMetaJSON(
       service: service,
       notebookId: result.notebook.notebookId
@@ -241,6 +243,37 @@ final class DocumentImportServiceTests: NoteTestCase {
     XCTAssertTrue(meta.contains("\"originalFilename\":\"sample.pdf\""))
     XCTAssertTrue(meta.contains("\"format\":\"pdf\""))
     XCTAssertTrue(meta.contains("\"toolVersion\":\"0.1.2\""))
+  }
+
+  func testImportedNotebookCanBecomeWritableWithoutUnlockingEachNote() throws {
+    let service = try makeService()
+    let sourcePath = try writeTemporarySource(named: "writable.pdf", contents: "fake-pdf-bytes")
+    defer { try? FileManager.default.removeItem(atPath: sourcePath) }
+
+    let result = try service.importDocument(
+      at: sourcePath,
+      converter: StubConverter(result: DocumentConversionResult(
+        markdown: "# Imported\nOriginal body",
+        sourceFormat: "pdf"
+      ))
+    )
+    let note = try XCTUnwrap(result.notes.first)
+
+    XCTAssertThrowsError(
+      try service.updateNoteBody(noteId: note.noteId, bodyMarkdown: "Blocked while imported")
+    )
+
+    let writable = try service.setNotebookReadOnly(
+      notebookId: result.notebook.notebookId,
+      readOnly: false
+    )
+    let updated = try service.updateNoteBody(
+      noteId: note.noteId,
+      bodyMarkdown: "User-approved edit"
+    )
+
+    XCTAssertFalse(writable.readOnly)
+    XCTAssertEqual(updated.bodyMarkdown, "User-approved edit")
   }
 
   func testImportDocumentExplicitTitleWins() throws {

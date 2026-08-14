@@ -101,8 +101,9 @@ spawn the real binary.
   "importedAt"}}`), attach original file.
 - `Sources/AppCore/CommandImport.swift` — `kaiba import <file>
   [--title <t>] [--kind-tag <tag>]`.
-- `scripts/build-anydoc-native.sh` — resolves the pinned package and stages
-  its Rust FFI for host or cross-compiled builds.
+- `scripts/build-anydoc-native.sh` — resolves the pinned package. Apple builds
+  consume `anydoc-swift`'s published XCFramework; Linux builds stage the
+  package's native `pkg-config` fallback.
 
 ## Configuration
 

@@ -258,16 +258,46 @@ public extension NoteService {
     mediaType: String,
     originalFilename: String? = nil
   ) throws -> NotebookFileAttachment {
+    try storeNotebookFileAttachment(
+      notebookId: notebookId,
+      fileURL: fileURL,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      requiresWritableNotebook: true
+    )
+  }
+}
+
+internal extension NoteService {
+  /// Stores a notebook attachment. Document import lifts the writable guard
+  /// only for the source document that is part of creating a read-only import.
+  @discardableResult
+  func storeNotebookFileAttachment(
+    notebookId: String,
+    fileURL: URL,
+    role: NotebookFileRole,
+    mediaType: String,
+    originalFilename: String?,
+    requiresWritableNotebook: Bool
+  ) throws -> NotebookFileAttachment {
+    let requireNotebookForAttachment: (String, SQLiteDatabase) throws -> Void = { notebookId, database in
+      if requiresWritableNotebook {
+        _ = try requireWritableNotebook(notebookId, in: database)
+      } else {
+        _ = try requireNotebook(notebookId, in: database)
+      }
+    }
     let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
     let fileId = makeNoteId(prefix: "file")
     try driver.withDatabase { database in
-      _ = try requireWritableNotebook(notebookId, in: database)
+      try requireNotebookForAttachment(notebookId, database)
     }
     let stored = try fileStore.store(fileURL: fileURL, fileId: fileId)
     do {
       return try driver.withDatabase { database in
         try database.transaction { db in
-          _ = try requireWritableNotebook(notebookId, in: db)
+          try requireNotebookForAttachment(notebookId, db)
           let record = try insertFileRecord(
             fileId: fileId,
             stored: stored,
@@ -296,7 +326,9 @@ public extension NoteService {
       throw error
     }
   }
+}
 
+public extension NoteService {
   func listFiles(noteId: String) throws -> [NoteFileAttachment] {
     try driver.withDatabase { database in
       _ = try requireNote(noteId, in: database)

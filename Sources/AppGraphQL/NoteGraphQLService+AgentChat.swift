@@ -49,6 +49,8 @@ public extension GraphQLNoteGraphQLService {
     do {
       let attachments = try validatedAgentChatAttachments(input.attachments ?? [])
       let selectedModel = try await selectedAgentChatModel(input.model)
+      let mode = try agentChatTurnMode(input.mode)
+      try validateAgentChatMode(mode, input: input)
       let conversationNotebookId = try conversationNotebookId(for: input)
       let turn = try service.appendPendingAgentChatTurn(
         conversationNotebookId: conversationNotebookId,
@@ -56,6 +58,7 @@ public extension GraphQLNoteGraphQLService {
         agentAvailable: service.autoActionDispatcher != nil,
         idempotencyKey: input.idempotencyKey,
         model: selectedModel,
+        mode: mode,
         attachments: attachments
       )
       return GraphQLAgentChatMessageResult(
@@ -81,6 +84,46 @@ public extension GraphQLNoteGraphQLService {
       throw GraphQLNoteServiceError.invalidRequest("unsupported agent model")
     }
     return requested
+  }
+
+  /// Normalizes to nil for the default so legacy turns and memo turns persist
+  /// identical metadata; the writability of an edit turn's subject is enforced
+  /// by `appendPendingAgentChatTurn`.
+  private func agentChatTurnMode(_ input: String?) throws -> AgentChatTurnMode? {
+    guard let raw = input?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    guard let mode = AgentChatTurnMode(rawValue: raw) else {
+      throw GraphQLNoteServiceError.invalidRequest("unsupported agent chat mode")
+    }
+    return mode == .memo ? nil : mode
+  }
+
+  /// Pre-checks an edit-mode subject so a rejected request never leaves an
+  /// orphan conversation notebook behind (the attachment validators keep the
+  /// same ordering guarantee). `appendPendingAgentChatTurn` re-enforces this
+  /// authoritatively inside its transaction.
+  private func validateAgentChatMode(
+    _ mode: AgentChatTurnMode?,
+    input: GraphQLSendAgentChatMessageInput
+  ) throws {
+    guard mode == .edit else {
+      return
+    }
+    let subject: AgentChatSubject?
+    if let existing = input.conversationNotebookId {
+      subject = try service.chatSubject(notebookId: existing)
+    } else {
+      subject = try requestedAgentChatSubject(input)
+    }
+    guard case let .note(noteId)? = subject else {
+      throw GraphQLNoteServiceError.invalidRequest("note edit mode requires a note subject")
+    }
+    let note = try service.getNote(noteId)
+    let notebook = try service.getNotebook(note.notebookId)
+    guard !note.readOnly, !notebook.readOnly else {
+      throw NoteServiceError.readOnly(noteId)
+    }
   }
 
   private func conversationNotebookId(for input: GraphQLSendAgentChatMessageInput) throws -> String {

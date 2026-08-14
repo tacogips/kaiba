@@ -138,6 +138,11 @@ The package uses Swift Package Manager with:
 - Installed executable: `kaiba`
 - Web viewer: `web/` (SolidJS + vite; `bun run build`)
 
+Document conversion is consumed exclusively through `anydoc-swift`'s
+`AnydocKit` product. macOS development and release builds use its published
+XCFramework automatically and do not require a local Cargo build or
+`PKG_CONFIG_PATH`.
+
 ## Homebrew Formula
 
 Build local formula archives:

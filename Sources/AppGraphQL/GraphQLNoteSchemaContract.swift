@@ -101,8 +101,19 @@ type AgentModelsPayload { result: ControlPlaneResult!, models: [AgentModel!]!, d
 # sendAgentChatMessage persists the user turn even when no agent runtime is
 # available (agentStatus "agent-unavailable"); replies arrive asynchronously via
 # the note change feed once the chat-reply auto-action completes the turn.
+# mode "memo" (default) answers in the conversation only; "edit" has the agent
+# rewrite the subject note, so it requires a writable note subject.
 input AgentChatAttachmentInput { contentBase64: String!, mediaType: String!, originalFilename: String! }
-input SendAgentChatMessageInput { subjectNoteId: String, subjectNotebookId: String, conversationNotebookId: String, userMarkdown: String!, idempotencyKey: String, model: String, attachments: [AgentChatAttachmentInput!] }
+input SendAgentChatMessageInput {
+  subjectNoteId: String
+  subjectNotebookId: String
+  conversationNotebookId: String
+  userMarkdown: String!
+  idempotencyKey: String
+  model: String
+  mode: String
+  attachments: [AgentChatAttachmentInput!]
+}
 type AgentChatMessagePayload { result: ControlPlaneResult!, conversationNotebookId: String, turnNoteId: String, agentStatus: String! }
 input RequestTagExtractionInput { noteId: String, notebookId: String }
 type TagExtractionRequestPayload { result: ControlPlaneResult!, status: String! }

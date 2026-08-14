@@ -50,11 +50,48 @@ export function canEnableMemoOnly(stagedAttachmentCount: number): boolean {
 export function memoOnlyToggleResult(
   selected: boolean,
   stagedAttachmentCount: number,
+  noteEdit = false,
 ): { selected: boolean; error: string } {
   if (!selected && !canEnableMemoOnly(stagedAttachmentCount)) {
     return { selected, error: 'Remove attached files before enabling memo-only mode.' }
   }
+  if (!selected && noteEdit) {
+    return { selected, error: 'Disable note edit mode before enabling memo-only mode.' }
+  }
   return { selected: !selected, error: '' }
+}
+
+/** Note edit mode is only offered where the server's `updateNoteBody` gate
+ * would accept the write: a note subject whose own read-only flag and whose
+ * notebook's flag are both clear (imported documents lock the notebook). */
+export function canEnableNoteEdit(
+  subject: { kind: 'note' | 'notebook'; id: string } | undefined,
+  note: { noteId: string; readOnly: boolean } | undefined,
+  notebook: { readOnly: boolean } | undefined,
+): boolean {
+  return subject?.kind === 'note' && note?.noteId === subject.id
+    && !note.readOnly && notebook !== undefined && !notebook.readOnly
+}
+
+export function noteEditToggleResult(
+  selected: boolean,
+  options: { canEdit: boolean; memoOnly: boolean },
+): { selected: boolean; error: string } {
+  if (!selected && !options.canEdit) {
+    return { selected, error: 'Note edit mode requires a writable note.' }
+  }
+  if (!selected && options.memoOnly) {
+    return { selected, error: 'Disable memo-only mode before enabling note edit mode.' }
+  }
+  return { selected: !selected, error: '' }
+}
+
+export function noteEditControlAttributes(selected: boolean): {
+  ariaPressed: boolean
+  ariaLabel: string
+  title: string
+} {
+  return { ariaPressed: selected, ariaLabel: 'Edit note mode', title: 'Edit note mode' }
 }
 
 export function resetComposerForNewChat<T>(): {
@@ -76,6 +113,9 @@ export interface AgentChatComposerRequestOptions {
   idempotencyKey: string
   extensionsAvailable: boolean
   selectedModel?: string
+  /** True sends mode "edit": the agent rewrites the subject note instead of
+   * answering in the conversation. */
+  noteEdit?: boolean
   attachments: readonly AgentChatAttachmentInput[]
 }
 
@@ -86,6 +126,7 @@ export interface AgentChatComposerRequest {
   userMarkdown: string
   idempotencyKey: string
   model?: string
+  mode?: 'edit'
   attachments?: AgentChatAttachmentInput[]
 }
 
@@ -103,6 +144,7 @@ export function buildAgentChatComposerRequest(options: AgentChatComposerRequestO
     userMarkdown: options.userMarkdown.trim(),
     idempotencyKey: options.idempotencyKey,
     ...(options.extensionsAvailable && options.selectedModel ? { model: options.selectedModel } : {}),
+    ...(options.extensionsAvailable && options.noteEdit ? { mode: 'edit' as const } : {}),
     ...(options.extensionsAvailable && options.attachments.length > 0 ? { attachments: [...options.attachments] } : {}),
   }
 }

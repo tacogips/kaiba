@@ -1,12 +1,15 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { MarkdownBody } from '../components/Markdown'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
+import { NotebookListTab } from '../components/NotebookListTab'
+import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
 import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
 import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
 import { normalizeSelectionTagName, tagTermsFromAssignments } from '../notes/tagMatch'
 import { noteHeadingPrefix } from '../notes/toc'
 import { errorMessage, useApp } from '../state/appStore'
 import type { Note } from '../notes/types'
+import type { CenterTab } from '../state/paneState'
 
 // Center reader: the open notebook's notes as one continuous scroll. Notes lazy-
 // render as they approach the viewport, a click selects (or deselects) a note
@@ -20,8 +23,13 @@ const eagerNoteCount = 6
 
 export function ReaderPane(): JSX.Element {
   const app = useApp()
+  const tabs: readonly TabDescriptor<CenterTab>[] = [
+    { value: 'list', label: 'List' },
+    { value: 'notebook', label: 'Notebook' },
+  ]
   const [copied, setCopied] = createSignal(false)
   const [gotoDraft, setGotoDraft] = createSignal('')
+  const [accessBusy, setAccessBusy] = createSignal(false)
   const [body, setBody] = createSignal<HTMLElement>()
   let copiedTimer: ReturnType<typeof setTimeout> | undefined
   // Set when the selection change came from a click inside the reader; the
@@ -176,10 +184,34 @@ export function ReaderPane(): JSX.Element {
     URL.revokeObjectURL(url)
   }
 
+  const toggleNotebookAccess = async () => {
+    const notebook = app.notebook()
+    if (!notebook || accessBusy()) return
+    setAccessBusy(true)
+    try {
+      await app.setNotebookReadOnly(notebook.notebookId, !notebook.readOnly)
+    } finally {
+      setAccessBusy(false)
+    }
+  }
+
   onCleanup(() => { if (copiedTimer) clearTimeout(copiedTimer) })
 
   return (
     <main class="reader" id="main-content" tabindex="-1">
+      <div class="center-tabs-head">
+        <Tabs
+          label="Center pane display mode"
+          tabs={tabs}
+          active={app.state.pane.centerTab}
+          idPrefix="center"
+          onSelect={app.setCenterTab}
+        />
+      </div>
+      <TabPanel idPrefix="center" value="list" active={app.state.pane.centerTab}>
+        <NotebookListTab />
+      </TabPanel>
+      <TabPanel idPrefix="center" value="notebook" active={app.state.pane.centerTab}>
       <Show when={app.state.noteLoading && !app.state.notebookId && notes().length === 0}>
         <div class="loading-state"><span class="loader" />Loading note…</div>
       </Show>
@@ -204,7 +236,25 @@ export function ReaderPane(): JSX.Element {
             <Show when={app.state.returnStack.length > 0}>
               <button type="button" class="secondary reader-back" onClick={app.goBack}>← Back</button>
             </Show>
-            <Show when={app.state.note?.readOnly}><span class="note-readonly-badge">Read-only</span></Show>
+            <Show when={app.notebook()}>{(notebook) => <>
+              <span class="note-readonly-badge">
+                {notebook().readOnly ? 'Notebook: Read-only' : 'Notebook: Writable'}
+              </span>
+              <button
+                type="button"
+                class="secondary lock-toggle"
+                aria-pressed={notebook().readOnly}
+                disabled={accessBusy()}
+                onClick={() => void toggleNotebookAccess()}
+              >
+                {accessBusy()
+                  ? 'Saving…'
+                  : notebook().readOnly ? 'Make writable' : 'Make read-only'}
+              </button>
+            </>}</Show>
+            <Show when={app.state.note?.readOnly}>
+              <span class="note-readonly-badge">Note: Read-only</span>
+            </Show>
             <form class="reader-goto" onSubmit={gotoPage}>
               <label>
                 <span class="sr-only">Go to page</span>
@@ -269,6 +319,7 @@ export function ReaderPane(): JSX.Element {
           </div>
         )}</Show>
       </Show>
+      </TabPanel>
     </main>
   )
 }

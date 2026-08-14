@@ -94,6 +94,53 @@ final class AgentChatGraphQLTests: XCTestCase {
     XCTAssertEqual(models.models.map(\.modelId), ["configured-model"])
   }
 
+  func testSendAgentChatMessageValidatesMode() async throws {
+    let service = try makeService()
+    let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
+
+    let editSent = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId, userMarkdown: "Reword this", mode: "edit"
+    ))
+    XCTAssertTrue(editSent.result.accepted)
+    let editTurnId = try XCTUnwrap(editSent.turnNoteId)
+    XCTAssertEqual(
+      NoteService.chatTurnState(of: try service.service.getNote(editTurnId))?.mode,
+      .edit
+    )
+
+    // "memo" is the default and persists identical metadata to omitting mode.
+    let memoSent = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId, userMarkdown: "Just asking", mode: "memo"
+    ))
+    XCTAssertTrue(memoSent.result.accepted)
+    let memoTurnId = try XCTUnwrap(memoSent.turnNoteId)
+    XCTAssertNil(NoteService.chatTurnState(of: try service.service.getNote(memoTurnId))?.mode)
+
+    let unsupported = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId, userMarkdown: "Rewrite", mode: "rewrite"
+    ))
+    XCTAssertFalse(unsupported.result.accepted)
+
+    let notebookRejected = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNotebookId: subject.notebookId, userMarkdown: "Edit the notebook", mode: "edit"
+    ))
+    XCTAssertFalse(notebookRejected.result.accepted)
+    XCTAssertTrue(
+      try service.service.listAgentConversations(subjectNotebookId: subject.notebookId).isEmpty
+    )
+  }
+
+  func testSendAgentChatMessageRejectsEditModeForReadOnlyNoteBeforeConversationCreation() async throws {
+    let service = try makeService()
+    let subject = try service.service.createNote(bodyMarkdown: "# Locked\nBody.")
+    _ = try service.service.setReadOnly(noteId: subject.noteId, readOnly: true)
+    let rejected = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: subject.noteId, userMarkdown: "Edit a locked note", mode: "edit"
+    ))
+    XCTAssertFalse(rejected.result.accepted)
+    XCTAssertTrue(try service.service.listAgentConversations(subjectNoteId: subject.noteId).isEmpty)
+  }
+
   func testAttachmentInputRejectsBeforeConversationCreation() async throws {
     let service = try makeService()
     let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")

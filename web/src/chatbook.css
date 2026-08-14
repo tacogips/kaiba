@@ -188,6 +188,15 @@
   display: flex; flex-direction: column;
   overflow: hidden;
 }
+.center-tabs-head {
+  flex: none;
+  display: flex; align-items: center;
+  padding: 8px clamp(14px, 3vw, 40px) 0;
+  border-bottom: 1px solid var(--chatbook-border);
+  background: rgba(10, 17, 25, .5);
+}
+.reader > .pane-panel { min-height: 0; flex: 1; display: flex; flex-direction: column; }
+.reader > .pane-panel[hidden] { display: none; }
 .reader-head {
   display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px;
   padding: 16px clamp(14px, 3vw, 40px) 12px;
@@ -204,6 +213,47 @@
   scroll-behavior: smooth;
 }
 .reader-body .markdown-body { max-width: 74ch; margin: 0 auto; font-size: calc(15px * var(--fs, 1)); }
+
+/* Chronological notebook list ------------------------------------------- */
+.notebook-list-view {
+  min-height: 0; flex: 1; overflow: auto;
+  padding: 22px clamp(14px, 3vw, 40px) 80px;
+}
+.notebook-list-head {
+  max-width: 82ch; margin: 0 auto 18px;
+  display: flex; align-items: end; justify-content: space-between; gap: 18px;
+}
+.notebook-list-head h1 {
+  margin: 3px 0 6px; color: #f0f7fb;
+  font-family: Georgia, serif; font-size: clamp(24px, 3vw, 34px); font-weight: 400;
+}
+.notebook-list-head p { max-width: 62ch; margin: 0; color: #7f93a6; font-size: calc(12px * var(--fs, 1)); line-height: 1.55; }
+.notebook-list-count { flex: none; color: #63788b; font-size: calc(10px * var(--fs, 1)); }
+.notebook-list-filters {
+  max-width: 82ch; margin: 0 auto 14px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.category-filter {
+  padding: 4px 9px !important; border-color: #253645 !important; border-radius: 999px !important;
+  color: #7f93a6 !important; background: #0c151e !important;
+  font-size: calc(9px * var(--fs, 1));
+}
+.category-filter.active { border-color: #438993 !important; color: #dffbfb !important; background: #142832 !important; }
+.notebook-card-list { max-width: 82ch; margin: 0 auto; display: grid; gap: 10px; }
+.notebook-card {
+  width: 100%; display: grid; gap: 9px;
+  padding: 15px 17px !important; border: 1px solid #24374a !important; border-radius: 11px !important;
+  color: inherit !important; background: rgba(11, 19, 27, .6) !important;
+  text-align: left;
+}
+.notebook-card:hover, .notebook-card:focus-visible { border-color: #438993 !important; background: rgba(16, 33, 41, .76) !important; }
+.notebook-card-main { display: grid; gap: 5px; }
+.notebook-card-main strong { color: #dce8f1; font-family: Georgia, serif; font-size: calc(17px * var(--fs, 1)); font-weight: 500; }
+.notebook-card-preview { color: #9aabba; font-size: calc(12px * var(--fs, 1)); line-height: 1.55; }
+.notebook-card-meta { display: flex; flex-wrap: wrap; gap: 7px 12px; color: #63788b; font-size: calc(9px * var(--fs, 1)); }
+.notebook-card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.notebook-card-tags .folder-chip { display: inline-flex; align-items: center; gap: 5px; }
+.notebook-list-empty { min-height: 220px; }
 
 /* Continuous scroll: each note is a selectable section. The border is always
    visible so page boundaries read at a glance; selection turns it accent. */

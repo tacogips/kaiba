@@ -4,6 +4,7 @@ import {
   buildAgentChatComposerRequest,
   composerAttachmentMediaType,
   canEnableMemoOnly,
+  canEnableNoteEdit,
   composerKeyDownAction,
   composerSubmitKind,
   composerShouldSubmit,
@@ -11,6 +12,8 @@ import {
   memoOnlyToggleResult,
   handleComposerKeyDown,
   normalizeSelectedAgentModel,
+  noteEditControlAttributes,
+  noteEditToggleResult,
   removeComposerAttachment,
   resetComposerForNewChat,
   validateComposerFiles,
@@ -119,6 +122,60 @@ describe('memo composer state', () => {
       error: 'Remove attached files before enabling memo-only mode.',
     })
     expect(memoOnlyToggleResult(false, 0)).toEqual({ selected: true, error: '' })
+  })
+
+  test('note edit mode requires a writable note subject matching the loaded note', () => {
+    const subject = { kind: 'note' as const, id: 'note-1' }
+    const note = { noteId: 'note-1', readOnly: false }
+    const notebook = { readOnly: false }
+    expect(canEnableNoteEdit(subject, note, notebook)).toBe(true)
+    expect(canEnableNoteEdit(undefined, note, notebook)).toBe(false)
+    expect(canEnableNoteEdit({ kind: 'notebook', id: 'notebook-1' }, note, notebook)).toBe(false)
+    expect(canEnableNoteEdit(subject, { noteId: 'other', readOnly: false }, notebook)).toBe(false)
+    expect(canEnableNoteEdit(subject, undefined, notebook)).toBe(false)
+    expect(canEnableNoteEdit(subject, { noteId: 'note-1', readOnly: true }, notebook)).toBe(false)
+    // Imported documents lock the notebook, not each page.
+    expect(canEnableNoteEdit(subject, note, { readOnly: true })).toBe(false)
+    expect(canEnableNoteEdit(subject, note, undefined)).toBe(false)
+  })
+
+  test('note edit toggle blocks unwritable subjects and memo-only conflicts symmetrically', () => {
+    expect(noteEditToggleResult(false, { canEdit: true, memoOnly: false })).toEqual({ selected: true, error: '' })
+    expect(noteEditToggleResult(true, { canEdit: true, memoOnly: false })).toEqual({ selected: false, error: '' })
+    expect(noteEditToggleResult(false, { canEdit: false, memoOnly: false })).toEqual({
+      selected: false,
+      error: 'Note edit mode requires a writable note.',
+    })
+    expect(noteEditToggleResult(false, { canEdit: true, memoOnly: true })).toEqual({
+      selected: false,
+      error: 'Disable memo-only mode before enabling note edit mode.',
+    })
+    expect(memoOnlyToggleResult(false, 0, true)).toEqual({
+      selected: false,
+      error: 'Disable note edit mode before enabling memo-only mode.',
+    })
+    expect(noteEditControlAttributes(true)).toEqual({
+      ariaPressed: true, ariaLabel: 'Edit note mode', title: 'Edit note mode',
+    })
+  })
+
+  test('note edit sends mode "edit" only on servers with composer extensions', () => {
+    const options = {
+      subject: { kind: 'note' as const, id: 'note-1' },
+      conversations: [],
+      newConversation: false,
+      userMarkdown: 'Reword the intro',
+      idempotencyKey: 'turn-3',
+      attachments: [],
+    }
+    expect(buildAgentChatComposerRequest({ ...options, extensionsAvailable: true, noteEdit: true }).mode)
+      .toBe('edit')
+    expect(buildAgentChatComposerRequest({ ...options, extensionsAvailable: true, noteEdit: false }).mode)
+      .toBeUndefined()
+    // An old server would silently ignore the field and answer as a memo,
+    // which must never masquerade as an applied edit.
+    expect(buildAgentChatComposerRequest({ ...options, extensionsAvailable: false, noteEdit: true }).mode)
+      .toBeUndefined()
   })
 
   test('normalizes persisted model selection against the current catalog fallback', () => {

@@ -15,6 +15,8 @@ export interface ChatTurn {
   assistantMarkdown?: string
   error?: string
   createdAt: string
+  /** "edit" marks a turn whose reply rewrote the subject note. */
+  mode?: 'memo' | 'edit'
 }
 
 /** Reply status reported by `sendAgentChatMessage`. `error` is the transport's
@@ -54,6 +56,7 @@ export function parseChatTurn(note: Note): ChatTurn {
     ...(reply === undefined ? {} : { assistantMarkdown: reply }),
     ...(chat?.error ? { error: chat.error } : {}),
     createdAt: note.createdAt,
+    ...(chat?.mode ? { mode: chat.mode } : {}),
   }
 }
 
@@ -111,6 +114,7 @@ interface ChatMeta {
   status?: string
   userMarkdown?: string
   error?: string
+  mode?: 'memo' | 'edit'
 }
 
 function chatMeta(metaJSON: string | null | undefined): ChatMeta | undefined {
@@ -129,6 +133,7 @@ function chatMeta(metaJSON: string | null | undefined): ChatMeta | undefined {
     ...(typeof record.status === 'string' ? { status: record.status } : {}),
     ...(typeof record.userMarkdown === 'string' ? { userMarkdown: record.userMarkdown } : {}),
     ...(typeof record.error === 'string' && record.error.length > 0 ? { error: record.error } : {}),
+    ...(record.mode === 'memo' || record.mode === 'edit' ? { mode: record.mode } : {}),
   }
 }
 

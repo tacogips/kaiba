@@ -114,13 +114,6 @@ swift_triple_for_target() {
   esac
 }
 
-rust_triple_for_target() {
-  case "$1" in
-    darwin-arm64) printf '%s\n' "aarch64-apple-darwin" ;;
-    darwin-x64) printf '%s\n' "x86_64-apple-darwin" ;;
-  esac
-}
-
 write_sha256() {
   local file dir base
   file="$1"
@@ -162,20 +155,20 @@ swift_bin() {
 }
 
 swift_release_bin_path() {
-  local target swift_exe developer_dir sdkroot triple rust_triple pkg_config_path
+  local target swift_exe developer_dir sdkroot triple
   target="$1"
   swift_exe="$(swift_bin)"
   developer_dir="${SWIFT_DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
   sdkroot="${SWIFT_SDKROOT:-/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk}"
   triple="$(swift_triple_for_target "$target")"
-  rust_triple="$(rust_triple_for_target "$target")"
-  pkg_config_path="$("$repo_root/scripts/build-anydoc-native.sh" "$rust_triple" | tail -n 1)"
 
   (
     cd "$repo_root"
-    DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" PKG_CONFIG_PATH="$pkg_config_path" \
+    env -u PKG_CONFIG_PATH \
+      DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" ANYDOC_FORCE_SYSTEM_FFI=0 \
       "$swift_exe" build -c release --product "$product" --triple "$triple" >/dev/null
-    DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" PKG_CONFIG_PATH="$pkg_config_path" \
+    env -u PKG_CONFIG_PATH \
+      DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" ANYDOC_FORCE_SYSTEM_FFI=0 \
       "$swift_exe" build -c release --product "$product" --triple "$triple" --show-bin-path
   )
 }

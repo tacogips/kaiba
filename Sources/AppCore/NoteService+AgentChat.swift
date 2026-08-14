@@ -17,23 +17,36 @@ public enum AgentChatTurnStatus: String, Codable, Equatable, Sendable {
   case unavailable
 }
 
+/// How the agent acts on a turn. `memo` answers in the conversation without
+/// touching the subject; `edit` applies the requested change to the subject
+/// note through `updateNoteBody`. Snapshotted per turn like `model`, so a
+/// conversation can switch modes mid-thread.
+public enum AgentChatTurnMode: String, Codable, Equatable, Sendable {
+  case memo
+  case edit
+}
+
 public struct AgentChatTurnState: Equatable, Sendable {
   public var status: AgentChatTurnStatus
   public var userMarkdown: String
   public var errorMessage: String?
   /// Immutable model snapshot selected when the turn was created.
   public var model: String?
+  /// Immutable mode snapshot; nil means `memo`.
+  public var mode: AgentChatTurnMode?
 
   public init(
     status: AgentChatTurnStatus,
     userMarkdown: String,
     errorMessage: String? = nil,
-    model: String? = nil
+    model: String? = nil,
+    mode: AgentChatTurnMode? = nil
   ) {
     self.status = status
     self.userMarkdown = userMarkdown
     self.errorMessage = errorMessage
     self.model = model
+    self.mode = mode
   }
 }
 
@@ -176,6 +189,7 @@ public extension NoteService {
     agentAvailable: Bool,
     idempotencyKey: String? = nil,
     model: String? = nil,
+    mode: AgentChatTurnMode? = nil,
     attachments: [AgentChatAttachment] = []
   ) throws -> Note {
     let trimmed = userMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -237,6 +251,18 @@ public extension NoteService {
             "notebook is not an agent chat conversation: \(conversationNotebookId)"
           )
         }
+        // The client toggle is advisory; the mode a turn persists must pass
+        // the same writability gate `updateNoteBody` enforces at apply time.
+        if mode == .edit {
+          guard case let .note(subjectNoteId) = subject else {
+            throw NoteServiceError.invalidInput("note edit mode requires a note subject")
+          }
+          let subjectNote = try requireNote(subjectNoteId, in: db)
+          let subjectNotebook = try requireNotebook(subjectNote.notebookId, in: db)
+          guard !subjectNote.readOnly, !subjectNotebook.readOnly else {
+            throw NoteServiceError.readOnly(subjectNoteId)
+          }
+        }
         if let idempotencyKey,
           let existing = try chatTurn(
             notebookId: conversationNotebookId,
@@ -254,7 +280,7 @@ public extension NoteService {
           assistantMarkdown: nil
         )
         let metaJSON = try Self.chatTurnMetaJSON(
-          state: AgentChatTurnState(status: status, userMarkdown: trimmed, model: model),
+          state: AgentChatTurnState(status: status, userMarkdown: trimmed, model: model, mode: mode),
           idempotencyKey: idempotencyKey
         )
         try db.execute(
@@ -343,7 +369,8 @@ public extension NoteService {
       AgentChatTurnState(
         status: .answered,
         userMarkdown: state.userMarkdown,
-        model: state.model
+        model: state.model,
+        mode: state.mode
       )
     } assistantMarkdown: { _ in
       assistantMarkdown
@@ -362,7 +389,8 @@ public extension NoteService {
         status: .failed,
         userMarkdown: state.userMarkdown,
         errorMessage: message,
-        model: state.model
+        model: state.model,
+        mode: state.mode
       )
     } assistantMarkdown: { _ in
       nil
@@ -453,7 +481,8 @@ public extension NoteService {
       status: status,
       userMarkdown: userMarkdown,
       errorMessage: chat["error"] as? String,
-      model: chat["model"] as? String
+      model: chat["model"] as? String,
+      mode: (chat["mode"] as? String).flatMap(AgentChatTurnMode.init(rawValue:))
     )
   }
 
@@ -531,9 +560,15 @@ public extension NoteService {
         subjectMarkdown = try? notebookContextMarkdown(notebookId: subjectNotebookId)
       }
     }
+    // Edit mode only ever targets a note subject (enforced at append time);
+    // a stale or hand-written mode on another subject degrades to memo chat.
+    var editSubjectNoteId: String?
+    if state.mode == .edit, case let .note(subjectNoteId) = subject {
+      editSubjectNoteId = subjectNoteId
+    }
     let request = AgentInvocationRequest(
       purpose: .chat,
-      systemPrompt: Self.chatSystemPrompt,
+      systemPrompt: editSubjectNoteId == nil ? Self.chatSystemPrompt : Self.noteEditSystemPrompt,
       turns: turns,
       contextMarkdown: subjectMarkdown.map { String($0.prefix(200 * 1024)) },
       provider: provider,
@@ -541,16 +576,28 @@ public extension NoteService {
     )
     do {
       let reply: AgentInvocationResult
-      if let streamPublisher, let streaming = invoker as? AgentStreamingInvoking {
+      // An edit-mode reply is mostly the raw replacement body; streaming it
+      // into the memo timeline would show markup, so it completes in one shot.
+      if editSubjectNoteId == nil, let streamPublisher, let streaming = invoker as? AgentStreamingInvoking {
         reply = try await streaming.invoke(request) { chunk in
           streamPublisher.publishAgentReplyChunk(turnNoteId: turnNoteId, text: chunk)
         }
       } else {
         reply = try await invoker.invoke(request)
       }
+      let assistantMarkdown: String
+      if let editSubjectNoteId {
+        assistantMarkdown = try applyNoteEditReply(
+          reply.markdown,
+          subjectNoteId: editSubjectNoteId,
+          originatingActionId: originatingActionId
+        )
+      } else {
+        assistantMarkdown = reply.markdown
+      }
       _ = try completeAgentChatTurn(
         turnNoteId: turnNoteId,
-        assistantMarkdown: reply.markdown,
+        assistantMarkdown: assistantMarkdown,
         originatingActionId: originatingActionId
       )
       streamPublisher?.finishAgentReplyStream(
@@ -843,6 +890,7 @@ public extension NoteService {
     chat["idempotencyKey"] = idempotencyKey
     chat["error"] = state.errorMessage
     chat["model"] = state.model
+    chat["mode"] = state.mode?.rawValue
     let data = try JSONSerialization.data(
       withJSONObject: ["kaibaChat": chat],
       options: [.sortedKeys]

@@ -17,12 +17,15 @@ import type { AgentChatAttachmentInput, AgentConversation, AgentModel, NoteComme
 import {
   agentComposerExtensionsEnabled,
   buildAgentChatComposerRequest,
+  canEnableNoteEdit,
   composerAttachmentMediaType,
   composerSubmitKind,
   memoOnlyControlAttributes,
   memoOnlyToggleResult,
   handleComposerKeyDown,
   normalizeSelectedAgentModel,
+  noteEditControlAttributes,
+  noteEditToggleResult,
   removeComposerAttachment,
   resetComposerForNewChat,
   validateComposerFiles,
@@ -67,6 +70,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const [busy, setBusy] = createSignal(false)
   const [draft, setDraft] = createSignal('')
   const [memoOnly, setMemoOnly] = createSignal(false)
+  const [noteEdit, setNoteEdit] = createSignal(false)
   const [attachments, setAttachments] = createSignal<File[]>([])
   const [models, setModels] = createSignal<AgentModel[]>([])
   const [agentExtensionsAvailable, setAgentExtensionsAvailable] = createSignal(false)
@@ -110,6 +114,16 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     conversations().map((conversation) => conversation.notebookId).join('\n'))
   const extensionControlsEnabled = createMemo(() =>
     agentComposerExtensionsEnabled(agentExtensionsAvailable(), memoOnly(), busy()))
+  // Mirrors the server's updateNoteBody gate: the note's own flag and its
+  // notebook's flag must both be clear (imported documents lock the notebook).
+  const noteEditAvailable = createMemo(() =>
+    agentExtensionsAvailable() && canEnableNoteEdit(subject(), app.state.note, app.notebook()))
+
+  // A note that stops being editable (navigation, locking) drops the toggle
+  // rather than letting the next submit fail server-side.
+  createEffect(() => {
+    if (noteEdit() && !noteEditAvailable()) setNoteEdit(false)
+  })
 
   createEffect(() => {
     void app.client.agentModels().then((catalog) => {
@@ -147,6 +161,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     setActiveConversationId(undefined)
     setNewConversation(false)
     setNewConversationBoundary(false)
+    setNoteEdit(false)
   })
 
   createEffect(() => {
@@ -275,6 +290,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         idempotencyKey: newIdempotencyKey(),
         extensionsAvailable: agentExtensionsAvailable(),
         selectedModel: app.state.settings.agentModel,
+        noteEdit: noteEdit(),
         attachments: attachmentInputs,
       }))
       setDraft('')
@@ -384,6 +400,9 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         <div class="chat-message chat-agent">
           <span class="chat-role">
             Agent
+            <Show when={turn.mode === 'edit'}>
+              <em class="chat-badge mode-edit">Note edit</em>
+            </Show>
             <Show when={turn.status !== 'answered'}>
               <em class={`chat-badge status-${turn.status}`}>
                 {streamingHere() ? 'Streaming' : turnStatusLabel(turn.status)}
@@ -458,6 +477,8 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
         <MemoComposerControls
           memoOnly={memoOnly()}
+          noteEdit={noteEdit()}
+          canNoteEdit={noteEditAvailable()}
           busy={busy()}
           placeholder={props.composerPlaceholder}
           draft={draft()}
@@ -468,8 +489,16 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           catalogAvailable={agentExtensionsAvailable()}
           onStageFiles={stageFiles}
           onToggleMemoOnly={() => {
-            const outcome = memoOnlyToggleResult(memoOnly(), attachments().length)
+            const outcome = memoOnlyToggleResult(memoOnly(), attachments().length, noteEdit())
             setMemoOnly(outcome.selected)
+            if (outcome.error) setError(outcome.error)
+          }}
+          onToggleNoteEdit={() => {
+            const outcome = noteEditToggleResult(noteEdit(), {
+              canEdit: noteEditAvailable(),
+              memoOnly: memoOnly(),
+            })
+            setNoteEdit(outcome.selected)
             if (outcome.error) setError(outcome.error)
           }}
           onDraftChange={setDraft}
@@ -484,6 +513,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
 export interface MemoComposerControlsProps {
   memoOnly: boolean
+  noteEdit: boolean
+  /** Whether the current subject is a writable note (both read-only flags
+   * clear); the toggle renders disabled otherwise. */
+  canNoteEdit: boolean
   busy: boolean
   /** Agent-mode placeholder override (memo-only keeps its own wording). */
   placeholder?: string
@@ -495,6 +528,7 @@ export interface MemoComposerControlsProps {
   catalogAvailable: boolean
   onStageFiles(files: FileList | null): void | Promise<void>
   onToggleMemoOnly(): void
+  onToggleNoteEdit(): void
   onDraftChange(value: string): void
   onRemoveAttachment(index: number): void
   onModelChange(model: string): void
@@ -505,6 +539,7 @@ export interface MemoComposerControlsProps {
  * and event decisions are covered independently of async timeline loading. */
 export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Element {
   const memoOnlyAttributes = () => memoOnlyControlAttributes(props.memoOnly)
+  const noteEditAttributes = () => noteEditControlAttributes(props.noteEdit)
   let attachmentPicker: HTMLInputElement | undefined
   return (
     <div class="memo-composer">
@@ -526,11 +561,25 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         onClick={() => attachmentPicker?.click()}
       >＋</button>
       <button type="button" class={`composer-icon ${props.memoOnly ? 'selected' : ''}`} aria-pressed={memoOnlyAttributes().ariaPressed} aria-label={memoOnlyAttributes().ariaLabel} title={memoOnlyAttributes().title} disabled={props.busy} onClick={props.onToggleMemoOnly}>▣</button>
+      <button
+        type="button"
+        class={`composer-icon ${props.noteEdit ? 'selected' : ''}`}
+        aria-pressed={noteEditAttributes().ariaPressed}
+        aria-label={noteEditAttributes().ariaLabel}
+        title={props.canNoteEdit || props.noteEdit ? noteEditAttributes().title : 'Note edit mode requires a writable note'}
+        aria-disabled={!props.canNoteEdit && !props.noteEdit}
+        disabled={props.busy || (!props.canNoteEdit && !props.noteEdit)}
+        onClick={props.onToggleNoteEdit}
+      >✎</button>
       <div class="composer-main">
         <textarea
           aria-label="New memo or agent message"
           rows={2}
-          placeholder={props.memoOnly ? 'Write a memo' : props.placeholder ?? 'Ask about this document'}
+          placeholder={props.memoOnly
+            ? 'Write a memo'
+            : props.noteEdit
+              ? 'Describe the change to make to this note'
+              : props.placeholder ?? 'Ask about this document'}
           value={props.draft}
           disabled={props.busy}
           onInput={(event) => props.onDraftChange(event.currentTarget.value)}

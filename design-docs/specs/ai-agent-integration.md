@@ -341,7 +341,25 @@ the same change).
   first message, validates and persists optional `model` and bounded textual
   `attachments`, appends a pending turn, returns
   `{conversationNotebookId, turnNoteId, agentStatus}` where
-  `agentStatus` is `pending` or `agent-unavailable`.
+  `agentStatus` is `pending` or `agent-unavailable`. Optional `mode` is
+  `memo` (default; answer in the conversation only) or `edit` (the reply
+  rewrites the subject note). `edit` is validated before any conversation is
+  created: it requires a note subject whose own read-only flag and whose
+  notebook's flag are both clear, mirroring the `updateNoteBody` gate;
+  `appendPendingAgentChatTurn` re-enforces the same rule inside its
+  transaction. The mode is snapshotted immutably on the turn meta JSON
+  (`kaibaChat.mode`, absent for memo) exactly like `model`, so a
+  conversation can switch modes per turn and retries replay the original
+  mode.
+- Edit-mode replies carry no tool channel: the agent returns the complete
+  replacement body between `<kaiba-note-body>` sentinel lines plus optional
+  commentary, and the server applies it through `updateNoteBody` (the same
+  guarded write path as `kaiba edit`), which keeps the feature portable
+  across provider adapters and re-checks read-only state at apply time. A
+  reply without usable sentinels (clarifying question, refusal, blank body)
+  is persisted as a plain answer and the note is untouched. Edit turns skip
+  chunk streaming — the raw body would render as markup mid-flight — and
+  publish only the stream finish event.
 - Mutation `requestTagExtraction(input)` — manual tag extraction for a
   note or notebook; returns `queued` or `agent-unavailable`.
 - Mutation `requestNotebookTranslation(input)` — creates the pending

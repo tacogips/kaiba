@@ -1,14 +1,16 @@
-// Fold and tab state for the two side panes. Persisted so a reload keeps the
+// Fold and tab state for all three panes. Persisted so a reload keeps the
 // reader arranged the way it was left; every read is defensive because the
 // stored value is user-editable and may predate a tab rename.
 
 export type LeftTab = 'files' | 'contents'
+export type CenterTab = 'list' | 'notebook'
 export type RightTab = 'memo' | 'info' | 'links'
 
 export interface PaneState {
   leftOpen: boolean
   rightOpen: boolean
   leftTab: LeftTab
+  centerTab: CenterTab
   rightTab: RightTab
   /** Drag-resized pane widths in px; undefined keeps the stylesheet default. */
   leftWidth?: number
@@ -27,12 +29,14 @@ export function clampPaneWidth(side: 'left' | 'right', width: number): number {
 
 export const paneStateStorageKey = 'kaiba-chatbook-panes'
 export const leftTabs: readonly LeftTab[] = ['files', 'contents']
+export const centerTabs: readonly CenterTab[] = ['list', 'notebook']
 export const rightTabs: readonly RightTab[] = ['memo', 'info', 'links']
 
 export const defaultPaneState: PaneState = {
   leftOpen: true,
   rightOpen: true,
   leftTab: 'files',
+  centerTab: 'list',
   rightTab: 'memo',
 }
 
@@ -57,6 +61,9 @@ export function parsePaneState(raw: string | null): PaneState {
     leftTab: leftTabs.includes(record.leftTab as LeftTab)
       ? record.leftTab as LeftTab
       : defaultPaneState.leftTab,
+    centerTab: centerTabs.includes(record.centerTab as CenterTab)
+      ? record.centerTab as CenterTab
+      : defaultPaneState.centerTab,
     rightTab: normalizeRightTab(record.rightTab),
     ...(typeof record.leftWidth === 'number' && Number.isFinite(record.leftWidth)
       ? { leftWidth: clampPaneWidth('left', record.leftWidth) }
@@ -106,6 +113,10 @@ export function browserPaneStorage(): PaneStateStorage | undefined {
  * click on a collapsed pane's rail button lands on a visible tab. */
 export function withLeftTab(state: PaneState, tab: LeftTab): PaneState {
   return { ...state, leftTab: tab, leftOpen: true }
+}
+
+export function withCenterTab(state: PaneState, tab: CenterTab): PaneState {
+  return { ...state, centerTab: tab }
 }
 
 export function withRightTab(state: PaneState, tab: RightTab): PaneState {

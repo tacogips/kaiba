@@ -43,15 +43,15 @@ public extension NoteService {
       throw NoteServiceError.invalidInput("import source not found: \(expandedPath)")
     }
     let conversion = try converter.convert(inputPath: expandedPath)
-    let pages = MarkdownHeadingSplitter.split(markdown: conversion.markdown)
-    guard !pages.isEmpty else {
+    let importedPages = MarkdownHeadingSplitter.split(markdown: conversion.markdown)
+    guard !importedPages.isEmpty else {
       throw NoteServiceError.invalidInput(
         "conversion produced no markdown content: \(expandedPath)"
       )
     }
     let originalFilename = (expandedPath as NSString).lastPathComponent
     let notebookTitle = title
-      ?? pages.first.flatMap { NoteTitleDerivation.title(from: $0.bodyMarkdown) }
+      ?? importedPages.first.flatMap { NoteTitleDerivation.title(from: $0.bodyMarkdown) }
       ?? (originalFilename as NSString).deletingPathExtension
     let metaJSON = try Self.importMetaJSON(
       originalFilename: originalFilename,
@@ -59,18 +59,32 @@ public extension NoteService {
       toolName: conversion.toolName,
       toolVersion: conversion.toolVersion
     )
+    // The notebook owns the imported material's access mode. Its notes stay
+    // independently writable so changing the notebook to writable actually
+    // restores edits without erasing deliberate per-note locks.
+    let pages = importedPages.map {
+      NotePageDraft(
+        bodyMarkdown: $0.bodyMarkdown,
+        readOnly: false,
+        tags: $0.tags,
+        metaJSON: $0.metaJSON,
+        noteNumber: $0.noteNumber
+      )
+    }
     let ingest = try createNotebookWithNotes(
       title: notebookTitle,
       kindTagName: kindTagName,
       metaJSON: metaJSON,
-      pages: pages
+      pages: pages,
+      notebookReadOnly: true
     )
-    let attachment = try attachNotebookFile(
+    let attachment = try storeNotebookFileAttachment(
       notebookId: ingest.notebook.notebookId,
       fileURL: URL(fileURLWithPath: expandedPath),
       role: .sourceDocument,
       mediaType: Self.mediaType(forSourceFormat: conversion.sourceFormat),
-      originalFilename: originalFilename
+      originalFilename: originalFilename,
+      requiresWritableNotebook: false
     )
     // Images are additive: a document whose rasters cannot be read still
     // imports as markdown, with the reason reported back to the caller.
@@ -130,8 +144,8 @@ public extension NoteService {
         position = embeddedPositionByNote[noteIndex, default: 0]
         embeddedPositionByNote[noteIndex] = position + 1
       }
-      // Imported notes are created read-only; their own source images are part
-      // of the import rather than an edit to it.
+      // Import setup finishes before the notebook receives its default
+      // read-only mode, so extracted source images remain part of the import.
       attachments.append(try storeNoteFileAttachment(
         noteId: noteId,
         data: image.data,
