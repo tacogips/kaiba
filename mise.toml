@@ -71,9 +71,9 @@ PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
 PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
 
 [tasks."test:s3-gateway"]
-description = "Run Kaiba file round trips through swift-s3-gateway POSIX and MinIO backends"
+description = "Run Kaiba file round trips through s3-gateway POSIX and MinIO backends"
 run = '''
-scripts/test-swift-s3-gateway-integration.sh
+scripts/test-s3-gateway-integration.sh
 '''
 
 [tasks."test:turso"]

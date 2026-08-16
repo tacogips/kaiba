@@ -70,7 +70,7 @@ same external file storage. Credentials remain in environment variables:
 }
 ```
 
-`swift-s3-gateway` can expose either a local filesystem or an upstream S3
+`s3-gateway` can expose either a local filesystem or an upstream S3
 service through that profile. The integration gates exercise Kaiba upload and
 download through its POSIX backend and through its MinIO-backed S3 backend:
 
@@ -79,9 +79,9 @@ mise run test:turso
 mise run test:s3-gateway
 ```
 
-The S3 gateway test expects a sibling checkout at `../swift-s3-gateway` by
+The S3 gateway test expects a sibling checkout at `../s3-gateway` by
 default and uses Docker (Colima is supported) for MinIO. Override the checkout
-with `SWIFT_S3_GATEWAY_REPOSITORY`.
+with `S3_GATEWAY_REPOSITORY`.
 
 ## Web Viewer
 

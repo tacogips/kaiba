@@ -9,9 +9,9 @@ command -v jq >/dev/null
 command -v openssl >/dev/null
 
 repository=$(cd "$(dirname "$0")/.." && pwd)
-gateway_repository=${SWIFT_S3_GATEWAY_REPOSITORY:-"$repository/../swift-s3-gateway"}
+gateway_repository=${S3_GATEWAY_REPOSITORY:-"$repository/../s3-gateway"}
 kaiba_binary=${KAIBA_BINARY:-"$repository/.build/debug/kaiba"}
-gateway_binary=${GATEWAY_BINARY:-"$gateway_repository/.build/debug/swift-s3-gateway"}
+gateway_binary=${GATEWAY_BINARY:-"$gateway_repository/.build/debug/s3-gateway"}
 minio_image=${MINIO_IMAGE:-"quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"}
 
 [[ -x "$kaiba_binary" ]]
@@ -67,7 +67,7 @@ chmod 600 "$inbound_file" "$upstream_file" "$pagination_file"
 
 start_gateway() {
   local configuration=$1
-  local ready_url="http://127.0.0.1:$gateway_port/.well-known/swift-s3-gateway/ready"
+  local ready_url="http://127.0.0.1:$gateway_port/.well-known/s3-gateway/ready"
   "$gateway_binary" serve --config "$configuration" \
     >"$work_directory/gateway.stdout" \
     2>"$work_directory/gateway.stderr" &
@@ -97,7 +97,7 @@ run_kaiba_round_trip() {
   local note_root="$work_directory/notes-$label"
   local input_file="$work_directory/input-$label.txt"
   local output_file="$work_directory/output-$label.txt"
-  printf 'Kaiba via swift-s3-gateway: %s\n' "$label" >"$input_file"
+  printf 'Kaiba via s3-gateway: %s\n' "$label" >"$input_file"
 
   local created note_id attached file_id migrated
   created=$(KAIBA_S3_ACCESS_KEY="$inbound_access_key" \
@@ -152,8 +152,8 @@ jq -n \
       maximumInFlightBytes: 8388608, maximumConcurrentRequests: 16,
       requestTimeoutSeconds: 30},
     addressingStyles: ["path"], virtualHostSuffixes: [], acceptedSigV4Regions: ["us-east-1"],
-    health: {livenessPath: "/.well-known/swift-s3-gateway/live",
-      readinessPath: "/.well-known/swift-s3-gateway/ready"},
+    health: {livenessPath: "/.well-known/s3-gateway/live",
+      readinessPath: "/.well-known/s3-gateway/ready"},
     telemetry: {enabled: false},
     credentials: {inboundPath: $inbound, upstreamPath: $upstream, paginationPath: $pagination},
     authorization: [{principalID: "kaiba-client", grants: [{
@@ -167,7 +167,7 @@ write_kaiba_config "$posix_kaiba_configuration"
 start_gateway "$posix_configuration"
 run_kaiba_round_trip posix "$posix_kaiba_configuration"
 stop_gateway
-echo "Kaiba + swift-s3-gateway POSIX round trip passed"
+echo "Kaiba + s3-gateway POSIX round trip passed"
 
 certificate_directory="$work_directory/minio-certs"
 mkdir -p "$certificate_directory"
@@ -215,8 +215,8 @@ jq -n \
       maximumInFlightBytes: 8388608, maximumConcurrentRequests: 16,
       requestTimeoutSeconds: 30},
     addressingStyles: ["path"], virtualHostSuffixes: [], acceptedSigV4Regions: ["us-east-1"],
-    health: {livenessPath: "/.well-known/swift-s3-gateway/live",
-      readinessPath: "/.well-known/swift-s3-gateway/ready"},
+    health: {livenessPath: "/.well-known/s3-gateway/live",
+      readinessPath: "/.well-known/s3-gateway/ready"},
     telemetry: {enabled: false},
     credentials: {inboundPath: $inbound, upstreamPath: $upstream, paginationPath: $pagination},
     authorization: [{principalID: "kaiba-client", grants: [{
@@ -230,4 +230,4 @@ write_kaiba_config "$s3_kaiba_configuration"
 start_gateway "$s3_configuration"
 run_kaiba_round_trip minio "$s3_kaiba_configuration"
 stop_gateway
-echo "Kaiba + swift-s3-gateway + MinIO round trip passed"
+echo "Kaiba + s3-gateway + MinIO round trip passed"

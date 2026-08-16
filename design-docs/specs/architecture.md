@@ -47,7 +47,7 @@ Homebrew. See `kaiba-note.md` for the note domain design.
 - Database backends: local SQLite by default, or Turso/libSQL through the
   SQL-over-HTTP v2 pipeline with connection batons preserving transactions.
 - File backends: local files by default, or named S3-compatible profiles.
-  `swift-s3-gateway` is the verified interface for exposing local POSIX storage
+  `s3-gateway` is the verified interface for exposing local POSIX storage
   or forwarding to MinIO/S3.
 
 ## Release Surfaces
