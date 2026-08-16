@@ -257,11 +257,7 @@ public extension NoteService {
           guard case let .note(subjectNoteId) = subject else {
             throw NoteServiceError.invalidInput("note edit mode requires a note subject")
           }
-          let subjectNote = try requireNote(subjectNoteId, in: db)
-          let subjectNotebook = try requireNotebook(subjectNote.notebookId, in: db)
-          guard !subjectNote.readOnly, !subjectNotebook.readOnly else {
-            throw NoteServiceError.readOnly(subjectNoteId)
-          }
+          try requireWritableNote(subjectNoteId, in: db)
         }
         if let idempotencyKey,
           let existing = try chatTurn(
@@ -547,34 +543,49 @@ public extension NoteService {
       role: .user,
       markdown: state.userMarkdown + attachmentContext
     ))
-    let subjectMarkdown: String?
-    switch subject {
-    case let .note(subjectNoteId):
-      subjectMarkdown = (try? getNote(subjectNoteId))?.bodyMarkdown
-    case let .notebook(subjectNotebookId):
-      // A tag-memo subject notebook holds only chat/memo state; ground the
-      // agent on the tag's occurrences across notebooks instead (T4).
-      if let subjectTagId = (try? tagMemoSubjectTagId(notebookId: subjectNotebookId)) ?? nil {
-        subjectMarkdown = try? tagContextMarkdown(tagId: subjectTagId)
-      } else {
-        subjectMarkdown = try? notebookContextMarkdown(notebookId: subjectNotebookId)
-      }
-    }
     // Edit mode only ever targets a note subject (enforced at append time);
     // a stale or hand-written mode on another subject degrades to memo chat.
     var editSubjectNoteId: String?
     if state.mode == .edit, case let .note(subjectNoteId) = subject {
       editSubjectNoteId = subjectNoteId
     }
-    let request = AgentInvocationRequest(
-      purpose: .chat,
-      systemPrompt: editSubjectNoteId == nil ? Self.chatSystemPrompt : Self.noteEditSystemPrompt,
-      turns: turns,
-      contextMarkdown: subjectMarkdown.map { String($0.prefix(200 * 1024)) },
-      provider: provider,
-      model: state.model ?? model
-    )
+    var noteEditApplied = false
     do {
+      let subjectMarkdown: String?
+      switch subject {
+      case let .note(subjectNoteId):
+        if editSubjectNoteId != nil {
+          // The reply replaces the whole body, so the agent must see all of
+          // it: a fetch failure or an over-budget body fails the turn instead
+          // of letting the agent rewrite the note from a partial view.
+          let body = try getNote(subjectNoteId).bodyMarkdown
+          guard body.utf8.count <= Self.subjectContextLimitBytes else {
+            throw NoteServiceError.invalidInput(
+              "note \(subjectNoteId) is too large to edit in agent chat"
+            )
+          }
+          subjectMarkdown = body
+        } else {
+          subjectMarkdown = ((try? getNote(subjectNoteId))?.bodyMarkdown)
+            .map { utf8Prefix($0, limit: Self.subjectContextLimitBytes) }
+        }
+      case let .notebook(subjectNotebookId):
+        // A tag-memo subject notebook holds only chat/memo state; ground the
+        // agent on the tag's occurrences across notebooks instead (T4).
+        if let subjectTagId = (try? tagMemoSubjectTagId(notebookId: subjectNotebookId)) ?? nil {
+          subjectMarkdown = try? tagContextMarkdown(tagId: subjectTagId)
+        } else {
+          subjectMarkdown = try? notebookContextMarkdown(notebookId: subjectNotebookId)
+        }
+      }
+      let request = AgentInvocationRequest(
+        purpose: .chat,
+        systemPrompt: editSubjectNoteId == nil ? Self.chatSystemPrompt : Self.noteEditSystemPrompt,
+        turns: turns,
+        contextMarkdown: subjectMarkdown,
+        provider: provider,
+        model: state.model ?? model
+      )
       let reply: AgentInvocationResult
       // An edit-mode reply is mostly the raw replacement body; streaming it
       // into the memo timeline would show markup, so it completes in one shot.
@@ -587,11 +598,13 @@ public extension NoteService {
       }
       let assistantMarkdown: String
       if let editSubjectNoteId {
-        assistantMarkdown = try applyNoteEditReply(
+        let applied = try applyNoteEditReply(
           reply.markdown,
           subjectNoteId: editSubjectNoteId,
           originatingActionId: originatingActionId
         )
+        assistantMarkdown = applied.assistantMarkdown
+        noteEditApplied = applied.updatedNote
       } else {
         assistantMarkdown = reply.markdown
       }
@@ -606,19 +619,27 @@ public extension NoteService {
         message: nil
       )
     } catch {
+      // A committed note edit survives a later turn-persistence failure; the
+      // failure message must not imply the note is untouched.
+      let message = noteEditApplied
+        ? "the note edit was applied, but recording the turn failed: \(error)"
+        : "\(error)"
       _ = try? failAgentChatTurn(
         turnNoteId: turnNoteId,
-        message: "\(error)",
+        message: message,
         originatingActionId: originatingActionId
       )
       streamPublisher?.finishAgentReplyStream(
         turnNoteId: turnNoteId,
         status: "failed",
-        message: "\(error)"
+        message: message
       )
       throw error
     }
   }
+
+  /// Byte budget for the subject document handed to the agent as context.
+  static let subjectContextLimitBytes = 200 * 1024
 
   /// Notebook-subject context: title plus each note's markdown in page order,
   /// capped so a large imported document cannot blow the prompt.
@@ -627,15 +648,11 @@ public extension NoteService {
     limitBytes: Int = 200 * 1024
   ) throws -> String {
     let notebook = try getNotebook(notebookId)
-    var sections = ["# \(notebook.title)"]
-    var budget = limitBytes
-    for note in try listNotes(notebookId: notebookId, limit: 200, offset: 0) {
-      guard budget > 0 else { break }
-      let body = String(note.bodyMarkdown.prefix(budget))
-      budget -= body.utf8.count
-      sections.append(body)
-    }
-    return sections.joined(separator: "\n\n---\n\n")
+    return boundedMarkdownContext(
+      heading: "# \(notebook.title)",
+      sections: try listNotes(notebookId: notebookId, limit: 200, offset: 0).map(\.bodyMarkdown),
+      limitBytes: limitBytes
+    )
   }
 
   static var chatSystemPrompt: String {

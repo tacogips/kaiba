@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
+import { formatTimestamp } from '../notes/format'
 import { MarkdownBody } from './Markdown'
 import { errorMessage, useApp, type AppStore } from '../state/appStore'
 import {
@@ -73,7 +74,6 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const [noteEdit, setNoteEdit] = createSignal(false)
   const [attachments, setAttachments] = createSignal<File[]>([])
   const [models, setModels] = createSignal<AgentModel[]>([])
-  const [agentExtensionsAvailable, setAgentExtensionsAvailable] = createSignal(false)
   const [newConversation, setNewConversation] = createSignal(false)
   const [newConversationBoundary, setNewConversationBoundary] = createSignal(false)
   const [activeConversationId, setActiveConversationId] = createSignal<string>()
@@ -113,11 +113,11 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const conversationIds = createMemo(() =>
     conversations().map((conversation) => conversation.notebookId).join('\n'))
   const extensionControlsEnabled = createMemo(() =>
-    agentComposerExtensionsEnabled(agentExtensionsAvailable(), memoOnly(), busy()))
+    agentComposerExtensionsEnabled(memoOnly(), busy()))
   // Mirrors the server's updateNoteBody gate: the note's own flag and its
   // notebook's flag must both be clear (imported documents lock the notebook).
   const noteEditAvailable = createMemo(() =>
-    agentExtensionsAvailable() && canEnableNoteEdit(subject(), app.state.note, app.notebook()))
+    canEnableNoteEdit(subject(), app.state.note, app.notebook()))
 
   // A note that stops being editable (navigation, locking) drops the toggle
   // rather than letting the next submit fail server-side.
@@ -129,13 +129,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     void app.client.agentModels().then((catalog) => {
       setModels(catalog.models)
       setConfiguredModel(catalog.configuredModel)
-      setAgentExtensionsAvailable(true)
     }).catch(() => {
-      // A server without agentModels also predates model and attachment input
-      // fields. Do not allow the client to send either unknown field.
-      setAgentExtensionsAvailable(false)
+      // Model discovery is best-effort; without a catalog the composer still
+      // sends with the server's configured default model.
       setModels([])
-      setAttachments([])
     })
   })
 
@@ -247,12 +244,24 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     setStreamText('')
     void (async () => {
       let cursor = 0
+      let failures = 0
       while (current === streamGeneration) {
         let poll
         try {
           poll = await app.client.pollAgentReplyStream(turnNoteId, cursor)
-        } catch {
-          await delay(2_000)
+          failures = 0
+        } catch (pollError) {
+          // Backed-off retries, then give up: a turn whose stream endpoint
+          // keeps failing must not poll every two seconds forever.
+          failures += 1
+          if (failures >= 5) {
+            if (current === streamGeneration) {
+              setError(errorMessage(pollError))
+              stopStream()
+            }
+            return
+          }
+          await delay(2_000 * failures)
           continue
         }
         if (current !== streamGeneration) return
@@ -270,7 +279,13 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     })()
   }
 
-  const send = async (userMarkdown: string) => {
+  /** Sends a composer message, or — with `retry` — resends a failed turn
+   * verbatim into its own conversation without touching the composer's draft,
+   * staged attachments, or note-edit toggle. */
+  const send = async (
+    userMarkdown: string,
+    retry?: { conversationId: string; noteEdit: boolean },
+  ) => {
     const body = userMarkdown.trim()
     if (!body || busy()) return
     let current = subject()
@@ -280,23 +295,24 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     try {
       current = current ?? await props.ensureSubject?.()
       if (!current) return
-      const attachmentInputs = await Promise.all(attachments().map(fileToAttachment))
+      const attachmentInputs = retry ? [] : await Promise.all(attachments().map(fileToAttachment))
       const result = await app.client.sendAgentChatMessage(buildAgentChatComposerRequest({
         subject: current,
-        conversations: conversations(),
-        activeConversationId: activeConversationId(),
-        newConversation: newConversation(),
+        conversations: retry ? [] : conversations(),
+        activeConversationId: retry ? retry.conversationId : activeConversationId(),
+        newConversation: retry ? false : newConversation(),
         userMarkdown: body,
         idempotencyKey: newIdempotencyKey(),
-        extensionsAvailable: agentExtensionsAvailable(),
         selectedModel: app.state.settings.agentModel,
-        noteEdit: noteEdit(),
+        noteEdit: retry ? retry.noteEdit : noteEdit(),
         attachments: attachmentInputs,
       }))
-      setDraft('')
-      setAttachments([])
-      setNewConversation(false)
-      if (result.conversationNotebookId) setActiveConversationId(result.conversationNotebookId)
+      if (!retry) {
+        setDraft('')
+        setAttachments([])
+        setNewConversation(false)
+        if (result.conversationNotebookId) setActiveConversationId(result.conversationNotebookId)
+      }
       await reload()
       if (result.turnNoteId && result.agentStatus === 'pending') startStream(result.turnNoteId)
     } catch (sendError) {
@@ -346,10 +362,6 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
   const stageFiles = async (files: FileList | null) => {
     if (!files) return
-    if (!agentExtensionsAvailable()) {
-      setError('File attachments require a server that supports the agent composer.')
-      return
-    }
     const next = [...attachments(), ...Array.from(files)]
     const validation = await validateComposerFiles(next)
     if (!validation.accepted) {
@@ -432,7 +444,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
               type="button"
               class="secondary"
               disabled={busy()}
-              onClick={() => void send(turn.userMarkdown)}
+              onClick={() => void send(turn.userMarkdown, {
+                conversationId: entry.conversationId,
+                noteEdit: turn.mode === 'edit',
+              })}
             >Retry</button>
           </Show>
         </div>
@@ -486,7 +501,6 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           models={models()}
           selectedModel={app.state.settings.agentModel}
           extensionsEnabled={extensionControlsEnabled()}
-          catalogAvailable={agentExtensionsAvailable()}
           onStageFiles={stageFiles}
           onToggleMemoOnly={() => {
             const outcome = memoOnlyToggleResult(memoOnly(), attachments().length, noteEdit())
@@ -525,7 +539,6 @@ export interface MemoComposerControlsProps {
   models: readonly AgentModel[]
   selectedModel?: string
   extensionsEnabled: boolean
-  catalogAvailable: boolean
   onStageFiles(files: FileList | null): void | Promise<void>
   onToggleMemoOnly(): void
   onToggleNoteEdit(): void
@@ -554,7 +567,7 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
       <button
         type="button"
         class="composer-icon"
-        title={props.catalogAvailable ? 'Attach text files' : 'Attachments require a newer server'}
+        title="Attach text files"
         aria-label="Attach text files"
         aria-disabled={!props.extensionsEnabled}
         disabled={!props.extensionsEnabled}
@@ -605,28 +618,13 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
-function formatTimestamp(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
 async function fileToAttachment(file: File): Promise<AgentChatAttachmentInput> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return {
     contentBase64: btoa(binary),
-    mediaType: composerAttachmentMediaType(file) ?? mediaTypeForFilename(file.name),
+    mediaType: composerAttachmentMediaType(file) ?? '',
     originalFilename: file.name,
   }
-}
-
-function mediaTypeForFilename(filename: string): string {
-  const extension = filename.toLowerCase().split('.').pop()
-  return ({
-    txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
-    json: 'application/json', xml: 'application/xml', yaml: 'application/yaml', yml: 'application/x-yaml',
-  } as Record<string, string | undefined>)[extension ?? ''] ?? ''
 }

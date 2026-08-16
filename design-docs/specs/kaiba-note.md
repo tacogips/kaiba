@@ -167,9 +167,10 @@ Kept unchanged; see `design-riela-note.md` for full rationale:
 The schema is defined by `NoteStoreSchema.swift` and includes hierarchical
 tags, the auto-action outbox, and API-client registry tables.
 Database file: `<note-root>/note-store.sqlite`, WAL mode, FTS5 required.
-Kaiba starts at the same schema version and reuses the guarded
-additive-migration machinery, so an existing Riela note store opens
-unchanged in kaiba.
+Kaiba carries no migration machinery: fresh stores are created directly
+at the current schema version, stores already at the current version are
+validated and reused, and older or newer stores are rejected up front
+with a versioned error.
 
 ## CLI Surface
 

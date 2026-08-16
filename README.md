@@ -166,7 +166,7 @@ mise run homebrew:tap-formula -- 0.1.0
 Install from the tap after the formula is published:
 
 ```bash
-brew tap user/tap
+brew tap tacogips/tap
 brew install kaiba
 ```
 

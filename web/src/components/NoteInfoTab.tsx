@@ -1,4 +1,5 @@
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { formatTimestamp } from '../notes/format'
 import { errorMessage, useApp } from '../state/appStore'
 import { groupTagAssignments, qualifiedTagLabel } from '../notes/tree'
 
@@ -113,11 +114,4 @@ export function NoteInfoTab(): JSX.Element {
       </>}</Show>
     </div>
   )
-}
-
-function formatTimestamp(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }

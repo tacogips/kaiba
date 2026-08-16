@@ -625,11 +625,7 @@ public struct NoteService: Sendable {
   ) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
-        let existing = try requireNote(noteId, in: db)
-        let notebook = try requireNotebook(existing.notebookId, in: db)
-        guard !existing.readOnly, !notebook.readOnly else {
-          throw NoteServiceError.readOnly(noteId)
-        }
+        let existing = try requireWritableNote(noteId, in: db)
         let previous = try ftsPayload(noteId: noteId, in: db)
         let now = NoteStoreClock.system.now()
         // Explicit titles (set via the `title` argument on create) are preserved

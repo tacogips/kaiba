@@ -774,8 +774,6 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertTrue(schema.contains("input MigrateNoteFileStorageInput {\n  fileId: String!\n  s3ProfileName: String!\n}"))
     XCTAssertFalse(schema.contains("s3Endpoint:"))
     XCTAssertFalse(schema.contains("s3AccessKeyIdEnv"))
-    XCTAssertFalse(schema.contains("Kanban"))
-    XCTAssertFalse(schema.contains("setNotebookProgress"))
   }
 
   func testPublishedNoteSchemaRootFieldsAreRoutableByExecutor() {

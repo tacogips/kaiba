@@ -20,6 +20,90 @@ public extension NoteService {
       requiresWritableNote: true
     )
   }
+
+  @discardableResult
+  func attachFile(
+    noteId: String,
+    fileURL: URL,
+    role: NoteFileRole = .related,
+    mediaType: String,
+    originalFilename: String? = nil,
+    position: Int = 0
+  ) throws -> NoteFileAttachment {
+    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
+    return try persistNoteFileAttachment(
+      noteId: noteId,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      position: position,
+      requiresWritableNote: true,
+      storeContent: { try fileStore.store(fileURL: fileURL, fileId: $0) },
+      deleteContent: { try? fileStore.delete(record: $0) }
+    )
+  }
+
+  @discardableResult
+  func attachFile(
+    noteId: String,
+    data: Data,
+    role: NoteFileRole = .related,
+    mediaType: String,
+    originalFilename: String? = nil,
+    position: Int = 0,
+    s3Profile: S3StorageProfile,
+    httpClient: any S3HTTPClient = URLSessionS3HTTPClient()
+  ) throws -> NoteFileAttachment {
+    let fileStore = S3NoteFileStore(profile: s3Profile, httpClient: httpClient)
+    return try persistNoteFileAttachment(
+      noteId: noteId,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      position: position,
+      requiresWritableNote: true,
+      storeContent: { try fileStore.store(data: data, fileId: $0) },
+      deleteContent: { try? fileStore.delete(record: $0) }
+    )
+  }
+
+  @discardableResult
+  func attachNotebookFile(
+    notebookId: String,
+    data: Data,
+    role: NotebookFileRole = .related,
+    mediaType: String,
+    originalFilename: String? = nil
+  ) throws -> NotebookFileAttachment {
+    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
+    return try persistNotebookFileAttachment(
+      notebookId: notebookId,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      requiresWritableNotebook: true,
+      storeContent: { try fileStore.store(data: data, fileId: $0) },
+      deleteContent: { try? fileStore.delete(record: $0) }
+    )
+  }
+
+  @discardableResult
+  func attachNotebookFile(
+    notebookId: String,
+    fileURL: URL,
+    role: NotebookFileRole = .related,
+    mediaType: String,
+    originalFilename: String? = nil
+  ) throws -> NotebookFileAttachment {
+    try storeNotebookFileAttachment(
+      notebookId: notebookId,
+      fileURL: fileURL,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      requiresWritableNotebook: true
+    )
+  }
 }
 
 internal extension NoteService {
@@ -39,6 +123,58 @@ internal extension NoteService {
     position: Int,
     requiresWritableNote: Bool
   ) throws -> NoteFileAttachment {
+    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
+    return try persistNoteFileAttachment(
+      noteId: noteId,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      position: position,
+      requiresWritableNote: requiresWritableNote,
+      storeContent: { try fileStore.store(data: data, fileId: $0) },
+      deleteContent: { try? fileStore.delete(record: $0) }
+    )
+  }
+
+  /// Stores a notebook attachment. Document import lifts the writable guard
+  /// only for the source document that is part of creating a read-only import.
+  @discardableResult
+  func storeNotebookFileAttachment(
+    notebookId: String,
+    fileURL: URL,
+    role: NotebookFileRole,
+    mediaType: String,
+    originalFilename: String?,
+    requiresWritableNotebook: Bool
+  ) throws -> NotebookFileAttachment {
+    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
+    return try persistNotebookFileAttachment(
+      notebookId: notebookId,
+      role: role,
+      mediaType: mediaType,
+      originalFilename: originalFilename,
+      requiresWritableNotebook: requiresWritableNotebook,
+      storeContent: { try fileStore.store(fileURL: fileURL, fileId: $0) },
+      deleteContent: { try? fileStore.delete(record: $0) }
+    )
+  }
+
+  /// The one attach flow every variant shares: guard the target, write the
+  /// content through `storeContent(fileId)`, then record the file and its link
+  /// in one transaction — deleting the stored content again when that
+  /// transaction fails. The guard runs once before the (possibly slow) content
+  /// write for an early rejection and again inside the transaction as the
+  /// authoritative check.
+  private func persistNoteFileAttachment(
+    noteId: String,
+    role: NoteFileRole,
+    mediaType: String,
+    originalFilename: String?,
+    position: Int,
+    requiresWritableNote: Bool,
+    storeContent: (String) throws -> StoredNoteFile,
+    deleteContent: (FileRecord) -> Void
+  ) throws -> NoteFileAttachment {
     let requireNoteForAttachment: (String, SQLiteDatabase) throws -> Void = { noteId, database in
       if requiresWritableNote {
         _ = try requireWritableNote(noteId, in: database)
@@ -46,12 +182,11 @@ internal extension NoteService {
         _ = try requireNote(noteId, in: database)
       }
     }
-    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
     let fileId = makeNoteId(prefix: "file")
     try driver.withDatabase { database in
       try requireNoteForAttachment(noteId, database)
     }
-    let stored = try fileStore.store(data: data, fileId: fileId)
+    let stored = try storeContent(fileId)
     do {
       return try driver.withDatabase { database in
         try database.transaction { db in
@@ -81,63 +216,7 @@ internal extension NoteService {
         }
       }
     } catch {
-      try? fileStore.delete(record: storedFileRecord(
-        fileId: fileId,
-        stored: stored,
-        mediaType: mediaType,
-        originalFilename: originalFilename
-      ))
-      throw error
-    }
-  }
-}
-
-public extension NoteService {
-  @discardableResult
-  func attachFile(
-    noteId: String,
-    fileURL: URL,
-    role: NoteFileRole = .related,
-    mediaType: String,
-    originalFilename: String? = nil,
-    position: Int = 0
-  ) throws -> NoteFileAttachment {
-    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
-    let fileId = makeNoteId(prefix: "file")
-    try driver.withDatabase { database in
-      _ = try requireWritableNote(noteId, in: database)
-    }
-    let stored = try fileStore.store(fileURL: fileURL, fileId: fileId)
-    do {
-      return try driver.withDatabase { database in
-        try database.transaction { db in
-          _ = try requireWritableNote(noteId, in: db)
-          let record = try insertFileRecord(
-            fileId: fileId,
-            stored: stored,
-            mediaType: mediaType,
-            originalFilename: originalFilename,
-            in: db
-          )
-          try db.execute(
-            """
-            INSERT INTO note_files (note_id, file_id, role, position)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(note_id, file_id, role) DO UPDATE SET
-              position = excluded.position
-            """,
-            bindings: [
-              .text(noteId),
-              .text(fileId),
-              .text(role.rawValue),
-              .int(Int64(position))
-            ]
-          )
-          return NoteFileAttachment(noteId: noteId, file: record, role: role, position: position)
-        }
-      }
-    } catch {
-      try? fileStore.delete(record: storedFileRecord(
+      deleteContent(storedFileRecord(
         fileId: fileId,
         stored: stored,
         mediaType: mediaType,
@@ -147,139 +226,14 @@ public extension NoteService {
     }
   }
 
-  @discardableResult
-  func attachFile(
-    noteId: String,
-    data: Data,
-    role: NoteFileRole = .related,
-    mediaType: String,
-    originalFilename: String? = nil,
-    position: Int = 0,
-    s3Profile: S3StorageProfile,
-    httpClient: any S3HTTPClient = URLSessionS3HTTPClient()
-  ) throws -> NoteFileAttachment {
-    let fileStore = S3NoteFileStore(profile: s3Profile, httpClient: httpClient)
-    let fileId = makeNoteId(prefix: "file")
-    try driver.withDatabase { database in
-      _ = try requireWritableNote(noteId, in: database)
-    }
-    let stored = try fileStore.store(data: data, fileId: fileId)
-    do {
-      return try driver.withDatabase { database in
-        try database.transaction { db in
-          _ = try requireWritableNote(noteId, in: db)
-          let record = try insertFileRecord(
-            fileId: fileId,
-            stored: stored,
-            mediaType: mediaType,
-            originalFilename: originalFilename,
-            in: db
-          )
-          try db.execute(
-            """
-            INSERT INTO note_files (note_id, file_id, role, position)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(note_id, file_id, role) DO UPDATE SET
-              position = excluded.position
-            """,
-            bindings: [
-              .text(noteId),
-              .text(fileId),
-              .text(role.rawValue),
-              .int(Int64(position))
-            ]
-          )
-          return NoteFileAttachment(noteId: noteId, file: record, role: role, position: position)
-        }
-      }
-    } catch {
-      try? fileStore.delete(record: storedFileRecord(
-        fileId: fileId,
-        stored: stored,
-        mediaType: mediaType,
-        originalFilename: originalFilename
-      ))
-      throw error
-    }
-  }
-
-  @discardableResult
-  func attachNotebookFile(
+  private func persistNotebookFileAttachment(
     notebookId: String,
-    data: Data,
-    role: NotebookFileRole = .related,
-    mediaType: String,
-    originalFilename: String? = nil
-  ) throws -> NotebookFileAttachment {
-    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
-    let fileId = makeNoteId(prefix: "file")
-    try driver.withDatabase { database in
-      _ = try requireWritableNotebook(notebookId, in: database)
-    }
-    let stored = try fileStore.store(data: data, fileId: fileId)
-    do {
-      return try driver.withDatabase { database in
-        try database.transaction { db in
-          _ = try requireWritableNotebook(notebookId, in: db)
-          let record = try insertFileRecord(
-            fileId: fileId,
-            stored: stored,
-            mediaType: mediaType,
-            originalFilename: originalFilename,
-            in: db
-          )
-          try db.execute(
-            """
-            INSERT INTO notebook_files (notebook_id, file_id, role)
-            VALUES (?, ?, ?)
-            ON CONFLICT(notebook_id, file_id, role) DO NOTHING
-            """,
-            bindings: [.text(notebookId), .text(fileId), .text(role.rawValue)]
-          )
-          return NotebookFileAttachment(notebookId: notebookId, file: record, role: role)
-        }
-      }
-    } catch {
-      try? fileStore.delete(record: storedFileRecord(
-        fileId: fileId,
-        stored: stored,
-        mediaType: mediaType,
-        originalFilename: originalFilename
-      ))
-      throw error
-    }
-  }
-
-  @discardableResult
-  func attachNotebookFile(
-    notebookId: String,
-    fileURL: URL,
-    role: NotebookFileRole = .related,
-    mediaType: String,
-    originalFilename: String? = nil
-  ) throws -> NotebookFileAttachment {
-    try storeNotebookFileAttachment(
-      notebookId: notebookId,
-      fileURL: fileURL,
-      role: role,
-      mediaType: mediaType,
-      originalFilename: originalFilename,
-      requiresWritableNotebook: true
-    )
-  }
-}
-
-internal extension NoteService {
-  /// Stores a notebook attachment. Document import lifts the writable guard
-  /// only for the source document that is part of creating a read-only import.
-  @discardableResult
-  func storeNotebookFileAttachment(
-    notebookId: String,
-    fileURL: URL,
     role: NotebookFileRole,
     mediaType: String,
     originalFilename: String?,
-    requiresWritableNotebook: Bool
+    requiresWritableNotebook: Bool,
+    storeContent: (String) throws -> StoredNoteFile,
+    deleteContent: (FileRecord) -> Void
   ) throws -> NotebookFileAttachment {
     let requireNotebookForAttachment: (String, SQLiteDatabase) throws -> Void = { notebookId, database in
       if requiresWritableNotebook {
@@ -288,12 +242,11 @@ internal extension NoteService {
         _ = try requireNotebook(notebookId, in: database)
       }
     }
-    let fileStore = LocalNoteFileStore(noteRoot: noteRootPath())
     let fileId = makeNoteId(prefix: "file")
     try driver.withDatabase { database in
       try requireNotebookForAttachment(notebookId, database)
     }
-    let stored = try fileStore.store(fileURL: fileURL, fileId: fileId)
+    let stored = try storeContent(fileId)
     do {
       return try driver.withDatabase { database in
         try database.transaction { db in
@@ -317,7 +270,7 @@ internal extension NoteService {
         }
       }
     } catch {
-      try? fileStore.delete(record: storedFileRecord(
+      deleteContent(storedFileRecord(
         fileId: fileId,
         stored: stored,
         mediaType: mediaType,

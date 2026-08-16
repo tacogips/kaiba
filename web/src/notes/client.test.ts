@@ -28,7 +28,6 @@ function environment(
       getSessionItem: (key) => storage.get(key) ?? null,
       setSessionItem: (key, value) => storage.set(key, value),
       removeSessionItem: (key) => { storage.delete(key) },
-      appHeaders: () => ({}),
       currentURL: () => href,
       replaceURL: (value) => replacements.push(value),
     },
@@ -36,17 +35,9 @@ function environment(
 }
 
 describe('Note GraphQL transport', () => {
-  test('sends RielaApp CSRF credentials, bounded scope variables, and notebook metadata selections', async () => {
+  test('sends bounded scope variables and notebook metadata selections', async () => {
     const harness = environment([{ data: { notebooks: { result: { accepted: true, status: 'ok', diagnostics: [] }, value: [] } } }])
-    const client = new NoteGraphQLClient('riela-app', {
-      ...harness.value,
-      appHeaders: () => ({ 'X-Riela-CSRF': 'csrf' }),
-      request: async (input, init) => {
-        const headers = new Headers(init?.headers)
-        expect(headers.get('X-Riela-CSRF')).toBe('csrf')
-        return harness.value.request(input, init)
-      },
-    })
+    const client = new NoteGraphQLClient(harness.value)
     await client.notebooks(200, 'updatedAtDesc', [['folder-work'], ['topic-launch']])
     const body = requestBody(harness.requests[0])
     expect(body.variables).toEqual({
@@ -75,7 +66,7 @@ describe('Note GraphQL transport', () => {
       result: { accepted: true, status: 'ok', diagnostics: [] },
       notebook: canonical,
     } } }])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
+    const client = new NoteGraphQLClient(harness.value)
 
     expect(await client.setNotebookReadOnly(canonical.notebookId, false)).toEqual(canonical)
     const body = requestBody(harness.requests[0])
@@ -102,7 +93,7 @@ describe('Note GraphQL transport', () => {
         notebook: { ...notebook, readOnly: false },
       } } },
     ])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
+    const client = new NoteGraphQLClient(harness.value)
 
     expect(await client.notebooks(0, 'updatedAtDesc', [])).toMatchObject([{ readOnly: true }])
     expect(await client.setNotebookReadOnly('system-memory', false)).toMatchObject({ readOnly: false })
@@ -118,7 +109,7 @@ describe('Note GraphQL transport', () => {
         value: [],
       } } },
     ])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
+    const client = new NoteGraphQLClient(harness.value)
 
     await client.notes('book', notebookPageLimit)
 
@@ -134,7 +125,7 @@ describe('Note GraphQL transport', () => {
       { credential: { bearerToken: 'rn_session' } },
       { data: { tags: { result: { accepted: true, status: 'ok', diagnostics: [] }, value: [] } } },
     ], 'http://127.0.0.1:8787/note/register?code=once')
-    const client = new NoteGraphQLClient('cli-serve', harness.value)
+    const client = new NoteGraphQLClient(harness.value)
     await client.initialize()
     await client.tags()
     expect(harness.replacements).toEqual(['/note/register'])
@@ -148,7 +139,7 @@ describe('Note GraphQL transport', () => {
       result: { accepted: true, status: 'ok', diagnostics: [] },
       notebook: { notebookId: 'book', title: 'Book', createdAt: '', updatedAt: '', tags: [] },
     } } }])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
+    const client = new NoteGraphQLClient(harness.value)
     await client.applyTagById('book', 'tag-urgent')
     const body = JSON.parse(String(harness.requests[0]?.init?.body)) as { variables: { input: Record<string, unknown> } }
     expect(body.variables.input).toEqual({
@@ -161,15 +152,7 @@ describe('Note GraphQL transport', () => {
     expect(requestBody(harness.requests[0]).query).toContain('firstNotePreview noteCount')
   })
 
-  test('sends create-only folder variables and human remove provenance', async () => {
-    const created = {
-      tagId: 'folder-child',
-      name: 'Child',
-      classId: 'folder',
-      parentTagId: 'folder-root',
-      isSystem: false,
-      createdAt: '',
-    }
+  test('sends human remove provenance for notebook tag removal', async () => {
     const notebook = {
       notebookId: 'book',
       title: 'Book',
@@ -178,29 +161,15 @@ describe('Note GraphQL transport', () => {
       tags: [],
     }
     const harness = environment([
-      { data: { defineNoteTag: {
-        result: { accepted: true, status: 'ok', diagnostics: [] },
-        tag: created,
-      } } },
       { data: { removeNotebookTagById: {
         result: { accepted: true, status: 'ok', diagnostics: [] },
         notebook,
       } } },
     ])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
+    const client = new NoteGraphQLClient(harness.value)
 
-    expect(await client.defineFolder('Child', 'folder', 'folder-root')).toEqual(created)
     await client.removeTagById('book', 'folder-child')
-    const defineBody = requestBody(harness.requests[0])
-    const removeBody = requestBody(harness.requests[1])
-    expect(defineBody.variables).toEqual({
-      input: {
-        name: 'Child',
-        classId: 'folder',
-        parentTagId: 'folder-root',
-        createOnly: true,
-      },
-    })
+    const removeBody = requestBody(harness.requests[0])
     expect(removeBody.variables).toEqual({
       notebookId: 'book',
       tagId: 'folder-child',
@@ -216,7 +185,7 @@ describe('Note GraphQL transport', () => {
       translationNotebookId: 'notebook-translated',
       status: 'queued',
     } } }])
-    const client = new NoteGraphQLClient('riela-app', harness.value)
+    const client = new NoteGraphQLClient(harness.value)
 
     expect(await client.requestNotebookTranslation({
       notebookId: 'notebook-source',
@@ -236,16 +205,16 @@ describe('Note GraphQL transport', () => {
         value: [],
       } } },
     ])
-    await expectErrorKind(new NoteGraphQLClient('riela-app', rejected.value).tags(), 'result')
+    await expectErrorKind(new NoteGraphQLClient(rejected.value).tags(), 'result')
 
     const graphQL = environment([{ errors: [{ message: 'schema mismatch' }] }])
-    await expectErrorKind(new NoteGraphQLClient('riela-app', graphQL.value).tags(), 'graphql')
+    await expectErrorKind(new NoteGraphQLClient(graphQL.value).tags(), 'graphql')
   })
 
   test('distinguishes HTTP failures and clears only the CLI session bearer on 401', async () => {
     const harness = environment([])
     harness.storage.set('kaiba-note-bearer', 'rn_expired')
-    const client = new NoteGraphQLClient('cli-serve', {
+    const client = new NoteGraphQLClient({
       ...harness.value,
       request: async () => new Response(JSON.stringify({ error: 'expired' }), {
         status: 401,

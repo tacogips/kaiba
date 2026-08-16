@@ -1,5 +1,5 @@
 import { createContext, onCleanup, useContext, type JSX } from 'solid-js'
-import { createStore, produce } from 'solid-js/store'
+import { createStore } from 'solid-js/store'
 import { NoteGraphQLClient, notebookPageLimit } from '../notes/client'
 import { subscribeNoteEvents } from '../notes/events'
 import { loadNotebookPages } from '../notes/paging'
@@ -154,7 +154,7 @@ export function useApp(): AppStore {
 }
 
 export function createAppStore(options: AppStoreOptions = {}): AppStore {
-  const client = options.client ?? new NoteGraphQLClient('cli-serve')
+  const client = options.client ?? new NoteGraphQLClient()
   const router = options.router ?? browserRouterEnvironment()
   const paneStorage = options.paneStorage ?? browserPaneStorage()
   const [state, setState] = createStore<AppState>({
@@ -227,9 +227,20 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     setState('notebookRevisions', notebookId, (revision) => (revision ?? 0) + 1)
   }
 
+  // Overlapping loads for one notebook race: without a generation guard an
+  // older reload finishing late replaces pages a newer load (or a lazy-scroll
+  // append) already put on screen.
+  const noteLoadGenerations: Record<string, number> = {}
+  const nextNoteLoadGeneration = (notebookId: string): number => {
+    const generation = (noteLoadGenerations[notebookId] ?? 0) + 1
+    noteLoadGenerations[notebookId] = generation
+    return generation
+  }
+
   /** Reloads a notebook's notes, keeping as many pages as are already on
    * screen so an events-feed refresh never truncates a lazily grown list. */
   const loadNotes = async (notebookId: string): Promise<void> => {
+    const generation = nextNoteLoadGeneration(notebookId)
     const target = state.notesByNotebook[notebookId]?.length ?? 0
     const pages = Math.max(1, Math.ceil(target / notebookPageLimit))
     try {
@@ -239,6 +250,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
         all = all.concat(chunk)
         if (chunk.length < notebookPageLimit) break
       }
+      if (noteLoadGenerations[notebookId] !== generation) return
       setState('notesByNotebook', notebookId, all)
     } catch (error) {
       setState('message', `Could not load notes: ${errorMessage(error)}`)
@@ -250,8 +262,10 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   const loadMoreNotes = async (notebookId: string): Promise<void> => {
     const current = state.notesByNotebook[notebookId]
     if (!current || current.length === 0 || current.length % notebookPageLimit !== 0) return
+    const generation = nextNoteLoadGeneration(notebookId)
     try {
       const chunk = await client.notes(notebookId, current.length)
+      if (noteLoadGenerations[notebookId] !== generation) return
       if (chunk.length > 0) setState('notesByNotebook', notebookId, [...current, ...chunk])
     } catch (error) {
       setState('message', `Could not load more notes: ${errorMessage(error)}`)
@@ -514,8 +528,12 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     setMessage: (message) => setState('message', message),
     refreshCatalog: async () => {
       await refreshCatalog()
-      setState(produce((draft) => { draft.notesByNotebook = {} }))
-      if (state.notebookId) await loadNotes(state.notebookId)
+      // Reload every notebook whose notes are already on screen — the open
+      // notebook and any expanded tree groups — instead of wiping the map and
+      // leaving the other groups empty until they are collapsed and reopened.
+      const loaded = new Set(Object.keys(state.notesByNotebook))
+      if (state.notebookId) loaded.add(state.notebookId)
+      await Promise.all([...loaded].map((notebookId) => loadNotes(notebookId)))
       await refreshNote()
     },
     refreshNote,

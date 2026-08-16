@@ -73,7 +73,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       )
       XCTAssertTrue(autoActions.allSatisfy { $0["workflow_id"] == NoteStoreSchema.autoTaggingWorkflowId })
       XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
+      XCTAssertEqual(try schemaVersions(in: database), [NoteStoreSchema.currentVersion])
 
       try database.requireFTS5Available()
       try database.requireFTS5TrigramAvailable()
@@ -84,7 +84,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
-  func testPrepareDispatchesV2MigrationFromVersionOneStore() throws {
+  func testPrepareRejectsLegacySchemaVersion() throws {
     let driver = try makeNoteDriver()
     try driver.withDatabase { database in
       try database.execute(
@@ -98,23 +98,13 @@ final class NoteStoreSchemaTests: NoteTestCase {
       try database.execute(
         "INSERT INTO note_schema_version (version, applied_at) VALUES (1, '2026-07-04T00:00:00Z')"
       )
-      try database.execute("""
-        CREATE VIRTUAL TABLE note_fts USING fts5(
-          title, body, tags,
-          content='',
-          tokenize='unicode61'
-        )
-        """)
     }
 
-    try NoteStoreSchema.prepare(on: driver)
-
-    try driver.withDatabase { database in
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
-      let ftsSchema = try database.query(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'note_fts' LIMIT 1"
-      ).first?["sql"]
-      XCTAssertTrue(ftsSchema?.contains("tokenize='trigram'") == true)
+    XCTAssertThrowsError(try NoteStoreSchema.prepare(on: driver)) { error in
+      XCTAssertEqual(
+        error as? NoteStoreSchemaError,
+        .unsupportedLegacyVersion(found: 1, required: NoteStoreSchema.currentVersion)
+      )
     }
   }
 
@@ -139,164 +129,14 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
-  func testPrepareMigratesV9StoreByRemovingBoardStatusWithoutDataLoss() throws {
-    let driver = try makeNoteDriver()
-    let service = try NoteService(driver: driver)
-    let notebook = try service.createNotebook(
-      title: "Existing notebook",
-      metaJSON: #"{"source":"v5-fixture"}"#
-    )
-    let sourceNote = try service.createNote(
-      notebookId: notebook.notebookId,
-      title: "Existing note",
-      bodyMarkdown: "Existing body",
-      readOnly: true,
-      tags: [NoteTagInput(name: "v5-tag")],
-      provenance: .human,
-      assignedBy: "v5-fixture",
-      metaJSON: #"{"ordinal":1}"#
-    )
-    let relatedNote = try service.createNote(
-      notebookId: notebook.notebookId,
-      bodyMarkdown: "Related body",
-      metaJSON: #"{"ordinal":2}"#
-    )
-    let link = try service.linkNotes(
-      from: sourceNote.noteId,
-      to: relatedNote.noteId,
-      linkKind: "supports",
-      provenance: .human
-    )
-    let noteFile = try service.attachFile(
-      noteId: relatedNote.noteId,
-      data: Data("note file".utf8),
-      role: .related,
-      mediaType: "text/plain",
-      originalFilename: "note.txt",
-      position: 4
-    )
-    let notebookFile = try service.attachNotebookFile(
-      notebookId: notebook.notebookId,
-      data: Data("notebook file".utf8),
-      role: .sourceDocument,
-      mediaType: "text/plain",
-      originalFilename: "source.txt"
-    )
-
-    try driver.withDatabase { database in
-      try database.execute("ALTER TABLE notebooks ADD COLUMN status TEXT NOT NULL DEFAULT 'none'")
-      try database.execute("ALTER TABLE tags ADD COLUMN status_set_id TEXT")
-      try database.execute("CREATE TABLE kanban_status_sets (set_id TEXT PRIMARY KEY)")
-      try database.execute("CREATE TABLE kanban_statuses (status_id TEXT PRIMARY KEY)")
-      try database.execute("DELETE FROM note_schema_version WHERE version = 10")
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...9))
-    }
-
-    try NoteStoreSchema.prepare(on: driver)
-
-    try driver.withDatabase { database in
-      let notebookRow = try XCTUnwrap(
-        database.query(
-          """
-          SELECT notebook_id, title, read_only, json(meta_json) AS meta_json
-          FROM notebooks WHERE notebook_id = ?
-          """,
-          bindings: [.text(notebook.notebookId)]
-        ).first
-      )
-      XCTAssertEqual(notebookRow["notebook_id"], notebook.notebookId)
-      XCTAssertEqual(notebookRow["title"], "Existing notebook")
-      XCTAssertEqual(notebookRow["read_only"], "0")
-      XCTAssertEqual(notebookRow["meta_json"], #"{"source":"v5-fixture"}"#)
-
-      let noteRows = try database.query(
-        """
-        SELECT note_id, notebook_id, note_number, title, title_source, body_markdown,
-          read_only, json(meta_json) AS meta_json
-        FROM notes WHERE notebook_id = ? ORDER BY note_number
-        """,
-        bindings: [.text(notebook.notebookId)]
-      )
-      XCTAssertEqual(noteRows.map { $0["note_id"] }, [sourceNote.noteId, relatedNote.noteId])
-      XCTAssertEqual(noteRows.map { $0["notebook_id"] }, [notebook.notebookId, notebook.notebookId])
-      XCTAssertEqual(noteRows.map { $0["body_markdown"] }, ["Existing body", "Related body"])
-      XCTAssertEqual(noteRows.map { $0["read_only"] }, ["1", "0"])
-      XCTAssertEqual(noteRows.map { $0["meta_json"] }, [#"{"ordinal":1}"#, #"{"ordinal":2}"#])
-
-      let tagNames = try database.query(
-        """
-        SELECT tags.name FROM note_tags
-        INNER JOIN tags ON tags.tag_id = note_tags.tag_id
-        WHERE note_tags.note_id = ? ORDER BY tags.name
-        """,
-        bindings: [.text(sourceNote.noteId)]
-      ).compactMap { $0["name"] }
-      XCTAssertEqual(tagNames, ["v5-tag"])
-
-      let linkRow = try XCTUnwrap(database.query(
-        """
-        SELECT from_note_id, to_note_id, link_kind, provenance FROM note_links
-        WHERE from_note_id = ? AND to_note_id = ?
-        """,
-        bindings: [.text(sourceNote.noteId), .text(relatedNote.noteId)]
-      ).first)
-      XCTAssertEqual(linkRow["from_note_id"], link.fromNoteId)
-      XCTAssertEqual(linkRow["to_note_id"], link.toNoteId)
-      XCTAssertEqual(linkRow["link_kind"], "supports")
-      XCTAssertEqual(linkRow["provenance"], "human")
-
-      let fileIds = try database.query(
-        "SELECT file_id FROM files WHERE file_id IN (?, ?) ORDER BY file_id",
-        bindings: [.text(noteFile.file.fileId), .text(notebookFile.file.fileId)]
-      ).compactMap { $0["file_id"] }
-      XCTAssertEqual(fileIds, [noteFile.file.fileId, notebookFile.file.fileId].sorted())
-      let noteFileRow = try XCTUnwrap(database.query(
-        "SELECT role, position FROM note_files WHERE note_id = ? AND file_id = ?",
-        bindings: [.text(relatedNote.noteId), .text(noteFile.file.fileId)]
-      ).first)
-      XCTAssertEqual(noteFileRow["role"], "related")
-      XCTAssertEqual(noteFileRow["position"], "4")
-      let notebookFileRow = try XCTUnwrap(database.query(
-        "SELECT role FROM notebook_files WHERE notebook_id = ? AND file_id = ?",
-        bindings: [.text(notebook.notebookId), .text(notebookFile.file.fileId)]
-      ).first)
-      XCTAssertEqual(notebookFileRow["role"], "source-document")
-      let notebookColumns = try database.query("PRAGMA table_info(notebooks)").compactMap { $0["name"] }
-      let tagColumns = try database.query("PRAGMA table_info(tags)").compactMap { $0["name"] }
-      XCTAssertFalse(notebookColumns.contains("status"))
-      XCTAssertFalse(notebookColumns.contains("progress"))
-      XCTAssertFalse(tagColumns.contains("status_set_id"))
-      XCTAssertFalse(try database.tableExists("kanban_status_sets"))
-      XCTAssertFalse(try database.tableExists("kanban_statuses"))
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
-    }
-    let filesRoot = URL(fileURLWithPath: driver.databasePath)
-      .deletingLastPathComponent()
-      .appendingPathComponent("files", isDirectory: true)
-    XCTAssertTrue(
-      FileManager.default.fileExists(
-        atPath: filesRoot.appendingPathComponent(try XCTUnwrap(noteFile.file.localPath)).path
-      )
-    )
-    XCTAssertTrue(
-      FileManager.default.fileExists(
-        atPath: filesRoot.appendingPathComponent(try XCTUnwrap(notebookFile.file.localPath)).path
-      )
-    )
-  }
-
-  func testPrepareRestoresLongTermMemoryKindTagOnV7Store() throws {
+  func testPrepareRestoresDeletedLongTermMemoryKindTag() throws {
     let driver = try makeNoteDriver()
     try NoteStoreSchema.prepare(on: driver)
     try driver.withDatabase { database in
-      // Fixture setup only: strip the v8 tag and marker so the store represents
-      // a v7 shape that predates the long-term-memory notebook kind.
       try database.execute(
         "DELETE FROM tags WHERE name = ?",
         bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
       )
-      try database.execute("DELETE FROM note_schema_version WHERE version IN (8, 9, 10)")
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...7))
     }
 
     try NoteStoreSchema.prepare(on: driver)
@@ -309,7 +149,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       XCTAssertEqual(tagRow["tag_id"], NoteStoreSchema.longTermMemoryNotebookKindTagId)
       XCTAssertEqual(tagRow["class_id"], "document-kind")
       XCTAssertEqual(tagRow["is_system"], "1")
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
+      XCTAssertEqual(try schemaVersions(in: database), [NoteStoreSchema.currentVersion])
     }
     XCTAssertEqual(
       try NoteService(driver: driver).longTermMemoryNotebook().title,
@@ -317,25 +157,15 @@ final class NoteStoreSchemaTests: NoteTestCase {
     )
   }
 
-  func testPrepareRejectsV5UserTagCollisionForLongTermMemoryIdentity() throws {
+  func testPrepareRejectsUserTagCollisionForLongTermMemoryIdentity() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
-    let canonical = try service.longTermMemoryNotebook()
+    _ = try service.longTermMemoryNotebook()
     try driver.withDatabase { database in
       try database.execute(
         "UPDATE tags SET is_system = 0 WHERE name = ?",
         bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
       )
-      try database.execute(
-        """
-        UPDATE notebook_tags
-        SET provenance = 'human', assigned_by = 'v5-user', deletable = 1
-        WHERE notebook_id = ?
-        """,
-        bindings: [.text(canonical.notebookId)]
-      )
-      try database.execute("ALTER TABLE notebooks DROP COLUMN read_only")
-      try database.execute("DELETE FROM note_schema_version WHERE version IN (6, 7)")
     }
 
     XCTAssertThrowsError(try NoteStoreSchema.prepare(on: driver)) { error in
@@ -345,8 +175,6 @@ final class NoteStoreSchemaTests: NoteTestCase {
       )
     }
     try driver.withDatabase { database in
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
-      XCTAssertTrue(try database.query("PRAGMA table_info(notebooks)").contains { $0["name"] == "read_only" })
       let tagRow = try XCTUnwrap(database.query(
         "SELECT is_system FROM tags WHERE name = ?",
         bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
@@ -437,7 +265,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
     XCTAssertEqual(try service.searchNotes(query: "日本語検索").map(\.note.noteId), [note.noteId])
   }
 
-  func testV7PartialIndexesEnforceParentScopedFolderAndNonFolderUniqueness() throws {
+  func testTagPartialIndexesEnforceParentScopedFolderAndNonFolderUniqueness() throws {
     let driver = try makeNoteDriver()
     try NoteStoreSchema.prepare(on: driver)
     try driver.withDatabase { database in
@@ -506,148 +334,6 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
-  func testV6ToV7RebuildPreservesTagAndAssignmentIdentity() throws {
-    let driver = try makeNoteDriver()
-    let service = try NoteService(driver: driver)
-    let notebook = try service.createNotebook(title: "Migrated", kindTagName: "migration-kind")
-    let note = try service.createNote(
-      notebookId: notebook.notebookId,
-      bodyMarkdown: "# Migrated note",
-      tags: [NoteTagInput(name: "migration-topic", classId: "topic")]
-    )
-    let parent = try service.defineTag(name: "migration-parent", classId: "folder")
-    let child = try service.defineTag(
-      name: "migration-child",
-      classId: "folder",
-      parentTagId: parent.tagId
-    )
-    let tagRowsBefore = try driver.withDatabase { database in
-      try database.query(
-        """
-        SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
-        FROM tags ORDER BY tag_id
-        """
-      )
-    }
-    let noteAssignmentsBefore = try driver.withDatabase { database in
-      try database.query(
-        """
-        SELECT note_id, tag_id, provenance, assigned_by, deletable, created_at
-        FROM note_tags ORDER BY note_id, tag_id
-        """
-      )
-    }
-    let notebookAssignmentsBefore = try driver.withDatabase { database in
-      try database.query(
-        """
-        SELECT notebook_id, tag_id, provenance, assigned_by, deletable, created_at
-        FROM notebook_tags ORDER BY notebook_id, tag_id
-        """
-      )
-    }
-
-    try downgradeTagSchemaToV6(on: driver)
-
-    try NoteStoreSchema.prepare(on: driver)
-
-    try driver.withDatabase { database in
-      XCTAssertEqual(try database.query(
-        """
-        SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
-        FROM tags ORDER BY tag_id
-        """
-      ), tagRowsBefore)
-      let migratedChild = try XCTUnwrap(tagRowsBefore.first { $0["tag_id"] == child.tagId })
-      XCTAssertEqual(migratedChild["parent_tag_id"], parent.tagId)
-      XCTAssertEqual(try database.query(
-        """
-        SELECT note_id, tag_id, provenance, assigned_by, deletable, created_at
-        FROM note_tags ORDER BY note_id, tag_id
-        """
-      ), noteAssignmentsBefore)
-      XCTAssertEqual(try database.query(
-        """
-        SELECT notebook_id, tag_id, provenance, assigned_by, deletable, created_at
-        FROM notebook_tags ORDER BY notebook_id, tag_id
-        """
-      ), notebookAssignmentsBefore)
-      XCTAssertTrue(noteAssignmentsBefore.contains { $0["note_id"] == note.noteId })
-      XCTAssertTrue(notebookAssignmentsBefore.contains { $0["notebook_id"] == notebook.notebookId })
-      XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
-      XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
-      XCTAssertTrue(try database.query("PRAGMA foreign_key_check").isEmpty)
-      let indexes = Set(try database.query("PRAGMA index_list(tags)").compactMap { $0["name"] })
-      XCTAssertTrue(indexes.contains("idx_tags_non_folder_name_unique"))
-      XCTAssertTrue(indexes.contains("idx_tags_root_folder_name_unique"))
-      XCTAssertTrue(indexes.contains("idx_tags_nested_folder_parent_name_unique"))
-    }
-  }
-
-  func testV7MigrationPreCommitFailureRollsBackAndEvictsFailedHandle() throws {
-    let driver = try makeNoteDriver()
-    try NoteStoreSchema.prepare(on: driver)
-    try downgradeTagSchemaToV6(on: driver)
-    try driver.withDatabase { database in
-      try database.execute("CREATE TEMP TABLE v7_failed_handle_marker (value TEXT)")
-    }
-    let recorder = V7MigrationFaultRecorder(failingAt: .beforeRebuildCommit)
-    NoteStoreSchema.setV7MigrationFaultInjectorForTesting(recorder.inject)
-    defer {
-      NoteStoreSchema.setV7MigrationFaultInjectorForTesting(nil)
-    }
-
-    XCTAssertThrowsError(try NoteStoreSchema.prepare(on: driver))
-    XCTAssertEqual(recorder.count(for: .beforeRebuildCommit), 1)
-    try driver.withDatabase { database in
-      XCTAssertTrue(try database.query(
-        "SELECT name FROM sqlite_temp_master WHERE name = 'v7_failed_handle_marker'"
-      ).isEmpty)
-      XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
-      XCTAssertFalse(try schemaVersions(in: database).contains(7))
-      let tableSQL = try database.query(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tags'"
-      ).first?["sql"]?.lowercased()
-      XCTAssertTrue(tableSQL?.contains("name text not null unique") == true)
-    }
-
-    NoteStoreSchema.setV7MigrationFaultInjectorForTesting(nil)
-    try NoteStoreSchema.prepare(on: driver)
-    try assertPreparedV7Store(on: driver)
-  }
-
-  func testV7MigrationPostCommitAndRestorationFailuresRecoverMarkerlessSchema() throws {
-    for checkpoint in [
-      NoteStoreSchemaV7MigrationCheckpoint.afterRebuildCommit,
-      .beforeForeignKeyRestorationVerification
-    ] {
-      let driver = try makeNoteDriver(function: "\(#function)-\(checkpoint)")
-      try NoteStoreSchema.prepare(on: driver)
-      try downgradeTagSchemaToV6(on: driver)
-      try driver.withDatabase { database in
-        try database.execute("CREATE TEMP TABLE v7_failed_handle_marker (value TEXT)")
-      }
-      let recorder = V7MigrationFaultRecorder(failingAt: checkpoint)
-      NoteStoreSchema.setV7MigrationFaultInjectorForTesting(recorder.inject)
-
-      XCTAssertThrowsError(try NoteStoreSchema.prepare(on: driver))
-      XCTAssertEqual(recorder.count(for: checkpoint), 1)
-      try driver.withDatabase { database in
-        XCTAssertTrue(try database.query(
-          "SELECT name FROM sqlite_temp_master WHERE name = 'v7_failed_handle_marker'"
-        ).isEmpty)
-        XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
-        XCTAssertFalse(try schemaVersions(in: database).contains(7))
-        let indexes = Set(try database.query("PRAGMA index_list(tags)").compactMap { $0["name"] })
-        XCTAssertTrue(indexes.contains("idx_tags_nested_folder_parent_name_unique"))
-      }
-
-      NoteStoreSchema.setV7MigrationFaultInjectorForTesting(nil)
-      try NoteStoreSchema.prepare(on: driver)
-      XCTAssertEqual(recorder.count(for: .beforeRebuildCommit), 1)
-      try assertPreparedV7Store(on: driver)
-    }
-  }
-
   func testThrownDatabaseBodyEvictsHandleAndRestoresConfiguredForeignKeys() throws {
     enum InjectedFailure: Error { case fail }
     let root = try makeNoteRoot()
@@ -669,84 +355,6 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
-}
-
-private enum InjectedV7MigrationFailure: Error {
-  case requested
-}
-
-private final class V7MigrationFaultRecorder: @unchecked Sendable {
-  private let lock = NSLock()
-  private let failingCheckpoint: NoteStoreSchemaV7MigrationCheckpoint
-  private var counts: [String: Int] = [:]
-
-  init(failingAt checkpoint: NoteStoreSchemaV7MigrationCheckpoint) {
-    failingCheckpoint = checkpoint
-  }
-
-  func inject(_ checkpoint: NoteStoreSchemaV7MigrationCheckpoint) throws {
-    lock.lock()
-    counts[key(for: checkpoint), default: 0] += 1
-    lock.unlock()
-    if checkpoint == failingCheckpoint {
-      throw InjectedV7MigrationFailure.requested
-    }
-  }
-
-  func count(for checkpoint: NoteStoreSchemaV7MigrationCheckpoint) -> Int {
-    lock.lock()
-    defer {
-      lock.unlock()
-    }
-    return counts[key(for: checkpoint), default: 0]
-  }
-
-  private func key(for checkpoint: NoteStoreSchemaV7MigrationCheckpoint) -> String {
-    String(describing: checkpoint)
-  }
-}
-
-private func downgradeTagSchemaToV6(on driver: NoteDatabaseDriving) throws {
-  try driver.withDatabase { database in
-    try database.execute("PRAGMA foreign_keys = OFF")
-    try database.transaction { db in
-      try db.execute(
-        """
-        CREATE TABLE tags_v6 (
-          tag_id TEXT PRIMARY KEY,
-          name TEXT NOT NULL UNIQUE,
-          class_id TEXT REFERENCES tag_classes(class_id),
-          parent_tag_id TEXT REFERENCES tags(tag_id),
-          is_system INTEGER NOT NULL DEFAULT 0,
-          created_at TEXT NOT NULL
-        )
-        """
-      )
-      try db.execute(
-        """
-        INSERT INTO tags_v6
-        SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
-        FROM tags
-        """
-      )
-      try db.execute("DROP TABLE tags")
-      try db.execute("ALTER TABLE tags_v6 RENAME TO tags")
-      try db.execute("DELETE FROM note_schema_version WHERE version = 7")
-    }
-    try database.execute("PRAGMA foreign_keys = ON")
-  }
-}
-
-private func assertPreparedV7Store(on driver: NoteDatabaseDriving) throws {
-  try driver.withDatabase { database in
-    XCTAssertEqual(try schemaVersions(in: database), Array(1...NoteStoreSchema.currentVersion))
-    XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
-    XCTAssertTrue(try database.query("PRAGMA foreign_key_check").isEmpty)
-    let indexes = Set(try database.query("PRAGMA index_list(tags)").compactMap { $0["name"] })
-    XCTAssertTrue(indexes.contains("idx_tags_non_folder_name_unique"))
-    XCTAssertTrue(indexes.contains("idx_tags_root_folder_name_unique"))
-    XCTAssertTrue(indexes.contains("idx_tags_nested_folder_parent_name_unique"))
-  }
 }
 
 private func schemaVersions(in database: SQLiteDatabase) throws -> [Int] {

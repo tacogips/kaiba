@@ -2,14 +2,9 @@ import Foundation
 
 public enum NoteStoreSchemaError: Error, Equatable, Sendable {
   case unsupportedFutureVersion(found: Int, supported: Int)
+  case unsupportedLegacyVersion(found: Int, required: Int)
   case systemTagCollision(name: String)
   case migrationInvariant(String)
-}
-
-enum NoteStoreSchemaV7MigrationCheckpoint: Equatable, Sendable {
-  case beforeRebuildCommit
-  case afterRebuildCommit
-  case beforeForeignKeyRestorationVerification
 }
 
 public enum NoteStoreSchema {
@@ -33,12 +28,6 @@ public enum NoteStoreSchema {
   /// (`design-docs/specs/ai-agent-integration.md`, AI9).
   public static let notebookTranslationWorkflowId = "notebook-translation"
 
-  static func setV7MigrationFaultInjectorForTesting(
-    _ injector: (@Sendable (NoteStoreSchemaV7MigrationCheckpoint) throws -> Void)?
-  ) {
-    NoteStoreSchemaV7MigrationFaultInjector.shared.set(injector)
-  }
-
   public static func prepare(on driver: NoteDatabaseDriving) throws {
     try driver.withDatabase { database in
       try prepare(in: database)
@@ -48,30 +37,17 @@ public enum NoteStoreSchema {
   public static func prepare(in database: SQLiteDatabase) throws {
     try NoteSQLiteCapabilityCache.requireAvailable(in: database)
     try database.execute(noteSchemaVersionTableStatement)
-    try rejectUnsupportedFutureVersion(in: database)
-    let appliedVersions = try appliedSchemaVersions(in: database)
-    let isFirstSchemaCreation = appliedVersions.isEmpty
+    try requireSupportedVersion(in: database)
+    let isFirstSchemaCreation = try appliedSchemaVersions(in: database).isEmpty
 
-    // v2-v6 stay in the ordinary foreign-key-enabled transaction. Existing
-    // v6 stores require a connection-level phase for v7 because SQLite ignores
-    // PRAGMA foreign_keys changes inside a transaction.
     try database.transaction { db in
       for statement in schemaStatements {
         try db.execute(statement)
       }
-      try applySchemaMigrations(appliedVersions: appliedVersions, in: db)
+      try createTagIndexes(in: db)
       if isFirstSchemaCreation {
-        try createV7TagIndexes(in: db)
-        try recordSchemaVersion(7, in: db)
+        try recordSchemaVersion(currentVersion, in: db)
       }
-    }
-    if !isFirstSchemaCreation, !appliedVersions.contains(7) {
-      try migrateToV7(in: database)
-    }
-    if !appliedVersions.contains(10) {
-      try migrateToV10(in: database)
-    }
-    try database.transaction { db in
       try validateCurrentSchema(in: db)
       try requireForeignKeysEnabled(in: db)
       try requireForeignKeyIntegrity(in: db)
@@ -172,12 +148,19 @@ public enum NoteStoreSchema {
       .replacingOccurrences(of: " ", with: "-")
   }
 
-  private static func rejectUnsupportedFutureVersion(in database: SQLiteDatabase) throws {
-    let rows = try database.query("SELECT MAX(version) AS version FROM note_schema_version")
-    guard let rawVersion = rows.first?["version"], let version = Int(rawVersion), version > currentVersion else {
+  /// Stores are either fresh (created directly at `currentVersion`) or already
+  /// at `currentVersion`. Kaiba carries no migrations, so older stores and
+  /// stores written by a newer kaiba are both rejected up front.
+  private static func requireSupportedVersion(in database: SQLiteDatabase) throws {
+    guard let newest = try appliedSchemaVersions(in: database).max() else {
       return
     }
-    throw NoteStoreSchemaError.unsupportedFutureVersion(found: version, supported: currentVersion)
+    if newest > currentVersion {
+      throw NoteStoreSchemaError.unsupportedFutureVersion(found: newest, supported: currentVersion)
+    }
+    if newest < currentVersion {
+      throw NoteStoreSchemaError.unsupportedLegacyVersion(found: newest, required: currentVersion)
+    }
   }
 
   private static func appliedSchemaVersions(in database: SQLiteDatabase) throws -> Set<Int> {
@@ -185,22 +168,6 @@ public enum NoteStoreSchema {
     return Set(rows.compactMap { row in
       row["version"].flatMap(Int.init)
     })
-  }
-
-  private static func applySchemaMigrations(appliedVersions: Set<Int>, in database: SQLiteDatabase) throws {
-    let migrationsToApply: [NoteSchemaMigration]
-    if appliedVersions.isEmpty {
-      migrationsToApply = schemaMigrations
-    } else {
-      migrationsToApply = schemaMigrations.filter { !appliedVersions.contains($0.version) }
-    }
-    for migration in migrationsToApply {
-      try migration.apply(database)
-      try recordSchemaVersion(migration.version, in: database)
-    }
-    if appliedVersions.isEmpty {
-      try recordSchemaVersion(1, in: database)
-    }
   }
 
   private static func recordSchemaVersion(_ version: Int, in database: SQLiteDatabase) throws {
@@ -240,259 +207,13 @@ public enum NoteStoreSchema {
     }
   }
 
-  fileprivate static func migrateToV2(in database: SQLiteDatabase) throws {
-    try ensureNoteFTSUsesTrigram(in: database)
-  }
-
-  fileprivate static func migrateToV3(in database: SQLiteDatabase) throws {
-    let rows = try database.query(
-      """
-      SELECT sql
-      FROM sqlite_master
-      WHERE type = 'table' AND name = 'auto_action_dispatches'
-      LIMIT 1
-      """
-    )
-    guard let createSQL = rows.first?["sql"],
-          !createSQL.contains("'in_flight'") else {
-      return
-    }
-    try database.execute("ALTER TABLE auto_action_dispatches RENAME TO auto_action_dispatches_v2")
-    try database.execute(autoActionDispatchesTableStatement)
-    try database.execute(
-      """
-      INSERT INTO auto_action_dispatches (
-        dispatch_id, action_id, action_trigger, workflow_id, filter_json,
-        action_enabled, action_position, action_created_at, event_json,
-        status, attempt_count, last_error, created_at, updated_at
-      )
-      SELECT dispatch_id, action_id, action_trigger, workflow_id, filter_json,
-        action_enabled, action_position, action_created_at, event_json,
-        CASE WHEN status = 'in_flight' THEN 'pending' ELSE status END,
-        attempt_count, last_error, created_at, updated_at
-      FROM auto_action_dispatches_v2
-      """
-    )
-    try database.execute("DROP TABLE auto_action_dispatches_v2")
-    try database.execute(autoActionDispatchesStatusIndexStatement)
-  }
-
-  fileprivate static func migrateToV4(in database: SQLiteDatabase) throws {
-    if try !columnExists("parent_tag_id", in: "tags", database: database) {
-      try database.execute(
-        "ALTER TABLE tags ADD COLUMN parent_tag_id TEXT REFERENCES tags(tag_id)"
-      )
-    }
-  }
-
-  fileprivate static func migrateToV5(in database: SQLiteDatabase) throws {
-  }
-
-  fileprivate static func migrateToV6(in database: SQLiteDatabase) throws {
-    if try !columnExists("read_only", in: "notebooks", database: database) {
-      try database.execute(
-        "ALTER TABLE notebooks ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0"
-      )
-    }
-  }
-
-  /// Registers the canonical long-term-memory notebook kind tag on stores that
-  /// predate it. Fresh stores reach this migration before `seedTagClasses` has
-  /// run, where the `tags.class_id` foreign key would reject the row; they get
-  /// the tag from `seedNotebookKindTags` later in `prepare` instead, which also
-  /// re-runs for existing stores and makes this insert idempotent.
-  fileprivate static func migrateToV8(in database: SQLiteDatabase) throws {
-    guard try !database.query(
-      "SELECT 1 FROM tag_classes WHERE class_id = 'document-kind' LIMIT 1"
-    ).isEmpty else {
-      return
-    }
-    try database.execute(
-      """
-      INSERT INTO tags (tag_id, name, class_id, is_system, created_at)
-      VALUES (?, ?, 'document-kind', 1, ?)
-      ON CONFLICT DO NOTHING
-      """,
-      bindings: [
-        .text(longTermMemoryNotebookKindTagId),
-        .text(longTermMemoryNotebookKindTag),
-        .text(NoteStoreClock.system.now())
-      ]
-    )
-  }
-
-  /// Rebuilds `note_comments` so a memo can anchor to a notebook without a
-  /// note (`note_id` becomes nullable, `notebook_id` is added). Existing note
-  /// memos are backfilled with their note's notebook so notebook-wide memo
-  /// listings cover them without a join. The table has no incoming foreign
-  /// keys, so the rename-rebuild is safe with foreign_keys=ON.
-  fileprivate static func migrateToV9(in database: SQLiteDatabase) throws {
-    guard try !columnExists("notebook_id", in: "note_comments", database: database) else {
-      return
-    }
-    try database.transaction { db in
-      try db.execute("ALTER TABLE note_comments RENAME TO note_comments_v8")
-      try db.execute(noteCommentsTableStatement)
-      try db.execute(
-        """
-        INSERT INTO note_comments (
-          comment_id, note_id, notebook_id, body_markdown, author, created_at
-        )
-        SELECT c.comment_id, c.note_id, n.notebook_id, c.body_markdown, c.author, c.created_at
-        FROM note_comments_v8 c
-        LEFT JOIN notes n ON n.note_id = c.note_id
-        """
-      )
-      try db.execute("DROP TABLE note_comments_v8")
-    }
-  }
-
-  /// Removes the retired board/status persistence while preserving notebook,
-  /// tag, and assignment identities. Parent tables are replaced with foreign
-  /// keys disabled so their existing child tables continue to reference the
-  /// canonical table names after the replacements are renamed into place.
-  private static func migrateToV10(in database: SQLiteDatabase) throws {
-    try requireForeignKeysEnabled(in: database)
-    try requireForeignKeyIntegrity(in: database)
-    do {
-      try database.execute("PRAGMA foreign_keys = OFF")
-      try requireForeignKeysDisabled(in: database)
-      try database.transaction { db in
-        try db.execute(v10ReplacementNotebooksTableStatement)
-        try db.execute(
-          """
-          INSERT INTO notebooks_v10 (
-            notebook_id, title, read_only, created_at, updated_at, meta_json
-          )
-          SELECT notebook_id, title, read_only, created_at, updated_at, meta_json
-          FROM notebooks
-          """
-        )
-        try db.execute(v10ReplacementTagsTableStatement)
-        try db.execute(
-          """
-          INSERT INTO tags_v10 (
-            tag_id, name, class_id, parent_tag_id, is_system, created_at
-          )
-          SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
-          FROM tags
-          """
-        )
-        try db.execute("DROP TABLE tags")
-        try db.execute("DROP TABLE notebooks")
-        try db.execute("DROP TABLE IF EXISTS kanban_statuses")
-        try db.execute("DROP TABLE IF EXISTS kanban_status_sets")
-        try db.execute("ALTER TABLE notebooks_v10 RENAME TO notebooks")
-        try db.execute("ALTER TABLE tags_v10 RENAME TO tags")
-        try createV7TagIndexes(in: db)
-      }
-      try database.execute("PRAGMA foreign_keys = ON")
-      try requireForeignKeysEnabled(in: database)
-      try requireForeignKeyIntegrity(in: database)
-      try database.transaction { db in
-        try validateCurrentSchema(in: db)
-        try recordSchemaVersion(10, in: db)
-      }
-    } catch {
-      do {
-        try database.execute("PRAGMA foreign_keys = ON")
-        try requireForeignKeysEnabled(in: database)
-        try requireForeignKeyIntegrity(in: database)
-      } catch let restorationError {
-        throw NoteStoreSchemaError.migrationInvariant(
-          "schema v10 migration failed and foreign-key restoration could not be verified: \(restorationError)"
-        )
-      }
-      throw error
-    }
-  }
-
-  private static func migrateToV7(in database: SQLiteDatabase) throws {
-    try requireForeignKeysEnabled(in: database)
-    try requireForeignKeyIntegrity(in: database)
-
-    if try isV7TagSchema(in: database) {
-      try finalizeV7Marker(in: database)
-      return
-    }
-
-    let snapshot = try V7IdentitySnapshot.capture(in: database)
-    do {
-      try database.execute("PRAGMA foreign_keys = OFF")
-      try requireForeignKeysDisabled(in: database)
-      try database.transaction { db in
-        try db.execute(v7ReplacementTagsTableStatement)
-        try db.execute(
-          """
-          INSERT INTO tags_v7 (
-            tag_id, name, class_id, parent_tag_id, is_system, created_at
-          )
-          SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
-          FROM tags
-          """
-        )
-        try db.execute("DROP TABLE tags")
-        try db.execute("ALTER TABLE tags_v7 RENAME TO tags")
-        try createV7TagIndexes(in: db)
-        guard snapshot == (try V7IdentitySnapshot.capture(in: db)) else {
-          throw NoteStoreSchemaError.migrationInvariant(
-            "schema v7 migration changed tag or assignment identity"
-          )
-        }
-        try requireTagReferenceIntegrity(in: db)
-        try requireForeignKeyIntegrity(in: db)
-        try NoteStoreSchemaV7MigrationFaultInjector.shared.invoke(.beforeRebuildCommit)
-      }
-      try NoteStoreSchemaV7MigrationFaultInjector.shared.invoke(.afterRebuildCommit)
-      try database.execute("PRAGMA foreign_keys = ON")
-      try NoteStoreSchemaV7MigrationFaultInjector.shared.invoke(
-        .beforeForeignKeyRestorationVerification
-      )
-      try requireForeignKeysEnabled(in: database)
-      try requireForeignKeyIntegrity(in: database)
-      try finalizeV7Marker(in: database)
-    } catch {
-      do {
-        try database.execute("PRAGMA foreign_keys = ON")
-        try requireForeignKeysEnabled(in: database)
-        try requireForeignKeyIntegrity(in: database)
-      } catch let restorationError {
-        throw NoteStoreSchemaError.migrationInvariant(
-          "schema v7 migration failed and foreign-key restoration could not be verified: \(restorationError)"
-        )
-      }
-      throw error
-    }
-  }
-
-  private static func finalizeV7Marker(in database: SQLiteDatabase) throws {
-    try requireForeignKeysEnabled(in: database)
-    try requireForeignKeyIntegrity(in: database)
-    try database.transaction { db in
-      try validateV7Schema(in: db)
-      try requireTagReferenceIntegrity(in: db)
-      try recordSchemaVersion(7, in: db)
-    }
-  }
-
-  private static func validateV7Schema(in database: SQLiteDatabase) throws {
-    guard try isV7TagSchema(in: database) else {
-      throw NoteStoreSchemaError.migrationInvariant("schema v7 tag table or indexes are incomplete")
-    }
-  }
-
   private static func validateCurrentSchema(in database: SQLiteDatabase) throws {
-    try validateV7Schema(in: database)
-    guard try !columnExists("status", in: "notebooks", database: database),
-          try !columnExists("progress", in: "notebooks", database: database),
-          try !columnExists("status_set_id", in: "tags", database: database),
-          try !tableExists("kanban_statuses", database: database),
-          try !tableExists("kanban_status_sets", database: database) else {
-      throw NoteStoreSchemaError.migrationInvariant("retired board/status schema is still present")
+    guard try hasCurrentTagSchema(in: database) else {
+      throw NoteStoreSchemaError.migrationInvariant("tag table or indexes are incomplete")
     }
   }
 
-  private static func isV7TagSchema(in database: SQLiteDatabase) throws -> Bool {
+  private static func hasCurrentTagSchema(in database: SQLiteDatabase) throws -> Bool {
     let tableSQL = try database.query(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tags'"
     ).first?["sql"].map(normalizedSchemaSQL) ?? ""
@@ -509,17 +230,17 @@ public enum NoteStoreSchema {
           !tableSQL.contains("unique(name)") else {
       return false
     }
-    return try hasV7TagIndex(
+    return try hasTagIndex(
       "idx_tags_non_folder_name_unique",
       columns: ["name"],
       predicate: "whereclass_idisnullorclass_id<>'folder'",
       in: database
-    ) && hasV7TagIndex(
+    ) && hasTagIndex(
       "idx_tags_root_folder_name_unique",
       columns: ["name"],
       predicate: "whereclass_id='folder'andparent_tag_idisnull",
       in: database
-    ) && hasV7TagIndex(
+    ) && hasTagIndex(
       "idx_tags_nested_folder_parent_name_unique",
       columns: ["parent_tag_id", "name"],
       predicate: "whereclass_id='folder'andparent_tag_idisnotnull",
@@ -527,7 +248,7 @@ public enum NoteStoreSchema {
     )
   }
 
-  private static func hasV7TagIndex(
+  private static func hasTagIndex(
     _ name: String,
     columns: [String],
     predicate: String,
@@ -555,8 +276,8 @@ public enum NoteStoreSchema {
     sql.lowercased().filter { !$0.isWhitespace }
   }
 
-  private static func createV7TagIndexes(in database: SQLiteDatabase) throws {
-    for statement in v7TagIndexStatements {
+  private static func createTagIndexes(in database: SQLiteDatabase) throws {
+    for statement in tagIndexStatements {
       try database.execute(statement)
     }
   }
@@ -567,100 +288,10 @@ public enum NoteStoreSchema {
     }
   }
 
-  private static func requireForeignKeysDisabled(in database: SQLiteDatabase) throws {
-    guard try database.query("PRAGMA foreign_keys").first?["foreign_keys"] == "0" else {
-      throw NoteStoreSchemaError.migrationInvariant("foreign-key enforcement could not be disabled")
-    }
-  }
-
   private static func requireForeignKeyIntegrity(in database: SQLiteDatabase) throws {
     guard try database.query("PRAGMA foreign_key_check").isEmpty else {
       throw NoteStoreSchemaError.migrationInvariant("foreign-key integrity check failed")
     }
-  }
-
-  private static func requireTagReferenceIntegrity(in database: SQLiteDatabase) throws {
-    let orphanQueries = [
-      "SELECT 1 FROM tags child LEFT JOIN tags parent ON parent.tag_id = child.parent_tag_id WHERE child.parent_tag_id IS NOT NULL AND parent.tag_id IS NULL LIMIT 1",
-      "SELECT 1 FROM note_tags assignments LEFT JOIN tags ON tags.tag_id = assignments.tag_id WHERE tags.tag_id IS NULL LIMIT 1",
-      "SELECT 1 FROM notebook_tags assignments LEFT JOIN tags ON tags.tag_id = assignments.tag_id WHERE tags.tag_id IS NULL LIMIT 1"
-    ]
-    for query in orphanQueries where try !database.query(query).isEmpty {
-      throw NoteStoreSchemaError.migrationInvariant("schema v7 migration produced an orphaned tag reference")
-    }
-  }
-
-  private static func columnExists(
-    _ columnName: String,
-    in tableName: String,
-    database: SQLiteDatabase
-  ) throws -> Bool {
-    try database.query("PRAGMA table_info(\(tableName))")
-      .contains { $0["name"] == columnName }
-  }
-
-  private static func tableExists(_ tableName: String, database: SQLiteDatabase) throws -> Bool {
-    try !database.query(
-      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
-      bindings: [.text(tableName)]
-    ).isEmpty
-  }
-}
-
-private final class NoteStoreSchemaV7MigrationFaultInjector: @unchecked Sendable {
-  static let shared = NoteStoreSchemaV7MigrationFaultInjector()
-
-  private let lock = NSLock()
-  private var injector: (@Sendable (NoteStoreSchemaV7MigrationCheckpoint) throws -> Void)?
-
-  private init() {}
-
-  func set(
-    _ injector: (@Sendable (NoteStoreSchemaV7MigrationCheckpoint) throws -> Void)?
-  ) {
-    lock.lock()
-    self.injector = injector
-    lock.unlock()
-  }
-
-  func invoke(_ checkpoint: NoteStoreSchemaV7MigrationCheckpoint) throws {
-    lock.lock()
-    let current = injector
-    lock.unlock()
-    try current?(checkpoint)
-  }
-}
-
-private struct NoteSchemaMigration: Sendable {
-  var version: Int
-  var apply: @Sendable (SQLiteDatabase) throws -> Void
-}
-
-private let schemaMigrations: [NoteSchemaMigration] = [
-  NoteSchemaMigration(version: 2, apply: NoteStoreSchema.migrateToV2),
-  NoteSchemaMigration(version: 3, apply: NoteStoreSchema.migrateToV3),
-  NoteSchemaMigration(version: 4, apply: NoteStoreSchema.migrateToV4),
-  NoteSchemaMigration(version: 5, apply: NoteStoreSchema.migrateToV5),
-  NoteSchemaMigration(version: 6, apply: NoteStoreSchema.migrateToV6),
-  NoteSchemaMigration(version: 8, apply: NoteStoreSchema.migrateToV8),
-  NoteSchemaMigration(version: 9, apply: NoteStoreSchema.migrateToV9)
-]
-
-private struct V7IdentitySnapshot: Equatable {
-  var tagIds: [String]
-  var noteAssignments: [String]
-  var notebookAssignments: [String]
-
-  static func capture(in database: SQLiteDatabase) throws -> V7IdentitySnapshot {
-    V7IdentitySnapshot(
-      tagIds: try database.query("SELECT tag_id FROM tags ORDER BY tag_id").compactMap { $0["tag_id"] },
-      noteAssignments: try database.query(
-        "SELECT note_id || char(0) || tag_id AS identity FROM note_tags ORDER BY note_id, tag_id"
-      ).compactMap { $0["identity"] },
-      notebookAssignments: try database.query(
-        "SELECT notebook_id || char(0) || tag_id AS identity FROM notebook_tags ORDER BY notebook_id, tag_id"
-      ).compactMap { $0["identity"] }
-    )
   }
 }
 
@@ -921,46 +552,7 @@ private let schemaStatements = [
   """
 ]
 
-private let v7ReplacementTagsTableStatement = """
-  CREATE TABLE tags_v7 (
-    tag_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    class_id TEXT REFERENCES tag_classes(class_id),
-    parent_tag_id TEXT REFERENCES tags(tag_id),
-    is_system INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-  )
-  """
-
-private let v10ReplacementNotebooksTableStatement = """
-  CREATE TABLE notebooks_v10 (
-    notebook_id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    read_only INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    meta_json BLOB CHECK (meta_json IS NULL OR json_valid(meta_json, 8))
-  )
-  """
-
-private let v10ReplacementTagsTableStatement = """
-  CREATE TABLE tags_v10 (
-    tag_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    class_id TEXT REFERENCES tag_classes(class_id),
-    parent_tag_id TEXT REFERENCES tags(tag_id),
-    is_system INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-  )
-  """
-
-private let v7TagIndexNames = [
-  "idx_tags_non_folder_name_unique",
-  "idx_tags_root_folder_name_unique",
-  "idx_tags_nested_folder_parent_name_unique"
-]
-
-private let v7TagIndexStatements = [
+private let tagIndexStatements = [
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_non_folder_name_unique ON tags(name) WHERE class_id IS NULL OR class_id <> 'folder'",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_root_folder_name_unique ON tags(name) WHERE class_id = 'folder' AND parent_tag_id IS NULL",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_nested_folder_parent_name_unique ON tags(parent_tag_id, name) WHERE class_id = 'folder' AND parent_tag_id IS NOT NULL"

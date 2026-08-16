@@ -37,10 +37,10 @@ export function handleComposerKeyDown(
   return true
 }
 
-/** Older servers do not understand either extension field, so keep their UI
- * and requests in lockstep. */
-export function agentComposerExtensionsEnabled(catalogAvailable: boolean, memoOnly: boolean, busy: boolean): boolean {
-  return catalogAvailable && !memoOnly && !busy
+/** Attachment, model, and note-edit controls apply to agent sends only, so
+ * they rest while memo-only is on or a submit is in flight. */
+export function agentComposerExtensionsEnabled(memoOnly: boolean, busy: boolean): boolean {
+  return !memoOnly && !busy
 }
 
 export function canEnableMemoOnly(stagedAttachmentCount: number): boolean {
@@ -111,7 +111,6 @@ export interface AgentChatComposerRequestOptions {
   newConversation: boolean
   userMarkdown: string
   idempotencyKey: string
-  extensionsAvailable: boolean
   selectedModel?: string
   /** True sends mode "edit": the agent rewrites the subject note instead of
    * answering in the conversation. */
@@ -131,7 +130,7 @@ export interface AgentChatComposerRequest {
 }
 
 /** Builds the exact agent request used by the composer. Keeping this DOM-free
- * makes the New chat and older-server contract independently regression-testable. */
+ * makes the New chat contract independently regression-testable. */
 export function buildAgentChatComposerRequest(options: AgentChatComposerRequestOptions): AgentChatComposerRequest {
   const conversationId = options.newConversation
     ? undefined
@@ -143,9 +142,9 @@ export function buildAgentChatComposerRequest(options: AgentChatComposerRequestO
     ...(conversationId ? { conversationNotebookId: conversationId } : {}),
     userMarkdown: options.userMarkdown.trim(),
     idempotencyKey: options.idempotencyKey,
-    ...(options.extensionsAvailable && options.selectedModel ? { model: options.selectedModel } : {}),
-    ...(options.extensionsAvailable && options.noteEdit ? { mode: 'edit' as const } : {}),
-    ...(options.extensionsAvailable && options.attachments.length > 0 ? { attachments: [...options.attachments] } : {}),
+    ...(options.selectedModel ? { model: options.selectedModel } : {}),
+    ...(options.noteEdit ? { mode: 'edit' as const } : {}),
+    ...(options.attachments.length > 0 ? { attachments: [...options.attachments] } : {}),
   }
 }
 

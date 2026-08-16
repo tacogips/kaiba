@@ -144,8 +144,8 @@ public extension NoteService {
         position = embeddedPositionByNote[noteIndex, default: 0]
         embeddedPositionByNote[noteIndex] = position + 1
       }
-      // Import setup finishes before the notebook receives its default
-      // read-only mode, so extracted source images remain part of the import.
+      // The imported notebook is created read-only, so this write must bypass
+      // the writable-note guard to attach the extracted source images.
       attachments.append(try storeNoteFileAttachment(
         noteId: noteId,
         data: image.data,

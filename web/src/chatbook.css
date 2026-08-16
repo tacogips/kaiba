@@ -366,8 +366,6 @@
   font-size: calc(8px * var(--fs, 1)); letter-spacing: .04em;
 }
 .memo-note-ref:disabled { color: #63788b !important; }
-.memo-composer-actions { display: flex; gap: 8px; }
-.memo-composer-actions button { flex: 1; }
 
 .info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
 .info-grid div { min-width: 0; padding: 8px; border: 1px solid #1c2b38; border-radius: 7px; }
@@ -413,7 +411,6 @@
 
 /* Chat ------------------------------------------------------------------- */
 .chat { min-height: 0; }
-.chat-picker { flex-direction: column; }
 .chat-banner {
   margin: 0; padding: 9px 10px;
   border: 1px solid #4a4126; border-radius: 8px;

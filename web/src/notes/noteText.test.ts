@@ -38,8 +38,8 @@ describe('display title', () => {
 describe('export filename', () => {
   test('slugs the title and caps the segment count', () => {
     expect(noteExportFilename('Design Decisions: W1')).toBe('design-decisions-w1.md')
-    expect(noteExportFilename('Kanban Orchestration: Add-ons & Fanout Design Review Notes Extra Tail'))
-      .toBe('kanban-orchestration-add-ons-fanout-design-review-notes.md')
+    expect(noteExportFilename('Chatbook Orchestration: Add-ons & Fanout Design Review Notes Extra Tail'))
+      .toBe('chatbook-orchestration-add-ons-fanout-design-review-notes.md')
     expect(noteExportFilename('   ')).toBe('note.md')
   })
 

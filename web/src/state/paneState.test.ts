@@ -55,7 +55,7 @@ describe('pane state persistence', () => {
   })
 
   test('pre-merge tab names land on the unified memo tab', () => {
-    expect(parsePaneState('{"rightTab":"memos"}').rightTab).toBe('memo')
+    expect(parsePaneState('{"rightTab":"unknown"}').rightTab).toBe('memo')
     expect(parsePaneState('{"rightTab":"chat"}').rightTab).toBe('memo')
   })
 

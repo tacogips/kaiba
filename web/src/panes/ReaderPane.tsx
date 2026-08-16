@@ -359,8 +359,8 @@ function NoteSection(props: {
   })
 
   // Attachment discovery waits for the section to mount so a long notebook
-  // does not fire hundreds of queries up front. An older server without the
-  // noteFiles field simply leaves the note without an image arrow.
+  // does not fire hundreds of queries up front; a failed lookup leaves the
+  // note without an image arrow.
   createEffect(() => {
     if (!mounted() || imagesFetched) return
     imagesFetched = true

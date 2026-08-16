@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
+import { formatTimestamp } from '../notes/format'
 import { MarkdownBody } from './Markdown'
 import { MemoTab, type MemoSubject } from './MemoTab'
 import { TabPanel, Tabs, type TabDescriptor } from './Tabs'
@@ -137,25 +138,61 @@ function TagHistoryTab(props: { tagId: string }): JSX.Element {
   const [exhausted, setExhausted] = createSignal(true)
   const [error, setError] = createSignal('')
   let generation = 0
+  let loadedTagId = ''
 
   createEffect(() => {
     const tagId = props.tagId
     void revisionPulse(app.state.notebookRevisions, app.state.catalogRevision)
-    void load(tagId)
+    // A revision-driven refresh of the same tag reloads the pages already on
+    // screen; only a tag switch snaps back to the first page.
+    const target = tagId === loadedTagId ? untrack(comments).length : 0
+    loadedTagId = tagId
+    void reload(tagId, target)
   })
 
-  const load = async (tagId: string, offset = 0) => {
+  onCleanup(() => { generation += 1 })
+
+  /** Replaces the list with up to `target` entries re-fetched page by page
+   * (at least one page), preserving "Load older memos" progress. */
+  const reload = async (tagId: string, target: number) => {
     const requested = ++generation
+    const pages = Math.max(1, Math.ceil(target / tagCommentsPageLimit))
     setLoading(true)
-    if (offset === 0) setError('')
+    setError('')
     try {
-      const page = await app.client.tagComments(tagId, offset, tagCommentsPageLimit)
+      let all: TagComment[] = []
+      let sawShortPage = false
+      for (let page = 0; page < pages; page += 1) {
+        const chunk = await app.client.tagComments(tagId, page * tagCommentsPageLimit, tagCommentsPageLimit)
+        if (requested !== generation) return
+        all = all.concat(chunk)
+        if (chunk.length < tagCommentsPageLimit) {
+          sawShortPage = true
+          break
+        }
+      }
+      setComments(all)
+      setExhausted(sawShortPage)
+    } catch (loadError) {
       if (requested !== generation) return
-      setComments((current) => offset === 0 ? page : [...current, ...page])
+      setComments([])
+      setError(errorMessage(loadError))
+    } finally {
+      if (requested === generation) setLoading(false)
+    }
+  }
+
+  const loadOlder = async () => {
+    const requested = ++generation
+    const offset = comments().length
+    setLoading(true)
+    try {
+      const page = await app.client.tagComments(props.tagId, offset, tagCommentsPageLimit)
+      if (requested !== generation) return
+      setComments((current) => [...current, ...page])
       setExhausted(page.length < tagCommentsPageLimit)
     } catch (loadError) {
       if (requested !== generation) return
-      if (offset === 0) setComments([])
       setError(errorMessage(loadError))
     } finally {
       if (requested === generation) setLoading(false)
@@ -200,7 +237,7 @@ function TagHistoryTab(props: { tagId: string }): JSX.Element {
           type="button"
           class="secondary"
           disabled={loading()}
-          onClick={() => void load(props.tagId, comments().length)}
+          onClick={() => void loadOlder()}
         >{loading() ? 'Loading…' : 'Load older memos'}</button>
       </Show>
     </div>
@@ -216,13 +253,14 @@ function TagLinksTab(props: { tagId: string; tagName?: string }): JSX.Element {
   const [error, setError] = createSignal('')
   let generation = 0
   let loadedTagId = ''
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
   createEffect(() => {
     const tagId = props.tagId
     const tagName = props.tagName
     void revisionPulse(app.state.notebookRevisions, app.state.catalogRevision)
-    const requested = ++generation
-    if (tagId !== loadedTagId) {
+    const isSameTag = tagId === loadedTagId
+    if (!isSameTag) {
       setOccurrences(transitionTagOccurrences(loadedTagId, tagId, untrack(occurrences)))
       loadedTagId = tagId
     }
@@ -232,17 +270,27 @@ function TagLinksTab(props: { tagId: string; tagName?: string }): JSX.Element {
       setLoading(false)
       return
     }
-    void load(tagName, requested)
+    if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+    if (!isSameTag) {
+      void load(tagName, ++generation)
+      return
+    }
+    // Revision pulses arrive in bursts (each agent turn bumps a notebook);
+    // coalesce same-tag refreshes so the full occurrence walk runs once.
+    refreshTimer = setTimeout(() => { void load(tagName, ++generation) }, 400)
   })
 
-  onCleanup(() => { generation += 1 })
+  onCleanup(() => {
+    generation += 1
+    if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+  })
 
   const load = async (tagName: string, requested: number) => {
     setLoading(true)
     try {
       const notes = await loadTagOccurrences(
         tagName,
-        (name, offset) => app.client.notesByTag(name, offset),
+        (name, offset, limit) => app.client.notesByTag(name, offset, limit),
         () => requested === generation,
       )
       if (requested !== generation) return
@@ -304,11 +352,4 @@ function revisionPulse(revisions: Record<string, number>, catalogRevision: numbe
   let total = catalogRevision
   for (const key of Object.keys(revisions)) total += revisions[key] ?? 0
   return total
-}
-
-function formatTimestamp(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }

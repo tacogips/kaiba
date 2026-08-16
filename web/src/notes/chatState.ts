@@ -19,10 +19,6 @@ export interface ChatTurn {
   mode?: 'memo' | 'edit'
 }
 
-/** Reply status reported by `sendAgentChatMessage`. `error` is the transport's
- * own failure, not a status the server returns for an accepted turn. */
-export type AgentSendStatus = 'pending' | 'agent-unavailable' | 'answered' | 'failed' | 'error'
-
 const assistantHeading = '\n## Agent\n'
 const userHeading = '\n## User\n'
 const noReplyPlaceholder = '_(no reply yet)_'
@@ -66,32 +62,6 @@ export function chatTurns(notes: Note[]): ChatTurn[] {
   return [...notes]
     .sort((left, right) => left.noteNumber - right.noteNumber)
     .map(parseChatTurn)
-}
-
-export function hasPendingTurn(turns: ChatTurn[]): boolean {
-  return turns.some((turn) => turn.status === 'pending')
-}
-
-export function isUnansweredTurn(turn: ChatTurn): boolean {
-  return turn.status === 'pending' || turn.status === 'unavailable'
-}
-
-export function agentUnavailable(status: AgentSendStatus | undefined): boolean {
-  return status === 'agent-unavailable'
-}
-
-/** Banner copy for the composer, or nothing when the runtime answered normally. */
-export function sendStatusMessage(status: AgentSendStatus): string | undefined {
-  switch (status) {
-    case 'agent-unavailable':
-      return 'Agent runtime not configured. The message is saved and will be answered once an agent is available.'
-    case 'failed':
-      return 'The agent could not answer that message. Retry to send it again.'
-    case 'error':
-      return 'The server rejected the message.'
-    default:
-      return undefined
-  }
 }
 
 export function turnStatusLabel(status: ChatTurnStatus): string {

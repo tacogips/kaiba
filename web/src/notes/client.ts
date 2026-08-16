@@ -1,4 +1,3 @@
-import { api } from '../api'
 import type {
   AgentChatMessageResult,
   AgentChatAttachmentInput,
@@ -8,7 +7,6 @@ import type {
   AgentReplyStreamPoll,
   ControlResult,
   GraphQLEnvelope,
-  HostMode,
   MutationPayload,
   Note,
   Notebook,
@@ -32,7 +30,6 @@ export interface NoteClientEnvironment {
   getSessionItem(key: string): string | null
   setSessionItem(key: string, value: string): void
   removeSessionItem(key: string): void
-  appHeaders(): Record<string, string>
   currentURL(): string
   replaceURL(value: string): void
 }
@@ -51,12 +48,11 @@ export class NoteTransportError extends Error {
 export class NoteGraphQLClient {
   private readonly environment: NoteClientEnvironment
 
-  constructor(readonly mode: HostMode, environment?: NoteClientEnvironment) {
+  constructor(environment?: NoteClientEnvironment) {
     this.environment = environment ?? browserEnvironment()
   }
 
   async initialize(): Promise<void> {
-    if (this.mode !== 'cli-serve') return
     const url = new URL(this.environment.currentURL())
     const code = url.searchParams.get('code')
     if (!code) return
@@ -75,18 +71,12 @@ export class NoteGraphQLClient {
     this.environment.setSessionItem(bearerKey, bearer)
   }
 
-  hasCredential(): boolean {
-    return this.mode === 'riela-app' || Boolean(this.environment.getSessionItem(bearerKey))
-  }
-
   /** Headers for the streaming note-events request (EventSource cannot send
    * an Authorization header, so the stream uses fetch with these). */
   streamHeaders(): Record<string, string> {
-    const headers: Record<string, string> = { ...this.environment.appHeaders() }
-    if (this.mode === 'cli-serve') {
-      const bearer = this.environment.getSessionItem(bearerKey)
-      if (bearer) headers.Authorization = `Bearer ${bearer}`
-    }
+    const headers: Record<string, string> = {}
+    const bearer = this.environment.getSessionItem(bearerKey)
+    if (bearer) headers.Authorization = `Bearer ${bearer}`
     return headers
   }
 
@@ -274,7 +264,7 @@ export class NoteGraphQLClient {
 
   /** Cross-notebook occurrences: every note carrying the tag (or a
    * descendant), newest first. */
-  async notesByTag(tagName: string, offset = 0): Promise<Note[]> {
+  async notesByTag(tagName: string, offset = 0, limit = notebookPageLimit): Promise<Note[]> {
     return this.queryValue<{ notes: QueryPayload<Note[]> }, Note[]>('NotesByTag', `
       query NotesByTag($tagFilter: [String!], $limit: Int, $offset: Int) {
         notes(tagFilter: $tagFilter, limit: $limit, offset: $offset) {
@@ -285,7 +275,7 @@ export class NoteGraphQLClient {
           }
         }
       }
-    `, { tagFilter: [tagName], limit: notebookPageLimit, offset }, (data) => data.notes)
+    `, { tagFilter: [tagName], limit, offset }, (data) => data.notes)
   }
 
   /** Finds or creates the tag's memo/chat notebook. */
@@ -496,19 +486,6 @@ export class NoteGraphQLClient {
     ensureAccepted(data.setAppSetting.result)
   }
 
-  async defineFolder(name: string, classId: string, parentTagId?: string): Promise<NoteTag> {
-    const payload = await this.mutation('DefineFolder', `
-      mutation DefineFolder($input: DefineNoteTagInput!) {
-        defineNoteTag(input: $input) {
-          result { accepted status diagnostics }
-          tag { tagId name classId parentTagId isSystem createdAt }
-        }
-      }
-    `, { input: { name, classId, ...(parentTagId ? { parentTagId } : {}), createOnly: true } }, 'defineNoteTag')
-    if (!payload.tag) throw new NoteTransportError('The server did not return the created folder.', 'result')
-    return payload.tag
-  }
-
   async applyTagById(notebookId: string, tagId: string): Promise<Notebook> {
     return this.notebookMutation('ApplyNotebookTagIds', `
       mutation ApplyNotebookTagIds($input: ApplyNotebookTagIdsInput!) {
@@ -637,20 +614,6 @@ export class NoteGraphQLClient {
     }
   }
 
-  async setNoteReadOnly(noteId: string, readOnly: boolean): Promise<Note> {
-    const data = await this.request<{ setNoteReadOnly: { result: { accepted: boolean; status: string; diagnostics: string[] }; note?: Note | null } }>('SetNoteReadOnly', `
-      mutation SetNoteReadOnly($noteId: String!, $readOnly: Boolean!) {
-        setNoteReadOnly(noteId: $noteId, readOnly: $readOnly) {
-          result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
-        }
-      }
-    `, { noteId, readOnly })
-    ensureAccepted(data.setNoteReadOnly.result)
-    if (!data.setNoteReadOnly.note) throw new NoteTransportError('The server did not return the updated note.', 'result')
-    return data.setNoteReadOnly.note
-  }
-
   async applyNoteTag(noteId: string, tagName: string, classId?: string): Promise<void> {
     const data = await this.request<{ applyNoteTags: { result: { accepted: boolean; status: string; diagnostics: string[] } } }>('ApplyNoteTags', `
       mutation ApplyNoteTags($input: ApplyNoteTagsInput!) {
@@ -658,15 +621,6 @@ export class NoteGraphQLClient {
       }
     `, { input: { noteId, tags: [{ name: tagName, ...(classId ? { classId } : {}) }], provenance: 'human', assignedBy: 'kaiba-web' } })
     ensureAccepted(data.applyNoteTags.result)
-  }
-
-  async removeNoteTag(noteId: string, tagName: string): Promise<void> {
-    const data = await this.request<{ removeNoteTag: { result: { accepted: boolean; status: string; diagnostics: string[] } } }>('RemoveNoteTag', `
-      mutation RemoveNoteTag($noteId: String!, $tagName: String!, $provenance: String) {
-        removeNoteTag(noteId: $noteId, tagName: $tagName, provenance: $provenance) { result { accepted status diagnostics } }
-      }
-    `, { noteId, tagName, provenance: 'human' })
-    ensureAccepted(data.removeNoteTag.result)
   }
 
   private async notebookMutation(
@@ -709,14 +663,12 @@ export class NoteGraphQLClient {
     query: string,
     variables: Record<string, unknown>,
   ): Promise<T> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...this.environment.appHeaders() }
-    if (this.mode === 'cli-serve') {
-      // Send the bearer when registered; without one the request still goes
-      // out so a `kaiba serve --allow-unauthenticated` host works, and an
-      // auth-required host answers 401 with a registration hint.
-      const bearer = this.environment.getSessionItem(bearerKey)
-      if (bearer) headers.Authorization = `Bearer ${bearer}`
-    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    // Send the bearer when registered; without one the request still goes
+    // out so a `kaiba serve --allow-unauthenticated` host works, and an
+    // auth-required host answers 401 with a registration hint.
+    const bearer = this.environment.getSessionItem(bearerKey)
+    if (bearer) headers.Authorization = `Bearer ${bearer}`
     let response: Response
     try {
       response = await this.environment.request('/graphql', {
@@ -729,7 +681,7 @@ export class NoteGraphQLClient {
       throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
     }
     const envelope = await parseJSON<GraphQLEnvelope<T>>(response)
-    if (response.status === 401 && this.mode === 'cli-serve') this.environment.removeSessionItem(bearerKey)
+    if (response.status === 401) this.environment.removeSessionItem(bearerKey)
     if (!response.ok) {
       throw new NoteTransportError(envelope.error ?? `Request failed (${response.status}).`, 'http', response.status)
     }
@@ -751,7 +703,6 @@ function browserEnvironment(): NoteClientEnvironment {
     getSessionItem: (key) => sessionStorage.getItem(key),
     setSessionItem: (key, value) => sessionStorage.setItem(key, value),
     removeSessionItem: (key) => sessionStorage.removeItem(key),
-    appHeaders: () => api.noteHeaders(),
     currentURL: () => window.location.href,
     replaceURL: (value) => history.replaceState(null, '', value),
   }

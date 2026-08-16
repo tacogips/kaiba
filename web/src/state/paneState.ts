@@ -1,6 +1,7 @@
 // Fold and tab state for all three panes. Persisted so a reload keeps the
 // reader arranged the way it was left; every read is defensive because the
-// stored value is user-editable and may predate a tab rename.
+// stored value is user-editable, and unrecognized values fall back to the
+// defaults.
 
 export type LeftTab = 'files' | 'contents'
 export type CenterTab = 'list' | 'notebook'
@@ -64,7 +65,9 @@ export function parsePaneState(raw: string | null): PaneState {
     centerTab: centerTabs.includes(record.centerTab as CenterTab)
       ? record.centerTab as CenterTab
       : defaultPaneState.centerTab,
-    rightTab: normalizeRightTab(record.rightTab),
+    rightTab: rightTabs.includes(record.rightTab as RightTab)
+      ? record.rightTab as RightTab
+      : defaultPaneState.rightTab,
     ...(typeof record.leftWidth === 'number' && Number.isFinite(record.leftWidth)
       ? { leftWidth: clampPaneWidth('left', record.leftWidth) }
       : {}),
@@ -72,14 +75,6 @@ export function parsePaneState(raw: string | null): PaneState {
       ? { rightWidth: clampPaneWidth('right', record.rightWidth) }
       : {}),
   }
-}
-
-/** Stored values from before memos and chat merged ("memos", "chat") land on
- * the unified memo tab rather than resetting the whole pane state. */
-function normalizeRightTab(raw: unknown): RightTab {
-  if (rightTabs.includes(raw as RightTab)) return raw as RightTab
-  if (raw === 'memos' || raw === 'chat') return 'memo'
-  return defaultPaneState.rightTab
 }
 
 export function serializePaneState(state: PaneState): string {

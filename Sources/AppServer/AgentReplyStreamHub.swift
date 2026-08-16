@@ -28,7 +28,9 @@ public actor AgentReplyStreamHub {
     var done = false
     var status: String?
     var message: String?
-    var sequence: UInt64
+    /// Bumped on every publish; orders non-terminal streams for staleness
+    /// eviction.
+    var lastActivitySequence: UInt64
     var terminalSequence: UInt64?
     var deliveryObligations: Set<UUID> = []
     var firstTerminalDeliverySatisfied = false
@@ -80,9 +82,12 @@ public actor AgentReplyStreamHub {
   public func publish(turnNoteId: String, text: String) {
     var stream = streams[turnNoteId] ?? makeStream()
     stream.chunks.append(text)
+    sequence += 1
+    stream.lastActivitySequence = sequence
     streams[turnNoteId] = stream
     wakePolls(for: turnNoteId)
     cleanupEligibleTerminalStreams()
+    evictStaleActiveStreams()
   }
 
   public func finish(turnNoteId: String, status: String, message: String?) {
@@ -143,7 +148,7 @@ public actor AgentReplyStreamHub {
 
   private func makeStream() -> Stream {
     sequence += 1
-    return Stream(sequence: sequence)
+    return Stream(lastActivitySequence: sequence)
   }
 
   /// Nil while there is nothing new past `cursor` and the stream is not done.
@@ -257,6 +262,21 @@ public actor AgentReplyStreamHub {
     }
   }
 
+  /// The dispatcher normally finishes every stream, but an invoker that hangs
+  /// mid-reply never does — without a bound those streams would retain their
+  /// partial chunks forever. Past the retention target the least-recently
+  /// active non-terminal streams are dropped; terminal streams keep their
+  /// delivery-obligation rules above.
+  private func evictStaleActiveStreams() {
+    let active = streams.compactMap { id, stream -> (String, UInt64)? in
+      stream.done ? nil : (id, stream.lastActivitySequence)
+    }.sorted { $0.1 < $1.1 }
+    let excess = max(0, active.count - maximumRetainedStreams)
+    for (id, _) in active.prefix(excess) {
+      streams.removeValue(forKey: id)
+    }
+  }
+
   // Internal observability for actor-level regression coverage. These are not
   // part of the HTTP contract.
   func pendingPollCount(for turnNoteId: String) -> Int {
@@ -299,9 +319,11 @@ public final class AgentReplyStreamHubPublisher: AgentReplyStreamPublishing, @un
     }
   }
 
+  // The pump is deliberately not cancelled: finishing the continuation lets
+  // it drain events already buffered — cancelling here could drop a
+  // buffered `.finish` and strand its stream as never-terminal.
   deinit {
     continuation.finish()
-    pump.cancel()
   }
 
   public func publishAgentReplyChunk(turnNoteId: String, text: String) {

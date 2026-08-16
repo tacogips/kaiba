@@ -63,11 +63,10 @@ describe('memo composer state', () => {
     expect(composerAttachmentMediaType({ name: 'fallback.txt', type: 'binary/octet-stream' } as File)).toBe('text/plain')
   })
 
-  test('keeps model and attachment extensions disabled together for old servers', () => {
-    expect(agentComposerExtensionsEnabled(false, false, false)).toBe(false)
-    expect(agentComposerExtensionsEnabled(true, true, false)).toBe(false)
-    expect(agentComposerExtensionsEnabled(true, false, true)).toBe(false)
-    expect(agentComposerExtensionsEnabled(true, false, false)).toBe(true)
+  test('rests model and attachment controls during memo-only and while busy', () => {
+    expect(agentComposerExtensionsEnabled(true, false)).toBe(false)
+    expect(agentComposerExtensionsEnabled(false, true)).toBe(false)
+    expect(agentComposerExtensionsEnabled(false, false)).toBe(true)
     expect(canEnableMemoOnly(0)).toBe(true)
     expect(canEnableMemoOnly(1)).toBe(false)
   })
@@ -88,7 +87,6 @@ describe('memo composer state', () => {
       conversations: [{ notebookId: 'conversation-old', title: 'Old', updatedAt: '2026-08-13T00:00:00Z', turnCount: 2, subjectNoteId: 'note-1' }],
       userMarkdown: '  Ask this  ',
       idempotencyKey: 'turn-1',
-      extensionsAvailable: true,
       selectedModel: 'openai/gpt-5-mini',
       attachments: [{ contentBase64: 'eA==', mediaType: 'text/plain', originalFilename: 'x.txt' }],
     }
@@ -103,13 +101,12 @@ describe('memo composer state', () => {
     }).conversationNotebookId).toBe('conversation-new')
   })
 
-  test('memo-only stays on the memo path and old-server requests omit extension fields', () => {
+  test('memo-only stays on the memo path and bare requests omit optional fields', () => {
     expect(composerSubmitKind(true)).toBe('memo')
     expect(composerSubmitKind(false)).toBe('agent')
     const request = buildAgentChatComposerRequest({
       subject: { kind: 'notebook', id: 'notebook-1' }, conversations: [], newConversation: false,
-      userMarkdown: 'Message', idempotencyKey: 'turn-2', extensionsAvailable: false,
-      selectedModel: 'saved-model', attachments: [{ contentBase64: 'eA==', mediaType: 'text/plain', originalFilename: 'x.txt' }],
+      userMarkdown: 'Message', idempotencyKey: 'turn-2', attachments: [],
     })
     expect(request).toEqual({ subjectNotebookId: 'notebook-1', userMarkdown: 'Message', idempotencyKey: 'turn-2' })
   })
@@ -159,7 +156,7 @@ describe('memo composer state', () => {
     })
   })
 
-  test('note edit sends mode "edit" only on servers with composer extensions', () => {
+  test('note edit sends mode "edit" exactly when the toggle is on', () => {
     const options = {
       subject: { kind: 'note' as const, id: 'note-1' },
       conversations: [],
@@ -168,14 +165,8 @@ describe('memo composer state', () => {
       idempotencyKey: 'turn-3',
       attachments: [],
     }
-    expect(buildAgentChatComposerRequest({ ...options, extensionsAvailable: true, noteEdit: true }).mode)
-      .toBe('edit')
-    expect(buildAgentChatComposerRequest({ ...options, extensionsAvailable: true, noteEdit: false }).mode)
-      .toBeUndefined()
-    // An old server would silently ignore the field and answer as a memo,
-    // which must never masquerade as an applied edit.
-    expect(buildAgentChatComposerRequest({ ...options, extensionsAvailable: false, noteEdit: true }).mode)
-      .toBeUndefined()
+    expect(buildAgentChatComposerRequest({ ...options, noteEdit: true }).mode).toBe('edit')
+    expect(buildAgentChatComposerRequest({ ...options, noteEdit: false }).mode).toBeUndefined()
   })
 
   test('normalizes persisted model selection against the current catalog fallback', () => {

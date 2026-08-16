@@ -85,22 +85,6 @@ export function formatRoute(route: Route): string {
   }
 }
 
-export function routeNoteId(route: Route): string | undefined {
-  return route.kind === 'note' ? route.noteId : undefined
-}
-
-export function routeNotebookId(route: Route): string | undefined {
-  return route.kind === 'notebook' ? route.notebookId : undefined
-}
-
-export function routeConversationId(route: Route): string | undefined {
-  return route.kind === 'note' || route.kind === 'notebook' ? route.conversationId : undefined
-}
-
-export function routesEqual(left: Route, right: Route): boolean {
-  return formatRoute(left) === formatRoute(right)
-}
-
 /** Same route with a different open conversation; routes without a reader
  * selection carry no conversation and are returned unchanged. */
 export function withConversation(route: Route, conversationId?: string): Route {

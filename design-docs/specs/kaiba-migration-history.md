@@ -283,3 +283,20 @@ memory as consolidated notes in a canonical notebook, linked into the
 - The web UI's `#/config` screen edits the font scale; the `--fs` CSS
   variable multiplies every font size, pane widths are drag-resizable
   (persisted per browser with the fold state, not in sqlite).
+
+## Board removal and no-backcompat schema (2026-08-15)
+
+- The kanban board ported from riela (status sets, board queries,
+  notebook progress, `BoardView`) was removed in cbc2a93; the entries
+  above describing it are historical inventory, not current features.
+- Schema v10 dropped the board/status persistence. The migration ladder
+  itself was then removed entirely: `NoteStoreSchema.prepare` creates
+  fresh stores directly at `currentVersion`, accepts stores already at
+  that version, and rejects older stores with
+  `unsupportedLegacyVersion` (and newer ones with
+  `unsupportedFutureVersion`). Kaiba no longer migrates riela-era or
+  pre-v10 stores.
+- The web app dropped its riela-host residue: the `riela-app` host
+  mode, CSRF bootstrap client (`api.ts`/`contracts.ts`), polling
+  controller, created-range filter, QR registration component, and the
+  legacy `memos`/`chat` pane-tab normalization.

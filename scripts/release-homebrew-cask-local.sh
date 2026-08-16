@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 artifact_name="kaiba"
-github_repository="user/repo"
+github_repository="tacogips/kaiba"
 
 usage() {
   cat <<EOF
@@ -100,5 +100,5 @@ scripts/render-homebrew-cask.sh "$version" "$tap_cask_file"
 printf '\nRendered tap cask: %s\n' "$tap_cask_file"
 printf 'Review, commit, and push the tap change from the tap repository.\n'
 printf 'Then install with:\n'
-printf '  brew tap user/tap\n'
+printf '  brew tap tacogips/tap\n'
 printf '  brew install --cask kaiba\n'

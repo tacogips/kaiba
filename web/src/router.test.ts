@@ -3,10 +3,6 @@ import {
   formatRoute,
   navigate,
   parseRoute,
-  routeConversationId,
-  routeNoteId,
-  routeNotebookId,
-  routesEqual,
   routeTagId,
   subscribeRoute,
   withConversation,
@@ -42,7 +38,7 @@ describe('route parsing', () => {
     expect(parseRoute('#/')).toEqual({ kind: 'home' })
     expect(parseRoute('#/notebook/nb-1')).toEqual({ kind: 'notebook', notebookId: 'nb-1' })
     expect(parseRoute('#/note/note-1')).toEqual({ kind: 'note', noteId: 'note-1' })
-    expect(parseRoute('#/board')).toEqual({ kind: 'home' })
+    expect(parseRoute('#/unknown')).toEqual({ kind: 'home' })
   })
 
   test('reads the open conversation from the query', () => {
@@ -99,15 +95,6 @@ describe('route formatting', () => {
       { kind: 'note', noteId: 'note/1', conversationId: 'conv 9' },
     ]
     for (const route of routes) expect(parseRoute(formatRoute(route))).toEqual(route)
-  })
-
-  test('exposes selection accessors and equality', () => {
-    const route = parseRoute('#/note/note-1?conv=conv-9')
-    expect(routeNoteId(route)).toBe('note-1')
-    expect(routeNotebookId(route)).toBeUndefined()
-    expect(routeConversationId(route)).toBe('conv-9')
-    expect(routesEqual(route, parseRoute('#/note/note-1?conv=conv-9'))).toBe(true)
-    expect(routesEqual(route, parseRoute('#/note/note-1'))).toBe(false)
   })
 
   test('replaces and clears the open conversation', () => {

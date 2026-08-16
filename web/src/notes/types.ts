@@ -1,5 +1,4 @@
 export type NoteListSort = 'updatedAtDesc' | 'title' | 'createdAtDesc' | 'createdAtAsc'
-export type HostMode = 'riela-app' | 'cli-serve'
 
 export interface ControlResult {
   accepted: boolean

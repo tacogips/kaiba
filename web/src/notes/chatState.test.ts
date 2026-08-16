@@ -1,13 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  agentUnavailable,
   assistantMarkdown,
   chatTurns,
-  hasPendingTurn,
-  isUnansweredTurn,
   newIdempotencyKey,
   parseChatTurn,
-  sendStatusMessage,
   turnStatusLabel,
 } from './chatState'
 import type { Note } from './types'
@@ -59,7 +55,6 @@ describe('turn status parsing', () => {
     expect(turn.status).toBe('pending')
     expect(turn.userMarkdown).toBe('typed question')
     expect(turn.assistantMarkdown).toBeUndefined()
-    expect(isUnansweredTurn(turn)).toBe(true)
   })
 
   test('unavailable turn is unanswered but not pending', () => {
@@ -69,8 +64,6 @@ describe('turn status parsing', () => {
       metaJSON: meta({ status: 'unavailable', userMarkdown: 'typed question' }),
     }))
     expect(turn.status).toBe('unavailable')
-    expect(isUnansweredTurn(turn)).toBe(true)
-    expect(hasPendingTurn([turn])).toBe(false)
     expect(turnStatusLabel(turn.status)).toBe('Unanswered')
   })
 
@@ -93,7 +86,6 @@ describe('turn status parsing', () => {
     }))
     expect(turn.status).toBe('failed')
     expect(turn.error).toBe('agent timed out')
-    expect(isUnansweredTurn(turn)).toBe(false)
   })
 
   test('unreadable metadata falls back to the body', () => {
@@ -135,26 +127,9 @@ describe('transcript assembly', () => {
     expect(turns.map((turn) => turn.userMarkdown)).toEqual(['first', 'second', 'third'])
   })
 
-  test('pending detection drives the waiting spinner', () => {
-    const turns = chatTurns([
-      turnNote({ noteNumber: 1, bodyMarkdown: body('a', 'answered'), metaJSON: meta({ status: 'answered' }) }),
-      turnNote({ noteNumber: 2, bodyMarkdown: body('b', '_(no reply yet)_'), metaJSON: meta({ status: 'pending' }) }),
-    ])
-    expect(hasPendingTurn(turns)).toBe(true)
-  })
 })
 
 describe('send status', () => {
-  test('maps server statuses to composer messaging', () => {
-    expect(agentUnavailable('agent-unavailable')).toBe(true)
-    expect(agentUnavailable('pending')).toBe(false)
-    expect(sendStatusMessage('agent-unavailable')).toContain('Agent runtime not configured')
-    expect(sendStatusMessage('failed')).toContain('Retry')
-    expect(sendStatusMessage('error')).toContain('rejected')
-    expect(sendStatusMessage('pending')).toBeUndefined()
-    expect(sendStatusMessage('answered')).toBeUndefined()
-  })
-
   test('every retry gets a fresh idempotency key', () => {
     let counter = 0
     const first = newIdempotencyKey(() => { counter += 1; return counter / 10 })

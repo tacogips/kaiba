@@ -16,7 +16,6 @@ describe('MemoComposerControls', () => {
       models: [{ modelId: 'configured', displayName: 'Configured model' }],
       selectedModel: 'configured',
       extensionsEnabled: true,
-      catalogAvailable: true,
       onStageFiles: () => undefined,
       onToggleMemoOnly: () => undefined,
       onToggleNoteEdit: () => undefined,
@@ -41,7 +40,7 @@ describe('MemoComposerControls', () => {
     dispose()
   })
 
-  test('renders unavailable extensions as disabled while retaining the agent submit path', () => {
+  test('renders resting extension controls as disabled while retaining the agent submit path', () => {
     const container = document.createElement('div')
     const dispose = render(() => createComponent(MemoComposerControls, {
       memoOnly: false,
@@ -52,7 +51,6 @@ describe('MemoComposerControls', () => {
       attachments: [],
       models: [],
       extensionsEnabled: false,
-      catalogAvailable: false,
       onStageFiles: () => undefined,
       onToggleMemoOnly: () => undefined,
       onToggleNoteEdit: () => undefined,
@@ -63,7 +61,7 @@ describe('MemoComposerControls', () => {
     }), container)
     const html = container.innerHTML
 
-    expect(html).toContain('title="Attachments require a newer server"')
+    expect(html).toContain('title="Attach text files"')
     expect(html).toContain('aria-disabled="true"')
     expect(html).toContain('title="Note edit mode requires a writable note"')
     expect(html).toContain('aria-label="Send message"')

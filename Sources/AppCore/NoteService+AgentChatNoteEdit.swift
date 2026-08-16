@@ -48,22 +48,23 @@ public extension NoteService {
   }
 
   /// Applies an edit-mode reply to the subject note and returns the assistant
-  /// markdown to persist on the turn. Throws when the note refuses the write
-  /// (for example, it was locked after the turn was accepted).
+  /// markdown to persist on the turn, plus whether the note was rewritten.
+  /// Throws when the note refuses the write (for example, it was locked after
+  /// the turn was accepted).
   internal func applyNoteEditReply(
     _ markdown: String,
     subjectNoteId: String,
     originatingActionId: String?
-  ) throws -> String {
+  ) throws -> (assistantMarkdown: String, updatedNote: Bool) {
     let parsed = Self.noteEditReply(from: markdown)
     guard let bodyMarkdown = parsed.bodyMarkdown else {
-      return markdown
+      return (markdown, false)
     }
     _ = try updateNoteBody(
       noteId: subjectNoteId,
       bodyMarkdown: bodyMarkdown,
       originatingActionId: originatingActionId
     )
-    return parsed.commentary.isEmpty ? "Updated the note." : parsed.commentary
+    return (parsed.commentary.isEmpty ? "Updated the note." : parsed.commentary, true)
   }
 }

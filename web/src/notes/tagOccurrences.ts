@@ -2,7 +2,9 @@ import type { Note } from './types'
 
 export const tagOccurrencesPageLimit = 200
 
-export type TagOccurrencePageLoader = (tagName: string, offset: number) => Promise<Note[]>
+/** Loaders receive the page limit explicitly so the "was this page full"
+ * check below can never drift from the size actually requested. */
+export type TagOccurrencePageLoader = (tagName: string, offset: number, limit: number) => Promise<Note[]>
 
 /** Synchronous state transition used by the tag Links controller before it
  * starts a request. Changing tag identity must remove all old link targets. */
@@ -26,7 +28,7 @@ export async function loadTagOccurrences(
   let offset = 0
 
   while (isCurrent()) {
-    const page = await loadPage(tagName, offset)
+    const page = await loadPage(tagName, offset, tagOccurrencesPageLimit)
     if (!isCurrent()) return undefined
 
     const newNotes = page.filter((note) => !seenNoteIds.has(note.noteId))

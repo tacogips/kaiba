@@ -204,18 +204,11 @@ public extension NoteService {
         """,
         bindings: expanded.map(SQLiteValue.text)
       )
-      var context = utf8Prefix(heading, limit: limitBytes)
-      guard context.utf8.count == heading.utf8.count else { return context }
-      for row in rows {
-        let remaining = limitBytes - context.utf8.count
-        guard remaining > 0 else { break }
-        guard let markdown = row["body_markdown"] else { continue }
-        let section = "\n\n---\n\n" + markdown
-        let fitted = utf8Prefix(section, limit: remaining)
-        context += fitted
-        if fitted.utf8.count < section.utf8.count { break }
-      }
-      return context
+      return boundedMarkdownContext(
+        heading: heading,
+        sections: rows.compactMap { $0["body_markdown"] },
+        limitBytes: limitBytes
+      )
     }
   }
 
@@ -245,21 +238,6 @@ public extension NoteService {
     }
     return json
   }
-}
-
-/// Returns the longest prefix whose UTF-8 encoding is at most `limit` bytes.
-/// Iterating Unicode scalars avoids splitting a multi-byte scalar encoding.
-func utf8Prefix(_ value: String, limit: Int) -> String {
-  guard limit > 0 else { return "" }
-  var result = ""
-  var used = 0
-  for scalar in value.unicodeScalars {
-    let scalarBytes = String(scalar).utf8.count
-    guard used + scalarBytes <= limit else { break }
-    result.unicodeScalars.append(scalar)
-    used += scalarBytes
-  }
-  return result
 }
 
 func findTagMemoNotebookId(tagId: String, in database: SQLiteDatabase) throws -> String? {
