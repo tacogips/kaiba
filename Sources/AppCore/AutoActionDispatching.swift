@@ -312,7 +312,8 @@ extension NoteService {
     in database: SQLiteDatabase
   ) throws -> [QueuedAutoActionDispatch] {
     // Pending rows are recorded regardless of whether a dispatcher is wired,
-    // so a later `riela note auto-action retry` (or app tick) can run them.
+    // so a later retry entry point (`kaiba serve` startup recovery or its
+    // maintenance tick) can run them.
     // Workflow-originated writes are still suppressed to avoid dispatch loops.
     guard event.originatingActionId == nil else {
       return []

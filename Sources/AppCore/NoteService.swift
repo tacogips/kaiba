@@ -65,8 +65,8 @@ public struct NoteService: Sendable {
     try NoteStoreSchema.prepare(on: driver)
     try bootstrapLongTermMemoryNotebook()
     // Recovery+retry is no longer run from init; it is an explicit entry point
-    // (`recoverAndRetryAutoActionDispatches`) invoked by the
-    // `riela note auto-action retry` subcommand and the app maintenance tick.
+    // (`recoverAndRetryAutoActionDispatches`) invoked by `kaiba serve` at
+    // startup and from its periodic maintenance tick.
   }
 
   @discardableResult
