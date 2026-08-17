@@ -72,6 +72,31 @@ Notebook read-only blocks note creation, body edits, attachments, and
 deletion inside the notebook while still allowing comments, tags,
 and links.
 
+### Libraries
+
+```bash
+kaiba library list    [--output json|text]
+kaiba library show    <name> [--output json|text]
+kaiba library create  <name> [--title <t>] [--auth required|none]
+kaiba library update  <name> [--title <t>] [--auth required|none]
+kaiba library delete  <name>
+kaiba library move    <notebook-id> --to <name>
+kaiba library env     <name> [--output json|text]
+```
+
+A library is a named set of notebooks (`design-docs/specs/library.md`). Every
+notebook belongs to exactly one, and `--library <name>` (or `KAIBA_LIBRARY`)
+selects the one a command reads and writes; without a selection writes land in
+the `default` library.
+
+`--auth required` hides a library from callers that present no credential —
+an `--allow-unauthenticated` note-API request. The local CLI is the operator
+view and always spans every library. `create` defaults to `required`.
+
+`delete` refuses a non-empty library and refuses the default library; it never
+cascades into notebooks. `env` reports the kinko scope and the environment
+variable names a library's storage reads from, never a secret value.
+
 ### GraphQL from the CLI
 
 ```bash

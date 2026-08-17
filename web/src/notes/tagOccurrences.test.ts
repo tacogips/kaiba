@@ -1,11 +1,12 @@
+import { noteId as asNoteId, notebookId as asNotebookId, tagId as asTagId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import { loadTagOccurrences, tagOccurrencesPageLimit, transitionTagOccurrences } from './tagOccurrences'
 import type { Note } from './types'
 
 function note(number: number): Note {
   return {
-    noteId: `note-${number}`,
-    notebookId: 'notebook-1',
+    noteId: asNoteId(`note-${number}`),
+    notebookId: asNotebookId('notebook-1'),
     noteNumber: number,
     title: `Note ${number}`,
     bodyMarkdown: '',
@@ -18,8 +19,8 @@ function note(number: number): Note {
 
 describe('loadTagOccurrences', () => {
   test('clears prior occurrence buttons synchronously when selection changes', () => {
-    expect(transitionTagOccurrences('tag-A', 'tag-B', [note(1)])).toEqual([])
-    expect(transitionTagOccurrences('tag-A', 'tag-A', [note(1)])).toHaveLength(1)
+    expect(transitionTagOccurrences(asTagId('tag-A'), asTagId('tag-B'), [note(1)])).toEqual([])
+    expect(transitionTagOccurrences(asTagId('tag-A'), asTagId('tag-A'), [note(1)])).toHaveLength(1)
   })
 
   test('loads all pages beyond 200 records and advances the offset by received length', async () => {
@@ -62,7 +63,7 @@ describe('loadTagOccurrences', () => {
     }), () => current)
     current = false
     const newResult = loadTagOccurrences('B', async () => [note(2)], () => true)
-    await expect(newResult).resolves.toMatchObject([{ noteId: 'note-2' }])
+    await expect(newResult).resolves.toMatchObject([{ noteId: asNoteId('note-2') }])
     resolveA?.([note(1)])
 
     await expect(oldResult).resolves.toBeUndefined()

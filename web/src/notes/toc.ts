@@ -1,4 +1,5 @@
 import { parseMarkdownBlocks, plainInlineText, type MarkdownBlock } from './markdown'
+import type { NoteId } from './ids'
 
 // Heading identity for the reader and the Contents tab. Ids are derived from the
 // heading text so a deep link stays readable, and de-duplicated in document
@@ -16,7 +17,7 @@ export interface HeadingNode extends HeadingAnchor {
 
 /** Anchor id prefix scoping one note's headings inside the continuous reader,
  * so identical headings in different notes never collide. */
-export function noteHeadingPrefix(noteId: string): string {
+export function noteHeadingPrefix(noteId: NoteId): string {
   return `note-${noteId}--`
 }
 

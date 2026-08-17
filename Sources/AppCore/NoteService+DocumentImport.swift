@@ -165,21 +165,18 @@ public extension NoteService {
     toolName: String = AnydocKitDocumentConverter.toolName,
     toolVersion: String?
   ) throws -> String {
-    var source: [String: Any] = [
-      "originalFilename": originalFilename,
-      "format": format,
-      "tool": toolName,
-      "importedAt": NoteStoreClock.system.now()
+    var source: JSONObject = [
+      "originalFilename": .string(originalFilename),
+      "format": .string(format),
+      "tool": .string(toolName),
+      "importedAt": .string(NoteStoreClock.system.now())
     ]
-    source["toolVersion"] = toolVersion
-    let data = try JSONSerialization.data(
-      withJSONObject: ["source": source],
-      options: [.sortedKeys]
-    )
-    guard let json = String(data: data, encoding: .utf8) else {
+    source["toolVersion"] = toolVersion.map(JSONValue.string)
+    do {
+      return try JSONValue.object(["source": .object(source)]).encodedString()
+    } catch {
       throw NoteServiceError.invalidInput("import meta JSON is not UTF-8")
     }
-    return json
   }
 
   internal static func mediaType(forSourceFormat format: String) -> String {

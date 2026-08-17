@@ -1,7 +1,7 @@
 public extension NoteService {
   /// Returns the note's zero-based position in its notebook's stable
   /// `note_number, note_id` order without loading the preceding notes.
-  func noteOffsetInNotebook(noteId: String) throws -> Int {
+  func noteOffsetInNotebook(noteId: NoteID) throws -> Int {
     try driver.withDatabase { database in
       let note = try requireNote(noteId, in: database)
       let rows = try database.query(
@@ -15,10 +15,10 @@ public extension NoteService {
           )
         """,
         bindings: [
-          .text(note.notebookId),
+          .id(note.notebookId),
           .int(Int64(note.noteNumber)),
           .int(Int64(note.noteNumber)),
-          .text(note.noteId)
+          .id(note.noteId)
         ]
       )
       guard let rawOffset = rows.first?["note_offset"], let offset = Int(rawOffset) else {

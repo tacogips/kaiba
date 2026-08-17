@@ -26,17 +26,17 @@ private func autoActionDispatchLeaseCutoff(olderThan staleness: TimeInterval) ->
 
 public struct NoteAutoActionEvent: Codable, Equatable, Sendable {
   public var trigger: NoteAutoActionTrigger
-  public var notebookId: String?
-  public var noteId: String?
+  public var notebookId: NotebookID?
+  public var noteId: NoteID?
   public var noteBodyMarkdown: String?
-  public var originatingActionId: String?
+  public var originatingActionId: AutoActionID?
 
   public init(
     trigger: NoteAutoActionTrigger,
-    notebookId: String? = nil,
-    noteId: String? = nil,
+    notebookId: NotebookID? = nil,
+    noteId: NoteID? = nil,
     noteBodyMarkdown: String? = nil,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) {
     self.trigger = trigger
     self.notebookId = notebookId
@@ -75,13 +75,13 @@ public enum NoteAutoActionDiagnosticCode: String, Codable, Equatable, Sendable {
 
 public struct NoteAutoActionDiagnostic: Codable, Equatable, Sendable {
   public var code: NoteAutoActionDiagnosticCode
-  public var actionId: String
+  public var actionId: AutoActionID
   public var trigger: NoteAutoActionTrigger
   public var message: String
 
   public init(
     code: NoteAutoActionDiagnosticCode,
-    actionId: String,
+    actionId: AutoActionID,
     trigger: NoteAutoActionTrigger,
     message: String
   ) {
@@ -97,7 +97,7 @@ public protocol NoteAutoActionFilterDiagnosticRecording: Sendable {
 }
 
 struct QueuedAutoActionDispatch: Sendable {
-  var dispatchId: String
+  var dispatchId: AutoActionDispatchID
   var record: AutoActionDispatchRecord
 }
 
@@ -157,9 +157,9 @@ public extension NoteService {
 
   @discardableResult
   func configureAutoAction(
-    actionId: String,
+    actionId: AutoActionID,
     trigger: NoteAutoActionTrigger,
-    workflowId: String,
+    workflowId: WorkflowID,
     filterJSON: String? = nil,
     enabled: Bool = true,
     position: Int = 0
@@ -180,9 +180,9 @@ public extension NoteService {
             position = excluded.position
           """,
           bindings: [
-            .text(actionId),
+            .id(actionId),
             .text(trigger.rawValue),
-            .text(workflowId),
+            .id(workflowId),
             .optionalText(filterJSON),
             .int(enabled ? 1 : 0),
             .int(Int64(position)),
@@ -194,11 +194,11 @@ public extension NoteService {
     }
   }
 
-  func deleteAutoAction(actionId: String) throws {
+  func deleteAutoAction(actionId: AutoActionID) throws {
     try driver.withDatabase { database in
       try database.transaction { db in
         _ = try requireAutoAction(actionId: actionId, in: db)
-        try db.execute("DELETE FROM auto_actions WHERE action_id = ?", bindings: [.text(actionId)])
+        try db.execute("DELETE FROM auto_actions WHERE action_id = ?", bindings: [.id(actionId)])
       }
     }
   }
@@ -320,7 +320,7 @@ extension NoteService {
     let actions = try matchingAutoActions(for: event, in: database)
     var queued: [QueuedAutoActionDispatch] = []
     for action in actions {
-      let dispatchId = makeNoteId(prefix: "auto-action-dispatch")
+      let dispatchId = AutoActionDispatchID.generate()
       let now = NoteStoreClock.system.now()
       try database.execute(
         """
@@ -331,10 +331,10 @@ extension NoteService {
         ) VALUES (?, ?, ?, ?, jsonb(?), ?, ?, ?, jsonb(?), ?, 0, ?, ?)
         """,
         bindings: [
-          .text(dispatchId),
-          .text(action.actionId),
+          .id(dispatchId),
+          .id(action.actionId),
           .text(action.trigger.rawValue),
-          .text(action.workflowId),
+          .id(action.workflowId),
           .optionalText(action.filterJSON),
           .int(action.enabled ? 1 : 0),
           .int(Int64(action.position)),
@@ -433,7 +433,7 @@ extension NoteService {
   /// re-issued) updates nothing. Returns true when this attempt still owns the
   /// lease and the timestamp was refreshed.
   @discardableResult
-  func renewAutoActionDispatchLease(dispatchId: String, leaseToken: String) throws -> Bool {
+  func renewAutoActionDispatchLease(dispatchId: AutoActionDispatchID, leaseToken: String) throws -> Bool {
     try driver.withDatabase { database in
       let changedRows = try database.executeAndReturnChangedRowCount(
         """
@@ -445,7 +445,7 @@ extension NoteService {
         bindings: [
           .text(NoteStoreClock.system.now()),
           .text(NoteStoreClock.system.now()),
-          .text(dispatchId),
+          .id(dispatchId),
           .text(AutoActionDispatchStatus.inFlight.rawValue),
           .text(leaseToken)
         ]
@@ -495,8 +495,8 @@ private extension NoteService {
   /// Atomically claims a pending row: bumps the attempt count, marks it
   /// in-flight, and stamps a fresh lease token + timestamp. Returns the lease
   /// token when the claim wins (exactly one caller can), or nil otherwise.
-  func beginAutoActionDispatchAttempt(dispatchId: String) throws -> String? {
-    let leaseToken = makeNoteId(prefix: "auto-action-lease")
+  func beginAutoActionDispatchAttempt(dispatchId: AutoActionDispatchID) throws -> String? {
+    let leaseToken = makeOpaqueToken(prefix: "auto-action-lease")
     return try driver.withDatabase { database in
       let changedRows = try database.executeAndReturnChangedRowCount(
         """
@@ -514,7 +514,7 @@ private extension NoteService {
           .text(leaseToken),
           .text(NoteStoreClock.system.now()),
           .text(NoteStoreClock.system.now()),
-          .text(dispatchId),
+          .id(dispatchId),
           .text(AutoActionDispatchStatus.pending.rawValue),
           .int(Int64(maximumAutoActionDispatchAttempts))
         ]
@@ -523,7 +523,7 @@ private extension NoteService {
     }
   }
 
-  func recordAutoActionDispatchFailure(dispatchId: String, leaseToken: String, error: String) throws {
+  func recordAutoActionDispatchFailure(dispatchId: AutoActionDispatchID, leaseToken: String, error: String) throws {
     try driver.withDatabase { database in
       try database.execute(
         """
@@ -539,7 +539,7 @@ private extension NoteService {
           .text(AutoActionDispatchStatus.pending.rawValue),
           .text(error),
           .text(NoteStoreClock.system.now()),
-          .text(dispatchId),
+          .id(dispatchId),
           .text(AutoActionDispatchStatus.inFlight.rawValue),
           .text(leaseToken)
         ]
@@ -547,7 +547,7 @@ private extension NoteService {
     }
   }
 
-  func markAutoActionDispatchDispatched(dispatchId: String, leaseToken: String) throws {
+  func markAutoActionDispatchDispatched(dispatchId: AutoActionDispatchID, leaseToken: String) throws {
     try driver.withDatabase { database in
       try database.execute(
         """
@@ -562,7 +562,7 @@ private extension NoteService {
         bindings: [
           .text(AutoActionDispatchStatus.dispatched.rawValue),
           .text(NoteStoreClock.system.now()),
-          .text(dispatchId),
+          .id(dispatchId),
           .text(AutoActionDispatchStatus.inFlight.rawValue),
           .text(leaseToken)
         ]
@@ -594,11 +594,11 @@ private func queuedAutoActionDispatch(from row: SQLiteRow) throws -> QueuedAutoA
 }
 
 private func autoActionDispatchAttempt(from row: SQLiteRow) throws -> AutoActionDispatchAttempt {
-  guard let dispatchId = row["dispatch_id"],
-        let actionId = row["action_id"],
+  guard let dispatchId = row.identifier("dispatch_id", as: AutoActionDispatchID.self),
+        let actionId = row.identifier("action_id", as: AutoActionID.self),
         let triggerText = row["action_trigger"],
         let trigger = NoteAutoActionTrigger(rawValue: triggerText),
-        let workflowId = row["workflow_id"],
+        let workflowId = row.identifier("workflow_id", as: WorkflowID.self),
         let enabledText = row["action_enabled"],
         let positionText = row["action_position"],
         let position = Int(positionText),
@@ -673,7 +673,7 @@ private func autoAction(_ action: AutoAction, matches event: NoteAutoActionEvent
       return false
     }
     guard let kindTag = try findNonFolderTag(name: notebookKindTag, in: database),
-          kindTag.classId == "document-kind",
+          kindTag.classId == .documentKind,
           try notebookTagAssignment(
             notebookId: notebookId,
             tagId: kindTag.tagId,
@@ -685,7 +685,7 @@ private func autoAction(_ action: AutoAction, matches event: NoteAutoActionEvent
   return true
 }
 
-private func eventNotebookId(_ event: NoteAutoActionEvent, in database: SQLiteDatabase) throws -> String? {
+private func eventNotebookId(_ event: NoteAutoActionEvent, in database: SQLiteDatabase) throws -> NotebookID? {
   if let notebookId = event.notebookId {
     return notebookId
   }
@@ -694,12 +694,12 @@ private func eventNotebookId(_ event: NoteAutoActionEvent, in database: SQLiteDa
   }
   let rows = try database.query(
     "SELECT notebook_id FROM notes WHERE note_id = ? LIMIT 1",
-    bindings: [.text(noteId)]
+    bindings: [.id(noteId)]
   )
-  return rows.first?["notebook_id"] ?? nil
+  return rows.first?.identifier("notebook_id", as: NotebookID.self)
 }
 
-private func noteTagNames(noteId: String, in database: SQLiteDatabase) throws -> [String] {
+private func noteTagNames(noteId: NoteID, in database: SQLiteDatabase) throws -> [String] {
   try database.query(
     """
     SELECT t.name
@@ -708,11 +708,11 @@ private func noteTagNames(noteId: String, in database: SQLiteDatabase) throws ->
     WHERE nt.note_id = ?
     ORDER BY t.name
     """,
-    bindings: [.text(noteId)]
+    bindings: [.id(noteId)]
   ).compactMap { $0["name"] }
 }
 
-func requireAutoAction(actionId: String, in database: SQLiteDatabase) throws -> AutoAction {
+func requireAutoAction(actionId: AutoActionID, in database: SQLiteDatabase) throws -> AutoAction {
   let rows = try database.query(
     """
     SELECT action_id, trigger, workflow_id,
@@ -722,7 +722,7 @@ func requireAutoAction(actionId: String, in database: SQLiteDatabase) throws -> 
     WHERE action_id = ?
     LIMIT 1
     """,
-    bindings: [.text(actionId)]
+    bindings: [.id(actionId)]
   )
   guard let row = rows.first else {
     throw NoteServiceError.notFound("auto action not found: \(actionId)")
@@ -731,10 +731,10 @@ func requireAutoAction(actionId: String, in database: SQLiteDatabase) throws -> 
 }
 
 private func autoAction(from row: SQLiteRow) throws -> AutoAction {
-  guard let actionId = row["action_id"],
+  guard let actionId = row.identifier("action_id", as: AutoActionID.self),
         let triggerText = row["trigger"],
         let trigger = NoteAutoActionTrigger(rawValue: triggerText),
-        let workflowId = row["workflow_id"],
+        let workflowId = row.identifier("workflow_id", as: WorkflowID.self),
         let positionText = row["position"],
         let position = Int(positionText),
         let createdAt = row["created_at"] else {

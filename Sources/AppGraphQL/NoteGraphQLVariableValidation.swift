@@ -1,4 +1,5 @@
 import Foundation
+import AppCore
 
 indirect enum ParsedGraphQLTypeReference: Equatable, Sendable {
   case named(String)

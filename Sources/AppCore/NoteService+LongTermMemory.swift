@@ -8,8 +8,8 @@ public struct LongTermMemoryEntryInput: Equatable, Sendable {
   /// Notes this entry was consolidated from. Ids that no longer resolve are kept
   /// in metadata instead of becoming links, so a memory survives the deletion of
   /// the short-term notes it was distilled from.
-  public var sourceNoteIds: [String]
-  public var relatedNoteIds: [String]
+  public var sourceNoteIds: [NoteID]
+  public var relatedNoteIds: [NoteID]
   public var periodStart: Date?
   public var periodEnd: Date?
   /// Caller extras merged into the stored metadata. Must encode a JSON object;
@@ -19,8 +19,8 @@ public struct LongTermMemoryEntryInput: Equatable, Sendable {
   public init(
     bodyMarkdown: String,
     topicTags: [String] = [],
-    sourceNoteIds: [String] = [],
-    relatedNoteIds: [String] = [],
+    sourceNoteIds: [NoteID] = [],
+    relatedNoteIds: [NoteID] = [],
     periodStart: Date? = nil,
     periodEnd: Date? = nil,
     metaJSON: String? = nil
@@ -58,7 +58,7 @@ public struct LongTermMemoryRecallResult: Equatable, Sendable {
   public var edgeKind: NoteGraphEdgeKind?
   public var weight: Double?
   public var hopCount: Int?
-  public var pathNoteIds: [String]
+  public var pathNoteIds: [NoteID]
 
   public init(
     note: Note,
@@ -68,7 +68,7 @@ public struct LongTermMemoryRecallResult: Equatable, Sendable {
     edgeKind: NoteGraphEdgeKind? = nil,
     weight: Double? = nil,
     hopCount: Int? = nil,
-    pathNoteIds: [String] = []
+    pathNoteIds: [NoteID] = []
   ) {
     self.note = note
     self.snippet = snippet
@@ -105,7 +105,7 @@ extension NoteService {
           return try requireNotebook(notebookId, in: db)
         }
 
-        let notebookId = makeNoteId(prefix: "notebook")
+        let notebookId = NotebookID.generate()
         let now = NoteStoreClock.system.now()
         // Unlike the removed short-term store this notebook is not read-only
         // locked: consolidation runs through the ordinary public append path and
@@ -113,12 +113,16 @@ extension NoteService {
         try db.execute(
           """
           INSERT INTO notebooks (
-            notebook_id, title, read_only, created_at, updated_at, meta_json
-          ) VALUES (?, ?, 0, ?, ?, NULL)
+            notebook_id, title, read_only, owner_user_id, created_by, updated_by,
+            created_at, updated_at, meta_json
+          ) VALUES (?, ?, 0, ?, ?, ?, ?, ?, NULL)
           """,
           bindings: [
-            .text(notebookId),
+            .id(notebookId),
             .text(Self.longTermMemoryNotebookTitle),
+            .id(writeOwnerUserId()),
+            .id(writeOwnerUserId()),
+            .id(writeOwnerUserId()),
             .text(now),
             .text(now)
           ]
@@ -199,8 +203,8 @@ extension NoteService {
           ))
         }
         try db.execute(
-          "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-          bindings: [.text(now), .text(notebookId)]
+          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+          bindings: [.text(now), .id(notebookId)]
         )
         return (
           LongTermMemoryAppendResult(notes: notes, idempotentReplay: false),
@@ -231,7 +235,7 @@ extension NoteService {
         WHERE n.notebook_id = ?
           AND json_extract(n.meta_json, '$.longTermMemoryVersion') = 1
         """
-      var bindings: [SQLiteValue] = [.text(notebookId)]
+      var bindings: [SQLiteValue] = [.id(notebookId)]
       if let periodStart {
         sql += """
 
@@ -268,7 +272,7 @@ extension NoteService {
       }
       sql += "\nORDER BY n.created_at DESC, n.note_id DESC\nLIMIT ?"
       bindings.append(.int(Int64(boundedLimit)))
-      let noteIds = try database.query(sql, bindings: bindings).compactMap { $0["note_id"] }
+      let noteIds = try database.query(sql, bindings: bindings).compactMap { $0.identifier("note_id", as: NoteID.self) }
       return try noteIds.map { try requireNote($0, in: database) }
     }
   }
@@ -303,11 +307,14 @@ extension NoteService {
         max(associationDepth, NoteGraphPolicy.associationMaxDepth),
         NoteGraphPolicy.maximumDepth
       )
-      let neighbors = try noteGraphNeighborsInDatabase(
-        noteIds: Array(directNoteIds.prefix(NoteGraphPolicy.maximumSeedCount)),
-        maxDepth: depth,
-        limit: NoteGraphPolicy.maximumLimit,
-        resultExclusions: directNoteIdSet,
+      let neighbors = try filterReachable(
+        try noteGraphNeighborsInDatabase(
+          noteIds: Array(directNoteIds.prefix(NoteGraphPolicy.maximumSeedCount)),
+          maxDepth: depth,
+          limit: NoteGraphPolicy.maximumLimit,
+          resultExclusions: directNoteIdSet,
+          in: database
+        ),
         in: database
       )
       let associations = neighbors
@@ -335,7 +342,7 @@ extension NoteService {
   /// converge instead of growing the graph.
   @discardableResult
   public func linkLongTermMemoryAssociations(
-    noteId: String,
+    noteId: NoteID,
     limit: Int = 8
   ) throws -> [NoteLink] {
     let boundedLimit = max(1, min(limit, NoteGraphPolicy.maximumLimit))
@@ -379,7 +386,7 @@ extension NoteService {
 }
 
 private extension NoteService {
-  func requireLongTermMemoryNotebookId(in database: SQLiteDatabase) throws -> String {
+  func requireLongTermMemoryNotebookId(in database: SQLiteDatabase) throws -> NotebookID {
     let notebookIds = try longTermMemoryNotebookIds(in: database)
     guard notebookIds.count == 1, let notebookId = notebookIds.first else {
       if notebookIds.isEmpty {
@@ -394,11 +401,11 @@ private extension NoteService {
 
   func longTermMemoryDirectHits(
     query: String,
-    notebookId: String,
+    notebookId: NotebookID,
     limit: Int,
     in database: SQLiteDatabase
   ) throws -> [LongTermMemoryRecallResult] {
-    var ranksByNoteId: [(noteId: String, rank: Double)] = []
+    var ranksByNoteId: [(noteId: NoteID, rank: Double)] = []
     if let matchQuery = ftsMatchQuery(from: query) {
       ranksByNoteId = try database.query(
         """
@@ -410,9 +417,9 @@ private extension NoteService {
         ORDER BY rank, n.created_at DESC, n.note_id
         LIMIT ?
         """,
-        bindings: [.text(matchQuery), .text(notebookId), .int(Int64(limit))]
+        bindings: [.text(matchQuery), .id(notebookId), .int(Int64(limit))]
       ).compactMap { row in
-        row["note_id"].map { ($0, Double(row["rank"] ?? "") ?? 0) }
+        row.identifier("note_id", as: NoteID.self).map { ($0, Double(row["rank"] ?? "") ?? 0) }
       }
     }
     // The trigram index cannot match sub-trigram or symbol-only queries, so top
@@ -443,11 +450,11 @@ private extension NoteService {
 
   func longTermMemoryLikeHits(
     query: String,
-    notebookId: String,
-    excludedNoteIds: Set<String>,
+    notebookId: NotebookID,
+    excludedNoteIds: Set<NoteID>,
     limit: Int,
     in database: SQLiteDatabase
-  ) throws -> [(noteId: String, rank: Double)] {
+  ) throws -> [(noteId: NoteID, rank: Double)] {
     let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedQuery.isEmpty, limit > 0 else {
       return []
@@ -460,24 +467,24 @@ private extension NoteService {
         AND (n.title LIKE ? ESCAPE '\\' OR n.body_markdown LIKE ? ESCAPE '\\')
       """
     var bindings: [SQLiteValue] = [
-      .text(notebookId),
+      .id(notebookId),
       .text(likePattern),
       .text(likePattern)
     ]
     if !excludedNoteIds.isEmpty {
       sql += "\n  AND n.note_id NOT IN (\(placeholders(count: excludedNoteIds.count)))"
-      bindings.append(contentsOf: excludedNoteIds.sorted().map(SQLiteValue.text))
+      bindings.append(contentsOf: excludedNoteIds.sorted().sqliteBindings)
     }
     sql += "\nORDER BY n.created_at DESC, n.note_id\nLIMIT ?"
     bindings.append(.int(Int64(limit)))
     return try database.query(sql, bindings: bindings).compactMap { row in
-      row["note_id"].map { ($0, 1) }
+      row.identifier("note_id", as: NoteID.self).map { ($0, 1) }
     }
   }
 
   func longTermMemoryAssociationExists(
-    noteId: String,
-    targetNoteId: String,
+    noteId: NoteID,
+    targetNoteId: NoteID,
     in database: SQLiteDatabase
   ) throws -> Bool {
     try !database.query(
@@ -493,17 +500,17 @@ private extension NoteService {
       """,
       bindings: [
         .text(Self.longTermMemoryAssociationLinkKind),
-        .text(noteId),
-        .text(targetNoteId),
-        .text(targetNoteId),
-        .text(noteId)
+        .id(noteId),
+        .id(targetNoteId),
+        .id(targetNoteId),
+        .id(noteId)
       ]
     ).isEmpty
   }
 
   func insertLongTermMemoryNote(
-    noteId: String,
-    notebookId: String,
+    noteId: NoteID,
+    notebookId: NotebookID,
     noteNumber: Int,
     entry: LongTermMemoryEntryInput,
     timestamp: String,
@@ -518,15 +525,22 @@ private extension NoteService {
       """
       INSERT INTO notes (
         note_id, notebook_id, note_number, title, title_source, body_markdown,
-        read_only, created_at, updated_at, meta_json
-      ) VALUES (?, ?, ?, ?, 'derived', ?, 0, ?, ?, jsonb(?))
+        read_only, created_by, updated_by, created_at, updated_at, meta_json
+      ) VALUES (
+        ?, ?, ?, ?, 'derived', ?, 0,
+        (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+        (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+        ?, ?, jsonb(?)
+      )
       """,
       bindings: [
-        .text(noteId),
-        .text(notebookId),
+        .id(noteId),
+        .id(notebookId),
         .int(Int64(noteNumber)),
         .optionalText(noteTitle(from: entry.bodyMarkdown)),
         .text(entry.bodyMarkdown),
+        .id(notebookId),
+        .id(notebookId),
         .text(timestamp),
         .text(timestamp),
         .text(try longTermMemoryMetaJSON(
@@ -538,7 +552,7 @@ private extension NoteService {
     for tagName in entry.topicTags {
       try applyTag(
         noteId: noteId,
-        tag: NoteTagInput(name: tagName, classId: "topic"),
+        tag: NoteTagInput(name: tagName, classId: .topic),
         provenance: .system,
         assignedBy: Self.longTermMemoryAssignedBy,
         deletable: true,
@@ -567,9 +581,9 @@ private extension NoteService {
   }
 
   func resolvedLongTermMemoryNoteIds(
-    _ noteIds: [String],
+    _ noteIds: [NoteID],
     in database: SQLiteDatabase
-  ) throws -> Set<String> {
+  ) throws -> Set<NoteID> {
     let unique = orderedUnique(noteIds)
     guard !unique.isEmpty else {
       return []
@@ -579,14 +593,11 @@ private extension NoteService {
 
   func longTermMemoryMetaJSON(
     entry: LongTermMemoryEntryInput,
-    unresolvedRelatedNoteIds: [String]
+    unresolvedRelatedNoteIds: [NoteID]
   ) throws -> String {
-    var object: [String: Any] = [:]
+    var object: JSONObject = [:]
     if let metaJSON = entry.metaJSON {
-      guard
-        let data = metaJSON.data(using: .utf8),
-        let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-      else {
+      guard let decoded = (try? JSONValue(parsing: metaJSON))?.asObject else {
         throw NoteServiceError.invalidInput(
           "long-term memory metaJSON must encode a JSON object"
         )
@@ -595,27 +606,25 @@ private extension NoteService {
     }
     // Reserved keys are written last: the listing and recall predicates read
     // them, so caller extras must never be able to shadow them.
-    object["longTermMemoryVersion"] = 1
-    object["entryKind"] = "long-term-memory"
-    object["sourceNoteIds"] = orderedUnique(entry.sourceNoteIds)
-    object["unresolvedRelatedNoteIds"] = orderedUnique(unresolvedRelatedNoteIds)
+    object["longTermMemoryVersion"] = .integer(1)
+    object["entryKind"] = .string("long-term-memory")
+    object["sourceNoteIds"] = .ids(orderedUnique(entry.sourceNoteIds))
+    object["unresolvedRelatedNoteIds"] = .ids(orderedUnique(unresolvedRelatedNoteIds))
     if let periodStart = entry.periodStart {
-      object["periodStart"] = longTermMemoryTimestamp(periodStart)
+      object["periodStart"] = .string(longTermMemoryTimestamp(periodStart))
     } else {
       object.removeValue(forKey: "periodStart")
     }
     if let periodEnd = entry.periodEnd {
-      object["periodEnd"] = longTermMemoryTimestamp(periodEnd)
+      object["periodEnd"] = .string(longTermMemoryTimestamp(periodEnd))
     } else {
       object.removeValue(forKey: "periodEnd")
     }
-    guard
-      let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
-      let json = String(data: data, encoding: .utf8)
-    else {
+    do {
+      return try JSONValue.object(object).encodedString()
+    } catch {
       throw NoteServiceError.invalidInput("long-term memory metadata must be UTF-8 JSON")
     }
-    return json
   }
 
   func normalizedLongTermMemoryEntry(
@@ -651,7 +660,7 @@ private extension NoteService {
   }
 
   func existingLongTermMemoryBatch(
-    notebookId: String,
+    notebookId: NotebookID,
     idempotencyKey: String,
     expectedCount: Int,
     in database: SQLiteDatabase
@@ -663,12 +672,12 @@ private extension NoteService {
       WHERE notebook_id = ? AND note_id LIKE ?
       ORDER BY note_id
       """,
-      bindings: [.text(notebookId), .text("\(prefix)-%")]
-    ).compactMap { $0["note_id"] }
+      bindings: [.id(notebookId), .text("\(prefix)-%")]
+    ).compactMap { $0.identifier("note_id", as: NoteID.self) }
     guard !noteIds.isEmpty else {
       return nil
     }
-    let expectedNoteIds = (0..<expectedCount).map { "\(prefix)-\($0 + 1)" }
+    let expectedNoteIds = (0..<expectedCount).map { NoteID("\(prefix)-\($0 + 1)") }
     guard noteIds.count == expectedNoteIds.count, Set(noteIds) == Set(expectedNoteIds) else {
       throw NoteServiceError.invalidInput(
         "long-term memory idempotency key has inconsistent persisted entry count"
@@ -689,8 +698,8 @@ private extension NoteService {
     "note-long-term-memory-\(sha256Hex(Data(idempotencyKey.utf8)))"
   }
 
-  func longTermMemoryNoteId(idempotencyKey: String, index: Int) -> String {
-    "\(longTermMemoryNoteIdPrefix(idempotencyKey: idempotencyKey))-\(index + 1)"
+  func longTermMemoryNoteId(idempotencyKey: String, index: Int) -> NoteID {
+    NoteID("\(longTermMemoryNoteIdPrefix(idempotencyKey: idempotencyKey))-\(index + 1)")
   }
 
   func longTermMemoryLikePattern(_ value: String) -> String {
@@ -701,7 +710,7 @@ private extension NoteService {
   }
 }
 
-func longTermMemoryNotebookIds(in database: SQLiteDatabase) throws -> [String] {
+func longTermMemoryNotebookIds(in database: SQLiteDatabase) throws -> [NotebookID] {
   try database.query(
     """
     SELECT notebook_id
@@ -709,12 +718,12 @@ func longTermMemoryNotebookIds(in database: SQLiteDatabase) throws -> [String] {
     WHERE tag_id = ?
     ORDER BY notebook_id
     """,
-    bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTagId)]
-  ).compactMap { $0["notebook_id"] }
+    bindings: [.id(NoteStoreSchema.longTermMemoryNotebookKindTagId)]
+  ).compactMap { $0.identifier("notebook_id", as: NotebookID.self) }
 }
 
 func validateLongTermMemoryNotebookTagAssignment(
-  notebookId: String,
+  notebookId: NotebookID,
   allowsIdentityCreation: Bool,
   in database: SQLiteDatabase
 ) throws {
@@ -730,7 +739,7 @@ func validateLongTermMemoryNotebookTagAssignment(
 }
 
 func validateCanonicalLongTermMemoryNotebook(
-  notebookId: String,
+  notebookId: NotebookID,
   in database: SQLiteDatabase
 ) throws {
   guard let assignment = try notebookTagAssignment(
@@ -738,7 +747,7 @@ func validateCanonicalLongTermMemoryNotebook(
     tagId: NoteStoreSchema.longTermMemoryNotebookKindTagId,
     in: database
   ), assignment.tag.isSystem,
-     assignment.tag.classId == "document-kind",
+     assignment.tag.classId == .documentKind,
      assignment.provenance == .system,
      assignment.assignedBy == "kaiba-note",
      !assignment.deletable else {

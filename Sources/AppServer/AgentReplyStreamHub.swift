@@ -38,12 +38,12 @@ public actor AgentReplyStreamHub {
   }
 
   private struct PendingPoll {
-    var turnNoteId: String
+    var turnNoteId: NoteID
     var continuation: CheckedContinuation<Void, Never>
     var resumed = false
   }
 
-  private var streams: [String: Stream] = [:]
+  private var streams: [NoteID: Stream] = [:]
   private var sequence: UInt64 = 0
   /// A request remains registered until its HTTP response is about to return.
   /// This intentionally includes requests already woken by a chunk: finishing
@@ -79,7 +79,7 @@ public actor AgentReplyStreamHub {
     self.defersPollResponsesForTesting = defersPollResponsesForTesting
   }
 
-  public func publish(turnNoteId: String, text: String) {
+  public func publish(turnNoteId: NoteID, text: String) {
     var stream = streams[turnNoteId] ?? makeStream()
     stream.chunks.append(text)
     sequence += 1
@@ -90,7 +90,7 @@ public actor AgentReplyStreamHub {
     evictStaleActiveStreams()
   }
 
-  public func finish(turnNoteId: String, status: String, message: String?) {
+  public func finish(turnNoteId: NoteID, status: String, message: String?) {
     var stream = streams[turnNoteId] ?? makeStream()
     stream.done = true
     stream.status = status
@@ -112,7 +112,7 @@ public actor AgentReplyStreamHub {
   /// the timeout lapses. An unknown turn returns an empty pending poll so a
   /// client may subscribe before the dispatcher claims the turn.
   public func poll(
-    turnNoteId: String,
+    turnNoteId: NoteID,
     cursor: Int,
     timeoutNanoseconds: UInt64
   ) async -> Poll {
@@ -152,7 +152,7 @@ public actor AgentReplyStreamHub {
   }
 
   /// Nil while there is nothing new past `cursor` and the stream is not done.
-  private func snapshot(turnNoteId: String, cursor: Int) -> Poll? {
+  private func snapshot(turnNoteId: NoteID, cursor: Int) -> Poll? {
     guard let stream = streams[turnNoteId] else {
       return nil
     }
@@ -174,7 +174,7 @@ public actor AgentReplyStreamHub {
     resumeDeferredPollResponse(id)
   }
 
-  private func wakePolls(for turnNoteId: String) {
+  private func wakePolls(for turnNoteId: NoteID) {
     for (id, poll) in pendingPolls where poll.turnNoteId == turnNoteId {
       resumePoll(id)
     }
@@ -206,7 +206,7 @@ public actor AgentReplyStreamHub {
     deferredPollResponses.removeValue(forKey: id)?.resume()
   }
 
-  private func recordTerminalDelivery(for turnNoteId: String, pollId: UUID?, delivered: Bool) {
+  private func recordTerminalDelivery(for turnNoteId: NoteID, pollId: UUID?, delivered: Bool) {
     guard var stream = streams[turnNoteId], stream.done else { return }
     if let pollId {
       stream.deliveryObligations.remove(pollId)
@@ -218,7 +218,7 @@ public actor AgentReplyStreamHub {
     cleanupEligibleTerminalStreams()
   }
 
-  private func scheduleGraceExpiry(turnNoteId: String, generation: UUID) {
+  private func scheduleGraceExpiry(turnNoteId: NoteID, generation: UUID) {
     graceExpiryScheduling(firstTerminalDeliveryGraceNanoseconds) { [weak self] in
       Task {
         await self?.expireGrace(turnNoteId: turnNoteId, generation: generation)
@@ -236,7 +236,7 @@ public actor AgentReplyStreamHub {
     }
   }
 
-  private func expireGrace(turnNoteId: String, generation: UUID) {
+  private func expireGrace(turnNoteId: NoteID, generation: UUID) {
     guard var stream = streams[turnNoteId], stream.graceGeneration == generation else { return }
     stream.firstTerminalDeliverySatisfied = true
     streams[turnNoteId] = stream
@@ -247,7 +247,7 @@ public actor AgentReplyStreamHub {
   /// are deliberately not candidates. This can temporarily exceed the target
   /// while preserving the delivery contract.
   private func cleanupEligibleTerminalStreams() {
-    let eligible = streams.compactMap { id, stream -> (String, UInt64)? in
+    let eligible = streams.compactMap { id, stream -> (NoteID, UInt64)? in
       guard stream.done,
             stream.deliveryObligations.isEmpty,
             stream.firstTerminalDeliverySatisfied,
@@ -268,7 +268,7 @@ public actor AgentReplyStreamHub {
   /// active non-terminal streams are dropped; terminal streams keep their
   /// delivery-obligation rules above.
   private func evictStaleActiveStreams() {
-    let active = streams.compactMap { id, stream -> (String, UInt64)? in
+    let active = streams.compactMap { id, stream -> (NoteID, UInt64)? in
       stream.done ? nil : (id, stream.lastActivitySequence)
     }.sorted { $0.1 < $1.1 }
     let excess = max(0, active.count - maximumRetainedStreams)
@@ -279,7 +279,7 @@ public actor AgentReplyStreamHub {
 
   // Internal observability for actor-level regression coverage. These are not
   // part of the HTTP contract.
-  func pendingPollCount(for turnNoteId: String) -> Int {
+  func pendingPollCount(for turnNoteId: NoteID) -> Int {
     pendingPolls.values.filter { $0.turnNoteId == turnNoteId }.count
   }
 
@@ -287,7 +287,7 @@ public actor AgentReplyStreamHub {
     deferredPollResponses.count
   }
 
-  func containsStream(for turnNoteId: String) -> Bool {
+  func containsStream(for turnNoteId: NoteID) -> Bool {
     streams[turnNoteId] != nil
   }
 }
@@ -297,8 +297,8 @@ public actor AgentReplyStreamHub {
 /// Task per chunk would not guarantee that.
 public final class AgentReplyStreamHubPublisher: AgentReplyStreamPublishing, @unchecked Sendable {
   private enum Event {
-    case chunk(turnNoteId: String, text: String)
-    case finish(turnNoteId: String, status: String, message: String?)
+    case chunk(turnNoteId: NoteID, text: String)
+    case finish(turnNoteId: NoteID, status: String, message: String?)
   }
 
   private let continuation: AsyncStream<Event>.Continuation
@@ -326,11 +326,11 @@ public final class AgentReplyStreamHubPublisher: AgentReplyStreamPublishing, @un
     continuation.finish()
   }
 
-  public func publishAgentReplyChunk(turnNoteId: String, text: String) {
+  public func publishAgentReplyChunk(turnNoteId: NoteID, text: String) {
     continuation.yield(.chunk(turnNoteId: turnNoteId, text: text))
   }
 
-  public func finishAgentReplyStream(turnNoteId: String, status: String, message: String?) {
+  public func finishAgentReplyStream(turnNoteId: NoteID, status: String, message: String?) {
     continuation.yield(.finish(turnNoteId: turnNoteId, status: status, message: message))
   }
 }

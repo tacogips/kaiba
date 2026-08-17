@@ -106,7 +106,7 @@ final class AITranslationTests: NoteTestCase {
       ["translated: # One\nBody.", "translated: # Two\nText."]
     )
     XCTAssertEqual(
-      notes.map { $0.metaJSON?.contains(ingest.notes[0].noteId) == true },
+      notes.map { $0.metaJSON?.contains(ingest.notes[0].noteId.rawValue) == true },
       [true, false]
     )
     XCTAssertEqual(invoker.requests.count, 2)

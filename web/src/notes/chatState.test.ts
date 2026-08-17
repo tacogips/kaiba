@@ -1,3 +1,4 @@
+import { noteId as asNoteId, notebookId as asNotebookId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import {
   assistantMarkdown,
@@ -10,8 +11,8 @@ import type { Note } from './types'
 
 function turnNote(overrides: Partial<Note> & { noteNumber: number }): Note {
   return {
-    noteId: `note-${overrides.noteNumber}`,
-    notebookId: 'conv-1',
+    noteId: asNoteId(`note-${overrides.noteNumber}`),
+    notebookId: asNotebookId('conv-1'),
     title: `Chat Turn ${overrides.noteNumber}`,
     bodyMarkdown: '',
     readOnly: false,

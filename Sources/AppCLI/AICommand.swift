@@ -17,20 +17,20 @@ enum AICommand {
     case tag(subject: AITagExtractionSubject, dryRun: Bool)
     case translate(TranslateRequest)
     case models(output: Output)
-    case search(query: String, notebookId: String?, limit: Int)
+    case search(query: String, notebookId: NotebookID?, limit: Int)
     case status
   }
 
   enum TranslateRequest {
     case start(
-      notebookId: String,
+      notebookId: NotebookID,
       targetLanguage: String?,
       provider: String?,
       model: String?,
       title: String?
     )
     /// Resumes a pending/failed translation notebook where it stopped.
-    case resume(translationNotebookId: String, provider: String?, model: String?)
+    case resume(translationNotebookId: NotebookID, provider: String?, model: String?)
   }
 
   enum Output: String {
@@ -100,7 +100,7 @@ enum AICommand {
       )
     case "search":
       var query: String?
-      var notebookId: String?
+      var notebookId: NotebookID?
       var limit = 20
       while let argument = iterator.next() {
         switch argument {
@@ -108,7 +108,7 @@ enum AICommand {
           guard let value = iterator.next() else {
             throw AICommandError.missingValue(argument)
           }
-          notebookId = value
+          notebookId = NotebookID(value)
         case "--limit":
           guard let value = iterator.next(), let parsed = Int(value) else {
             throw AICommandError.missingValue(argument)
@@ -130,8 +130,8 @@ enum AICommand {
         subcommand: .search(query: query, notebookId: notebookId, limit: limit)
       )
     case "tag":
-      var noteId: String?
-      var notebookId: String?
+      var noteId: NoteID?
+      var notebookId: NotebookID?
       var dryRun = false
       while let argument = iterator.next() {
         switch argument {
@@ -139,12 +139,12 @@ enum AICommand {
           guard let value = iterator.next() else {
             throw AICommandError.missingValue(argument)
           }
-          noteId = value
+          noteId = NoteID(value)
         case "--notebook":
           guard let value = iterator.next() else {
             throw AICommandError.missingValue(argument)
           }
-          notebookId = value
+          notebookId = NotebookID(value)
         case "--dry-run":
           dryRun = true
         default:
@@ -188,7 +188,7 @@ enum AICommand {
     switch (values["--notebook"], values["--resume"]) {
     case (let notebookId?, nil):
       return .start(
-        notebookId: notebookId,
+        notebookId: NotebookID(notebookId),
         targetLanguage: values["--to"],
         provider: values["--provider"],
         model: values["--model"],
@@ -202,7 +202,7 @@ enum AICommand {
         )
       }
       return .resume(
-        translationNotebookId: resumeNotebookId,
+        translationNotebookId: NotebookID(resumeNotebookId),
         provider: values["--provider"],
         model: values["--model"]
       )

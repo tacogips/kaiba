@@ -8,7 +8,7 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
   func testDefineTagCreateOnlyUsesScopedIdentityDomainsAtomically() async throws {
     let service = try makeHierarchyGraphQLService()
     let first = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "Web Folder", classId: "folder", createOnly: true)
+      GraphQLDefineNoteTagInput(name: "Web Folder", classId: TagClassID("folder"), createOnly: true)
     )
     XCTAssertTrue(first.result.accepted)
     let tagId = try XCTUnwrap(first.tag?.tagId)
@@ -36,17 +36,17 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     XCTAssertEqual(result["accepted"], .bool(true))
     XCTAssertEqual(result["status"], .string("ok"))
     let duplicateTopic = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "Web Folder", classId: "topic", createOnly: true)
+      GraphQLDefineNoteTagInput(name: "Web Folder", classId: TagClassID("topic"), createOnly: true)
     )
     XCTAssertFalse(duplicateTopic.result.accepted)
     XCTAssertEqual(duplicateTopic.result.status, "invalid_request")
     let persisted = await service.tags()
     let tag = try XCTUnwrap(persisted.value?.first { $0.tagId == tagId })
-    XCTAssertEqual(tag.classId, "folder")
+    XCTAssertEqual(tag.classId, TagClassID("folder"))
     XCTAssertNil(tag.parentTagId)
     XCTAssertEqual(
       persisted.value?.filter { $0.name == "Web Folder" }.compactMap(\.classId).sorted(),
-      ["folder", "topic"]
+      [.folder, .topic]
     )
 
     let decoded = try JSONDecoder().decode(
@@ -60,13 +60,13 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
   func testGraphQLProjectsHierarchyFolderAndExpandedNotebookFilters() async throws {
     let service = try makeHierarchyGraphQLService()
     let parentResult = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "portfolio", classId: "topic")
+      GraphQLDefineNoteTagInput(name: "portfolio", classId: TagClassID("topic"))
     )
     let parentId = try XCTUnwrap(parentResult.tag?.tagId)
     let childResult = await service.defineTag(
       GraphQLDefineNoteTagInput(
         name: "project",
-        classId: "topic",
+        classId: TagClassID("topic"),
         parentTagId: parentId
       )
     )
@@ -90,9 +90,9 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     XCTAssertEqual(parentFiltered.value?.map(\.notebookId), [notebookId])
 
     let folderResult = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "Work", classId: "folder")
+      GraphQLDefineNoteTagInput(name: "Work", classId: TagClassID("folder"))
     )
-    XCTAssertEqual(folderResult.tag?.classId, "folder")
+    XCTAssertEqual(folderResult.tag?.classId, .folder)
     let folderTagged = await service.applyNotebookTags(
       GraphQLApplyNotebookTagsInput(
         notebookId: notebookId,
@@ -103,18 +103,18 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     )
     XCTAssertTrue(
       folderTagged.notebook?.tags.contains {
-        $0.tag.name == "Work" && $0.tag.classId == "folder"
+        $0.tag.name == "Work" && $0.tag.classId == TagClassID("folder")
       } == true
     )
   }
 
   func testDocumentExecutorValidatesAndDispatchesGroupedNotebookFilters() async throws {
     let service = try makeHierarchyGraphQLService()
-    _ = await service.defineTag(GraphQLDefineNoteTagInput(name: "Work", classId: "folder"))
+    _ = await service.defineTag(GraphQLDefineNoteTagInput(name: "Work", classId: TagClassID("folder")))
     _ = await service.defineTagClass(
-      GraphQLDefineNoteTagClassInput(classId: "priority", label: "Priority")
+      GraphQLDefineNoteTagClassInput(classId: TagClassID("priority"), label: "Priority")
     )
-    _ = await service.defineTag(GraphQLDefineNoteTagInput(name: "Urgent", classId: "priority"))
+    _ = await service.defineTag(GraphQLDefineNoteTagInput(name: "Urgent", classId: TagClassID("priority")))
     let created = await service.createNotebook(GraphQLCreateNotebookInput(title: "Matched"))
     let notebookId = try XCTUnwrap(created.notebook?.notebookId)
     _ = await service.applyNotebookTags(
@@ -145,7 +145,7 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
           case let .object(notebook)? = values.first else {
       return XCTFail("expected grouped notebook result")
     }
-    XCTAssertEqual(notebook["notebookId"], .string(notebookId))
+    XCTAssertEqual(notebook["notebookId"], .string(notebookId.rawValue))
 
     let emptyGroup = await executor.execute(GraphQLDocumentRequest(
       query: query,
@@ -232,7 +232,7 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
   func testDocumentExecutorValidatesTagIdGroupsWithoutFailingOpen() async throws {
     let service = try makeHierarchyGraphQLService()
     let folder = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "ID Root", classId: "folder")
+      GraphQLDefineNoteTagInput(name: "ID Root", classId: TagClassID("folder"))
     )
     let folderId = try XCTUnwrap(folder.tag?.tagId)
     let created = await service.createNotebook(GraphQLCreateNotebookInput(title: "ID matched"))
@@ -252,9 +252,9 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
     """
 
     for malformedVariables: JSONObject in [
-      ["tagFilterIdGroups": .string(folderId)],
-      ["tagFilterIdGroups": .array([.string(folderId)])],
-      ["tagFilterIdGroups": .array([.array([.string(folderId), .integer(1)])])]
+      ["tagFilterIdGroups": .string(folderId.rawValue)],
+      ["tagFilterIdGroups": .array([.string(folderId.rawValue)])],
+      ["tagFilterIdGroups": .array([.array([.string(folderId.rawValue), .integer(1)])])]
     ] {
       let response = await executor.execute(GraphQLDocumentRequest(
         query: query,
@@ -284,7 +284,7 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
       }
       XCTAssertTrue(values.contains { value in
         guard case let .object(notebook) = value else { return false }
-        return notebook["notebookId"] == .string(notebookId)
+        return notebook["notebookId"] == .string(notebookId.rawValue)
       })
     }
 
@@ -297,11 +297,11 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
 
     for oversizedGroups: [[JSONValue]] in [
       Array(
-        repeating: [.string(folderId)],
+        repeating: [.string(folderId.rawValue)],
         count: 65
       ),
       [Array(
-        repeating: .string(folderId),
+        repeating: .string(folderId.rawValue),
         count: 257
       )]
     ] {
@@ -323,19 +323,19 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
   func testDocumentExecutorUsesTagIdsForAmbiguousFolderMutationsAndFilters() async throws {
     let service = try makeHierarchyGraphQLService()
     let firstParent = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "Workflow A", classId: "folder")
+      GraphQLDefineNoteTagInput(name: "Workflow A", classId: TagClassID("folder"))
     )
     let secondParent = await service.defineTag(
-      GraphQLDefineNoteTagInput(name: "Workflow B", classId: "folder")
+      GraphQLDefineNoteTagInput(name: "Workflow B", classId: TagClassID("folder"))
     )
     let firstHistory = await service.defineTag(GraphQLDefineNoteTagInput(
       name: "history",
-      classId: "folder",
+      classId: TagClassID("folder"),
       parentTagId: try XCTUnwrap(firstParent.tag?.tagId)
     ))
     let secondHistory = await service.defineTag(GraphQLDefineNoteTagInput(
       name: "history",
-      classId: "folder",
+      classId: TagClassID("folder"),
       parentTagId: try XCTUnwrap(secondParent.tag?.tagId)
     ))
     let firstHistoryId = try XCTUnwrap(firstHistory.tag?.tagId)
@@ -356,8 +356,8 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "notebookId": .string(notebookId),
-          "tagIds": .array([.string(secondHistoryId)]),
+          "notebookId": .string(notebookId.rawValue),
+          "tagIds": .array([.string(secondHistoryId.rawValue)]),
           "provenance": .string("human")
         ])
       ],
@@ -379,8 +379,8 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
       variables: [
         "tagFilter": .array([.string("history")]),
         "tagFilterIdGroups": .array([
-          .array([.string(secondHistoryId), .string(secondHistoryId)]),
-          .array([.string(secondHistoryId)])
+          .array([.string(secondHistoryId.rawValue), .string(secondHistoryId.rawValue)]),
+          .array([.string(secondHistoryId.rawValue)])
         ])
       ],
       operationName: "FilterById"
@@ -390,7 +390,7 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
           case let .object(notebook)? = values.first else {
       return XCTFail("expected ID-filtered notebook")
     }
-    XCTAssertEqual(notebook["notebookId"], .string(notebookId))
+    XCTAssertEqual(notebook["notebookId"], .string(notebookId.rawValue))
 
     let legacyAmbiguous = await service.notebooks(tagFilter: ["history"])
     XCTAssertFalse(legacyAmbiguous.result.accepted)
@@ -406,8 +406,8 @@ final class NoteGraphQLHierarchyProgressTests: XCTestCase {
       }
       """,
       variables: [
-        "notebookId": .string(notebookId),
-        "tagId": .string(secondHistoryId)
+        "notebookId": .string(notebookId.rawValue),
+        "tagId": .string(secondHistoryId.rawValue)
       ],
       operationName: "RemoveById"
     ))

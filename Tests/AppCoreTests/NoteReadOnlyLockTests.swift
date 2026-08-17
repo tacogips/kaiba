@@ -77,7 +77,7 @@ final class NoteReadOnlyLockTests: NoteTestCase {
 
   func testNotebookLockAllowsAnnotationAndOrganizationMutations() throws {
     let service = try makeService(function: #function)
-    _ = try service.defineTag(name: "project/locked", classId: "folder")
+    _ = try service.defineTag(name: "project/locked", classId: TagClassID("folder"))
     let notebook = try service.createNotebook(title: "Locked organization")
     let note = try service.createNote(notebookId: notebook.notebookId, bodyMarkdown: "Locked body")
     let otherNotebook = try service.createNotebook(title: "Link target")
@@ -174,13 +174,13 @@ final class NoteReadOnlyLockTests: NoteTestCase {
 }
 
 private func XCTAssertReadOnly<T>(
-  _ expectedId: String,
+  _ expectedId: some KaibaIdentifier,
   file: StaticString = #filePath,
   line: UInt = #line,
   operation: () throws -> T
 ) {
   XCTAssertThrowsError(try operation(), file: file, line: line) { error in
-    XCTAssertEqual(error as? NoteServiceError, .readOnly(expectedId), file: file, line: line)
+    XCTAssertEqual(error as? NoteServiceError, .readOnly(expectedId.rawValue), file: file, line: line)
   }
 }
 

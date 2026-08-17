@@ -23,6 +23,7 @@ public enum GraphQLContractProjector {
       createdAfter: String,
       createdBefore: String
     ): NotebooksQueryPayload!
+    libraries: NoteLibrariesQueryPayload!
     notes(limit: Int, offset: Int, notebookId: String, tagFilter: [String!]): NotesQueryPayload!
     searchNotes(
       query: String!, tagFilter: [String!], classFilter: [String!], notebookId: String,

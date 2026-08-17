@@ -19,7 +19,7 @@ final class NoteGraphQLDocumentProjectionTests: XCTestCase {
         }
       }
       """,
-      variables: ["noteId": .string(note.noteId)],
+      variables: ["noteId": .string(note.noteId.rawValue)],
       operationName: "Projected"
     ))
 
@@ -30,13 +30,13 @@ final class NoteGraphQLDocumentProjectionTests: XCTestCase {
     XCTAssertNil(result["status"])
     let value = try objectValue(payload["value"], field: "note.value")
     XCTAssertEqual(value["__typename"], .string("Note"))
-    XCTAssertEqual(value["noteId"], .string(note.noteId))
+    XCTAssertEqual(value["noteId"], .string(note.noteId.rawValue))
     XCTAssertEqual(value["title"], .string("Projected"))
     XCTAssertNil(value["bodyMarkdown"])
 
     let missingArgument = await executor.execute(GraphQLDocumentRequest(
       query: "mutation DeleteWithoutArgument { deleteNote { accepted status diagnostics } }",
-      variables: ["noteId": .string(note.noteId)],
+      variables: ["noteId": .string(note.noteId.rawValue)],
       operationName: "DeleteWithoutArgument"
     ))
 
@@ -107,7 +107,7 @@ final class NoteGraphQLDocumentProjectionTests: XCTestCase {
         }
       }
       """,
-      variables: ["noteId": .string(note.noteId)],
+      variables: ["noteId": .string(note.noteId.rawValue)],
       operationName: "Nested"
     ))
 
@@ -136,7 +136,7 @@ final class NoteGraphQLDocumentProjectionTests: XCTestCase {
         second: tags { value { name } }
       }
       """,
-      variables: ["noteId": .string(note.noteId)],
+      variables: ["noteId": .string(note.noteId.rawValue)],
       operationName: "Distinct"
     ))
 
@@ -145,7 +145,7 @@ final class NoteGraphQLDocumentProjectionTests: XCTestCase {
     let data = try objectValue(response.body["data"], field: "data")
     let first = try objectValue(data["first"], field: "first")
     let value = try objectValue(first["value"], field: "first.value")
-    XCTAssertEqual(value["id"], .string(note.noteId))
+    XCTAssertEqual(value["id"], .string(note.noteId.rawValue))
     XCTAssertEqual(value["heading"], .string("Distinct"))
     XCTAssertNotNil(data["second"])
   }

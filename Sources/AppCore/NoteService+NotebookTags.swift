@@ -3,7 +3,7 @@ import Foundation
 public extension NoteService {
   @discardableResult
   func applyNotebookTags(
-    notebookId: String,
+    notebookId: NotebookID,
     tags: [String],
     provenance: NoteProvenance,
     assignedBy: String? = nil
@@ -42,8 +42,8 @@ public extension NoteService {
 
   @discardableResult
   func applyNotebookTagIds(
-    notebookId: String,
-    tagIds: [String],
+    notebookId: NotebookID,
+    tagIds: [TagID],
     provenance: NoteProvenance,
     assignedBy: String? = nil
   ) throws -> Notebook {
@@ -74,7 +74,7 @@ public extension NoteService {
 
   @discardableResult
   func removeNotebookTag(
-    notebookId: String,
+    notebookId: NotebookID,
     tagName: String,
     removedBy provenance: NoteProvenance
   ) throws -> Notebook {
@@ -90,8 +90,8 @@ public extension NoteService {
 
   @discardableResult
   func removeNotebookTagById(
-    notebookId: String,
-    tagId: String,
+    notebookId: NotebookID,
+    tagId: TagID,
     removedBy provenance: NoteProvenance
   ) throws -> Notebook {
     let result = try driver.withDatabase { database in
@@ -113,7 +113,7 @@ public extension NoteService {
           DELETE FROM notebook_tags
           WHERE notebook_id = ? AND tag_id = ?
           """,
-          bindings: [.text(notebookId), .text(existing.tag.tagId)]
+          bindings: [.id(notebookId), .id(existing.tag.tagId)]
         )
         let after = try requireNotebook(notebookId, in: db)
         return (notebook: after, tagNames: affectedFolderTagNames(before: before, after: after))
@@ -138,7 +138,7 @@ func affectedFolderTagNames(before: Notebook, after: Notebook) -> [String] {
 
 func ensureNotebookKindTag(_ tagName: String, in database: SQLiteDatabase) throws -> Tag {
   if let existing = try findNonFolderTag(name: tagName, in: database) {
-    guard existing.classId == "document-kind", existing.isSystem else {
+    guard existing.classId == .documentKind, existing.isSystem else {
       throw NoteStoreSchemaError.systemTagCollision(name: tagName)
     }
     return existing
@@ -150,15 +150,15 @@ func ensureNotebookKindTag(_ tagName: String, in database: SQLiteDatabase) throw
     VALUES (?, ?, 'document-kind', 1, ?)
     ON CONFLICT DO NOTHING
     """,
-    bindings: [.text(tagId), .text(tagName), .text(NoteStoreClock.system.now())]
+    bindings: [.id(tagId), .text(tagName), .text(NoteStoreClock.system.now())]
   )
   let tag = try requireNonFolderTag(name: tagName, in: database)
-  guard tag.tagId == tagId, tag.classId == "document-kind", tag.isSystem else {
+  guard tag.tagId == tagId, tag.classId == .documentKind, tag.isSystem else {
     throw NoteStoreSchemaError.systemTagCollision(name: tagName)
   }
   return tag
 }
 
-private func notebookKindTagId(for tagName: String) -> String {
-  "notebook-kind-\(tagName.utf8.map { String(format: "%02x", $0) }.joined())"
+private func notebookKindTagId(for tagName: String) -> TagID {
+  TagID("notebook-kind-\(tagName.utf8.map { String(format: "%02x", $0) }.joined())")
 }

@@ -1,5 +1,6 @@
 import { latestConversationId } from './memoTimeline'
 import type { AgentChatAttachmentInput, AgentConversation, AgentModel } from './types'
+import type { NoteId, NotebookId } from './ids'
 
 const allowedTypes = new Set([
   'text/plain', 'text/markdown', 'text/csv', 'text/tab-separated-values',
@@ -65,8 +66,8 @@ export function memoOnlyToggleResult(
  * would accept the write: a note subject whose own read-only flag and whose
  * notebook's flag are both clear (imported documents lock the notebook). */
 export function canEnableNoteEdit(
-  subject: { kind: 'note' | 'notebook'; id: string } | undefined,
-  note: { noteId: string; readOnly: boolean } | undefined,
+  subject: { kind: 'note'; id: NoteId } | { kind: 'notebook'; id: NotebookId } | undefined,
+  note: { noteId: NoteId; readOnly: boolean } | undefined,
   notebook: { readOnly: boolean } | undefined,
 ): boolean {
   return subject?.kind === 'note' && note?.noteId === subject.id
@@ -104,10 +105,10 @@ export function resetComposerForNewChat<T>(): {
 }
 
 export interface AgentChatComposerRequestOptions {
-  subject: { kind: 'note' | 'notebook'; id: string }
+  subject: { kind: 'note'; id: NoteId } | { kind: 'notebook'; id: NotebookId }
   conversations: AgentConversation[]
   /** The conversation selected by a completed New chat boundary. */
-  activeConversationId?: string
+  activeConversationId?: NotebookId
   newConversation: boolean
   userMarkdown: string
   idempotencyKey: string
@@ -119,9 +120,9 @@ export interface AgentChatComposerRequestOptions {
 }
 
 export interface AgentChatComposerRequest {
-  subjectNoteId?: string
-  subjectNotebookId?: string
-  conversationNotebookId?: string
+  subjectNoteId?: NoteId
+  subjectNotebookId?: NotebookId
+  conversationNotebookId?: NotebookId
   userMarkdown: string
   idempotencyKey: string
   model?: string

@@ -11,7 +11,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
     let executor = NoteGraphQLDocumentExecutor(service: service)
 
     let initial = try await queriedNotebook(executor: executor, notebookId: notebook.notebookId)
-    XCTAssertEqual(initial["notebookId"], .string(notebook.notebookId))
+    XCTAssertEqual(initial["notebookId"], .string(notebook.notebookId.rawValue))
     XCTAssertEqual(initial["readOnly"], .bool(false))
 
     let locked = try await setNotebookReadOnly(
@@ -22,7 +22,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
     XCTAssertEqual(try resultObject(locked)["accepted"], .bool(true))
     XCTAssertEqual(try resultObject(locked)["status"], .string("ok"))
     let lockedNotebook = try objectValue(locked["notebook"], field: "setNotebookReadOnly.notebook")
-    XCTAssertEqual(lockedNotebook["notebookId"], .string(notebook.notebookId))
+    XCTAssertEqual(lockedNotebook["notebookId"], .string(notebook.notebookId.rawValue))
     XCTAssertEqual(lockedNotebook["readOnly"], .bool(true))
     XCTAssertEqual(try service.service.getNotebook(notebook.notebookId).readOnly, true)
     XCTAssertEqual(
@@ -52,7 +52,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
 
     let missing = try await setNotebookReadOnly(
       executor: executor,
-      notebookId: "missing-notebook",
+      notebookId: NotebookID("missing-notebook"),
       readOnly: false
     )
 
@@ -105,7 +105,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
       }
       """,
       variables: ["input": .object([
-        "notebookId": .string(ordinary.notebookId),
+        "notebookId": .string(ordinary.notebookId.rawValue),
         "tags": .array([.string(reservedTag)]),
         "provenance": .string("human")
       ])]
@@ -128,8 +128,8 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
       }
       """,
       variables: ["input": .object([
-        "notebookId": .string(ordinary.notebookId),
-        "tagIds": .array([.string(reservedTagId)]),
+        "notebookId": .string(ordinary.notebookId.rawValue),
+        "tagIds": .array([.string(reservedTagId.rawValue)]),
         "provenance": .string("human")
       ])]
     )
@@ -145,7 +145,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
 
   private func setNotebookReadOnly(
     executor: NoteGraphQLDocumentExecutor,
-    notebookId: String,
+    notebookId: NotebookID,
     readOnly: Bool
   ) async throws -> JSONObject {
     let response = await executor.execute(GraphQLDocumentRequest(
@@ -158,7 +158,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
       }
       """,
       variables: [
-        "notebookId": .string(notebookId),
+        "notebookId": .string(notebookId.rawValue),
         "readOnly": .bool(readOnly)
       ],
       operationName: "SetNotebookReadOnly"
@@ -170,7 +170,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
 
   private func queriedNotebook(
     executor: NoteGraphQLDocumentExecutor,
-    notebookId: String
+    notebookId: NotebookID
   ) async throws -> JSONObject {
     let response = await executor.execute(GraphQLDocumentRequest(
       query: """
@@ -181,7 +181,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
         }
       }
       """,
-      variables: ["notebookId": .string(notebookId)],
+      variables: ["notebookId": .string(notebookId.rawValue)],
       operationName: "Notebook"
     ))
     XCTAssertTrue(response.handled)

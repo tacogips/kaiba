@@ -271,7 +271,7 @@ final class AgentChatGraphQLTests: XCTestCase {
       }
       """,
       variables: ["input": .object([
-        "subjectNoteId": .string(subject.noteId),
+        "subjectNoteId": .string(subject.noteId.rawValue),
         "userMarkdown": .string("What is this about?"),
         "idempotencyKey": .string("turn-1")
       ])],
@@ -283,12 +283,14 @@ final class AgentChatGraphQLTests: XCTestCase {
     // No dispatcher installed on a bare service: agent-unavailable, but the
     // turn is persisted.
     XCTAssertEqual(payload["agentStatus"], .string("agent-unavailable"))
-    guard case let .string(notebookId)? = payload["conversationNotebookId"] else {
+    guard case let .string(rawNotebookId)? = payload["conversationNotebookId"] else {
       return XCTFail("expected conversationNotebookId")
     }
-    guard case let .string(turnNoteId)? = payload["turnNoteId"] else {
+    let notebookId = NotebookID(rawNotebookId)
+    guard case let .string(rawTurnNoteId)? = payload["turnNoteId"] else {
       return XCTFail("expected turnNoteId")
     }
+    let turnNoteId = NoteID(rawTurnNoteId)
     let turn = try service.service.getNote(turnNoteId)
     XCTAssertEqual(NoteService.chatTurnState(of: turn)?.status, .unavailable)
 
@@ -351,14 +353,14 @@ final class AgentChatGraphQLTests: XCTestCase {
         }
       }
       """,
-      variables: ["noteId": .string(subject.noteId)],
+      variables: ["noteId": .string(subject.noteId.rawValue)],
       operationName: "Conversations"
     ))
     let payload = try graphQLPayload(response.body, field: "noteConversations")
     let values = try arrayValue(payload["value"], field: "noteConversations.value")
     XCTAssertEqual(values.count, 1)
     let conversation = try objectValue(values[0], field: "noteConversations.value[0]")
-    XCTAssertEqual(conversation["subjectNoteId"], .string(subject.noteId))
+    XCTAssertEqual(conversation["subjectNoteId"], .string(subject.noteId.rawValue))
     XCTAssertEqual(conversation["turnCount"], .integer(1))
 
     let outOfRange = await executor.execute(GraphQLDocumentRequest(
@@ -367,7 +369,7 @@ final class AgentChatGraphQLTests: XCTestCase {
         noteConversations(noteId: $noteId, limit: 500) { result { accepted } }
       }
       """,
-      variables: ["noteId": .string(subject.noteId)],
+      variables: ["noteId": .string(subject.noteId.rawValue)],
       operationName: "Conversations"
     ))
     let errorBody = outOfRange.body
@@ -392,7 +394,7 @@ final class AgentChatGraphQLTests: XCTestCase {
         }
       }
       """,
-      variables: ["noteId": .string(note.noteId)],
+      variables: ["noteId": .string(note.noteId.rawValue)],
       operationName: "Comments"
     ))
     let payload = try graphQLPayload(response.body, field: "noteComments")
@@ -403,7 +405,7 @@ final class AgentChatGraphQLTests: XCTestCase {
     XCTAssertEqual(comment["bodyMarkdown"], .string("First memo"))
     XCTAssertEqual(comment["author"], .string("tester"))
 
-    let missing = await service.noteComments(noteId: "note-missing")
+    let missing = await service.noteComments(noteId: NoteID("note-missing"))
     XCTAssertEqual(missing.result.status, "not_found")
   }
 
@@ -464,7 +466,7 @@ final class AgentChatGraphQLTests: XCTestCase {
     // Unknown source notebook surfaces as a rejected result.
     let missing = await bare.requestNotebookTranslation(
       GraphQLRequestNotebookTranslationInput(
-        notebookId: "notebook-missing",
+        notebookId: NotebookID("notebook-missing"),
         targetLanguage: "English"
       )
     )

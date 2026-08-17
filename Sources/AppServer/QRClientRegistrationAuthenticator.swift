@@ -30,12 +30,12 @@ public struct NoteAPIRegistrationChallenge: Codable, Equatable, Sendable {
 }
 
 public struct NoteAPIRegistrationCredential: Codable, Equatable, Sendable {
-  public var clientId: String
+  public var clientId: APIClientID
   public var displayName: String
   public var bearerToken: String
   public var createdAt: String
 
-  public init(clientId: String, displayName: String, bearerToken: String, createdAt: String) {
+  public init(clientId: APIClientID, displayName: String, bearerToken: String, createdAt: String) {
     self.clientId = clientId
     self.displayName = displayName
     self.bearerToken = bearerToken
@@ -157,7 +157,11 @@ public actor QRClientRegistrationAuthenticator: NoteAPIAuthenticating, NoteAPICl
       guard let client = try service.authenticateAPIClient(bearerToken: token) else {
         return .rejected(noteAPIUnauthorizedResponse("note API bearer token is invalid or revoked"))
       }
-      return .accepted(NoteAPIAuthenticatedClient(clientId: client.clientId, displayName: client.displayName))
+      return .accepted(NoteAPIAuthenticatedClient(
+        clientId: client.clientId,
+        displayName: client.displayName,
+        userId: client.userId
+      ))
     } catch {
       logNoteAPIServerError("note API authentication failed", error: error)
       return .rejected(noteAPIUnavailableResponse("note API authentication is unavailable"))

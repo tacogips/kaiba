@@ -1,3 +1,4 @@
+import type { TagId } from '../notes/ids'
 import { For, Show, createMemo, createSignal, type JSX } from 'solid-js'
 import { formatTimestamp } from '../notes/format'
 import { diaryNotebooks, notebookCategories, notebookPreview } from '../notes/notebookList'
@@ -6,7 +7,7 @@ import { useApp } from '../state/appStore'
 
 export function NotebookListTab(): JSX.Element {
   const app = useApp()
-  const [tagId, setTagId] = createSignal<string>()
+  const [tagId, setTagId] = createSignal<TagId>()
   const notebooks = createMemo(() => diaryNotebooks(app.state.notebooks, tagId()))
   const categories = createMemo(() => {
     const byId = new Map(

@@ -1,10 +1,11 @@
+import { noteId as asNoteId, notebookId as asNotebookId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import { derivedNoteTitle, noteDisplayTitle, noteExportFilename } from './noteText'
 import type { Note } from './types'
 
 const note = (overrides: Partial<Note> = {}): Note => ({
-  noteId: 'note-1',
-  notebookId: 'book-1',
+  noteId: asNoteId('note-1'),
+  notebookId: asNotebookId('book-1'),
   noteNumber: 7,
   title: 'Title',
   bodyMarkdown: 'body',

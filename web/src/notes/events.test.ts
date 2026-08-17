@@ -1,3 +1,4 @@
+import { notebookId as asNotebookId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import { subscribeNoteEvents, type NoteChangeEvent } from './events'
 
@@ -42,7 +43,7 @@ describe('subscribeNoteEvents', () => {
         body: {
           revision: 3,
           events: [
-            { kind: 'notebook-read-only', notebookId: 'nb-1', tagNames: ['proj/alpha'] },
+            { kind: 'notebook-read-only', notebookId: asNotebookId('nb-1'), tagNames: ['proj/alpha'] },
             { kind: 'notebook-tags', notebookId: null, tagNames: [] },
           ],
         },
@@ -59,7 +60,7 @@ describe('subscribeNoteEvents', () => {
 
     expect(events.map((event) => event.kind)).toEqual(['notebook-read-only', 'notebook-tags'])
     expect(events[0]?.tagNames).toEqual(['proj/alpha'])
-    expect(events[0]?.notebookId).toBe('nb-1')
+    expect(events[0]?.notebookId).toBe(asNotebookId('nb-1'))
   })
 
   test('threads the revision from each response into the next poll', async () => {

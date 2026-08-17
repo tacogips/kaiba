@@ -3,10 +3,10 @@ import Foundation
 import AppCore
 
 public struct GraphQLNoteTagDTO: Codable, Equatable, Sendable {
-  public var tagId: String
+  public var tagId: TagID
   public var name: String
-  public var classId: String?
-  public var parentTagId: String?
+  public var classId: TagClassID?
+  public var parentTagId: TagID?
   public var isSystem: Bool
   public var createdAt: String
 
@@ -21,7 +21,7 @@ public struct GraphQLNoteTagDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteTagClassDTO: Codable, Equatable, Sendable {
-  public var classId: String
+  public var classId: TagClassID
   public var label: String
   public var description: String?
   public var isSystem: Bool
@@ -53,7 +53,7 @@ public struct GraphQLNoteTagAssignmentDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNotebookDTO: Codable, Equatable, Sendable {
-  public var notebookId: String
+  public var notebookId: NotebookID
   public var title: String
   public var readOnly: Bool
   public var createdAt: String
@@ -62,6 +62,8 @@ public struct GraphQLNotebookDTO: Codable, Equatable, Sendable {
   public var tags: [GraphQLNoteTagAssignmentDTO]
   public var firstNotePreview: String?
   public var noteCount: Int?
+
+  public var libraryId: LibraryID?
 
   public init(notebook: Notebook) {
     notebookId = notebook.notebookId
@@ -73,12 +75,36 @@ public struct GraphQLNotebookDTO: Codable, Equatable, Sendable {
     tags = notebook.tags.map(GraphQLNoteTagAssignmentDTO.init)
     firstNotePreview = notebook.firstNotePreview
     noteCount = notebook.noteCount
+    libraryId = notebook.libraryId
+  }
+}
+
+/// A library as the API reports it (`design-docs/specs/library.md`). Carries
+/// no credential material: `authRequired` is a policy flag, and the scope a
+/// library reads secrets from lives in the CLI's `library env`.
+public struct GraphQLNoteLibraryDTO: Codable, Equatable, Sendable {
+  public var libraryId: LibraryID
+  public var name: String
+  public var title: String
+  public var authRequired: Bool
+  public var isDefault: Bool
+  public var createdAt: String
+  public var notebookCount: Int?
+
+  public init(library: NoteLibrary) {
+    libraryId = library.libraryId
+    name = library.name
+    title = library.title
+    authRequired = library.authRequired
+    isDefault = library.isDefault
+    createdAt = library.createdAt
+    notebookCount = library.notebookCount
   }
 }
 
 public struct GraphQLNoteDTO: Codable, Equatable, Sendable {
-  public var noteId: String
-  public var notebookId: String
+  public var noteId: NoteID
+  public var notebookId: NotebookID
   public var noteNumber: Int
   public var title: String?
   public var bodyMarkdown: String
@@ -103,7 +129,7 @@ public struct GraphQLNoteDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteFileDTO: Codable, Equatable, Sendable {
-  public var fileId: String
+  public var fileId: FileID
   public var storageKind: String
   public var localPath: String?
   public var s3Profile: String?
@@ -133,7 +159,7 @@ public struct GraphQLNoteFileDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteFileAttachmentDTO: Codable, Equatable, Sendable {
-  public var noteId: String
+  public var noteId: NoteID
   public var file: GraphQLNoteFileDTO
   public var role: String
   public var position: Int
@@ -147,10 +173,10 @@ public struct GraphQLNoteFileAttachmentDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteCommentDTO: Codable, Equatable, Sendable {
-  public var commentId: String
+  public var commentId: CommentID
   /// Nil for a notebook-level memo (anchored to the notebook, not a note).
-  public var noteId: String?
-  public var notebookId: String?
+  public var noteId: NoteID?
+  public var notebookId: NotebookID?
   public var bodyMarkdown: String
   public var author: String
   public var createdAt: String
@@ -170,7 +196,7 @@ public struct GraphQLTagDetailDTO: Codable, Equatable, Sendable {
   public var tagClass: GraphQLNoteTagClassDTO?
   public var noteCount: Int
   public var notebookCount: Int
-  public var memoNotebookId: String?
+  public var memoNotebookId: NotebookID?
 
   public init(detail: TagDetail) {
     tag = GraphQLNoteTagDTO(tag: detail.tag)
@@ -194,8 +220,8 @@ public struct GraphQLTagCommentDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteLinkDTO: Codable, Equatable, Sendable {
-  public var fromNoteId: String
-  public var toNoteId: String
+  public var fromNoteId: NoteID
+  public var toNoteId: NoteID
   public var linkKind: String
   public var provenance: String
   public var createdAt: String
@@ -226,12 +252,12 @@ public struct GraphQLNoteSearchResultDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteGraphNeighborDTO: Codable, Equatable, Sendable {
-  public var seedNoteId: String
+  public var seedNoteId: NoteID
   public var note: GraphQLNoteDTO
   public var edgeKind: String
   public var weight: Double
   public var hopCount: Int
-  public var pathNoteIds: [String]
+  public var pathNoteIds: [NoteID]
 
   public init(result: NoteGraphNeighbor) {
     seedNoteId = result.seedNoteId
@@ -245,7 +271,7 @@ public struct GraphQLNoteGraphNeighborDTO: Codable, Equatable, Sendable {
 
 public struct GraphQLNoteLinkProposalDTO: Codable, Equatable, Sendable {
   public var targetNote: GraphQLNoteDTO
-  public var targetNoteId: String
+  public var targetNoteId: NoteID
   public var linkKind: String
   public var reason: String
   public var source: String
@@ -260,9 +286,9 @@ public struct GraphQLNoteLinkProposalDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteAutoActionDTO: Codable, Equatable, Sendable {
-  public var actionId: String
+  public var actionId: AutoActionID
   public var trigger: String
-  public var workflowId: String
+  public var workflowId: WorkflowID
   public var filterJSON: String?
   public var enabled: Bool
   public var position: Int
@@ -280,13 +306,13 @@ public struct GraphQLNoteAutoActionDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLAgentConversationDTO: Codable, Equatable, Sendable {
-  public var notebookId: String
+  public var notebookId: NotebookID
   public var title: String
   public var updatedAt: String
   public var turnCount: Int
   /// Nil for a notebook-scoped conversation.
-  public var subjectNoteId: String?
-  public var subjectNotebookId: String?
+  public var subjectNoteId: NoteID?
+  public var subjectNotebookId: NotebookID?
 
   public init(conversation: AgentChatConversation) {
     notebookId = conversation.notebook.notebookId
@@ -365,14 +391,14 @@ public struct GraphQLAgenticSearchResult: Codable, Equatable, Sendable {
 
 public struct GraphQLAgentChatMessageResult: Codable, Equatable, Sendable {
   public var result: GraphQLControlPlaneResult
-  public var conversationNotebookId: String?
-  public var turnNoteId: String?
+  public var conversationNotebookId: NotebookID?
+  public var turnNoteId: NoteID?
   public var agentStatus: String
 
   public init(
     result: GraphQLControlPlaneResult,
-    conversationNotebookId: String? = nil,
-    turnNoteId: String? = nil,
+    conversationNotebookId: NotebookID? = nil,
+    turnNoteId: NoteID? = nil,
     agentStatus: String
   ) {
     self.result = result
@@ -394,12 +420,12 @@ public struct GraphQLTagExtractionRequestResult: Codable, Equatable, Sendable {
 
 public struct GraphQLNotebookTranslationRequestResult: Codable, Equatable, Sendable {
   public var result: GraphQLControlPlaneResult
-  public var translationNotebookId: String?
+  public var translationNotebookId: NotebookID?
   public var status: String
 
   public init(
     result: GraphQLControlPlaneResult,
-    translationNotebookId: String? = nil,
+    translationNotebookId: NotebookID? = nil,
     status: String
   ) {
     self.result = result
@@ -410,9 +436,9 @@ public struct GraphQLNotebookTranslationRequestResult: Codable, Equatable, Senda
 
 public struct GraphQLNoteTagInput: Codable, Equatable, Sendable {
   public var name: String
-  public var classId: String?
+  public var classId: TagClassID?
 
-  public init(name: String, classId: String? = nil) {
+  public init(name: String, classId: TagClassID? = nil) {
     self.name = name
     self.classId = classId
   }
@@ -423,7 +449,7 @@ public struct GraphQLNoteTagInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLCreateNoteInput: Codable, Equatable, Sendable {
-  public var notebookId: String?
+  public var notebookId: NotebookID?
   public var notebookTitle: String?
   public var title: String?
   public var bodyMarkdown: String
@@ -432,10 +458,10 @@ public struct GraphQLCreateNoteInput: Codable, Equatable, Sendable {
   public var provenance: String
   public var assignedBy: String?
   public var metaJSON: String?
-  public var originatingActionId: String?
+  public var originatingActionId: AutoActionID?
 
   public init(
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     notebookTitle: String? = nil,
     title: String? = nil,
     bodyMarkdown: String,
@@ -444,7 +470,7 @@ public struct GraphQLCreateNoteInput: Codable, Equatable, Sendable {
     provenance: String = NoteProvenance.human.rawValue,
     assignedBy: String? = nil,
     metaJSON: String? = nil,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) {
     self.notebookId = notebookId
     self.notebookTitle = notebookTitle
@@ -460,7 +486,7 @@ public struct GraphQLCreateNoteInput: Codable, Equatable, Sendable {
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    notebookId = try container.decodeIfPresent(String.self, forKey: .notebookId)
+    notebookId = try container.decodeIfPresent(NotebookID.self, forKey: .notebookId)
     notebookTitle = try container.decodeIfPresent(String.self, forKey: .notebookTitle)
     title = try container.decodeIfPresent(String.self, forKey: .title)
     bodyMarkdown = try container.decode(String.self, forKey: .bodyMarkdown)
@@ -469,7 +495,7 @@ public struct GraphQLCreateNoteInput: Codable, Equatable, Sendable {
     provenance = try container.decodeIfPresent(String.self, forKey: .provenance) ?? NoteProvenance.human.rawValue
     assignedBy = try container.decodeIfPresent(String.self, forKey: .assignedBy)
     metaJSON = try container.decodeIfPresent(String.self, forKey: .metaJSON)
-    originatingActionId = try container.decodeIfPresent(String.self, forKey: .originatingActionId)
+    originatingActionId = try container.decodeIfPresent(AutoActionID.self, forKey: .originatingActionId)
   }
 }
 
@@ -478,14 +504,14 @@ public struct GraphQLCreateNotebookInput: Codable, Equatable, Sendable {
   public var kindTagName: String?
   public var folderPath: [String]?
   public var metaJSON: String?
-  public var originatingActionId: String?
+  public var originatingActionId: AutoActionID?
 
   public init(
     title: String,
     kindTagName: String? = nil,
     folderPath: [String]? = nil,
     metaJSON: String? = nil,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) {
     self.title = title
     self.kindTagName = kindTagName
@@ -496,11 +522,11 @@ public struct GraphQLCreateNotebookInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLDefineNoteTagClassInput: Codable, Equatable, Sendable {
-  public var classId: String
+  public var classId: TagClassID
   public var label: String
   public var description: String?
 
-  public init(classId: String, label: String, description: String? = nil) {
+  public init(classId: TagClassID, label: String, description: String? = nil) {
     self.classId = classId
     self.label = label
     self.description = description
@@ -509,14 +535,14 @@ public struct GraphQLDefineNoteTagClassInput: Codable, Equatable, Sendable {
 
 public struct GraphQLDefineNoteTagInput: Codable, Equatable, Sendable {
   public var name: String
-  public var classId: String?
-  public var parentTagId: String?
+  public var classId: TagClassID?
+  public var parentTagId: TagID?
   public var createOnly: Bool
 
   public init(
     name: String,
-    classId: String? = nil,
-    parentTagId: String? = nil,
+    classId: TagClassID? = nil,
+    parentTagId: TagID? = nil,
     createOnly: Bool = false
   ) {
     self.name = name
@@ -528,8 +554,8 @@ public struct GraphQLDefineNoteTagInput: Codable, Equatable, Sendable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     name = try container.decode(String.self, forKey: .name)
-    classId = try container.decodeIfPresent(String.self, forKey: .classId)
-    parentTagId = try container.decodeIfPresent(String.self, forKey: .parentTagId)
+    classId = try container.decodeIfPresent(TagClassID.self, forKey: .classId)
+    parentTagId = try container.decodeIfPresent(TagID.self, forKey: .parentTagId)
     createOnly = try container.decodeIfPresent(Bool.self, forKey: .createOnly) ?? false
   }
 }
@@ -572,7 +598,7 @@ public struct GraphQLNoteMutationResult: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNoteFileMigrationFailureDTO: Codable, Equatable, Sendable {
-  public var fileId: String
+  public var fileId: FileID
   public var message: String
 
   public init(_ failure: NoteFileMigrationFailure) {
@@ -602,12 +628,12 @@ public struct GraphQLNoteFileMigrationResult: Codable, Equatable, Sendable {
 
 public struct GraphQLNoteFileReclamationResult: Codable, Equatable, Sendable {
   public var result: GraphQLControlPlaneResult
-  public var deletedFileIds: [String]
+  public var deletedFileIds: [FileID]
   public var sweptPaths: [String]
 
   public init(
     result: GraphQLControlPlaneResult,
-    deletedFileIds: [String] = [],
+    deletedFileIds: [FileID] = [],
     sweptPaths: [String] = []
   ) {
     self.result = result

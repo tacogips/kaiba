@@ -40,13 +40,13 @@ public struct GraphQLNoteGraphQLService: Sendable {
     self.agentModelCatalog = agentModelCatalog
   }
 
-  public func note(noteId: String) async -> GraphQLNoteQueryResult<GraphQLNoteDTO> {
+  public func note(noteId: NoteID) async -> GraphQLNoteQueryResult<GraphQLNoteDTO> {
     noteResult {
       GraphQLNoteDTO(note: try service.getNote(noteId))
     }
   }
 
-  public func notebook(notebookId: String) async -> GraphQLNoteQueryResult<GraphQLNotebookDTO> {
+  public func notebook(notebookId: NotebookID) async -> GraphQLNoteQueryResult<GraphQLNotebookDTO> {
     noteResult {
       GraphQLNotebookDTO(notebook: try service.getNotebook(notebookId))
     }
@@ -57,7 +57,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     offset: Int = 0,
     tagFilter: [String] = [],
     tagFilterGroups: [[String]] = [],
-    tagFilterIdGroups: [[String]] = [],
+    tagFilterIdGroups: [[TagID]] = [],
     sort: String? = nil,
     createdAfter: String? = nil,
     createdBefore: String? = nil
@@ -76,10 +76,19 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
+  /// The libraries the request's caller may see. A caller with no credential
+  /// gets only the ones that require no authentication
+  /// (`design-docs/specs/library.md`).
+  public func libraries() async -> GraphQLNoteQueryResult<[GraphQLNoteLibraryDTO]> {
+    noteResult {
+      try service.listLibraries().map(GraphQLNoteLibraryDTO.init)
+    }
+  }
+
   public func notes(
     limit: Int = 50,
     offset: Int = 0,
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     tagFilter: [String] = []
   ) async -> GraphQLNoteQueryResult<[GraphQLNoteDTO]> {
     noteResult {
@@ -96,7 +105,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     query: String,
     tagFilter: [String] = [],
     classFilter: [String] = [],
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     sort: String? = nil,
     createdAfter: String? = nil,
     createdBefore: String? = nil,
@@ -123,7 +132,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func noteGraphNeighbors(
-    noteIds: [String],
+    noteIds: [NoteID],
     depth: Int = NoteGraphPolicy.defaultMaxDepth,
     limit: Int = NoteGraphPolicy.defaultLimit
   ) async -> GraphQLNoteQueryResult<[GraphQLNoteGraphNeighborDTO]> {
@@ -134,7 +143,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func proposeNoteLinks(
-    noteId: String,
+    noteId: NoteID,
     limit: Int = 8
   ) async -> GraphQLNoteQueryResult<[GraphQLNoteLinkProposalDTO]> {
     noteResult {
@@ -154,14 +163,14 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func noteFile(fileId: String) async -> GraphQLNoteQueryResult<GraphQLNoteFileDTO> {
+  public func noteFile(fileId: FileID) async -> GraphQLNoteQueryResult<GraphQLNoteFileDTO> {
     noteResult {
       GraphQLNoteFileDTO(file: try service.getFileRecord(fileId: fileId))
     }
   }
 
   /// The note's attachments in store order (position, then created-at, then id).
-  public func noteFiles(noteId: String) async -> GraphQLNoteQueryResult<[GraphQLNoteFileAttachmentDTO]> {
+  public func noteFiles(noteId: NoteID) async -> GraphQLNoteQueryResult<[GraphQLNoteFileAttachmentDTO]> {
     noteResult {
       try service.listFiles(noteId: noteId).map(GraphQLNoteFileAttachmentDTO.init)
     }
@@ -227,7 +236,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func updateNote(noteId: String, bodyMarkdown: String, originatingActionId: String? = nil) async -> GraphQLNoteMutationResult {
+  public func updateNote(noteId: NoteID, bodyMarkdown: String, originatingActionId: AutoActionID? = nil) async -> GraphQLNoteMutationResult {
     noteMutation {
       let note = try service.updateNoteBody(
         noteId: noteId,
@@ -238,13 +247,13 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func deleteNote(noteId: String) async -> GraphQLControlPlaneResult {
+  public func deleteNote(noteId: NoteID) async -> GraphQLControlPlaneResult {
     noteControlResult {
       try service.deleteNote(noteId: noteId)
     }
   }
 
-  public func deleteNotebook(notebookId: String) async -> GraphQLControlPlaneResult {
+  public func deleteNotebook(notebookId: NotebookID) async -> GraphQLControlPlaneResult {
     noteControlResult {
       try service.deleteNotebook(notebookId: notebookId)
     }
@@ -279,7 +288,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func removeNotebookTag(
-    notebookId: String,
+    notebookId: NotebookID,
     tagName: String,
     provenance: String = NoteProvenance.human.rawValue
   ) async -> GraphQLNoteMutationResult {
@@ -294,8 +303,8 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func removeNotebookTagById(
-    notebookId: String,
-    tagId: String,
+    notebookId: NotebookID,
+    tagId: TagID,
     provenance: String = NoteProvenance.human.rawValue
   ) async -> GraphQLNoteMutationResult {
     noteMutation {
@@ -309,7 +318,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func setNotebookReadOnly(
-    notebookId: String,
+    notebookId: NotebookID,
     readOnly: Bool
   ) async -> GraphQLNoteMutationResult {
     noteMutation {
@@ -321,7 +330,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func setReadOnly(noteId: String, readOnly: Bool) async -> GraphQLNoteMutationResult {
+  public func setReadOnly(noteId: NoteID, readOnly: Bool) async -> GraphQLNoteMutationResult {
     noteMutation {
       let note = try service.setReadOnly(noteId: noteId, readOnly: readOnly)
       return .init(result: .ok, note: GraphQLNoteDTO(note: note))
@@ -329,7 +338,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func applyTags(
-    noteId: String,
+    noteId: NoteID,
     tags: [GraphQLNoteTagInput],
     provenance: String = NoteProvenance.ai.rawValue,
     assignedBy: String? = nil
@@ -346,7 +355,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func removeTag(
-    noteId: String,
+    noteId: NoteID,
     tagName: String,
     provenance: String = NoteProvenance.human.rawValue
   ) async -> GraphQLNoteMutationResult {
@@ -360,7 +369,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func addComment(noteId: String, bodyMarkdown: String, author: String = "user") async -> GraphQLNoteMutationResult {
+  public func addComment(noteId: NoteID, bodyMarkdown: String, author: String = "user") async -> GraphQLNoteMutationResult {
     noteMutation {
       let comment = try service.addComment(noteId: noteId, bodyMarkdown: bodyMarkdown, author: author)
       return .init(result: .ok, comment: GraphQLNoteCommentDTO(comment: comment))
@@ -368,7 +377,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func addNotebookComment(
-    notebookId: String,
+    notebookId: NotebookID,
     bodyMarkdown: String,
     author: String = "user"
   ) async -> GraphQLNoteMutationResult {
@@ -383,8 +392,8 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func linkNotes(
-    from fromNoteId: String,
-    to toNoteId: String,
+    from fromNoteId: NoteID,
+    to toNoteId: NoteID,
     linkKind: String = "related",
     provenance: String = NoteProvenance.human.rawValue
   ) async -> GraphQLNoteMutationResult {
@@ -400,7 +409,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func attachFile(
-    noteId: String,
+    noteId: NoteID,
     contentBase64: String,
     role: String = NoteFileRole.related.rawValue,
     mediaType: String,
@@ -437,9 +446,9 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func configureAutoAction(
-    actionId: String,
+    actionId: AutoActionID,
     trigger: String,
-    workflowId: String,
+    workflowId: WorkflowID,
     filterJSON: String? = nil,
     enabled: Bool = true,
     position: Int = 0
@@ -460,7 +469,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func deleteAutoAction(actionId: String) async -> GraphQLControlPlaneResult {
+  public func deleteAutoAction(actionId: AutoActionID) async -> GraphQLControlPlaneResult {
     noteControlResult {
       try service.deleteAutoAction(actionId: actionId)
     }
@@ -470,7 +479,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     title: String,
     transcript: [NoteConversationTurn],
     assignedBy: String? = nil,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) async -> GraphQLNoteMutationResult {
     noteMutation {
       let saved = try service.saveConversation(
@@ -488,7 +497,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func noteConversations(
-    noteId: String,
+    noteId: NoteID,
     limit: Int = 50
   ) async -> GraphQLNoteQueryResult<[GraphQLAgentConversationDTO]> {
     noteResult {
@@ -499,7 +508,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
 
   /// Conversations whose subject is the whole notebook (no note selected).
   public func notebookConversations(
-    notebookId: String,
+    notebookId: NotebookID,
     limit: Int = 50
   ) async -> GraphQLNoteQueryResult<[GraphQLAgentConversationDTO]> {
     noteResult {
@@ -509,7 +518,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   public func noteComments(
-    noteId: String
+    noteId: NoteID
   ) async -> GraphQLNoteQueryResult<[GraphQLNoteCommentDTO]> {
     noteResult {
       try service.listComments(noteId: noteId).map(GraphQLNoteCommentDTO.init)
@@ -517,7 +526,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   /// Cross-notebook tag detail (design-docs/specs/tag-detail-pane.md).
-  public func tagDetail(tagId: String) async -> GraphQLNoteQueryResult<GraphQLTagDetailDTO> {
+  public func tagDetail(tagId: TagID) async -> GraphQLNoteQueryResult<GraphQLTagDetailDTO> {
     noteResult {
       GraphQLTagDetailDTO(detail: try service.tagDetail(tagId: tagId))
     }
@@ -526,7 +535,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   /// Memos of notes/notebooks carrying the tag (descendants included),
   /// newest first, across all notebooks.
   public func tagComments(
-    tagId: String,
+    tagId: TagID,
     limit: Int = 50,
     offset: Int = 0
   ) async -> GraphQLNoteQueryResult<[GraphQLTagCommentDTO]> {
@@ -537,7 +546,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   }
 
   /// Finds or creates the tag's memo/chat notebook.
-  public func ensureTagMemoNotebook(tagId: String) async -> GraphQLNoteMutationResult {
+  public func ensureTagMemoNotebook(tagId: TagID) async -> GraphQLNoteMutationResult {
     noteMutation {
       let notebook = try service.ensureTagMemoNotebook(tagId: tagId)
       return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
@@ -549,7 +558,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   /// grounding context. `status` is "ok", "agent-unavailable", or "failed".
   public func agenticSearch(
     query: String,
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     limit: Int = 20
   ) async -> GraphQLAgenticSearchResult {
     guard let agentInvoker else {
@@ -607,7 +616,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
 
   /// Every memo in the notebook, note-anchored and notebook-level alike.
   public func notebookComments(
-    notebookId: String
+    notebookId: NotebookID
   ) async -> GraphQLNoteQueryResult<[GraphQLNoteCommentDTO]> {
     noteResult {
       try service.listNotebookComments(notebookId: notebookId).map(GraphQLNoteCommentDTO.init)

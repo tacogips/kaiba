@@ -1,3 +1,4 @@
+import AppCore
 @testable import AppServer
 import XCTest
 
@@ -22,7 +23,7 @@ private final class ManualGraceExpiryScheduler: @unchecked Sendable {
 final class AgentReplyStreamHubTests: XCTestCase {
   func testWaitingPollersReceiveTerminalTailsAcrossCapacity() async {
     let hub = AgentReplyStreamHub(maximumRetainedStreams: 1)
-    let turnIds = (0..<AgentReplyStreamHub.maximumStreams + 2).map { "turn-\($0)" }
+    let turnIds = (0..<AgentReplyStreamHub.maximumStreams + 2).map { NoteID("turn-\($0)") }
     var polls: [Task<AgentReplyStreamHub.Poll, Never>] = []
     for turnId in turnIds {
       polls.append(Task {
@@ -53,15 +54,15 @@ final class AgentReplyStreamHubTests: XCTestCase {
 
   func testTurnScopedWakeupDoesNotCompleteAnotherTurnPoll() async {
     let hub = AgentReplyStreamHub()
-    let first = Task { await hub.poll(turnNoteId: "first", cursor: 0, timeoutNanoseconds: 2_000_000_000) }
-    let second = Task { await hub.poll(turnNoteId: "second", cursor: 0, timeoutNanoseconds: 2_000_000_000) }
-    await waitForPolls(on: hub, turnNoteId: "first", count: 1)
-    await waitForPolls(on: hub, turnNoteId: "second", count: 1)
+    let first = Task { await hub.poll(turnNoteId: NoteID("first"), cursor: 0, timeoutNanoseconds: 2_000_000_000) }
+    let second = Task { await hub.poll(turnNoteId: NoteID("second"), cursor: 0, timeoutNanoseconds: 2_000_000_000) }
+    await waitForPolls(on: hub, turnNoteId: NoteID("first"), count: 1)
+    await waitForPolls(on: hub, turnNoteId: NoteID("second"), count: 1)
 
-    await hub.publish(turnNoteId: "first", text: "first chunk")
+    await hub.publish(turnNoteId: NoteID("first"), text: "first chunk")
     let firstPoll = await first.value
     XCTAssertEqual(firstPoll.chunks, ["first chunk"])
-    let secondPending = await hub.pendingPollCount(for: "second")
+    let secondPending = await hub.pendingPollCount(for: NoteID("second"))
     XCTAssertEqual(secondPending, 1)
     second.cancel()
     _ = await second.value
@@ -70,15 +71,15 @@ final class AgentReplyStreamHubTests: XCTestCase {
   func testTerminalRetentionEvictsOnlyDeliveredTerminalStreamsOldestFirst() async {
     let hub = AgentReplyStreamHub(maximumRetainedStreams: 1)
 
-    await hub.finish(turnNoteId: "first", status: "answered", message: nil)
-    let first = await hub.poll(turnNoteId: "first", cursor: 0, timeoutNanoseconds: 1_000_000)
+    await hub.finish(turnNoteId: NoteID("first"), status: "answered", message: nil)
+    let first = await hub.poll(turnNoteId: NoteID("first"), cursor: 0, timeoutNanoseconds: 1_000_000)
     XCTAssertTrue(first.done)
 
-    await hub.finish(turnNoteId: "second", status: "answered", message: nil)
-    let second = await hub.poll(turnNoteId: "second", cursor: 0, timeoutNanoseconds: 1_000_000)
+    await hub.finish(turnNoteId: NoteID("second"), status: "answered", message: nil)
+    let second = await hub.poll(turnNoteId: NoteID("second"), cursor: 0, timeoutNanoseconds: 1_000_000)
     XCTAssertTrue(second.done)
 
-    let evicted = await hub.poll(turnNoteId: "first", cursor: 0, timeoutNanoseconds: 1_000_000)
+    let evicted = await hub.poll(turnNoteId: NoteID("first"), cursor: 0, timeoutNanoseconds: 1_000_000)
     XCTAssertFalse(evicted.done)
     XCTAssertTrue(evicted.chunks.isEmpty)
   }
@@ -88,9 +89,9 @@ final class AgentReplyStreamHubTests: XCTestCase {
       maximumRetainedStreams: 0,
       firstTerminalDeliveryGraceNanoseconds: 1_000_000
     )
-    await hub.finish(turnNoteId: "turn", status: "answered", message: nil)
+    await hub.finish(turnNoteId: NoteID("turn"), status: "answered", message: nil)
 
-    let immediate = await hub.poll(turnNoteId: "turn", cursor: 0, timeoutNanoseconds: 1_000_000)
+    let immediate = await hub.poll(turnNoteId: NoteID("turn"), cursor: 0, timeoutNanoseconds: 1_000_000)
     XCTAssertTrue(immediate.done)
   }
 
@@ -101,12 +102,12 @@ final class AgentReplyStreamHubTests: XCTestCase {
       firstTerminalDeliveryGraceNanoseconds: 35_000_000_000,
       graceExpiryScheduling: scheduler.schedule
     )
-    await hub.finish(turnNoteId: "turn", status: "answered", message: nil)
-    let retainedBeforeExpiry = await hub.containsStream(for: "turn")
+    await hub.finish(turnNoteId: NoteID("turn"), status: "answered", message: nil)
+    let retainedBeforeExpiry = await hub.containsStream(for: NoteID("turn"))
     XCTAssertTrue(retainedBeforeExpiry)
     scheduler.fireAll()
-    await waitForStream(on: hub, turnNoteId: "turn", exists: false)
-    let retainedAfterExpiry = await hub.containsStream(for: "turn")
+    await waitForStream(on: hub, turnNoteId: NoteID("turn"), exists: false)
+    let retainedAfterExpiry = await hub.containsStream(for: NoteID("turn"))
     XCTAssertFalse(retainedAfterExpiry)
   }
 
@@ -119,19 +120,19 @@ final class AgentReplyStreamHubTests: XCTestCase {
       defersPollResponsesForTesting: true
     )
     let poll = Task {
-      await hub.poll(turnNoteId: "turn", cursor: 0, timeoutNanoseconds: 2_000_000_000)
+      await hub.poll(turnNoteId: NoteID("turn"), cursor: 0, timeoutNanoseconds: 2_000_000_000)
     }
-    await waitForPolls(on: hub, turnNoteId: "turn", count: 1)
-    await hub.finish(turnNoteId: "turn", status: "answered", message: nil)
+    await waitForPolls(on: hub, turnNoteId: NoteID("turn"), count: 1)
+    await hub.finish(turnNoteId: NoteID("turn"), status: "answered", message: nil)
     await waitForDeferredPollResponses(on: hub, count: 1)
     poll.cancel()
     _ = await poll.value
 
-    let retainedBeforeDeadline = await hub.containsStream(for: "turn")
+    let retainedBeforeDeadline = await hub.containsStream(for: NoteID("turn"))
     XCTAssertTrue(retainedBeforeDeadline, "cancellation must not satisfy first terminal delivery")
     scheduler.fireAll()
-    await waitForStream(on: hub, turnNoteId: "turn", exists: false)
-    let retainedAfterDeadline = await hub.containsStream(for: "turn")
+    await waitForStream(on: hub, turnNoteId: NoteID("turn"), exists: false)
+    let retainedAfterDeadline = await hub.containsStream(for: NoteID("turn"))
     XCTAssertFalse(retainedAfterDeadline)
   }
 
@@ -140,28 +141,28 @@ final class AgentReplyStreamHubTests: XCTestCase {
       maximumRetainedStreams: 1,
       firstTerminalDeliveryGraceNanoseconds: 1_000_000_000
     )
-    await hub.publish(turnNoteId: "first", text: "partial")
-    let partial = await hub.poll(turnNoteId: "first", cursor: 0, timeoutNanoseconds: 1_000_000)
+    await hub.publish(turnNoteId: NoteID("first"), text: "partial")
+    let partial = await hub.poll(turnNoteId: NoteID("first"), cursor: 0, timeoutNanoseconds: 1_000_000)
     XCTAssertFalse(partial.done)
-    await hub.finish(turnNoteId: "first", status: "answered", message: nil)
-    await hub.finish(turnNoteId: "second", status: "answered", message: nil)
-    let firstProtected = await hub.containsStream(for: "first")
-    let secondProtected = await hub.containsStream(for: "second")
+    await hub.finish(turnNoteId: NoteID("first"), status: "answered", message: nil)
+    await hub.finish(turnNoteId: NoteID("second"), status: "answered", message: nil)
+    let firstProtected = await hub.containsStream(for: NoteID("first"))
+    let secondProtected = await hub.containsStream(for: NoteID("second"))
     XCTAssertTrue(firstProtected)
     XCTAssertTrue(secondProtected)
 
-    let terminal = await hub.poll(turnNoteId: "first", cursor: partial.cursor, timeoutNanoseconds: 1_000_000)
+    let terminal = await hub.poll(turnNoteId: NoteID("first"), cursor: partial.cursor, timeoutNanoseconds: 1_000_000)
     XCTAssertTrue(terminal.done)
-    _ = await hub.poll(turnNoteId: "second", cursor: 0, timeoutNanoseconds: 1_000_000)
-    let firstEvicted = await hub.containsStream(for: "first")
-    let secondRetained = await hub.containsStream(for: "second")
+    _ = await hub.poll(turnNoteId: NoteID("second"), cursor: 0, timeoutNanoseconds: 1_000_000)
+    let firstEvicted = await hub.containsStream(for: NoteID("first"))
+    let secondRetained = await hub.containsStream(for: NoteID("second"))
     XCTAssertFalse(firstEvicted)
     XCTAssertTrue(secondRetained)
   }
 
   private func waitForPolls(
     on hub: AgentReplyStreamHub,
-    turnNoteId: String,
+    turnNoteId: NoteID,
     count: Int
   ) async {
     for _ in 0..<100 {
@@ -173,7 +174,7 @@ final class AgentReplyStreamHubTests: XCTestCase {
 
   private func waitForStream(
     on hub: AgentReplyStreamHub,
-    turnNoteId: String,
+    turnNoteId: NoteID,
     exists: Bool
   ) async {
     for _ in 0..<100 {

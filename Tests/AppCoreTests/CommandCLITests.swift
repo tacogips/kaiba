@@ -15,9 +15,9 @@ private func run(_ arguments: [String], root: String) throws -> String {
   try AppCommand(arguments: ["--note-root", root] + arguments, environment: [:]).run()
 }
 
-private func noteId(fromJSON output: String) throws -> String {
-  let object = try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
-  return try #require(object?["noteId"] as? String)
+private func noteId(fromJSON output: String) throws -> NoteID {
+  let object = try JSONValue(parsing: output)
+  return NoteID(try #require(object["noteId"]?.asString))
 }
 
 @Test func cliNoteRootResolutionPrecedence() throws {
@@ -97,12 +97,12 @@ private func noteId(fromJSON output: String) throws -> String {
   )
   let id = try noteId(fromJSON: created)
 
-  let shown = try run(["show", id], root: root)
+  let shown = try run(["show", id.rawValue], root: root)
   #expect(shown.contains("# Round Trip"))
   #expect(shown.contains("#idea"))
 
   let listed = try run(["list"], root: root)
-  #expect(listed.contains(id))
+  #expect(listed.contains(id.rawValue))
   #expect(listed.contains("Round Trip"))
 }
 
@@ -112,14 +112,14 @@ private func noteId(fromJSON output: String) throws -> String {
     ["add", "--body", "# Searchable\nOriginal content.", "--output", "json"],
     root: root
   ))
-  _ = try run(["edit", id, "--body", "Appended trailer.", "--append"], root: root)
+  _ = try run(["edit", id.rawValue, "--body", "Appended trailer.", "--append"], root: root)
 
-  let shown = try run(["show", id], root: root)
+  let shown = try run(["show", id.rawValue], root: root)
   #expect(shown.contains("Original content."))
   #expect(shown.contains("Appended trailer."))
 
   let found = try run(["search", "Appended"], root: root)
-  #expect(found.contains(id))
+  #expect(found.contains(id.rawValue))
 }
 
 @Test func cliTagAddRemoveAndHierarchyFilter() throws {
@@ -132,11 +132,11 @@ private func noteId(fromJSON output: String) throws -> String {
   ))
 
   let filtered = try run(["list", "--tag", "parent-topic"], root: root)
-  #expect(filtered.contains(id))
+  #expect(filtered.contains(id.rawValue))
 
-  _ = try run(["tag", id, "--remove", "child-topic"], root: root)
+  _ = try run(["tag", id.rawValue, "--remove", "child-topic"], root: root)
   let afterRemoval = try run(["list", "--tag", "parent-topic"], root: root)
-  #expect(!afterRemoval.contains(id))
+  #expect(!afterRemoval.contains(id.rawValue))
 }
 
 @Test func cliReadOnlyBlocksEditAndDelete() throws {
@@ -145,18 +145,18 @@ private func noteId(fromJSON output: String) throws -> String {
     ["add", "--body", "# Locked\nBody.", "--output", "json"],
     root: root
   ))
-  _ = try run(["readonly", id, "--on"], root: root)
+  _ = try run(["readonly", id.rawValue, "--on"], root: root)
 
-  #expect(throws: NoteServiceError.readOnly(id)) {
-    _ = try run(["edit", id, "--body", "x"], root: root)
+  #expect(throws: NoteServiceError.readOnly(id.rawValue)) {
+    _ = try run(["edit", id.rawValue, "--body", "x"], root: root)
   }
-  #expect(throws: NoteServiceError.readOnly(id)) {
-    _ = try run(["delete", id], root: root)
+  #expect(throws: NoteServiceError.readOnly(id.rawValue)) {
+    _ = try run(["delete", id.rawValue], root: root)
   }
 
-  _ = try run(["readonly", id, "--off"], root: root)
-  _ = try run(["delete", id], root: root)
-  #expect(!(try run(["list"], root: root)).contains(id))
+  _ = try run(["readonly", id.rawValue, "--off"], root: root)
+  _ = try run(["delete", id.rawValue], root: root)
+  #expect(!(try run(["list"], root: root)).contains(id.rawValue))
 }
 
 @Test func cliAttachCommentLinkAppearInShow() throws {
@@ -172,14 +172,14 @@ private func noteId(fromJSON output: String) throws -> String {
 
   let attachmentPath = (root as NSString).appendingPathComponent("attachment.txt")
   try Data("attached-bytes".utf8).write(to: URL(fileURLWithPath: attachmentPath))
-  _ = try run(["attach", first, attachmentPath], root: root)
-  _ = try run(["comment", first, "--body", "note to self"], root: root)
-  _ = try run(["link", first, second, "--kind", "related"], root: root)
+  _ = try run(["attach", first.rawValue, attachmentPath], root: root)
+  _ = try run(["comment", first.rawValue, "--body", "note to self"], root: root)
+  _ = try run(["link", first.rawValue, second.rawValue, "--kind", "related"], root: root)
 
-  let shown = try run(["show", first], root: root)
+  let shown = try run(["show", first.rawValue], root: root)
   #expect(shown.contains("attachment.txt"))
   #expect(shown.contains("note to self"))
-  #expect(shown.contains(second))
+  #expect(shown.contains(second.rawValue))
 }
 
 @Test func cliNotebookLifecycle() throws {
@@ -209,7 +209,7 @@ private func noteId(fromJSON output: String) throws -> String {
   ))
   let sourcePath = (root as NSString).appendingPathComponent("source.bin")
   try Data("binary-content".utf8).write(to: URL(fileURLWithPath: sourcePath))
-  let attached = try run(["attach", id, sourcePath], root: root)
+  let attached = try run(["attach", id.rawValue, sourcePath], root: root)
   let fileId = try #require(
     attached.split(separator: " ").first { $0.hasPrefix("file-") }.map(String.init)
   )
@@ -222,9 +222,9 @@ private func noteId(fromJSON output: String) throws -> String {
 @Test func cliClientIssueListRevokeRoundTrip() throws {
   let root = try makeTempRoot()
   let issued = try run(["client", "issue", "--name", "test-consumer", "--output", "json"], root: root)
-  let object = try JSONSerialization.jsonObject(with: Data(issued.utf8)) as? [String: Any]
-  let apiKey = try #require(object?["apiKey"] as? String)
-  let clientId = try #require(object?["clientId"] as? String)
+  let object = try JSONValue(parsing: issued)
+  let apiKey = try #require(object["apiKey"]?.asString)
+  let clientId = try #require(object["clientId"]?.asString)
   #expect(apiKey.count >= 40)
 
   let listed = try run(["client", "list"], root: root)
@@ -233,7 +233,7 @@ private func noteId(fromJSON output: String) throws -> String {
   #expect(!listed.contains(apiKey))
 
   let service = try AppCommand(arguments: [], environment: [:]).makeService(root: root)
-  #expect(try service.authenticateAPIClient(bearerToken: apiKey)?.clientId == clientId)
+  #expect(try service.authenticateAPIClient(bearerToken: apiKey)?.clientId == APIClientID(clientId))
 
   _ = try run(["client", "revoke", clientId], root: root)
   #expect(try service.authenticateAPIClient(bearerToken: apiKey) == nil)

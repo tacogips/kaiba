@@ -1,3 +1,4 @@
+import type { NoteId, NotebookId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 import { formatTimestamp } from '../notes/format'
 import { MarkdownBody } from './Markdown'
@@ -37,10 +38,11 @@ import {
 // composer offers "Send" (the default agent answers, streaming) and
 // "Memo only" (persist without the agent).
 
-export interface MemoSubject {
-  kind: 'note' | 'notebook'
-  id: string
-}
+/** The memo pane addresses either a note or a whole notebook; the id type
+ * follows the kind, so a notebook id can never reach a note-scoped call. */
+export type MemoSubject =
+  | { kind: 'note'; id: NoteId }
+  | { kind: 'notebook'; id: NotebookId }
 
 export interface MemoTabProps {
   /** An explicit store keeps the pane embeddable and enables integration tests
@@ -66,7 +68,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const [memos, setMemos] = createSignal<NoteComment[]>([])
   const [conversations, setConversations] = createSignal<AgentConversation[]>([])
   const [turnsByConversation, setTurnsByConversation] =
-    createSignal<Array<{ conversationId: string; turns: ChatTurn[] }>>([])
+    createSignal<Array<{ conversationId: NotebookId; turns: ChatTurn[] }>>([])
   const [loading, setLoading] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
   const [draft, setDraft] = createSignal('')
@@ -76,10 +78,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const [models, setModels] = createSignal<AgentModel[]>([])
   const [newConversation, setNewConversation] = createSignal(false)
   const [newConversationBoundary, setNewConversationBoundary] = createSignal(false)
-  const [activeConversationId, setActiveConversationId] = createSignal<string>()
+  const [activeConversationId, setActiveConversationId] = createSignal<NotebookId>()
   const [configuredModel, setConfiguredModel] = createSignal<string | null>()
   const [error, setError] = createSignal('')
-  const [streamTurnId, setStreamTurnId] = createSignal<string>()
+  const [streamTurnId, setStreamTurnId] = createSignal<NoteId>()
   const [streamText, setStreamText] = createSignal('')
   let generation = 0
   let streamGeneration = 0
@@ -237,7 +239,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
   /** Long-polls the agent reply chunk stream for one turn, rendering the reply
    * incrementally until the server reports the turn finished. */
-  const startStream = (turnNoteId: string) => {
+  const startStream = (turnNoteId: NoteId) => {
     if (streamTurnId() === turnNoteId) return
     const current = ++streamGeneration
     setStreamTurnId(turnNoteId)
@@ -284,7 +286,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
    * staged attachments, or note-edit toggle. */
   const send = async (
     userMarkdown: string,
-    retry?: { conversationId: string; noteEdit: boolean },
+    retry?: { conversationId: NotebookId; noteEdit: boolean },
   ) => {
     const body = userMarkdown.trim()
     if (!body || busy()) return

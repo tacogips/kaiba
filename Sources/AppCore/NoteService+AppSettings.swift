@@ -22,9 +22,7 @@ public extension NoteService {
   @discardableResult
   func setAppSetting(key: String, valueJSON: String) throws -> String {
     let normalized = try Self.normalizedSettingKey(key)
-    guard let data = valueJSON.data(using: .utf8),
-      (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
-    else {
+    guard (try? JSONValue(parsing: valueJSON)) != nil else {
       throw NoteServiceError.invalidInput("setting value must be valid JSON")
     }
     guard valueJSON.utf8.count <= 64 * 1024 else {

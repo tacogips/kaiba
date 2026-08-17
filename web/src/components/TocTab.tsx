@@ -3,6 +3,7 @@ import { useApp, type AppStore } from '../state/appStore'
 import { markdownHeadingTree, noteHeadingPrefix, type HeadingNode } from '../notes/toc'
 import { noteDisplayTitle } from '../notes/noteText'
 import type { Note } from '../notes/types'
+import type { NoteId } from '../notes/ids'
 
 // Contents tab: notebook -> note -> heading hierarchy. The open notebook is the
 // root entry, every note nests beneath it, and each note's markdown heading
@@ -86,7 +87,7 @@ export function TocTab(props: { app?: AppStore } = {}): JSX.Element {
 
 function HeadingList(props: {
   app: AppStore
-  noteId: string
+  noteId: NoteId
   nodes: HeadingNode[]
   level: number
 }): JSX.Element {
@@ -114,7 +115,7 @@ function HeadingList(props: {
 /** Scrolls the reader to a heading. A heading inside a note that has not
  * lazy-mounted yet has no element, so the note section is scrolled into view
  * first (which mounts it) and the heading is retried until it exists. */
-function jumpToHeading(noteId: string, headingId: string, setActive: (id: string) => void): void {
+function jumpToHeading(noteId: NoteId, headingId: string, setActive: (id: string) => void): void {
   setActive(headingId)
   const existing = document.getElementById(headingId)
   if (existing) {

@@ -6,7 +6,7 @@ extension AppCommand {
     var cursor = context.cursor
     let roleRaw = try cursor.extractOption("--role") ?? NoteFileRole.related.rawValue
     let mediaTypeOverride = try cursor.extractOption("--media-type")
-    guard let noteId = cursor.next(), let path = cursor.next() else {
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self), let path = cursor.next() else {
       throw Error.invalidUsage("attach requires <note-id> <file-path>")
     }
     guard let role = NoteFileRole(rawValue: roleRaw) else {
@@ -32,7 +32,7 @@ extension AppCommand {
     var cursor = context.cursor
     let outPath = try cursor.extractOption("--out")
     let output = try cursor.extractOutputMode()
-    guard let fileId = cursor.next() else {
+    guard let fileId = cursor.nextIdentifier(as: FileID.self) else {
       throw Error.invalidUsage("file requires <file-id>")
     }
     try cursor.finish()
@@ -100,7 +100,7 @@ extension AppCommand {
     let accessKeyEnv = try cursor.extractOption("--access-key-env")
     let secretKeyEnv = try cursor.extractOption("--secret-key-env")
     let keyPrefix = try cursor.extractOption("--key-prefix") ?? ""
-    let fileId = cursor.next()
+    let fileId = cursor.nextIdentifier(as: FileID.self)
     try cursor.finish()
 
     guard all != (fileId != nil) else {

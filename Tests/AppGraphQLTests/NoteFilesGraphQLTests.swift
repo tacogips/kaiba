@@ -35,7 +35,7 @@ final class NoteFilesGraphQLTests: XCTestCase {
         }
       }
       """,
-      variables: ["noteId": .string(note.noteId)],
+      variables: ["noteId": .string(note.noteId.rawValue)],
       operationName: "Files"
     ))
 
@@ -45,7 +45,7 @@ final class NoteFilesGraphQLTests: XCTestCase {
     XCTAssertEqual(values.count, 2)
 
     let first = try objectValue(values[0], field: "noteFiles.value[0]")
-    XCTAssertEqual(first["noteId"], .string(note.noteId))
+    XCTAssertEqual(first["noteId"], .string(note.noteId.rawValue))
     XCTAssertEqual(first["role"], .string("source-page-image"))
     XCTAssertEqual(first["position"], .integer(0))
     let firstFile = try objectValue(first["file"], field: "noteFiles.value[0].file")
@@ -64,7 +64,7 @@ final class NoteFilesGraphQLTests: XCTestCase {
 
   func testNoteFilesQueryReportsNotFoundForUnknownNote() async throws {
     let service = try makeService()
-    let missing = await service.noteFiles(noteId: "note-missing")
+    let missing = await service.noteFiles(noteId: NoteID("note-missing"))
     XCTAssertFalse(missing.result.accepted)
     XCTAssertEqual(missing.result.status, "not_found")
     XCTAssertNil(missing.value)

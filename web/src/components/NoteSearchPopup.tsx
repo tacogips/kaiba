@@ -4,6 +4,7 @@ import type { NoteSearchResult, NoteTag } from '../notes/types'
 import { qualifiedTagLabel } from '../notes/tree'
 import { noteDisplayTitle, searchPageSize } from '../notes/noteText'
 import { errorMessage } from '../state/appStore'
+import type { NoteId, NotebookId } from '../notes/ids'
 
 /** Full-text note search presented as a popup, mirroring
  * RielaNoteSearchPopupSheet: picking a result opens that note and dismisses. */
@@ -11,7 +12,7 @@ export function NoteSearchPopup(props: {
   client: NoteGraphQLClient
   tags: NoteTag[]
   initialQuery?: string
-  onOpenNote: (noteId: string, notebookId: string) => void
+  onOpenNote: (noteId: NoteId, notebookId: NotebookId) => void
   onClose: () => void
 }) {
   const [query, setQuery] = createSignal(props.initialQuery ?? '')

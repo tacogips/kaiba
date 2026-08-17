@@ -88,7 +88,7 @@ final class NoteLongTermMemoryTests: NoteTestCase {
         FROM tags WHERE name = ? AND class_id = 'document-kind'
         """,
         bindings: [
-          .text(duplicate.notebookId),
+          .id(duplicate.notebookId),
           .text(NoteStoreSchema.longTermMemoryNotebookKindTag)
         ]
       )
@@ -115,7 +115,7 @@ final class NoteLongTermMemoryTests: NoteTestCase {
         SET provenance = 'human', assigned_by = 'user', deletable = 1
         WHERE notebook_id = ?
         """,
-        bindings: [.text(canonical.notebookId)]
+        bindings: [.id(canonical.notebookId)]
       )
     }
 
@@ -139,7 +139,7 @@ final class NoteLongTermMemoryTests: NoteTestCase {
     )
     let folder = try XCTUnwrap(folderNotebook.tags.first?.tag)
     XCTAssertEqual(folder.name, NoteStoreSchema.longTermMemoryNotebookKindTag)
-    XCTAssertEqual(folder.classId, "folder")
+    XCTAssertEqual(folder.classId, TagClassID("folder"))
     XCTAssertNotEqual(folder.tagId, NoteStoreSchema.longTermMemoryNotebookKindTagId)
 
     let reopened = try NoteService(driver: driver)
@@ -165,8 +165,8 @@ final class NoteLongTermMemoryTests: NoteTestCase {
         LongTermMemoryEntryInput(
           bodyMarkdown: "# Payments migration\n\nThe team converged on a staged cutover.",
           topicTags: ["payments", "migration"],
-          sourceNoteIds: [source.noteId, "note-deleted-source"],
-          relatedNoteIds: [related.noteId, "note-deleted-related"],
+          sourceNoteIds: [source.noteId, NoteID("note-deleted-source")],
+          relatedNoteIds: [related.noteId, NoteID("note-deleted-related")],
           periodStart: periodStart,
           periodEnd: periodEnd,
           metaJSON: #"{"consolidatedBy":"weekly-rollup"}"#
@@ -183,26 +183,23 @@ final class NoteLongTermMemoryTests: NoteTestCase {
     XCTAssertTrue(memory.tags.allSatisfy { $0.assignedBy == "kaiba-long-term-memory" })
 
     let metadata = try metaObject(memory)
-    XCTAssertEqual(metadata["longTermMemoryVersion"] as? Int, 1)
-    XCTAssertEqual(metadata["entryKind"] as? String, "long-term-memory")
-    XCTAssertEqual(metadata["consolidatedBy"] as? String, "weekly-rollup")
+    XCTAssertEqual(metadata["longTermMemoryVersion"]?.asInt, 1)
+    XCTAssertEqual(metadata["entryKind"]?.asString, "long-term-memory")
+    XCTAssertEqual(metadata["consolidatedBy"]?.asString, "weekly-rollup")
     XCTAssertEqual(
-      metadata["sourceNoteIds"] as? [String],
-      [source.noteId, "note-deleted-source"]
+      metadata["sourceNoteIds"],
+      .strings([source.noteId.rawValue, "note-deleted-source"])
     )
-    XCTAssertEqual(
-      metadata["unresolvedRelatedNoteIds"] as? [String],
-      ["note-deleted-related"]
-    )
-    XCTAssertEqual(metadata["periodStart"] as? String, longTermMemoryTimestamp(periodStart))
-    XCTAssertEqual(metadata["periodEnd"] as? String, longTermMemoryTimestamp(periodEnd))
+    XCTAssertEqual(metadata["unresolvedRelatedNoteIds"], .strings(["note-deleted-related"]))
+    XCTAssertEqual(metadata["periodStart"]?.asString, longTermMemoryTimestamp(periodStart))
+    XCTAssertEqual(metadata["periodEnd"]?.asString, longTermMemoryTimestamp(periodEnd))
 
     let links = try service.listLinks(noteId: memory.noteId)
     XCTAssertEqual(
       Set(links.map { LinkFingerprint(link: $0) }),
       [
-        LinkFingerprint(to: source.noteId, kind: "memory-source", provenance: .system),
-        LinkFingerprint(to: related.noteId, kind: "related", provenance: .system)
+        LinkFingerprint(to: source.noteId.rawValue, kind: "memory-source", provenance: .system),
+        LinkFingerprint(to: related.noteId.rawValue, kind: "related", provenance: .system)
       ]
     )
   }
@@ -437,10 +434,9 @@ final class NoteLongTermMemoryTests: NoteTestCase {
     notes.map(\.bodyMarkdown)
   }
 
-  private func metaObject(_ note: Note) throws -> [String: Any] {
+  private func metaObject(_ note: Note) throws -> JSONValue {
     let metaJSON = try XCTUnwrap(note.metaJSON)
-    let data = try XCTUnwrap(metaJSON.data(using: .utf8))
-    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    return try JSONValue(parsing: metaJSON)
   }
 }
 
@@ -456,7 +452,7 @@ private struct LinkFingerprint: Hashable {
   }
 
   init(link: NoteLink) {
-    self.init(to: link.toNoteId, kind: link.linkKind, provenance: link.provenance)
+    self.init(to: link.toNoteId.rawValue, kind: link.linkKind, provenance: link.provenance)
   }
 }
 

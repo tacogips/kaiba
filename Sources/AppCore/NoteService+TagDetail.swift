@@ -13,14 +13,14 @@ public struct TagDetail: Equatable, Sendable {
   /// Distinct notebooks carrying the tag or one of its descendants.
   public var notebookCount: Int
   /// The tag's memo notebook, when one has been created.
-  public var memoNotebookId: String?
+  public var memoNotebookId: NotebookID?
 
   public init(
     tag: Tag,
     tagClass: TagClass?,
     noteCount: Int,
     notebookCount: Int,
-    memoNotebookId: String?
+    memoNotebookId: NotebookID?
   ) {
     self.tag = tag
     self.tagClass = tagClass
@@ -54,7 +54,7 @@ private struct TagMemoNotebookCreationResult {
 public extension NoteService {
   /// The tag plus its class and cross-notebook aggregate counts. Counts expand
   /// to descendant tags like every tag filter (D16/D17).
-  func tagDetail(tagId: String) throws -> TagDetail {
+  func tagDetail(tagId: TagID) throws -> TagDetail {
     try driver.withDatabase { database in
       let tag = try requireTag(id: tagId, in: database)
       let tagClass = try tag.classId.map { try requireTagClass(classId: $0, in: database) }
@@ -88,7 +88,7 @@ public extension NoteService {
   /// bound via meta JSON rather than a tag assignment, so its memos never
   /// appear here.
   func listTagComments(
-    tagId: String,
+    tagId: TagID,
     limit: Int = 50,
     offset: Int = 0
   ) throws -> [TagAttributedComment] {
@@ -103,7 +103,7 @@ public extension NoteService {
       let expanded = try expandedTagFilterIds([tagId], in: database)
       guard !expanded.isEmpty else { return [] }
       let tagPlaceholders = placeholders(count: expanded.count)
-      let tagBindings = expanded.map(SQLiteValue.text)
+      let tagBindings = expanded.sqliteBindings
       let rows = try database.query(
         """
         SELECT c.comment_id, c.note_id, c.notebook_id, c.body_markdown, c.author, c.created_at,
@@ -120,7 +120,7 @@ public extension NoteService {
         bindings: tagBindings + tagBindings + [.int(Int64(limit)), .int(Int64(offset))]
       )
       return try rows.map { row in
-        guard let commentId = row["comment_id"],
+        guard let commentId = row.identifier("comment_id", as: CommentID.self),
           let bodyMarkdown = row["body_markdown"],
           let author = row["author"],
           let createdAt = row["created_at"]
@@ -130,8 +130,8 @@ public extension NoteService {
         return TagAttributedComment(
           comment: NoteComment(
             commentId: commentId,
-            noteId: row["note_id"] ?? nil,
-            notebookId: row["notebook_id"] ?? nil,
+            noteId: row.identifier("note_id", as: NoteID.self) ?? nil,
+            notebookId: row.identifier("notebook_id", as: NotebookID.self) ?? nil,
             bodyMarkdown: bodyMarkdown,
             author: author,
             createdAt: createdAt
@@ -148,7 +148,7 @@ public extension NoteService {
   /// database transaction, so concurrent callers observe one notebook and one
   /// set of notebook-created side effects.
   @discardableResult
-  func ensureTagMemoNotebook(tagId: String) throws -> Notebook {
+  func ensureTagMemoNotebook(tagId: TagID) throws -> Notebook {
     let result = try driver.withDatabase { database in
       try database.transaction { db -> TagMemoNotebookCreationResult in
         let tag = try requireTag(id: tagId, in: db)
@@ -183,7 +183,7 @@ public extension NoteService {
   /// bodies of notes carrying the tag (or a descendant) across all notebooks,
   /// newest first, capped like the notebook subject context.
   func tagContextMarkdown(
-    tagId: String,
+    tagId: TagID,
     limitBytes: Int = 200 * 1024
   ) throws -> String {
     try driver.withDatabase { database in
@@ -202,7 +202,7 @@ public extension NoteService {
         ORDER BY created_at DESC, note_id
         LIMIT 50
         """,
-        bindings: expanded.map(SQLiteValue.text)
+        bindings: expanded.sqliteBindings
       )
       return boundedMarkdownContext(
         heading: heading,
@@ -214,7 +214,7 @@ public extension NoteService {
 
   /// The subject tag recorded in a tag-memo notebook's meta JSON; nil when the
   /// notebook is not a tag memo notebook.
-  func tagMemoSubjectTagId(notebookId: String) throws -> String? {
+  func tagMemoSubjectTagId(notebookId: NotebookID) throws -> TagID? {
     try driver.withDatabase { database in
       try database.query(
         """
@@ -223,24 +223,22 @@ public extension NoteService {
         WHERE notebook_id = ?
         LIMIT 1
         """,
-        bindings: [.text(notebookId)]
-      ).first?["subject"] ?? nil
+        bindings: [.id(notebookId)]
+      ).first?.identifier("subject", as: TagID.self)
     }
   }
 
-  internal static func tagMemoNotebookMetaJSON(subjectTagId: String) throws -> String {
-    let data = try JSONSerialization.data(
-      withJSONObject: ["kaibaTagMemo": ["subjectTagId": subjectTagId]],
-      options: [.sortedKeys]
-    )
-    guard let json = String(data: data, encoding: .utf8) else {
+  internal static func tagMemoNotebookMetaJSON(subjectTagId: TagID) throws -> String {
+    let root: JSONValue = .object(["kaibaTagMemo": .object(["subjectTagId": .id(subjectTagId)])])
+    do {
+      return try root.encodedString()
+    } catch {
       throw NoteServiceError.invalidInput("tag memo notebook meta JSON must be UTF-8")
     }
-    return json
   }
 }
 
-func findTagMemoNotebookId(tagId: String, in database: SQLiteDatabase) throws -> String? {
+func findTagMemoNotebookId(tagId: TagID, in database: SQLiteDatabase) throws -> NotebookID? {
   try database.query(
     """
     SELECT notebook_id
@@ -249,14 +247,14 @@ func findTagMemoNotebookId(tagId: String, in database: SQLiteDatabase) throws ->
     ORDER BY created_at, notebook_id
     LIMIT 1
     """,
-    bindings: [.text(tagId)]
-  ).first?["notebook_id"] ?? nil
+    bindings: [.id(tagId)]
+  ).first?.identifier("notebook_id", as: NotebookID.self)
 }
 
 private func taggedEntityCount(
   table: String,
   idColumn: String,
-  tagIds: [String],
+  tagIds: [TagID],
   in database: SQLiteDatabase
 ) throws -> Int {
   guard !tagIds.isEmpty else { return 0 }
@@ -266,7 +264,7 @@ private func taggedEntityCount(
     FROM \(table)
     WHERE tag_id IN (\(placeholders(count: tagIds.count)))
     """,
-    bindings: tagIds.map(SQLiteValue.text)
+    bindings: tagIds.sqliteBindings
   )
   guard let rawCount = rows.first?["entity_count"], let count = Int(rawCount) else {
     throw NoteServiceError.invalidRow("tag entity count row is missing required fields")

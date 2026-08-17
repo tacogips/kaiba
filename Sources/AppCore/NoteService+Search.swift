@@ -5,7 +5,7 @@ public extension NoteService {
     query: String,
     tagFilter: [String] = [],
     classFilter: [String] = [],
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     sort: NoteListSort = .createdAtDesc,
     createdAfter: String? = nil,
     createdBefore: String? = nil,
@@ -19,10 +19,16 @@ public extension NoteService {
         query: query,
         tagFilter: tagFilter,
         classFilter: classFilter,
-        notebookId: notebookId,
+        // The library scope is applied inside the query rather than to its
+        // results: filtering a page after the fact would hand back fewer hits
+        // than the caller asked for (`design-docs/specs/library.md`).
+        scope: NoteSearchScope(
+          notebookId: notebookId,
+          reachableLibraryIds: try reachableLibraryIds(in: database),
+          createdAfter: createdAfter,
+          createdBefore: createdBefore
+        ),
         sort: sort,
-        createdAfter: createdAfter,
-        createdBefore: createdBefore,
         graphOptions: NoteSearchGraphOptions(includeLinked: includeLinked, depth: depth),
         limit: limit,
         offset: offset,

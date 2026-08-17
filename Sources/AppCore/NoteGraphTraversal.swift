@@ -1,31 +1,31 @@
 import Foundation
 
 private struct NoteGraphPath {
-  var seedNoteId: String
-  var destinationNoteId: String
+  var seedNoteId: NoteID
+  var destinationNoteId: NoteID
   var terminalEdgeKind: NoteGraphEdgeKind
   var score: Double
   var hopCount: Int
-  var noteIds: [String]
+  var noteIds: [NoteID]
 }
 
 private struct NoteGraphEdge {
-  var destinationNoteId: String
+  var destinationNoteId: NoteID
   var kind: NoteGraphEdgeKind
   var weight: Double
 }
 
 private struct NoteGraphTraversalState {
-  var pending: [String: NoteGraphPath] = [:]
-  var finalized = Set<String>()
+  var pending: [NoteID: NoteGraphPath] = [:]
+  var finalized = Set<NoteID>()
   var eligibleResults: [NoteGraphPath] = []
 }
 
 func noteGraphNeighborsInDatabase(
-  noteIds: [String],
+  noteIds: [NoteID],
   maxDepth: Int,
   limit: Int,
-  resultExclusions: Set<String>,
+  resultExclusions: Set<NoteID>,
   in database: SQLiteDatabase
 ) throws -> [NoteGraphNeighbor] {
   guard maxDepth >= 0 else {
@@ -121,7 +121,7 @@ func noteGraphNeighborsInDatabase(
 
 private func offerGraphExpansions(
   from path: NoteGraphPath,
-  seeds: Set<String>,
+  seeds: Set<NoteID>,
   noteCount: Int,
   state: inout NoteGraphTraversalState,
   database: SQLiteDatabase
@@ -148,7 +148,7 @@ private func offerGraphExpansions(
     ))
   }
 
-  var bestByDestination: [String: NoteGraphPath] = [:]
+  var bestByDestination: [NoteID: NoteGraphPath] = [:]
   for edge in edges {
     let candidate = NoteGraphPath(
       seedNoteId: path.seedNoteId,
@@ -178,7 +178,7 @@ private func offerGraphExpansions(
 
 private func explicitGraphEdges(
   from path: NoteGraphPath,
-  excluding invalidDestinations: Set<String>,
+  excluding invalidDestinations: Set<NoteID>,
   database: SQLiteDatabase
 ) throws -> [NoteGraphEdge] {
   let candidateScore = path.score * NoteGraphPolicy.hopDecay
@@ -199,17 +199,17 @@ private func explicitGraphEdges(
     )
     """
   var bindings: [SQLiteValue] = [
-    .text(path.destinationNoteId),
-    .text(path.destinationNoteId)
+    .id(path.destinationNoteId),
+    .id(path.destinationNoteId)
   ]
   if !excluded.isEmpty {
     sql += " WHERE destination_note_id NOT IN (\(placeholders(count: excluded.count)))"
-    bindings.append(contentsOf: excluded.map(SQLiteValue.text))
+    bindings.append(contentsOf: excluded.sqliteBindings)
   }
   sql += " ORDER BY destination_note_id LIMIT ?"
   bindings.append(.int(Int64(NoteGraphPolicy.sourceCandidateLimit)))
   return try database.query(sql, bindings: bindings).compactMap { row in
-    row["destination_note_id"].map {
+    row.identifier("destination_note_id", as: NoteID.self).map {
       NoteGraphEdge(destinationNoteId: $0, kind: .explicitLink, weight: 1)
     }
   }
@@ -218,7 +218,7 @@ private func explicitGraphEdges(
 private func sharedTagGraphEdges(
   from path: NoteGraphPath,
   noteCount: Int,
-  excluding invalidDestinations: Set<String>,
+  excluding invalidDestinations: Set<NoteID>,
   database: SQLiteDatabase
 ) throws -> [NoteGraphEdge] {
   guard noteCount > 0,
@@ -251,12 +251,12 @@ private func sharedTagGraphEdges(
     WHERE other.note_id <> ?
     """
   var bindings: [SQLiteValue] = [
-    .text(path.destinationNoteId),
-    .text(path.destinationNoteId)
+    .id(path.destinationNoteId),
+    .id(path.destinationNoteId)
   ]
   if !excluded.isEmpty {
     sql += " AND other.note_id NOT IN (\(placeholders(count: excluded.count)))"
-    bindings.append(contentsOf: excluded.map(SQLiteValue.text))
+    bindings.append(contentsOf: excluded.sqliteBindings)
   }
   sql += """
     GROUP BY other.note_id
@@ -267,7 +267,7 @@ private func sharedTagGraphEdges(
   bindings.append(.int(Int64(maximumTagFrequency)))
   bindings.append(.int(Int64(NoteGraphPolicy.sourceCandidateLimit)))
   return try database.query(sql, bindings: bindings).compactMap { row in
-    guard let destination = row["destination_note_id"],
+    guard let destination = row.identifier("destination_note_id", as: NoteID.self),
           let frequencyText = row["winning_tag_note_count"],
           let frequency = Int(frequencyText) else {
       return nil
@@ -282,16 +282,18 @@ private func sharedTagGraphEdges(
 
 private func lexicalGraphEdges(
   from path: NoteGraphPath,
-  excluding invalidDestinations: Set<String>,
+  excluding invalidDestinations: Set<NoteID>,
   database: SQLiteDatabase
 ) throws -> [NoteGraphEdge] {
-  let seed = try requireNote(path.destinationNoteId, in: database)
+  // The seed was reached through a library-filtered candidate query; this is
+  // the row read for it, not an authorization point.
+  let seed = try loadNote(path.destinationNoteId, in: database)
   let terms = noteGraphTerms(from: [seed.title, seed.bodyMarkdown].compactMap { $0 }.joined(separator: "\n"))
   guard !terms.isEmpty else {
     return []
   }
   let excluded = invalidDestinations.sorted()
-  var matches: [String: Set<Int>] = [:]
+  var matches: [NoteID: Set<Int>] = [:]
   for (termIndex, term) in terms.enumerated() {
     var sql = """
       SELECT m.note_id, bm25(note_fts) AS rank
@@ -302,12 +304,12 @@ private func lexicalGraphEdges(
     var bindings: [SQLiteValue] = [.text(graphFTSMatchQuery(term))]
     if !excluded.isEmpty {
       sql += " AND m.note_id NOT IN (\(placeholders(count: excluded.count)))"
-      bindings.append(contentsOf: excluded.map(SQLiteValue.text))
+      bindings.append(contentsOf: excluded.sqliteBindings)
     }
     sql += " ORDER BY rank, m.note_id LIMIT ?"
     bindings.append(.int(Int64(NoteGraphPolicy.lexicalRowsPerTermLimit)))
     for row in try database.query(sql, bindings: bindings) {
-      guard let destination = row["note_id"] else {
+      guard let destination = row.identifier("note_id", as: NoteID.self) else {
         continue
       }
       matches[destination, default: []].insert(termIndex)
@@ -407,7 +409,7 @@ private func maximumEligibleTagFrequency(pathScore: Double, noteCount: Int) -> I
   return lastEligible
 }
 
-private func offerGraphPath(_ path: NoteGraphPath, to pending: inout [String: NoteGraphPath]) {
+private func offerGraphPath(_ path: NoteGraphPath, to pending: inout [NoteID: NoteGraphPath]) {
   if let current = pending[path.destinationNoteId], !graphEvidenceOrder(path, current) {
     return
   }
@@ -421,7 +423,7 @@ private func offerGraphPath(_ path: NoteGraphPath, to pending: inout [String: No
   pending = pending.filter { retainedIds.contains($0.key) }
 }
 
-private func popBestGraphPath(from pending: inout [String: NoteGraphPath]) -> NoteGraphPath? {
+private func popBestGraphPath(from pending: inout [NoteID: NoteGraphPath]) -> NoteGraphPath? {
   guard let best = pending.values.sorted(by: graphPublicOrder).first else {
     return nil
   }
@@ -451,7 +453,7 @@ private func graphEvidenceOrder(_ lhs: NoteGraphPath, _ rhs: NoteGraphPath) -> B
   if lhs.seedNoteId != rhs.seedNoteId {
     return lhs.seedNoteId < rhs.seedNoteId
   }
-  return lhs.noteIds.joined(separator: "\u{0}") < rhs.noteIds.joined(separator: "\u{0}")
+  return lhs.noteIds.rawValues.joined(separator: "\u{0}") < rhs.noteIds.rawValues.joined(separator: "\u{0}")
 }
 
 private func graphEdgeKindPrecedence(_ kind: NoteGraphEdgeKind) -> Int {

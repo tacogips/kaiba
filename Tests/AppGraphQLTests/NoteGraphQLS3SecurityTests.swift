@@ -28,7 +28,7 @@ final class NoteGraphQLS3SecurityTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "fileId": .string(attachment.file.fileId),
+          "fileId": .string(attachment.file.fileId.rawValue),
           "s3Endpoint": .string("https://s3.example.test"),
           "s3Region": .string("ap-northeast-1"),
           "s3Bucket": .string("notes"),
@@ -68,7 +68,7 @@ final class NoteGraphQLS3SecurityTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "fileId": .string(attachment.file.fileId),
+          "fileId": .string(attachment.file.fileId.rawValue),
           "s3Endpoint": .string("https://s3.example.test"),
           "s3Region": .string("ap-northeast-1"),
           "s3Bucket": .string("notes"),

@@ -1,4 +1,5 @@
 import Foundation
+import AppCore
 import Testing
 
 @testable import AppGraphQL

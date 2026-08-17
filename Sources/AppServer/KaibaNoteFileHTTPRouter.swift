@@ -47,24 +47,33 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
         "path": .string(request.path)
       ]))
     }
-    if let rejection = await authenticationRejection(for: request) {
+    let outcome = await authenticationOutcome(for: request)
+    switch outcome {
+    case let .rejected(rejection):
       return rejection
+    case .authenticated, .unauthenticated:
+      break
     }
     guard !fileId.isEmpty else {
       return Self.notFoundResponse(fileId: fileId)
     }
+    // An `--allow-unauthenticated` reader reaches only the files referenced by
+    // libraries that require no authentication. The route serves raw bytes, so
+    // it is the one place a library boundary is crossed without going through
+    // the GraphQL executor (`design-docs/specs/library.md`).
+    let reader = noteService.unauthenticated(outcome == .unauthenticated)
     let record: FileRecord
     let content: Data
     do {
-      record = try noteService.getFileRecord(fileId: fileId)
-      content = try noteService.resolveFileContent(fileId: fileId, s3Profiles: s3Profiles)
+      record = try reader.getFileRecord(fileId: fileId)
+      content = try reader.resolveFileContent(fileId: fileId, s3Profiles: s3Profiles)
     } catch NoteServiceError.notFound {
       return Self.notFoundResponse(fileId: fileId)
     } catch {
       logNoteAPIServerError("note file read failed", error: error)
       return .json(status: 500, .object([
         "error": .string("note file could not be read"),
-        "fileId": .string(fileId)
+        "fileId": .string(fileId.rawValue)
       ]))
     }
     return KaibaHTTPResponse(
@@ -78,14 +87,23 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     )
   }
 
-  private func authenticationRejection(for request: KaibaHTTPRequest) async -> KaibaHTTPResponse? {
+  /// Whether the request carried a credential. "Allowed through without one"
+  /// and "authenticated" are different answers: only the second one may reach
+  /// a library that requires authentication.
+  enum AuthenticationOutcome: Equatable {
+    case authenticated
+    case unauthenticated
+    case rejected(KaibaHTTPResponse)
+  }
+
+  private func authenticationOutcome(for request: KaibaHTTPRequest) async -> AuthenticationOutcome {
     guard let authenticator else {
       return allowUnauthenticated
-        ? nil
-        : .json(
+        ? .unauthenticated
+        : .rejected(.json(
           status: 503,
           .object(noteAPIUnavailableResponse("note API authentication is not configured").body)
-        )
+        ))
     }
     let envelope = ServerRequestEnvelope(
       method: request.method,
@@ -97,15 +115,15 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     let context = ServerRequestContext(serviceName: "kaiba").withHeaders(from: request.headers)
     switch await authenticator.authenticate(request: envelope, context: context) {
     case .accepted:
-      return nil
+      return .authenticated
     case let .rejected(rejection):
-      return .json(status: rejection.status, .object(rejection.body))
+      return .rejected(.json(status: rejection.status, .object(rejection.body)))
     }
   }
 
   /// The single path component after `/files`, or nil when the request is not
   /// addressed to this route at all.
-  static func fileId(inPath path: String) -> String? {
+  static func fileId(inPath path: String) -> FileID? {
     guard path == pathNamespace || path.hasPrefix(pathNamespace + "/") else {
       return nil
     }
@@ -113,7 +131,7 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     guard !remainder.contains("/") else {
       return nil
     }
-    return String(remainder)
+    return FileID(validating: String(remainder))
   }
 
   /// Stored media types are caller-supplied at attach time, so control
@@ -126,10 +144,10 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     return trimmed.isEmpty ? "application/octet-stream" : trimmed
   }
 
-  private static func notFoundResponse(fileId: String) -> KaibaHTTPResponse {
+  private static func notFoundResponse(fileId: FileID) -> KaibaHTTPResponse {
     .json(status: 404, .object([
       "error": .string("note file was not found"),
-      "fileId": .string(fileId)
+      "fileId": .string(fileId.rawValue)
     ]))
   }
 }

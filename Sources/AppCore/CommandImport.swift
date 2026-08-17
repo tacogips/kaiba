@@ -41,11 +41,11 @@ extension AppCommand {
     switch output {
     case .json:
       return try renderJSON([
-        "notebookId": result.notebook.notebookId,
-        "title": result.notebook.title,
-        "noteCount": result.notes.count,
-        "sourceFileId": result.sourceFile.file.fileId
-      ] as [String: Any])
+        "notebookId": .id(result.notebook.notebookId),
+        "title": .string(result.notebook.title),
+        "noteCount": .integer(Int64(result.notes.count)),
+        "sourceFileId": .id(result.sourceFile.file.fileId)
+      ])
     case .text:
       var lines = """
       Imported \(result.notebook.title)

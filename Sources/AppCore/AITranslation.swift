@@ -15,13 +15,13 @@ public enum AITranslationStatus: String, Codable, Equatable, Sendable {
 }
 
 public struct AITranslationState: Equatable, Sendable {
-  public var sourceNotebookId: String
+  public var sourceNotebookId: NotebookID
   public var targetLanguage: String
   public var status: AITranslationStatus
   public var errorMessage: String?
 
   public init(
-    sourceNotebookId: String,
+    sourceNotebookId: NotebookID,
     targetLanguage: String,
     status: AITranslationStatus,
     errorMessage: String? = nil
@@ -34,14 +34,14 @@ public struct AITranslationState: Equatable, Sendable {
 }
 
 public extension NoteService {
-  static let manualTranslationActionId = "manual-notebook-translation"
+  static let manualTranslationActionId = AutoActionID("manual-notebook-translation")
 
   /// Creates the pending translation notebook for a source notebook. The run
   /// itself happens in `AITranslationService.run`, synchronously from the CLI
   /// or via the `notebook-translation` auto-action dispatch.
   @discardableResult
   func startNotebookTranslation(
-    sourceNotebookId: String,
+    sourceNotebookId: NotebookID,
     targetLanguage: String,
     title: String? = nil
   ) throws -> Notebook {
@@ -76,7 +76,7 @@ public extension NoteService {
   /// unavailable), so no pending notebook is ever left with nothing to
   /// drain it.
   func requestNotebookTranslation(
-    sourceNotebookId: String,
+    sourceNotebookId: NotebookID,
     targetLanguage: String,
     title: String? = nil
   ) throws -> (notebook: Notebook?, queued: Bool) {
@@ -115,12 +115,11 @@ public extension NoteService {
   /// non-translation notebooks.
   static func translationState(of notebook: Notebook) -> AITranslationState? {
     guard let metaJSON = notebook.metaJSON,
-      let data = metaJSON.data(using: .utf8),
-      let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-      let translation = root["kaibaTranslation"] as? [String: Any],
-      let sourceNotebookId = translation["sourceNotebookId"] as? String,
-      let targetLanguage = translation["targetLanguage"] as? String,
-      let statusText = translation["status"] as? String,
+      let root = try? JSONValue(parsing: metaJSON),
+      let translation = root["kaibaTranslation"],
+      let sourceNotebookId: NotebookID = translation.identifier("sourceNotebookId"),
+      let targetLanguage = translation["targetLanguage"]?.asString,
+      let statusText = translation["status"]?.asString,
       let status = AITranslationStatus(rawValue: statusText)
     else {
       return nil
@@ -129,7 +128,7 @@ public extension NoteService {
       sourceNotebookId: sourceNotebookId,
       targetLanguage: targetLanguage,
       status: status,
-      errorMessage: translation["error"] as? String
+      errorMessage: translation["error"]?.asString
     )
   }
 
@@ -137,7 +136,7 @@ public extension NoteService {
   /// preserving any other meta JSON keys.
   @discardableResult
   func setNotebookTranslationStatus(
-    _ notebookId: String,
+    _ notebookId: NotebookID,
     status: AITranslationStatus,
     errorMessage: String? = nil
   ) throws -> Notebook {
@@ -156,11 +155,11 @@ public extension NoteService {
           mergingInto: notebook.metaJSON
         )
         try db.execute(
-          "UPDATE notebooks SET meta_json = jsonb(?), updated_at = ? WHERE notebook_id = ?",
+          "UPDATE notebooks SET meta_json = jsonb(?), updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
           bindings: [
             .text(metaJSON),
             .text(NoteStoreClock.system.now()),
-            .text(notebookId)
+            .id(notebookId)
           ]
         )
         return try requireNotebook(notebookId, in: db)
@@ -177,33 +176,32 @@ public extension NoteService {
     state: AITranslationState,
     mergingInto existingMetaJSON: String? = nil
   ) throws -> String {
-    var root: [String: Any] = [:]
+    var root: JSONObject = [:]
     if let existingMetaJSON,
-      let data = existingMetaJSON.data(using: .utf8),
-      let existing = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+      let existing = (try? JSONValue(parsing: existingMetaJSON))?.asObject {
       root = existing
     }
-    var translation: [String: Any] = [
-      "sourceNotebookId": state.sourceNotebookId,
-      "targetLanguage": state.targetLanguage,
-      "status": state.status.rawValue
+    var translation: JSONObject = [
+      "sourceNotebookId": .id(state.sourceNotebookId),
+      "targetLanguage": .string(state.targetLanguage),
+      "status": .string(state.status.rawValue)
     ]
-    translation["error"] = state.errorMessage
-    root["kaibaTranslation"] = translation
-    let data = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
-    guard let json = String(data: data, encoding: .utf8) else {
+    translation["error"] = state.errorMessage.map(JSONValue.string)
+    root["kaibaTranslation"] = .object(translation)
+    do {
+      return try JSONValue.object(root).encodedString()
+    } catch {
       throw NoteServiceError.invalidInput("translation notebook meta JSON must be UTF-8")
     }
-    return json
   }
 
-  static func translationNoteMetaJSON(sourceNoteId: String) throws -> String {
-    let root = ["kaibaTranslation": ["sourceNoteId": sourceNoteId]]
-    let data = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
-    guard let json = String(data: data, encoding: .utf8) else {
+  static func translationNoteMetaJSON(sourceNoteId: NoteID) throws -> String {
+    let root: JSONValue = .object(["kaibaTranslation": .object(["sourceNoteId": .id(sourceNoteId)])])
+    do {
+      return try root.encodedString()
+    } catch {
       throw NoteServiceError.invalidInput("translation note meta JSON must be UTF-8")
     }
-    return json
   }
 }
 
@@ -237,7 +235,7 @@ public struct AITranslationService: Sendable {
   /// One-shot entry point (the CLI): creates the pending notebook and runs it
   /// to completion.
   public func translateNotebook(
-    sourceNotebookId: String,
+    sourceNotebookId: NotebookID,
     targetLanguage: String,
     title: String? = nil
   ) async throws -> Notebook {
@@ -254,8 +252,8 @@ public struct AITranslationService: Sendable {
   /// retries idempotent.
   @discardableResult
   public func run(
-    translationNotebookId: String,
-    originatingActionId: String? = NoteService.manualTranslationActionId
+    translationNotebookId: NotebookID,
+    originatingActionId: AutoActionID? = NoteService.manualTranslationActionId
   ) async throws -> Notebook {
     let notebook = try service.getNotebook(translationNotebookId)
     guard let state = NoteService.translationState(of: notebook) else {
@@ -356,7 +354,7 @@ public struct AITranslationService: Sendable {
     return normalized
   }
 
-  private func allNotes(notebookId: String) throws -> [Note] {
+  private func allNotes(notebookId: NotebookID) throws -> [Note] {
     var all: [Note] = []
     var offset = 0
     while true {

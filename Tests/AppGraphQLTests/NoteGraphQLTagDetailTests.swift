@@ -6,7 +6,7 @@ import XCTest
 final class NoteGraphQLTagDetailTests: XCTestCase {
   func testTagDetailAndTagCommentsDocumentsRoundTrip() async throws {
     let service = try makeNoteGraphQLService()
-    let tag = try service.service.defineTag(name: "oda-nobunaga", classId: "person")
+    let tag = try service.service.defineTag(name: "oda-nobunaga", classId: TagClassID("person"))
     let note = try service.service.createNote(bodyMarkdown: "# Battle\noda-nobunaga fought here")
     _ = try service.service.applyTags(
       noteId: note.noteId,
@@ -36,7 +36,7 @@ final class NoteGraphQLTagDetailTests: XCTestCase {
         }
       }
       """,
-      variables: ["tagId": .string(tag.tagId)],
+      variables: ["tagId": .string(tag.tagId.rawValue)],
       operationName: "TagDetail"
     ))
     let detail = try XCTUnwrap(detailResponse)
@@ -61,7 +61,7 @@ final class NoteGraphQLTagDetailTests: XCTestCase {
         }
       }
       """,
-      variables: ["tagId": .string(tag.tagId)],
+      variables: ["tagId": .string(tag.tagId.rawValue)],
       operationName: "TagComments"
     ))
     let comments = try XCTUnwrap(commentsResponse)
@@ -94,7 +94,7 @@ final class NoteGraphQLTagDetailTests: XCTestCase {
       """
     let ensuredResponse = await executor.execute(GraphQLDocumentRequest(
       query: query,
-      variables: ["tagId": .string(tag.tagId)],
+      variables: ["tagId": .string(tag.tagId.rawValue)],
       operationName: "EnsureTagMemoNotebook"
     ))
     let ensured = try XCTUnwrap(ensuredResponse)
@@ -105,7 +105,7 @@ final class NoteGraphQLTagDetailTests: XCTestCase {
 
     let againResponse = await executor.execute(GraphQLDocumentRequest(
       query: query,
-      variables: ["tagId": .string(tag.tagId)],
+      variables: ["tagId": .string(tag.tagId.rawValue)],
       operationName: "EnsureTagMemoNotebook"
     ))
     let again = try XCTUnwrap(againResponse)

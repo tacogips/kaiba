@@ -7,8 +7,19 @@ public struct GraphQLDocumentRequest: Equatable, Sendable {
   public var variables: JSONObject
   public var operationName: String?
   public var environment: [String: String]
-  public var authenticatedClientId: String?
+  public var authenticatedClientId: APIClientID?
+  /// The account this request acts as. The note API resolves it from the
+  /// authenticated principal, and an unauthenticated host resolves it to the
+  /// default user. Nil is the unscoped operator view (`kaiba graphql`), which
+  /// still sees the whole store.
+  public var actingUserId: UserID?
   public var transportCredential: GraphQLTransportCredential?
+  /// True when the request reached the note API without any credential. It
+  /// cannot be inferred from `authenticatedClientId`, which is also nil for the
+  /// local `kaiba graphql` operator path, and it cannot be inferred from
+  /// `actingUserId`, which such a request resolves to the default user. Only
+  /// the transport knows (`design-docs/specs/library.md`).
+  public var isUnauthenticatedRequest: Bool
   public var isLocallyTrusted: Bool
   public var localWorkingDirectory: String?
   var parsedRootFields: [ParsedNoteGraphQLRootField]?
@@ -19,8 +30,10 @@ public struct GraphQLDocumentRequest: Equatable, Sendable {
     variables: JSONObject = [:],
     operationName: String? = nil,
     environment: [String: String] = ProcessInfo.processInfo.environment,
-    authenticatedClientId: String? = nil,
+    authenticatedClientId: APIClientID? = nil,
+    actingUserId: UserID? = nil,
     transportCredential: GraphQLTransportCredential? = nil,
+    isUnauthenticatedRequest: Bool = false,
     isLocallyTrusted: Bool = false,
     localWorkingDirectory: String? = nil
   ) {
@@ -29,7 +42,9 @@ public struct GraphQLDocumentRequest: Equatable, Sendable {
     self.operationName = operationName
     self.environment = environment
     self.authenticatedClientId = authenticatedClientId
+    self.actingUserId = actingUserId
     self.transportCredential = transportCredential
+    self.isUnauthenticatedRequest = isUnauthenticatedRequest
     self.isLocallyTrusted = isLocallyTrusted
     self.localWorkingDirectory = localWorkingDirectory
     parsedRootFields = nil
@@ -97,7 +112,28 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     self.rawS3EnvironmentAllowlist = rawS3EnvironmentAllowlist
   }
 
+  /// Runs the document as the request's account. `NoteService` is a value over
+  /// a shared driver, so scoping is a copy per request rather than a parameter
+  /// on every downstream call (`design-docs/specs/multi-user.md`).
   public func execute(_ request: GraphQLDocumentRequest) async -> GraphQLDocumentExecutionResponse {
+    // An unauthenticated note-API request still acts as the default user, so
+    // the account cannot distinguish it from a real sign-in. The transport
+    // marks it instead: such a caller reaches only the libraries that require
+    // no authentication (`design-docs/specs/library.md`).
+    let isUnauthenticated = request.isUnauthenticatedRequest
+    guard let actingUserId = request.actingUserId else {
+      var unscoped = self
+      unscoped.service.service = service.service.unauthenticated(isUnauthenticated)
+      return await unscoped.executeAsCurrentUser(request)
+    }
+    var scoped = self
+    scoped.service.service = service.service
+      .scoped(to: actingUserId)
+      .unauthenticated(isUnauthenticated)
+    return await scoped.executeAsCurrentUser(request)
+  }
+
+  private func executeAsCurrentUser(_ request: GraphQLDocumentRequest) async -> GraphQLDocumentExecutionResponse {
     let rootFields: [ParsedNoteGraphQLRootField]
     do {
       guard let parsed = try request.parsedRootFields ?? parseNoteGraphQLRootFields(
@@ -190,25 +226,27 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     let variables = request.variables
     switch fieldName {
     case "note":
-      return try await encodedJSONValue(service.note(noteId: requiredString("noteId", variables: variables)))
+      return try await encodedJSONValue(service.note(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
     case "notebook":
-      return try await encodedJSONValue(service.notebook(notebookId: requiredString("notebookId", variables: variables)))
+      return try await encodedJSONValue(service.notebook(notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables)))
     case "notebooks":
       return try await encodedJSONValue(service.notebooks(
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
         offset: validatedOffset(try optionalInt("offset", variables: variables)),
         tagFilter: try optionalStringArray("tagFilter", variables: variables) ?? [],
         tagFilterGroups: try optionalStringArrayArray("tagFilterGroups", variables: variables) ?? [],
-        tagFilterIdGroups: try optionalStringArrayArray("tagFilterIdGroups", variables: variables) ?? [],
+        tagFilterIdGroups: try optionalIdentifierArrayArray("tagFilterIdGroups", as: TagID.self, variables: variables) ?? [],
         sort: try optionalString("sort", variables: variables),
         createdAfter: try optionalString("createdAfter", variables: variables),
         createdBefore: try optionalString("createdBefore", variables: variables)
       ))
+    case "libraries":
+      return try await encodedJSONValue(service.libraries())
     case "notes":
       return try await encodedJSONValue(service.notes(
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
         offset: validatedOffset(try optionalInt("offset", variables: variables)),
-        notebookId: try optionalString("notebookId", variables: variables),
+        notebookId: try optionalIdentifier("notebookId", as: NotebookID.self, variables: variables),
         tagFilter: try optionalStringArray("tagFilter", variables: variables) ?? []
       ))
     case "searchNotes":
@@ -216,7 +254,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         query: requiredString("query", variables: variables),
         tagFilter: try optionalStringArray("tagFilter", variables: variables) ?? [],
         classFilter: try optionalStringArray("classFilter", variables: variables) ?? [],
-        notebookId: try optionalString("notebookId", variables: variables),
+        notebookId: try optionalIdentifier("notebookId", as: NotebookID.self, variables: variables),
         sort: try optionalString("sort", variables: variables),
         createdAfter: try optionalString("createdAfter", variables: variables),
         createdBefore: try optionalString("createdBefore", variables: variables),
@@ -227,7 +265,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "noteGraphNeighbors":
       return try await encodedJSONValue(service.noteGraphNeighbors(
-        noteIds: try optionalStringArray("noteIds", variables: variables) ?? [],
+        noteIds: try optionalIdentifierArray("noteIds", as: NoteID.self, variables: variables) ?? [],
         depth: try optionalInt("depth", variables: variables) ?? NoteGraphPolicy.defaultMaxDepth,
         limit: validatedGraphLimit(
           try optionalInt("limit", variables: variables),
@@ -236,7 +274,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "proposeNoteLinks":
       return try await encodedJSONValue(service.proposeNoteLinks(
-        noteId: requiredString("noteId", variables: variables),
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
         limit: validatedGraphLimit(try optionalInt("limit", variables: variables), defaultValue: 8)
       ))
     case "tags":
@@ -244,45 +282,45 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     case "tagClasses":
       return try await encodedJSONValue(service.tagClasses())
     case "noteFile":
-      return try await encodedJSONValue(service.noteFile(fileId: requiredString("fileId", variables: variables)))
+      return try await encodedJSONValue(service.noteFile(fileId: requiredIdentifier("fileId", as: FileID.self, variables: variables)))
     case "noteFiles":
-      return try await encodedJSONValue(service.noteFiles(noteId: requiredString("noteId", variables: variables)))
+      return try await encodedJSONValue(service.noteFiles(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
     case "autoActions":
       return try await encodedJSONValue(service.autoActions())
     case "noteConversations":
       return try await encodedJSONValue(service.noteConversations(
-        noteId: requiredString("noteId", variables: variables),
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50)
       ))
     case "notebookConversations":
       return try await encodedJSONValue(service.notebookConversations(
-        notebookId: requiredString("notebookId", variables: variables),
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50)
       ))
     case "agentModels":
       return try await encodedJSONValue(service.agentModels())
     case "noteComments":
       return try await encodedJSONValue(service.noteComments(
-        noteId: requiredString("noteId", variables: variables)
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)
       ))
     case "notebookComments":
       return try await encodedJSONValue(service.notebookComments(
-        notebookId: requiredString("notebookId", variables: variables)
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables)
       ))
     case "tagDetail":
       return try await encodedJSONValue(service.tagDetail(
-        tagId: requiredString("tagId", variables: variables)
+        tagId: requiredIdentifier("tagId", as: TagID.self, variables: variables)
       ))
     case "tagComments":
       return try await encodedJSONValue(service.tagComments(
-        tagId: requiredString("tagId", variables: variables),
+        tagId: requiredIdentifier("tagId", as: TagID.self, variables: variables),
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
         offset: validatedOffset(try optionalInt("offset", variables: variables))
       ))
     case "agenticSearch":
       return try await encodedJSONValue(service.agenticSearch(
         query: requiredString("query", variables: variables),
-        notebookId: try optionalString("notebookId", variables: variables),
+        notebookId: try optionalIdentifier("notebookId", as: NotebookID.self, variables: variables),
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 20)
       ))
     case "appSetting":
@@ -291,7 +329,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "setNotebookReadOnly":
       return try await encodedJSONValue(service.setNotebookReadOnly(
-        notebookId: requiredString("notebookId", variables: variables),
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
         readOnly: requiredBool("readOnly", variables: variables)
       ))
     default:
@@ -321,9 +359,9 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         originatingActionId: input.originatingActionId
       ))
     case "deleteNote":
-      return try await encodedJSONValue(service.deleteNote(noteId: requiredString("noteId", variables: variables)))
+      return try await encodedJSONValue(service.deleteNote(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
     case "deleteNotebook":
-      return try await encodedJSONValue(service.deleteNotebook(notebookId: requiredString("notebookId", variables: variables)))
+      return try await encodedJSONValue(service.deleteNotebook(notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables)))
     case "applyNotebookTags":
       var input: GraphQLApplyNotebookTagsInput = try requiredInput("input", variables: variables)
       input.assignedBy = try noteAPIAssignedBy(input.assignedBy, field: "assignedBy", request: request)
@@ -334,24 +372,24 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.applyNotebookTagIds(input))
     case "removeNotebookTag":
       return try await encodedJSONValue(service.removeNotebookTag(
-        notebookId: requiredString("notebookId", variables: variables),
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
         tagName: requiredString("tagName", variables: variables),
         provenance: try optionalString("provenance", variables: variables) ?? "human"
       ))
     case "removeNotebookTagById":
       return try await encodedJSONValue(service.removeNotebookTagById(
-        notebookId: requiredString("notebookId", variables: variables),
-        tagId: requiredString("tagId", variables: variables),
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
+        tagId: requiredIdentifier("tagId", as: TagID.self, variables: variables),
         provenance: try optionalString("provenance", variables: variables) ?? "human"
       ))
     case "setNotebookReadOnly":
       return try await encodedJSONValue(service.setNotebookReadOnly(
-        notebookId: requiredString("notebookId", variables: variables),
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
         readOnly: requiredBool("readOnly", variables: variables)
       ))
     case "setNoteReadOnly":
       return try await encodedJSONValue(service.setReadOnly(
-        noteId: requiredString("noteId", variables: variables),
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
         readOnly: requiredBool("readOnly", variables: variables)
       ))
     case "applyNoteTags":
@@ -364,7 +402,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "removeNoteTag":
       return try await encodedJSONValue(service.removeTag(
-        noteId: requiredString("noteId", variables: variables),
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
         tagName: requiredString("tagName", variables: variables),
         provenance: try optionalString("provenance", variables: variables) ?? "human"
       ))
@@ -417,13 +455,13 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         position: input.position ?? 0
       ))
     case "deleteNoteAutoAction":
-      return try await encodedJSONValue(service.deleteAutoAction(actionId: requiredString("actionId", variables: variables)))
+      return try await encodedJSONValue(service.deleteAutoAction(actionId: requiredIdentifier("actionId", as: AutoActionID.self, variables: variables)))
     case "sendAgentChatMessage":
       let input: GraphQLSendAgentChatMessageInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.sendAgentChatMessage(input))
     case "ensureTagMemoNotebook":
       return try await encodedJSONValue(service.ensureTagMemoNotebook(
-        tagId: requiredString("tagId", variables: variables)
+        tagId: requiredIdentifier("tagId", as: TagID.self, variables: variables)
       ))
     case "requestTagExtraction":
       let input: GraphQLRequestTagExtractionInput = try requiredInput("input", variables: variables)

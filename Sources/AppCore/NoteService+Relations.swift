@@ -3,8 +3,8 @@ import Foundation
 public extension NoteService {
   @discardableResult
   func linkNotes(
-    from fromNoteId: String,
-    to toNoteId: String,
+    from fromNoteId: NoteID,
+    to toNoteId: NoteID,
     linkKind: String = "related",
     provenance: NoteProvenance = .human
   ) throws -> NoteLink {
@@ -21,7 +21,7 @@ public extension NoteService {
     }
   }
 
-  func listLinks(noteId: String) throws -> [NoteLink] {
+  func listLinks(noteId: NoteID) throws -> [NoteLink] {
     try driver.withDatabase { database in
       _ = try requireNote(noteId, in: database)
       return try database.query(
@@ -31,12 +31,12 @@ public extension NoteService {
         WHERE from_note_id = ? OR to_note_id = ?
         ORDER BY created_at, from_note_id, to_note_id
         """,
-        bindings: [.text(noteId), .text(noteId)]
+        bindings: [.id(noteId), .id(noteId)]
       ).map(noteLink(from:))
     }
   }
 
-  func proposeLinks(noteId: String, limit: Int = 8) throws -> [NoteLinkProposal] {
+  func proposeLinks(noteId: NoteID, limit: Int = 8) throws -> [NoteLinkProposal] {
     guard limit >= 0 else {
       throw NoteServiceError.invalidInput("note link proposal limit must not be negative")
     }
@@ -51,27 +51,30 @@ public extension NoteService {
         FROM note_links
         WHERE from_note_id = ? OR to_note_id = ?
         """,
-        bindings: [.text(noteId), .text(noteId)]
+        bindings: [.id(noteId), .id(noteId)]
       ).map(noteLink(from:))
       let excludedIds = Set(links.map { $0.counterpartNoteId(for: noteId) } + [noteId])
-      let results = try noteGraphNeighborsInDatabase(
-        noteIds: [noteId],
-        maxDepth: NoteGraphPolicy.associationMaxDepth,
-        limit: limit,
-        resultExclusions: excludedIds,
+      let results = try filterReachable(
+        try noteGraphNeighborsInDatabase(
+          noteIds: [noteId],
+          maxDepth: NoteGraphPolicy.associationMaxDepth,
+          limit: limit,
+          resultExclusions: excludedIds,
+          in: database
+        ),
         in: database
       )
       return results.map { result in
         NoteLinkProposal(
           targetNote: result.note,
           linkKind: "related",
-          reason: "Graph \(result.edgeKind.rawValue) path: \(result.pathNoteIds.joined(separator: " -> "))."
+          reason: "Graph \(result.edgeKind.rawValue) path: \(result.pathNoteIds.rawValues.joined(separator: " -> "))."
         )
       }
     }
   }
 
-  func listComments(noteId: String) throws -> [NoteComment] {
+  func listComments(noteId: NoteID) throws -> [NoteComment] {
     try driver.withDatabase { database in
       _ = try requireNote(noteId, in: database)
       return try database.query(
@@ -81,7 +84,7 @@ public extension NoteService {
         WHERE note_id = ?
         ORDER BY created_at, comment_id
         """,
-        bindings: [.text(noteId)]
+        bindings: [.id(noteId)]
       ).map(noteComment(from:))
     }
   }
@@ -90,7 +93,7 @@ public extension NoteService {
   /// oldest first. The `note_id IN (...)` arm covers rows that predate the v9
   /// backfill only in stores restored from partial copies; normally
   /// `notebook_id` alone matches everything.
-  func listNotebookComments(notebookId: String) throws -> [NoteComment] {
+  func listNotebookComments(notebookId: NotebookID) throws -> [NoteComment] {
     try driver.withDatabase { database in
       _ = try requireNotebook(notebookId, in: database)
       return try database.query(
@@ -101,7 +104,7 @@ public extension NoteService {
           OR note_id IN (SELECT note_id FROM notes WHERE notebook_id = ?)
         ORDER BY created_at, comment_id
         """,
-        bindings: [.text(notebookId), .text(notebookId)]
+        bindings: [.id(notebookId), .id(notebookId)]
       ).map(noteComment(from:))
     }
   }
@@ -109,7 +112,7 @@ public extension NoteService {
   /// A notebook-level memo: anchored to the notebook only, no note.
   @discardableResult
   func addNotebookComment(
-    notebookId: String,
+    notebookId: NotebookID,
     bodyMarkdown: String,
     author: String = "user"
   ) throws -> NoteComment {
@@ -117,13 +120,13 @@ public extension NoteService {
       try database.transaction { db -> NoteComment in
         _ = try requireNotebook(notebookId, in: db)
         let now = NoteStoreClock.system.now()
-        let commentId = makeNoteId(prefix: "comment")
+        let commentId = CommentID.generate()
         try db.execute(
           """
           INSERT INTO note_comments (comment_id, note_id, notebook_id, body_markdown, author, created_at)
           VALUES (?, NULL, ?, ?, ?, ?)
           """,
-          bindings: [.text(commentId), .text(notebookId), .text(bodyMarkdown), .text(author), .text(now)]
+          bindings: [.id(commentId), .id(notebookId), .text(bodyMarkdown), .text(author), .text(now)]
         )
         return NoteComment(
           commentId: commentId,
@@ -147,7 +150,7 @@ public extension NoteService {
   /// so agentic search can grep memo text too.
   func searchComments(
     query: String,
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     limit: Int = 50
   ) throws -> [NoteComment] {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -164,15 +167,30 @@ public extension NoteService {
         WHERE body_markdown LIKE ? ESCAPE '\\'
         """
       var bindings: [SQLiteValue] = [.text("%\(escapedLikePattern(trimmed))%")]
+      // A memo is as reachable as the notebook it hangs on
+      // (`design-docs/specs/library.md`).
+      if let reachableLibraryIds = try reachableLibraryIds(in: database) {
+        if reachableLibraryIds.isEmpty {
+          return []
+        }
+        sql += """
+
+          AND notebook_id IN (
+            SELECT notebook_id FROM notebooks
+            WHERE library_id IN (\(placeholders(count: reachableLibraryIds.count)))
+          )
+          """
+        bindings.append(contentsOf: reachableLibraryIds.sqliteBindings)
+      }
       if let notebookId {
         sql += "\n  AND (notebook_id = ? OR note_id IN (SELECT note_id FROM notes WHERE notebook_id = ?))"
-        bindings.append(.text(notebookId))
-        bindings.append(.text(notebookId))
+        bindings.append(.id(notebookId))
+        bindings.append(.id(notebookId))
       }
       sql += "\nORDER BY created_at, comment_id LIMIT ?"
       bindings.append(.int(Int64(limit)))
       return try database.query(sql, bindings: bindings).map { row in
-        guard let commentId = row["comment_id"],
+        guard let commentId = row.identifier("comment_id", as: CommentID.self),
           let bodyMarkdown = row["body_markdown"],
           let author = row["author"],
           let createdAt = row["created_at"]
@@ -181,8 +199,8 @@ public extension NoteService {
         }
         return NoteComment(
           commentId: commentId,
-          noteId: row["note_id"] ?? nil,
-          notebookId: row["notebook_id"] ?? nil,
+          noteId: row.identifier("note_id", as: NoteID.self) ?? nil,
+          notebookId: row.identifier("notebook_id", as: NotebookID.self) ?? nil,
           bodyMarkdown: bodyMarkdown,
           author: author,
           createdAt: createdAt
@@ -193,11 +211,11 @@ public extension NoteService {
 
   @discardableResult
   func appendConversationTurn(
-    notebookId: String,
+    notebookId: NotebookID,
     turn: NoteConversationTurn,
     sourceLinks: NoteConversationSourceLinks? = nil,
     assignedBy: String? = nil,
-    originatingActionId: String? = nil,
+    originatingActionId: AutoActionID? = nil,
     idempotencyKey: String? = nil
   ) throws -> Note {
     let result = try driver.withDatabase { database in
@@ -240,20 +258,33 @@ public extension NoteService {
     notebookMetaJSON: String? = nil,
     sourceLinks: NoteConversationSourceLinks? = nil,
     assignedBy: String? = nil,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) throws -> SavedConversation {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
         let now = NoteStoreClock.system.now()
-        let notebookId = makeNoteId(prefix: "notebook")
+        let notebookId = NotebookID.generate()
+        // A conversation about a note stays in that note's library. Landing it
+        // in the default library would carry the transcript of an
+        // authenticated library into an unauthenticated one.
+        let libraryId = try inheritedLibraryId(
+          fromSourceNoteIds: sourceLinks?.sourceNoteIds ?? [],
+          in: db
+        )
         try db.execute(
           """
-          INSERT INTO notebooks (notebook_id, title, created_at, updated_at, meta_json)
-          VALUES (?, ?, ?, ?, jsonb(?))
+          INSERT INTO notebooks (
+            notebook_id, title, owner_user_id, library_id, created_by, updated_by,
+            created_at, updated_at, meta_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, jsonb(?))
           """,
           bindings: [
-            .text(notebookId),
+            .id(notebookId),
             .text(conversationTitle),
+            .id(writeOwnerUserId()),
+            .id(libraryId),
+            .id(writeOwnerUserId()),
+            .id(writeOwnerUserId()),
             .text(now),
             .text(now),
             .optionalText(notebookMetaJSON)
@@ -303,7 +334,7 @@ public extension NoteService {
 }
 
 private func appendConversationTurnInDatabase(
-  notebookId: String,
+  notebookId: NotebookID,
   turn: NoteConversationTurn,
   sourceLinks: NoteConversationSourceLinks?,
   assignedBy: String?,
@@ -319,10 +350,10 @@ private func appendConversationTurnInDatabase(
     return (existing, false)
   }
   for sourceNoteId in turn.sourceNoteIds {
-    _ = try requireNote(sourceNoteId, in: database)
+    _ = try loadNote(sourceNoteId, in: database)
   }
   var sourceNoteIds = sourceLinks?.sourceNoteIds ?? []
-  var missingSourceNoteIds: [String] = []
+  var missingSourceNoteIds: [NoteID] = []
   if let sourceLinks {
     let existingSources = try requireNotes(sourceLinks.sourceNoteIds, in: database)
     missingSourceNoteIds = sourceLinks.sourceNoteIds.filter { existingSources[$0] == nil }
@@ -334,7 +365,7 @@ private func appendConversationTurnInDatabase(
   let now = NoteStoreClock.system.now()
   let noteNumber = try nextNoteNumber(notebookId: notebookId, in: database)
   let bodyMarkdown = conversationBody(turn: turn, noteNumber: noteNumber)
-  let noteId = makeNoteId(prefix: "note")
+  let noteId = NoteID.generate()
   let noteMetaJSON = try conversationTurnMetadataJSON(
     idempotencyKey: idempotencyKey,
     missingSourceNoteIds: missingSourceNoteIds
@@ -343,15 +374,22 @@ private func appendConversationTurnInDatabase(
     """
     INSERT INTO notes (
       note_id, notebook_id, note_number, title, body_markdown,
-      read_only, created_at, updated_at, meta_json
-    ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, jsonb(?))
+      read_only, created_by, updated_by, created_at, updated_at, meta_json
+    ) VALUES (
+      ?, ?, ?, ?, ?, 0,
+      (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+      (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+      ?, ?, jsonb(?)
+    )
     """,
     bindings: [
-      .text(noteId),
-      .text(notebookId),
+      .id(noteId),
+      .id(notebookId),
       .int(Int64(noteNumber)),
       .optionalText(noteTitle(from: bodyMarkdown)),
       .text(bodyMarkdown),
+      .id(notebookId),
+      .id(notebookId),
       .text(now),
       .text(now),
       .optionalText(noteMetaJSON)
@@ -378,15 +416,15 @@ private func appendConversationTurnInDatabase(
     }
   }
   try database.execute(
-    "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-    bindings: [.text(now), .text(notebookId)]
+    "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+    bindings: [.text(now), .id(notebookId)]
   )
   try refreshFTS(noteId: noteId, previous: nil, in: database)
-  return (try requireNote(noteId, in: database), true)
+  return (try loadNote(noteId, in: database), true)
 }
 
 private func conversationTurn(
-  notebookId: String,
+  notebookId: NotebookID,
   idempotencyKey: String,
   in database: SQLiteDatabase
 ) throws -> Note? {
@@ -398,40 +436,40 @@ private func conversationTurn(
       AND json_extract(meta_json, '$.kaibaNote.conversationTurn.idempotencyKey') = ?
     LIMIT 1
     """,
-    bindings: [.text(notebookId), .text(idempotencyKey)]
+    bindings: [.id(notebookId), .text(idempotencyKey)]
   )
-  guard let noteId = rows.first?["note_id"] else {
+  guard let noteId = rows.first?.identifier("note_id", as: NoteID.self) else {
     return nil
   }
-  return try requireNote(noteId, in: database)
+  return try loadNote(noteId, in: database)
 }
 
 private func conversationTurnMetadataJSON(
   idempotencyKey: String?,
-  missingSourceNoteIds: [String]
+  missingSourceNoteIds: [NoteID]
 ) throws -> String? {
   guard idempotencyKey != nil || !missingSourceNoteIds.isEmpty else {
     return nil
   }
-  var metadata: [String: Any] = [:]
+  var metadata: JSONObject = [:]
   if let idempotencyKey {
-    metadata["idempotencyKey"] = idempotencyKey
+    metadata["idempotencyKey"] = .string(idempotencyKey)
   }
   if !missingSourceNoteIds.isEmpty {
-    metadata["missingSourceNoteIds"] = missingSourceNoteIds
+    metadata["missingSourceNoteIds"] = .ids(missingSourceNoteIds)
   }
-  let root = ["kaibaNote": ["conversationTurn": metadata]]
-  let data = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
-  guard let json = String(data: data, encoding: .utf8) else {
+  let root: JSONValue = .object(["kaibaNote": .object(["conversationTurn": .object(metadata)])])
+  do {
+    return try root.encodedString()
+  } catch {
     throw NoteServiceError.invalidInput("conversation turn metadata must be UTF-8 JSON")
   }
-  return json
 }
 
 @discardableResult
 func linkNotesInDatabase(
-  from fromNoteId: String,
-  to toNoteId: String,
+  from fromNoteId: NoteID,
+  to toNoteId: NoteID,
   linkKind: String,
   provenance: NoteProvenance,
   in database: SQLiteDatabase
@@ -440,8 +478,8 @@ func linkNotesInDatabase(
   // helper preserves the exact behavior of the public `linkNotes` mutation it
   // was extracted from. The conversation source-link callers always pass a
   // controlled, non-empty kind, so they need no additional validation here.
-  _ = try requireNote(fromNoteId, in: database)
-  _ = try requireNote(toNoteId, in: database)
+  _ = try loadNote(fromNoteId, in: database)
+  _ = try loadNote(toNoteId, in: database)
   let now = NoteStoreClock.system.now()
   try database.execute(
     """
@@ -463,8 +501,8 @@ func linkNotesInDatabase(
       END
     """,
     bindings: [
-      .text(fromNoteId),
-      .text(toNoteId),
+      .id(fromNoteId),
+      .id(toNoteId),
       .text(linkKind),
       .text(provenance.rawValue),
       .text(now)
@@ -474,13 +512,13 @@ func linkNotesInDatabase(
 }
 
 private func applyConversationNotebookKind(
-  notebookId: String,
+  notebookId: NotebookID,
   assignedBy: String?,
   in database: SQLiteDatabase
 ) throws {
   let tag = try requireTag(id: NoteStoreSchema.agentConversationNotebookKindTagId, in: database)
   guard tag.name == NoteStoreSchema.agentConversationNotebookKindTag,
-        tag.classId == "document-kind",
+        tag.classId == .documentKind,
         tag.isSystem else {
     throw NoteServiceError.invalidInput(
       "system tag ownership is invalid: \(NoteStoreSchema.agentConversationNotebookKindTag)"
@@ -494,8 +532,8 @@ private func applyConversationNotebookKind(
     ON CONFLICT(notebook_id, tag_id) DO NOTHING
     """,
     bindings: [
-      .text(notebookId),
-      .text(tag.tagId),
+      .id(notebookId),
+      .id(tag.tagId),
       .optionalText(assignedBy ?? "kaiba-note"),
       .text(NoteStoreClock.system.now())
     ]
@@ -515,8 +553,8 @@ private func conversationBody(turn: NoteConversationTurn, noteNumber: Int) -> St
 }
 
 private func noteLink(from row: SQLiteRow) throws -> NoteLink {
-  guard let fromNoteId = row["from_note_id"],
-        let toNoteId = row["to_note_id"],
+  guard let fromNoteId = row.identifier("from_note_id", as: NoteID.self),
+        let toNoteId = row.identifier("to_note_id", as: NoteID.self),
         let linkKind = row["link_kind"],
         let provenanceText = row["provenance"],
         let provenance = NoteProvenance(rawValue: provenanceText),
@@ -533,8 +571,8 @@ private func noteLink(from row: SQLiteRow) throws -> NoteLink {
 }
 
 private func requireNoteLink(
-  from fromNoteId: String,
-  to toNoteId: String,
+  from fromNoteId: NoteID,
+  to toNoteId: NoteID,
   linkKind: String,
   in database: SQLiteDatabase
 ) throws -> NoteLink {
@@ -545,7 +583,7 @@ private func requireNoteLink(
     WHERE from_note_id = ? AND to_note_id = ? AND link_kind = ?
     LIMIT 1
     """,
-    bindings: [.text(fromNoteId), .text(toNoteId), .text(linkKind)]
+    bindings: [.id(fromNoteId), .id(toNoteId), .text(linkKind)]
   )
   guard let row = rows.first else {
     throw NoteServiceError.notFound("note link not found: \(fromNoteId) -> \(toNoteId) (\(linkKind))")
@@ -554,7 +592,7 @@ private func requireNoteLink(
 }
 
 private func noteComment(from row: SQLiteRow) throws -> NoteComment {
-  guard let commentId = row["comment_id"],
+  guard let commentId = row.identifier("comment_id", as: CommentID.self),
         let bodyMarkdown = row["body_markdown"],
         let author = row["author"],
         let createdAt = row["created_at"] else {
@@ -562,8 +600,8 @@ private func noteComment(from row: SQLiteRow) throws -> NoteComment {
   }
   return NoteComment(
     commentId: commentId,
-    noteId: row["note_id"] ?? nil,
-    notebookId: row["notebook_id"] ?? nil,
+    noteId: row.identifier("note_id", as: NoteID.self) ?? nil,
+    notebookId: row.identifier("notebook_id", as: NotebookID.self) ?? nil,
     bodyMarkdown: bodyMarkdown,
     author: author,
     createdAt: createdAt
@@ -571,7 +609,7 @@ private func noteComment(from row: SQLiteRow) throws -> NoteComment {
 }
 
 private extension NoteLink {
-  func counterpartNoteId(for noteId: String) -> String {
+  func counterpartNoteId(for noteId: NoteID) -> NoteID {
     fromNoteId == noteId ? toNoteId : fromNoteId
   }
 }

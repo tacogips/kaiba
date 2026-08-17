@@ -30,6 +30,57 @@ under `~/.kaiba/files/` (override the root with `--note-root` or
 See `design-docs/specs/command.md` for the full CLI
 and `design-docs/specs/kaiba-note.md` for the design.
 
+## Libraries
+
+Notebooks are grouped into named libraries, and each library decides whether a
+caller that presented no credential may see it at all:
+
+```bash
+kaiba library create shared --title "Shared" --auth required
+kaiba library list
+kaiba --library shared add --body '# Only for signed-in callers'
+kaiba library move <notebook-id> --to shared
+```
+
+`--library <name>` (or `KAIBA_LIBRARY`) selects the library a command reads
+and writes; without a selection writes land in the `default` library, which is
+seeded open so a store behaves exactly as it did before libraries existed.
+
+Access to a library that requires authentication is granted per account:
+
+```bash
+kaiba library grant shared --user <user-id>
+kaiba library members shared
+kaiba library revoke shared --user <user-id>
+```
+
+An `--allow-unauthenticated` note-API request reaches only the open libraries,
+whatever grants exist. An authenticated account reaches the open libraries plus
+the ones it was granted. The local CLI is the operator view and spans every
+library. Holding a note, notebook, or file id does not get past this: fetch by
+id, search, graph traversal, and `GET /files/<id>` all answer "not found" for a
+library the caller cannot reach.
+
+A library can name its own credential scope. Policy stays in the store and the
+config holds only names, never values:
+
+```json
+{
+  "libraries": [
+    { "name": "shared", "kinkoPath": "logical:kaiba/shared", "storageProfile": "gateway" }
+  ]
+}
+```
+
+`kaiba library env shared` prints that scope and the environment variables it
+supplies, so the invocation is ready to paste:
+
+```bash
+kinko --path logical:kaiba/shared exec -- kaiba --library shared serve
+```
+
+See `design-docs/specs/library.md` for the design.
+
 ## External database and file storage
 
 The default configuration is local SQLite. A Turso or libSQL SQL-over-HTTP

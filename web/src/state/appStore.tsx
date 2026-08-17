@@ -1,6 +1,7 @@
+import { notebookId as asNotebookId } from '../notes/ids'
 import { createContext, onCleanup, useContext, type JSX } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { NoteGraphQLClient, notebookPageLimit } from '../notes/client'
+import { NoteGraphQLClient, NoteTransportError, notebookPageLimit } from '../notes/client'
 import { subscribeNoteEvents } from '../notes/events'
 import { loadNotebookPages } from '../notes/paging'
 import type { Note, Notebook, NoteTag, NoteTagClass } from '../notes/types'
@@ -43,14 +44,21 @@ import {
   type WebAppSettings,
 } from '../notes/settings'
 import { NotebookReadOnlyController } from '../notes/controller'
+import type { NoteId, NotebookId, TagId } from '../notes/ids'
 
 // The single owner of selection, pane layout, the note catalog and the note
 // events subscription. Panes read from here instead of receiving props drilled
 // down from a view, and every live update enters through one feed.
 
+/** Whether the note API accepts this client. "unknown" until the first call
+ * lands, so the shell renders neither the reader nor a login form on a host
+ * whose auth mode has not been observed yet. */
+export type AuthState = 'unknown' | 'authenticated' | 'unauthenticated'
+
 export interface AppState {
   route: Route
   loading: boolean
+  auth: AuthState
   error: string
   message: string
   /** False only once the events feed has reported itself unavailable; the first
@@ -61,8 +69,8 @@ export interface AppState {
   tagClasses: NoteTagClass[]
   notebooks: Notebook[]
   notesByNotebook: Record<string, Note[]>
-  notebookId?: string
-  noteId?: string
+  notebookId?: NotebookId
+  noteId?: NoteId
   note?: Note
   noteLoading: boolean
   expandedFolders: string[]
@@ -89,17 +97,17 @@ export interface AppStore {
   notes(): Note[]
   notebook(): Notebook | undefined
   conversationId(): string | undefined
-  openNote(noteId: string, notebookId?: string): void
-  openNotebook(notebookId: string): void
+  openNote(noteId: NoteId, notebookId?: NotebookId): void
+  openNotebook(notebookId: NotebookId): void
   /** The tag whose detail pane is open (`?tag=` on the route). */
   tagPaneTagId(): string | undefined
   /** Opens the right pane in tag mode for the tag. */
-  openTagPane(tagId: string): void
+  openTagPane(tagId: TagId): void
   closeTagPane(): void
   /** Right-pane navigation that remembers where the reader was: pushes the
    * current route onto the return stack before jumping. */
-  openNoteWithReturn(noteId: string, notebookId?: string): void
-  openNotebookWithReturn(notebookId: string): void
+  openNoteWithReturn(noteId: NoteId, notebookId?: NotebookId): void
+  openNotebookWithReturn(notebookId: NotebookId): void
   /** Pops the return stack, restoring the previous reader route. */
   goBack(): void
   openReader(): void
@@ -112,9 +120,9 @@ export interface AppStore {
   updateSettings(partial: Partial<WebAppSettings>): void
   setPaneWidth(side: 'left' | 'right', width: number): void
   resetPaneWidths(): void
-  openConversation(conversationId?: string): void
-  toggleFolder(tagId: string): void
-  toggleNotebook(notebookId: string): void
+  openConversation(conversationId?: NotebookId): void
+  toggleFolder(tagId: TagId): void
+  toggleNotebook(notebookId: NotebookId): void
   setLeftTab(tab: LeftTab): void
   setCenterTab(tab: CenterTab): void
   setRightTab(tab: RightTab): void
@@ -124,11 +132,15 @@ export interface AppStore {
   setSearchOpen(open: boolean): void
   setMessage(message: string): void
   refreshCatalog(): Promise<void>
+  /** Adopts an API key pasted into the login view and reloads the catalog.
+   * Rejects when the key is refused, so the login view can stay put and say
+   * so. */
+  signInWithKey(key: string): Promise<void>
   refreshNote(): Promise<void>
-  loadNotes(notebookId: string): Promise<void>
-  loadMoreNotes(notebookId: string): Promise<void>
+  loadNotes(notebookId: NotebookId): Promise<void>
+  loadMoreNotes(notebookId: NotebookId): Promise<void>
   /** Changes the open or named notebook's persisted access mode. */
-  setNotebookReadOnly(notebookId: string, readOnly: boolean): Promise<void>
+  setNotebookReadOnly(notebookId: NotebookId, readOnly: boolean): Promise<void>
   /** Clears the note selection but keeps the notebook open (its notes stay in
    * the reader; the right pane falls back to notebook aggregates). */
   deselectNote(): void
@@ -160,6 +172,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   const [state, setState] = createStore<AppState>({
     route: parseRoute(router.currentHash()),
     loading: true,
+    auth: 'unknown',
     error: '',
     message: '',
     live: true,
@@ -190,6 +203,15 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       notebook.notebookId === updated.notebookId ? updated : notebook))
     if (error) setState('message', `Could not change notebook access: ${error}`)
   })
+
+  /** A 401 is not a failure to report in the error banner: it is a state the
+   * shell renders a login view for. The client has already discarded the
+   * rejected credential by the time this runs. */
+  const adoptUnauthenticated = (error: unknown): boolean => {
+    if (!isUnauthorized(error)) return false
+    setState({ auth: 'unauthenticated', error: '', message: '', loading: false })
+    return true
+  }
 
   const loadSettings = async (): Promise<void> => {
     try {
@@ -223,7 +245,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     writePaneState(next, paneStorage)
   }
 
-  const bumpNotebook = (notebookId: string) => {
+  const bumpNotebook = (notebookId: NotebookId) => {
     setState('notebookRevisions', notebookId, (revision) => (revision ?? 0) + 1)
   }
 
@@ -231,7 +253,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   // older reload finishing late replaces pages a newer load (or a lazy-scroll
   // append) already put on screen.
   const noteLoadGenerations: Record<string, number> = {}
-  const nextNoteLoadGeneration = (notebookId: string): number => {
+  const nextNoteLoadGeneration = (notebookId: NotebookId): number => {
     const generation = (noteLoadGenerations[notebookId] ?? 0) + 1
     noteLoadGenerations[notebookId] = generation
     return generation
@@ -239,7 +261,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
 
   /** Reloads a notebook's notes, keeping as many pages as are already on
    * screen so an events-feed refresh never truncates a lazily grown list. */
-  const loadNotes = async (notebookId: string): Promise<void> => {
+  const loadNotes = async (notebookId: NotebookId): Promise<void> => {
     const generation = nextNoteLoadGeneration(notebookId)
     const target = state.notesByNotebook[notebookId]?.length ?? 0
     const pages = Math.max(1, Math.ceil(target / notebookPageLimit))
@@ -253,13 +275,14 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       if (noteLoadGenerations[notebookId] !== generation) return
       setState('notesByNotebook', notebookId, all)
     } catch (error) {
+      if (adoptUnauthenticated(error)) return
       setState('message', `Could not load notes: ${errorMessage(error)}`)
     }
   }
 
   /** Appends the next page of notes for the reader's lazy scroll. Does nothing
    * once the last fetched page came back short (the list is complete). */
-  const loadMoreNotes = async (notebookId: string): Promise<void> => {
+  const loadMoreNotes = async (notebookId: NotebookId): Promise<void> => {
     const current = state.notesByNotebook[notebookId]
     if (!current || current.length === 0 || current.length % notebookPageLimit !== 0) return
     const generation = nextNoteLoadGeneration(notebookId)
@@ -268,6 +291,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       if (noteLoadGenerations[notebookId] !== generation) return
       if (chunk.length > 0) setState('notesByNotebook', notebookId, [...current, ...chunk])
     } catch (error) {
+      if (adoptUnauthenticated(error)) return
       setState('message', `Could not load more notes: ${errorMessage(error)}`)
     }
   }
@@ -296,8 +320,10 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       setState('notebooks', notebooks.map((notebook) =>
         readOnlyController.adopt(notebook, readOnlySnapshot)))
       setState('catalogRevision', (revision) => revision + 1)
+      setState('auth', 'authenticated')
     } catch (error) {
       if (generation !== catalogGeneration) return
+      if (adoptUnauthenticated(error)) return
       setState('error', errorMessage(error))
     } finally {
       if (generation === catalogGeneration) setState('loading', false)
@@ -319,6 +345,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
           current.includes(note.notebookId) ? current : [...current, note.notebookId])
       } catch (error) {
         if (generation !== noteGeneration) return
+        if (adoptUnauthenticated(error)) return
         setState({ note: undefined, message: `Could not open that note: ${errorMessage(error)}` })
       } finally {
         if (generation === noteGeneration) setState('noteLoading', false)
@@ -350,12 +377,14 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       if (generation !== noteGeneration) return
       setState('note', note)
     } catch (error) {
-      if (generation === noteGeneration) setState('message', `Could not refresh the note: ${errorMessage(error)}`)
+      if (generation !== noteGeneration) return
+      if (adoptUnauthenticated(error)) return
+      setState('message', `Could not refresh the note: ${errorMessage(error)}`)
     }
   }
 
   const go = (route: Route) => navigate(router, route)
-  const openNote = (noteId: string, notebookId?: string) => {
+  const openNote = (noteId: NoteId, notebookId?: NotebookId) => {
     setPane(withCenterTab(state.pane, 'notebook'))
     if (notebookId) {
       setState('expandedNotebooks', (current) =>
@@ -533,8 +562,19 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       // leaving the other groups empty until they are collapsed and reopened.
       const loaded = new Set(Object.keys(state.notesByNotebook))
       if (state.notebookId) loaded.add(state.notebookId)
-      await Promise.all([...loaded].map((notebookId) => loadNotes(notebookId)))
+      await Promise.all([...loaded].map((id) => loadNotes(asNotebookId(id))))
       await refreshNote()
+    },
+    signInWithKey: async (key) => {
+      client.useCredential(key)
+      setState({ auth: 'unknown', error: '', message: '' })
+      await refreshCatalog()
+      if (state.auth === 'authenticated') return
+      // A refused key must not linger: the next request would answer 401 and
+      // the login view would look broken rather than unaccepted.
+      client.clearCredential()
+      setState('auth', 'unauthenticated')
+      throw new Error(state.error || 'That API key was refused.')
     },
     refreshNote,
     loadNotes,
@@ -575,4 +615,10 @@ function toggle(values: string[], value: string): string[] {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Only a transport-level 401 means "not logged in". A GraphQL-level failure
+ * or a network drop must keep its own reporting path. */
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof NoteTransportError && error.kind === 'http' && error.status === 401
 }

@@ -20,6 +20,9 @@ extension AppCommand {
   private func runClientIssue(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     let name = try cursor.extractOption("--name")
+    // Without --user the key belongs to the default account, which is what a
+    // single-user store has always been.
+    let userId = try cursor.extractIdentifierOption("--user", as: UserID.self)
     let output = try cursor.extractOutputMode()
     guard let name else {
       throw Error.invalidUsage("client issue requires --name <display-name>")
@@ -28,14 +31,19 @@ extension AppCommand {
 
     let service = try makeService(context)
     let token = try makeAPIKeyToken()
-    let client = try service.registerAPIClient(displayName: name, bearerToken: token)
+    let client = try service.registerAPIClient(
+      displayName: name,
+      bearerToken: token,
+      userId: userId
+    )
     switch output {
     case .json:
       return try renderJSON([
-        "clientId": client.clientId,
-        "displayName": client.displayName,
-        "createdAt": client.createdAt,
-        "apiKey": token
+        "clientId": .id(client.clientId),
+        "displayName": .string(client.displayName),
+        "userId": .id(client.userId),
+        "createdAt": .string(client.createdAt),
+        "apiKey": .string(token)
       ])
     case .text:
       return """
@@ -58,14 +66,15 @@ extension AppCommand {
     let clients = try service.listAPIClients(includeRevoked: includeRevoked)
     switch output {
     case .json:
-      return try renderJSON(clients.map { client -> [String: Any] in
-        var object: [String: Any] = [
-          "clientId": client.clientId,
-          "displayName": client.displayName,
-          "createdAt": client.createdAt
+      return try renderJSON(clients.map { client -> JSONObject in
+        var object: JSONObject = [
+          "clientId": .id(client.clientId),
+          "displayName": .string(client.displayName),
+          "userId": .id(client.userId),
+          "createdAt": .string(client.createdAt)
         ]
-        object["lastSeenAt"] = client.lastSeenAt
-        object["revokedAt"] = client.revokedAt
+        object["lastSeenAt"] = client.lastSeenAt.map(JSONValue.string)
+        object["revokedAt"] = client.revokedAt.map(JSONValue.string)
         return object
       })
     case .text:
@@ -73,7 +82,7 @@ extension AppCommand {
         return "No API clients."
       }
       return clients.map { client in
-        var parts = ["\(client.clientId)  \(client.displayName)  created \(client.createdAt)"]
+        var parts = ["\(client.clientId)  \(client.displayName)  user \(client.userId)  created \(client.createdAt)"]
         if let lastSeen = client.lastSeenAt {
           parts.append("last-seen \(lastSeen)")
         }
@@ -87,7 +96,7 @@ extension AppCommand {
 
   private func runClientRevoke(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    guard let clientId = cursor.next() else {
+    guard let clientId = cursor.nextIdentifier(as: APIClientID.self) else {
       throw Error.invalidUsage("client revoke requires <client-id>")
     }
     try cursor.finish()

@@ -80,9 +80,9 @@ final class NoteGraphQLSearchPaginationTests: XCTestCase {
     return string
   }
 
-  private func noteId(in value: JSONValue, field: String) throws -> String {
+  private func noteId(in value: JSONValue, field: String) throws -> NoteID {
     let result = try objectValue(value, field: field)
     let note = try objectValue(result["note"], field: "\(field).note")
-    return try stringValue(note["noteId"], field: "\(field).note.noteId")
+    return NoteID(try stringValue(note["noteId"], field: "\(field).note.noteId"))
   }
 }

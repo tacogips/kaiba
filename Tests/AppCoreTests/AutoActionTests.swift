@@ -12,7 +12,7 @@ final class AutoActionTests: NoteTestCase {
 
     let records = dispatcher.records()
     XCTAssertEqual(records.count, 1)
-    XCTAssertEqual(records.first?.action.actionId, "default-ai-tagging-note-created")
+    XCTAssertEqual(records.first?.action.actionId, AutoActionID("default-ai-tagging-note-created"))
     XCTAssertEqual(records.first?.event.trigger, .noteCreated)
     XCTAssertEqual(records.first?.event.noteId, note.noteId)
     XCTAssertEqual(records.first?.event.noteBodyMarkdown, note.bodyMarkdown)
@@ -30,16 +30,16 @@ final class AutoActionTests: NoteTestCase {
     await service.drainAutoActionDispatches()
     dispatcher.removeAll()
     _ = try service.configureAutoAction(
-      actionId: "custom-update",
+      actionId: AutoActionID("custom-update"),
       trigger: .noteUpdated,
-      workflowId: "custom-workflow",
+      workflowId: WorkflowID("custom-workflow"),
       position: -1
     )
 
     _ = try service.updateNoteBody(
       noteId: note.noteId,
       bodyMarkdown: "# Auto\nChanged",
-      originatingActionId: "custom-update"
+      originatingActionId: AutoActionID("custom-update")
     )
     await service.drainAutoActionDispatches()
 
@@ -49,16 +49,16 @@ final class AutoActionTests: NoteTestCase {
   func testConfiguredAutoActionCanBeDeleted() throws {
     let service = try makeService()
     _ = try service.configureAutoAction(
-      actionId: "temporary-action",
+      actionId: AutoActionID("temporary-action"),
       trigger: .noteCreated,
-      workflowId: "temporary-workflow"
+      workflowId: WorkflowID("temporary-workflow")
     )
-    XCTAssertTrue(try service.listAutoActions().contains { $0.actionId == "temporary-action" })
+    XCTAssertTrue(try service.listAutoActions().contains { $0.actionId == AutoActionID("temporary-action") })
 
-    try service.deleteAutoAction(actionId: "temporary-action")
+    try service.deleteAutoAction(actionId: AutoActionID("temporary-action"))
 
-    XCTAssertFalse(try service.listAutoActions().contains { $0.actionId == "temporary-action" })
-    XCTAssertThrowsError(try service.deleteAutoAction(actionId: "temporary-action")) { error in
+    XCTAssertFalse(try service.listAutoActions().contains { $0.actionId == AutoActionID("temporary-action") })
+    XCTAssertThrowsError(try service.deleteAutoAction(actionId: AutoActionID("temporary-action"))) { error in
       XCTAssertEqual(error as? NoteServiceError, .notFound("auto action not found: temporary-action"))
     }
   }
@@ -69,7 +69,7 @@ final class AutoActionTests: NoteTestCase {
 
     _ = try service.createNote(
       bodyMarkdown: "# Auto\nBody",
-      originatingActionId: "workflow-action"
+      originatingActionId: AutoActionID("workflow-action")
     )
     await service.drainAutoActionDispatches()
 
@@ -343,20 +343,20 @@ final class AutoActionTests: NoteTestCase {
   func testDeletedDefaultAutoActionDoesNotReappearAfterSchemaPrepare() throws {
     let service = try makeService()
 
-    try service.deleteAutoAction(actionId: "default-ai-tagging-note-created")
+    try service.deleteAutoAction(actionId: AutoActionID("default-ai-tagging-note-created"))
     _ = try makeService()
 
-    XCTAssertFalse(try service.listAutoActions().contains { $0.actionId == "default-ai-tagging-note-created" })
-    XCTAssertTrue(try service.listAutoActions().contains { $0.actionId == "default-ai-tagging-note-updated" })
+    XCTAssertFalse(try service.listAutoActions().contains { $0.actionId == AutoActionID("default-ai-tagging-note-created") })
+    XCTAssertTrue(try service.listAutoActions().contains { $0.actionId == AutoActionID("default-ai-tagging-note-updated") })
   }
 
   func testAutoActionNoteTagFilterRestrictsDispatch() async throws {
     let dispatcher = RecordingAutoActionDispatcher()
     let service = try makeService(autoActionDispatcher: dispatcher)
     _ = try service.configureAutoAction(
-      actionId: "tag-filtered",
+      actionId: AutoActionID("tag-filtered"),
       trigger: .noteCreated,
-      workflowId: "tagged-workflow",
+      workflowId: WorkflowID("tagged-workflow"),
       filterJSON: #"{"noteTags":["dispatch-me"]}"#,
       position: 10
     )
@@ -364,16 +364,16 @@ final class AutoActionTests: NoteTestCase {
     _ = try service.createNote(bodyMarkdown: "# Other\nBody")
     _ = try service.createNote(
       bodyMarkdown: "# Tagged\nBody",
-      tags: [NoteTagInput(name: "dispatch-me", classId: "topic")]
+      tags: [NoteTagInput(name: "dispatch-me", classId: TagClassID("topic"))]
     )
     await service.drainAutoActionDispatches()
 
     XCTAssertEqual(
       dispatcher.records().map(\.action.actionId),
       [
-        "default-ai-tagging-note-created",
-        "default-ai-tagging-note-created",
-        "tag-filtered"
+        AutoActionID("default-ai-tagging-note-created"),
+        AutoActionID("default-ai-tagging-note-created"),
+        AutoActionID("tag-filtered")
       ]
     )
   }
@@ -382,9 +382,9 @@ final class AutoActionTests: NoteTestCase {
     let dispatcher = RecordingAutoActionDispatcher()
     let service = try makeService(autoActionDispatcher: dispatcher)
     _ = try service.configureAutoAction(
-      actionId: "memo-kind",
+      actionId: AutoActionID("memo-kind"),
       trigger: .notebookCreated,
-      workflowId: "memo-workflow",
+      workflowId: WorkflowID("memo-workflow"),
       filterJSON: #"{"notebookKindTag":"notebook-kind:user-memo"}"#
     )
 
@@ -392,7 +392,7 @@ final class AutoActionTests: NoteTestCase {
     _ = try service.createNotebook(title: "Memo", kindTagName: "notebook-kind:user-memo")
     await service.drainAutoActionDispatches()
 
-    XCTAssertEqual(dispatcher.records().map(\.action.actionId), ["memo-kind"])
+    XCTAssertEqual(dispatcher.records().map(\.action.actionId), [AutoActionID("memo-kind")])
   }
 
   func testAutoActionNotebookKindFilterUsesNonFolderTagIdentity() async throws {
@@ -400,9 +400,9 @@ final class AutoActionTests: NoteTestCase {
     let service = try makeService(autoActionDispatcher: dispatcher)
     let kindName = "notebook-kind:shared-display"
     _ = try service.configureAutoAction(
-      actionId: "shared-kind",
+      actionId: AutoActionID("shared-kind"),
       trigger: .notebookCreated,
-      workflowId: "shared-kind-workflow",
+      workflowId: WorkflowID("shared-kind-workflow"),
       filterJSON: #"{"notebookKindTag":"notebook-kind:shared-display"}"#
     )
 
@@ -410,16 +410,16 @@ final class AutoActionTests: NoteTestCase {
     _ = try service.createNotebook(title: "Actual kind", kindTagName: kindName)
     await service.drainAutoActionDispatches()
 
-    XCTAssertEqual(dispatcher.records().map(\.action.actionId), ["shared-kind"])
+    XCTAssertEqual(dispatcher.records().map(\.action.actionId), [AutoActionID("shared-kind")])
   }
 
   func testSaveConversationDispatchesNotebookAndNoteCreatedActions() async throws {
     let dispatcher = RecordingAutoActionDispatcher()
     let service = try makeService(autoActionDispatcher: dispatcher)
     _ = try service.configureAutoAction(
-      actionId: "conversation-notebook",
+      actionId: AutoActionID("conversation-notebook"),
       trigger: .notebookCreated,
-      workflowId: "conversation-workflow",
+      workflowId: WorkflowID("conversation-workflow"),
       filterJSON: #"{"notebookKindTag":"notebook-kind:agent-conversation"}"#,
       position: -1
     )
@@ -434,7 +434,7 @@ final class AutoActionTests: NoteTestCase {
 
     XCTAssertEqual(
       dispatcher.records().map(\.action.actionId),
-      ["conversation-notebook", "default-ai-tagging-note-created"]
+      [AutoActionID("conversation-notebook"), AutoActionID("default-ai-tagging-note-created")]
     )
     XCTAssertEqual(dispatcher.records().first?.event.notebookId, saved.notebook.notebookId)
     XCTAssertEqual(dispatcher.records().last?.event.noteId, saved.notes.first?.noteId)
@@ -458,7 +458,7 @@ final class AutoActionTests: NoteTestCase {
     )
     await service.drainAutoActionDispatches()
 
-    XCTAssertEqual(dispatcher.records().map(\.action.actionId), ["default-ai-tagging-note-created"])
+    XCTAssertEqual(dispatcher.records().map(\.action.actionId), [AutoActionID("default-ai-tagging-note-created")])
     XCTAssertEqual(dispatcher.records().first?.event.noteId, appended.noteId)
   }
 
@@ -469,12 +469,12 @@ final class AutoActionTests: NoteTestCase {
     let saved = try service.saveConversation(
       title: "Agent Conversation",
       transcript: [NoteConversationTurn(userMarkdown: "Hi", assistantMarkdown: "Hello")],
-      originatingActionId: "workflow-action"
+      originatingActionId: AutoActionID("workflow-action")
     )
     _ = try service.appendConversationTurn(
       notebookId: saved.notebook.notebookId,
       turn: NoteConversationTurn(userMarkdown: "Again", assistantMarkdown: "Still here"),
-      originatingActionId: "workflow-action"
+      originatingActionId: AutoActionID("workflow-action")
     )
     await service.drainAutoActionDispatches()
 
@@ -486,9 +486,9 @@ final class AutoActionTests: NoteTestCase {
     let service = try makeService()
 
     XCTAssertThrowsError(try service.configureAutoAction(
-      actionId: "bad-filter",
+      actionId: AutoActionID("bad-filter"),
       trigger: .noteCreated,
-      workflowId: "bad-workflow",
+      workflowId: WorkflowID("bad-workflow"),
       filterJSON: #"{"noteTags":"dispatch-me"}"#
     )) { error in
       guard case let NoteServiceError.invalidInput(message) = error else {
@@ -504,29 +504,29 @@ final class AutoActionTests: NoteTestCase {
     let service = try makeService(autoActionDispatcher: dispatcher, autoActionDiagnosticRecorder: diagnostics)
     try insertLegacyAutoAction(
       service: service,
-      actionId: "legacy-bad-filter",
+      actionId: AutoActionID("legacy-bad-filter"),
       filterJSON: #"{"noteTags":"dispatch-me"}"#,
       position: -10
     )
     _ = try service.configureAutoAction(
-      actionId: "good-filtered",
+      actionId: AutoActionID("good-filtered"),
       trigger: .noteCreated,
-      workflowId: "good-workflow",
+      workflowId: WorkflowID("good-workflow"),
       filterJSON: #"{"noteTags":["dispatch-me"]}"#,
       position: 10
     )
 
     _ = try service.createNote(
       bodyMarkdown: "# Tagged\nBody",
-      tags: [NoteTagInput(name: "dispatch-me", classId: "topic")]
+      tags: [NoteTagInput(name: "dispatch-me", classId: TagClassID("topic"))]
     )
     await service.drainAutoActionDispatches()
 
     XCTAssertEqual(
       dispatcher.records().map(\.action.actionId),
-      ["default-ai-tagging-note-created", "good-filtered"]
+      [AutoActionID("default-ai-tagging-note-created"), AutoActionID("good-filtered")]
     )
-    XCTAssertEqual(diagnostics.records().map(\.actionId), ["legacy-bad-filter"])
+    XCTAssertEqual(diagnostics.records().map(\.actionId), [AutoActionID("legacy-bad-filter")])
     XCTAssertEqual(diagnostics.records().first?.code, .filterEvaluationFailed)
     XCTAssertTrue(diagnostics.records().first?.message.contains("filter_json") == true)
   }
@@ -548,7 +548,7 @@ private func makeService(
 
 private func insertLegacyAutoAction(
   service: NoteService,
-  actionId: String,
+  actionId: AutoActionID,
   filterJSON: String,
   position: Int
 ) throws {
@@ -560,7 +560,7 @@ private func insertLegacyAutoAction(
       ) VALUES (?, ?, ?, jsonb(?), 1, ?, ?)
       """,
       bindings: [
-        .text(actionId),
+        .id(actionId),
         .text(NoteAutoActionTrigger.noteCreated.rawValue),
         .text("legacy-workflow"),
         .text(filterJSON),
@@ -572,25 +572,25 @@ private func insertLegacyAutoAction(
 }
 
 /// Reads the current `leased_at` timestamp for a dispatch row, if any.
-private func leasedAt(driver: NoteDatabaseDriving, dispatchId: String) -> String? {
+private func leasedAt(driver: NoteDatabaseDriving, dispatchId: AutoActionDispatchID) -> String? {
   let rows = try? driver.withDatabase { database in
     try database.query(
       "SELECT leased_at FROM auto_action_dispatches WHERE dispatch_id = ? LIMIT 1",
-      bindings: [.text(dispatchId)]
+      bindings: [.id(dispatchId)]
     )
   }
   return rows?.first?["leased_at"] ?? nil
 }
 
 /// Backdates an in-flight lease so recovery treats it as stale.
-private func ageAutoActionLease(driver: NoteDatabaseDriving, dispatchId: String, by seconds: TimeInterval) {
+private func ageAutoActionLease(driver: NoteDatabaseDriving, dispatchId: AutoActionDispatchID, by seconds: TimeInterval) {
   let formatter = ISO8601DateFormatter()
   formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
   let aged = formatter.string(from: Date().addingTimeInterval(seconds))
   try? driver.withDatabase { database in
     try database.execute(
       "UPDATE auto_action_dispatches SET leased_at = ? WHERE dispatch_id = ?",
-      bindings: [.text(aged), .text(dispatchId)]
+      bindings: [.text(aged), .id(dispatchId)]
     )
   }
 }

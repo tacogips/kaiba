@@ -33,6 +33,42 @@ Homebrew. See `kaiba-note.md` for the note domain design.
 - `web/`: SolidJS note viewer (vite + tailwind; `bun run build` →
   `web/dist`, served by `kaiba serve --web-root web/dist`).
 
+## Identifiers
+
+Every entity id is a distinct type, not a bare string: `NoteID`,
+`NotebookID`, `LibraryID`, `UserID`, `TagID`, `TagClassID`, `FileID`,
+`CommentID`, `APIClientID`, `AutoActionID`, `AutoActionDispatchID`,
+`WorkflowID` (`Sources/AppCore/KaibaIdentifiers.swift`). Passing a
+notebook id where a note id belongs is a compile error rather than an
+empty query result.
+
+- Each type wraps the same raw string and encodes as that bare string, so
+  stored rows, GraphQL values, and HTTP payloads are unchanged.
+- Conversion is always explicit — there is no string-literal conformance.
+  Raw text becomes an id only at a boundary: a SQL row
+  (`SQLiteRow.identifier(_:as:)`), a GraphQL argument
+  (`requiredIdentifier`/`optionalIdentifier`), a CLI argument
+  (`CommandCursor.extractIdentifierOption`), or an HTTP path.
+- Fresh ids come from `KaibaIdentifier.generate()`, which keeps the
+  `<prefix>-<milliseconds>-<uuid>` shape the store has always used.
+- The web reader mirrors this with branded string types (`NoteId`,
+  `NotebookId`, ... in `web/src/notes/ids.ts`); the brand is compile-time
+  only, so payloads stay plain JSON strings.
+
+## JSON
+
+No JSON in the package is handled as `Any`. Every payload — CLI
+`--output json`, note and notebook `meta_json`, JWT segments, the
+Turso/libSQL SQL-over-HTTP pipeline, and agent-gateway ACP lines — is
+built and read through `JSONValue`/`JSONObject`
+(`Sources/AppCore/JSONValue.swift`), with `JSONValue(parsing:)` and
+`encodedString(prettyPrinted:)` replacing `JSONSerialization`. A value
+the JSON writer cannot represent is a compile error rather than a
+runtime `NSInvalidArgumentException`, and reads use typed accessors
+(`asString`, `asInt`, `asObject`, `identifier(_:as:)`) instead of
+unchecked casts. Encoding sorts keys and leaves slashes unescaped, which
+is the byte-for-byte output the store had before.
+
 ## Data Layout
 
 - Note root: `~/.kaiba/` by default (`--note-root` or `KAIBA_NOTE_ROOT`

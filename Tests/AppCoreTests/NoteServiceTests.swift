@@ -14,8 +14,8 @@ final class NoteServiceTests: NoteTestCase {
     let tags = try service.listTags()
     let workflow = try XCTUnwrap(tags.first { $0.name == "workflow" })
     let date = try XCTUnwrap(tags.first { $0.name == "2026-08-03" })
-    XCTAssertEqual(workflow.classId, "folder")
-    XCTAssertEqual(date.classId, "folder")
+    XCTAssertEqual(workflow.classId, TagClassID("folder"))
+    XCTAssertEqual(date.classId, TagClassID("folder"))
     XCTAssertEqual(date.parentTagId, workflow.tagId)
     XCTAssertEqual(try service.getNotebook(notebook.notebookId).tags.map(\.tag.name), ["2026-08-03"])
 
@@ -44,9 +44,9 @@ final class NoteServiceTests: NoteTestCase {
     XCTAssertEqual(repeatedHistory.tags.first?.tag.tagId, firstLeaf.tagId)
     XCTAssertNotEqual(otherHistory.tags.first?.tag.tagId, firstLeaf.tagId)
 
-    _ = try service.defineTag(name: "shared", classId: "topic")
-    let sameNamedFolder = try service.defineTag(name: "shared", classId: "folder", createOnly: true)
-    XCTAssertEqual(sameNamedFolder.classId, "folder")
+    _ = try service.defineTag(name: "shared", classId: TagClassID("topic"))
+    let sameNamedFolder = try service.defineTag(name: "shared", classId: TagClassID("folder"), createOnly: true)
+    XCTAssertEqual(sameNamedFolder.classId, TagClassID("folder"))
     XCTAssertThrowsError(try service.applyNotebookTags(
       notebookId: notebook.notebookId,
       tags: ["shared"],
@@ -58,7 +58,7 @@ final class NoteServiceTests: NoteTestCase {
       XCTAssertTrue(message.contains("ambiguous"))
     }
     XCTAssertThrowsError(
-      try service.defineTag(name: "shared", classId: "folder", createOnly: true)
+      try service.defineTag(name: "shared", classId: TagClassID("folder"), createOnly: true)
     )
 
     let idTagged = try service.applyNotebookTagIds(
@@ -119,7 +119,7 @@ final class NoteServiceTests: NoteTestCase {
       folderPath: [kindName]
     )
     let folder = try XCTUnwrap(folderNotebook.tags.first?.tag)
-    XCTAssertEqual(folder.classId, "folder")
+    XCTAssertEqual(folder.classId, TagClassID("folder"))
 
     let created = try service.createNotebook(title: "Created", kindTagName: kindName)
     let note = try service.createNote(
@@ -133,7 +133,7 @@ final class NoteServiceTests: NoteTestCase {
     )
 
     let kind = try XCTUnwrap(try service.listTags().first {
-      $0.name == kindName && $0.classId == "document-kind"
+      $0.name == kindName && $0.classId == TagClassID("document-kind")
     })
     XCTAssertNotEqual(kind.tagId, folder.tagId)
     for notebook in [created, try service.getNotebook(note.notebookId), ingested.notebook] {
@@ -151,7 +151,7 @@ final class NoteServiceTests: NoteTestCase {
 
       First paragraph of the note body.
       """,
-      tags: [NoteTagInput(name: "ノート", classId: "document-kind")]
+      tags: [NoteTagInput(name: "ノート", classId: TagClassID("document-kind"))]
     )
 
     XCTAssertEqual(note.title, "Design Notes")
@@ -294,7 +294,7 @@ final class NoteServiceTests: NoteTestCase {
 
     let tagged = try service.applyTags(
       noteId: note.noteId,
-      tags: [NoteTagInput(name: "reviewed", classId: "topic")],
+      tags: [NoteTagInput(name: "reviewed", classId: TagClassID("topic"))],
       provenance: .human
     )
     XCTAssertEqual(tagged.tags.map(\.tag.name), ["reviewed"])
@@ -304,21 +304,21 @@ final class NoteServiceTests: NoteTestCase {
     let service = try makeService()
     let note = try service.createNote(
       bodyMarkdown: "# Tagged\nBody",
-      tags: [NoteTagInput(name: "strategy", classId: "topic")],
+      tags: [NoteTagInput(name: "strategy", classId: TagClassID("topic"))],
       provenance: .human,
       assignedBy: "user"
     )
 
     let afterAIApply = try service.applyTags(
       noteId: note.noteId,
-      tags: [NoteTagInput(name: "strategy", classId: "event")],
+      tags: [NoteTagInput(name: "strategy", classId: TagClassID("event"))],
       provenance: .ai,
       assignedBy: "workflow-session"
     )
     let assignment = try XCTUnwrap(afterAIApply.tags.first)
     XCTAssertEqual(assignment.provenance, .human)
     XCTAssertEqual(assignment.assignedBy, "user")
-    XCTAssertEqual(assignment.tag.classId, "topic")
+    XCTAssertEqual(assignment.tag.classId, TagClassID("topic"))
 
     XCTAssertThrowsError(try service.removeTag(noteId: note.noteId, tagName: "strategy", removedBy: .ai))
     XCTAssertNoThrow(try service.removeTag(noteId: note.noteId, tagName: "strategy", removedBy: .human))
@@ -329,7 +329,7 @@ final class NoteServiceTests: NoteTestCase {
     let service = try makeService()
     let note = try service.createNote(
       bodyMarkdown: "# Searchable\nAlpha beta knowledge",
-      tags: [NoteTagInput(name: "research", classId: "topic")]
+      tags: [NoteTagInput(name: "research", classId: TagClassID("topic"))]
     )
 
     var results = try service.searchNotes(query: "Alpha", tagFilter: ["research"])
@@ -389,12 +389,12 @@ final class NoteServiceTests: NoteTestCase {
     let service = try makeService()
     let direct = try service.createNote(
       bodyMarkdown: "# Direct\n\nplanning",
-      tags: [NoteTagInput(name: "keep", classId: "topic")]
+      tags: [NoteTagInput(name: "keep", classId: TagClassID("topic"))]
     )
     let directLinkedToDirect = try service.createNote(bodyMarkdown: "# Also Direct\n\nplanning")
     let filteredNeighbor = try service.createNote(
       bodyMarkdown: "# Filtered Neighbor\n\ncontext",
-      tags: [NoteTagInput(name: "keep", classId: "topic")]
+      tags: [NoteTagInput(name: "keep", classId: TagClassID("topic"))]
     )
     let excludedNeighbor = try service.createNote(bodyMarkdown: "# Excluded Neighbor\n\ncontext")
     _ = try service.linkNotes(from: direct.noteId, to: directLinkedToDirect.noteId)
@@ -431,7 +431,7 @@ final class NoteServiceTests: NoteTestCase {
     let indexed = try service.createNote(bodyMarkdown: "# Indexed\n\nPartialOnly search body")
     let unindexed = try service.createNote(bodyMarkdown: "# Unindexed\n\nPartialOnly search body")
     try service.driver.withDatabase { database in
-      try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.text(unindexed.noteId)])
+      try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.id(unindexed.noteId)])
     }
 
     let results = try service.searchNotes(query: "PartialOnly", limit: 10).map(\.note.noteId)
@@ -443,7 +443,7 @@ final class NoteServiceTests: NoteTestCase {
     let service = try makeService()
     let note = try service.createNote(
       bodyMarkdown: "# 日本語ノート\nこれは日本語検索の検証です",
-      tags: [NoteTagInput(name: "知識管理", classId: "topic")]
+      tags: [NoteTagInput(name: "知識管理", classId: TagClassID("topic"))]
     )
 
     XCTAssertEqual(try service.searchNotes(query: "日本語検索").map(\.note.noteId), [note.noteId])
@@ -456,8 +456,8 @@ final class NoteServiceTests: NoteTestCase {
     let note = try service.createNote(
       bodyMarkdown: "# Indexed\nObsolete body",
       tags: [
-        NoteTagInput(name: "zeta", classId: "topic"),
-        NoteTagInput(name: "alpha", classId: "topic")
+        NoteTagInput(name: "zeta", classId: TagClassID("topic")),
+        NoteTagInput(name: "alpha", classId: TagClassID("topic"))
       ]
     )
 
@@ -475,7 +475,7 @@ final class NoteServiceTests: NoteTestCase {
     let service = try makeService()
     let note = try service.createNote(
       bodyMarkdown: "# Tagged\nBody",
-      tags: [NoteTagInput(name: "system-topic", classId: "topic")],
+      tags: [NoteTagInput(name: "system-topic", classId: TagClassID("topic"))],
       provenance: .system,
       assignedBy: "kaiba-note"
     )
@@ -488,7 +488,7 @@ final class NoteServiceTests: NoteTestCase {
         WHERE note_id = ?
           AND tag_id = (SELECT tag_id FROM tags WHERE name = 'system-topic')
         """,
-        bindings: [.text(note.noteId)]
+        bindings: [.id(note.noteId)]
       )
     }
 
@@ -504,7 +504,7 @@ final class NoteServiceTests: NoteTestCase {
 
     XCTAssertThrowsError(try service.createNote(
       bodyMarkdown: "# Dangling\nBody",
-      tags: [NoteTagInput(name: "dangling", classId: "missing-class")]
+      tags: [NoteTagInput(name: "dangling", classId: TagClassID("missing-class"))]
     )) { error in
       XCTAssertEqual(error as? NoteServiceError, .notFound("tag class not found: missing-class"))
     }
@@ -514,14 +514,14 @@ final class NoteServiceTests: NoteTestCase {
     let service = try makeService()
 
     let tagClass = try service.defineTagClass(
-      classId: "business-idea",
+      classId: TagClassID("business-idea"),
       label: "Business Idea",
       description: "Opportunity notes"
     )
     let tag = try service.defineTag(name: "business-idea", classId: tagClass.classId)
 
-    XCTAssertEqual(tagClass.classId, "business-idea")
-    XCTAssertEqual(tag.classId, "business-idea")
+    XCTAssertEqual(tagClass.classId, TagClassID("business-idea"))
+    XCTAssertEqual(tag.classId, TagClassID("business-idea"))
     XCTAssertTrue(try service.listTagClasses().contains(tagClass))
     XCTAssertTrue(try service.listTags().contains(tag))
   }
@@ -651,12 +651,12 @@ final class NoteServiceTests: NoteTestCase {
       pages: [
         NotePageDraft(
           bodyMarkdown: "# Page One\n\nAlpha OCR",
-          tags: [NoteTagInput(name: "ocr", classId: "topic")],
+          tags: [NoteTagInput(name: "ocr", classId: TagClassID("topic"))],
           noteNumber: 10
         ),
         NotePageDraft(
           bodyMarkdown: "# Page Two\n\nBeta OCR",
-          tags: [NoteTagInput(name: "ocr", classId: "topic")],
+          tags: [NoteTagInput(name: "ocr", classId: TagClassID("topic"))],
           noteNumber: 20
         )
       ],
@@ -788,11 +788,11 @@ final class NoteServiceTests: NoteTestCase {
     let service = try makeService()
     let kindName = "notebook-kind:agent-conversation"
     let seededKind = try XCTUnwrap(try service.listTags().first {
-      $0.name == kindName && $0.classId == "document-kind" && $0.isSystem
+      $0.name == kindName && $0.classId == TagClassID("document-kind") && $0.isSystem
     })
     let sameNamedFolder = try service.defineTag(
       name: kindName,
-      classId: "folder"
+      classId: TagClassID("folder")
     )
 
     let saved = try service.saveConversation(
@@ -801,7 +801,7 @@ final class NoteServiceTests: NoteTestCase {
     )
     let assignment = try XCTUnwrap(saved.notebook.tags.first)
     XCTAssertEqual(assignment.tag.tagId, seededKind.tagId)
-    XCTAssertEqual(assignment.tag.classId, "document-kind")
+    XCTAssertEqual(assignment.tag.classId, TagClassID("document-kind"))
     XCTAssertNotEqual(assignment.tag.tagId, sameNamedFolder.tagId)
   }
 
@@ -818,10 +818,10 @@ final class NoteServiceTests: NoteTestCase {
 
 private final class ConcurrentFolderPathResults: @unchecked Sendable {
   private let lock = NSLock()
-  private var storedTagIds: [String] = []
+  private var storedTagIds: [TagID] = []
   private var storedErrors: [String] = []
 
-  var tagIds: [String] {
+  var tagIds: [TagID] {
     lock.lock()
     defer { lock.unlock() }
     return storedTagIds
@@ -833,7 +833,7 @@ private final class ConcurrentFolderPathResults: @unchecked Sendable {
     return storedErrors
   }
 
-  func record(tagId: String) {
+  func record(tagId: TagID) {
     lock.lock()
     storedTagIds.append(tagId)
     lock.unlock()

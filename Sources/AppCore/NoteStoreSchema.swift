@@ -8,7 +8,17 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 10
+  public static let currentVersion = 14
+  /// The account every unauthenticated request acts as. A stable literal, so
+  /// each process agrees on it without a lookup by flag.
+  public static let defaultUserId = UserID("user-default")
+  public static let defaultUserDisplayName = "Default User"
+  /// The library a notebook lands in when no other one is selected. A stable
+  /// literal for the same reason the default user is one, and named by the
+  /// `notebooks.library_id` column default (`design-docs/specs/library.md`).
+  public static let defaultLibraryId = LibraryID("library-default")
+  public static let defaultLibraryName = "default"
+  public static let defaultLibraryTitle = "Default Library"
   public static let longTermMemoryNotebookKindTag = "notebook-kind:long-term-memory"
   static let longTermMemoryNotebookKindTagId = stableTagId(for: longTermMemoryNotebookKindTag)
   public static let agentConversationNotebookKindTag = "notebook-kind:agent-conversation"
@@ -19,14 +29,14 @@ public enum NoteStoreSchema {
   public static let translationNotebookKindTag = "notebook-kind:translation"
   /// Per-tag memo/chat notebooks (`design-docs/specs/tag-detail-pane.md`, T4).
   public static let tagMemoNotebookKindTag = "notebook-kind:tag-memo"
-  public static let autoTaggingWorkflowId = "note-auto-tagging"
+  public static let autoTaggingWorkflowId = WorkflowID("note-auto-tagging")
   /// Chat-reply generation workflow routed by `KaibaAutoActionDispatcher`
   /// (`design-docs/specs/ai-agent-integration.md`, AI8).
-  public static let agentChatReplyWorkflowId = "note-agent-reply"
-  public static let agentChatReplyActionId = "agent-chat-reply"
+  public static let agentChatReplyWorkflowId = WorkflowID("note-agent-reply")
+  public static let agentChatReplyActionId = AutoActionID("agent-chat-reply")
   /// Notebook translation workflow routed by `KaibaAutoActionDispatcher`
   /// (`design-docs/specs/ai-agent-integration.md`, AI9).
-  public static let notebookTranslationWorkflowId = "notebook-translation"
+  public static let notebookTranslationWorkflowId = WorkflowID("notebook-translation")
 
   public static func prepare(on driver: NoteDatabaseDriving) throws {
     try driver.withDatabase { database in
@@ -48,6 +58,8 @@ public enum NoteStoreSchema {
       if isFirstSchemaCreation {
         try recordSchemaVersion(currentVersion, in: db)
       }
+      try seedDefaultUser(in: db)
+      try seedDefaultLibrary(in: db)
       try validateCurrentSchema(in: db)
       try requireForeignKeysEnabled(in: db)
       try requireForeignKeyIntegrity(in: db)
@@ -60,8 +72,51 @@ public enum NoteStoreSchema {
     }
   }
 
-  public static func seededTagClassIds(in database: SQLiteDatabase) throws -> [String] {
-    try database.query("SELECT class_id FROM tag_classes ORDER BY class_id").compactMap { $0["class_id"] }
+  public static func seededTagClassIds(in database: SQLiteDatabase) throws -> [TagClassID] {
+    try database.query("SELECT class_id FROM tag_classes ORDER BY class_id").compactMap { $0.identifier("class_id", as: TagClassID.self) }
+  }
+
+  /// Creates the default account the first time the store is prepared. Every
+  /// notebook needs a real owner, and an unauthenticated host has no other
+  /// principal to attribute writes to. Idempotent, so a store that already has
+  /// it is left untouched.
+  private static func seedDefaultUser(in database: SQLiteDatabase) throws {
+    try database.execute(
+      """
+      INSERT INTO users (user_id, email, display_name, is_default, created_at, disabled_at)
+      VALUES (?, NULL, ?, 1, ?, NULL)
+      ON CONFLICT(user_id) DO NOTHING
+      """,
+      bindings: [
+        .id(defaultUserId),
+        .text(defaultUserDisplayName),
+        .text(NoteStoreClock.system.now())
+      ]
+    )
+  }
+
+  /// Creates the default library the first time the store is prepared. It is
+  /// seeded unauthenticated so a store keeps answering an unscoped caller
+  /// exactly as it did before libraries existed; requiring authentication is
+  /// something an operator opts into per library
+  /// (`design-docs/specs/library.md`). Runs after the default user, which it
+  /// records as the creator. Idempotent.
+  private static func seedDefaultLibrary(in database: SQLiteDatabase) throws {
+    try database.execute(
+      """
+      INSERT INTO libraries (
+        library_id, name, title, auth_required, is_default, created_at, created_by
+      ) VALUES (?, ?, ?, 0, 1, ?, ?)
+      ON CONFLICT(library_id) DO NOTHING
+      """,
+      bindings: [
+        .id(defaultLibraryId),
+        .text(defaultLibraryName),
+        .text(defaultLibraryTitle),
+        .text(NoteStoreClock.system.now()),
+        .id(defaultUserId)
+      ]
+    )
   }
 
   private static func seedTagClasses(in database: SQLiteDatabase) throws {
@@ -73,7 +128,7 @@ public enum NoteStoreSchema {
         ON CONFLICT(class_id) DO NOTHING
         """,
         bindings: [
-          .text(seed.classId),
+          .id(seed.classId),
           .text(seed.label),
           .optionalText(seed.description),
           .text(NoteStoreClock.system.now())
@@ -91,7 +146,7 @@ public enum NoteStoreSchema {
         ON CONFLICT DO NOTHING
         """,
         bindings: [
-          .text(stableTagId(for: tagName)),
+          .id(stableTagId(for: tagName)),
           .text(tagName),
           .text(NoteStoreClock.system.now())
         ]
@@ -112,7 +167,7 @@ public enum NoteStoreSchema {
       """,
       bindings: [.text(tagName)]
     ).first
-    guard row?["tag_id"] == stableTagId(for: tagName),
+    guard row?.identifier("tag_id", as: TagID.self) == stableTagId(for: tagName),
           row?["class_id"] == "document-kind",
           row?["is_system"] == "1" else {
       throw NoteStoreSchemaError.systemTagCollision(name: tagName)
@@ -132,20 +187,22 @@ public enum NoteStoreSchema {
         ON CONFLICT(action_id) DO NOTHING
         """,
         bindings: [
-          .text("default-ai-tagging-\(trigger.rawValue)"),
+          .id(AutoActionID("default-ai-tagging-\(trigger.rawValue)")),
           .text(trigger.rawValue),
-          .text(autoTaggingWorkflowId),
+          .id(autoTaggingWorkflowId),
           .text(NoteStoreClock.system.now())
         ]
       )
     }
   }
 
-  private static func stableTagId(for name: String) -> String {
-    name
-      .replacingOccurrences(of: ":", with: "-")
-      .replacingOccurrences(of: "/", with: "-")
-      .replacingOccurrences(of: " ", with: "-")
+  private static func stableTagId(for name: String) -> TagID {
+    TagID(
+      name
+        .replacingOccurrences(of: ":", with: "-")
+        .replacingOccurrences(of: "/", with: "-")
+        .replacingOccurrences(of: " ", with: "-")
+    )
   }
 
   /// Stores are either fresh (created directly at `currentVersion`) or already
@@ -201,7 +258,7 @@ public enum NoteStoreSchema {
       )
       """)
     try database.execute("DELETE FROM note_fts_map")
-    let noteIds = try database.query("SELECT note_id FROM notes ORDER BY created_at, note_id").compactMap { $0["note_id"] }
+    let noteIds = try database.query("SELECT note_id FROM notes ORDER BY created_at, note_id").compactMap { $0.identifier("note_id", as: NoteID.self) }
     for noteId in noteIds {
       try refreshFTS(noteId: noteId, previous: nil, in: database)
     }
@@ -352,21 +409,21 @@ final class NoteSQLiteCapabilityCache: @unchecked Sendable {
 }
 
 private struct SystemTagClass {
-  var classId: String
+  var classId: TagClassID
   var label: String
   var description: String?
 }
 
 private let systemTagClasses: [SystemTagClass] = [
-  SystemTagClass(classId: "content-kind", label: "Content Kind", description: "Content-level note kinds"),
-  SystemTagClass(classId: "person", label: "Person", description: "People and named actors"),
-  SystemTagClass(classId: "year", label: "Year", description: "Years and historical periods"),
-  SystemTagClass(classId: "event", label: "Event", description: "Events and milestones"),
-  SystemTagClass(classId: "document-kind", label: "Document Kind", description: "Notebook or document kinds"),
-  SystemTagClass(classId: "topic", label: "Topic", description: "Conceptual topics"),
-  SystemTagClass(classId: "folder", label: "Folder", description: "Notebook organization folders"),
-  SystemTagClass(classId: "source", label: "Source", description: "Original source types and references"),
-  SystemTagClass(classId: "workflow", label: "Workflow", description: "Workflow-originated processing tags")
+  SystemTagClass(classId: .contentKind, label: "Content Kind", description: "Content-level note kinds"),
+  SystemTagClass(classId: .person, label: "Person", description: "People and named actors"),
+  SystemTagClass(classId: .year, label: "Year", description: "Years and historical periods"),
+  SystemTagClass(classId: .event, label: "Event", description: "Events and milestones"),
+  SystemTagClass(classId: .documentKind, label: "Document Kind", description: "Notebook or document kinds"),
+  SystemTagClass(classId: .topic, label: "Topic", description: "Conceptual topics"),
+  SystemTagClass(classId: .folder, label: "Folder", description: "Notebook organization folders"),
+  SystemTagClass(classId: .source, label: "Source", description: "Original source types and references"),
+  SystemTagClass(classId: .workflow, label: "Workflow", description: "Workflow-originated processing tags")
 ]
 
 private let systemNotebookKindTags = [
@@ -385,15 +442,104 @@ private let noteSchemaVersionTableStatement = """
   """
 
 private let schemaStatements = [
+  // Users precede notebooks: the ownership foreign key needs the table to
+  // exist, and every notebook has a real owner rather than a null "everyone".
+  """
+  CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    email TEXT,
+    display_name TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+    created_at TEXT NOT NULL,
+    disabled_at TEXT
+  )
+  """,
+  """
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
+  ON users (email) WHERE email IS NOT NULL
+  """,
+  """
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_default
+  ON users (is_default) WHERE is_default = 1
+  """,
+  // One-time email login codes. Stored as a hash with an attempt counter, so a
+  // leaked database yields no usable code and guessing is bounded.
+  """
+  CREATE TABLE IF NOT EXISTS auth_login_codes (
+    code_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(user_id),
+    code_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT
+  )
+  """,
+  """
+  CREATE INDEX IF NOT EXISTS idx_auth_login_codes_user
+  ON auth_login_codes (user_id, consumed_at, expires_at)
+  """,
+  // Libraries precede notebooks for the same reason users do: the grouping
+  // foreign key needs the table to exist, and every notebook belongs to a real
+  // library rather than to a null "ungrouped" (`design-docs/specs/library.md`).
+  """
+  CREATE TABLE IF NOT EXISTS libraries (
+    library_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    auth_required INTEGER NOT NULL DEFAULT 1 CHECK (auth_required IN (0,1)),
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+    created_at TEXT NOT NULL,
+    created_by TEXT REFERENCES users(user_id)
+  )
+  """,
+  """
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_libraries_name_unique
+  ON libraries (name)
+  """,
+  """
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_libraries_single_default
+  ON libraries (is_default) WHERE is_default = 1
+  """,
+  // Who may reach a library that requires authentication. An open library
+  // needs no rows here: `auth_required = 0` already means "anyone", and
+  // membership answers the other half — which authenticated users get in
+  // (`design-docs/specs/library.md`).
+  """
+  CREATE TABLE IF NOT EXISTS library_members (
+    library_id TEXT NOT NULL REFERENCES libraries(library_id),
+    user_id TEXT NOT NULL REFERENCES users(user_id),
+    role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner','member')),
+    granted_at TEXT NOT NULL,
+    granted_by TEXT REFERENCES users(user_id),
+    PRIMARY KEY (library_id, user_id)
+  )
+  """,
+  """
+  CREATE INDEX IF NOT EXISTS idx_library_members_user
+  ON library_members (user_id, library_id)
+  """,
   """
   CREATE TABLE IF NOT EXISTS notebooks (
     notebook_id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     read_only INTEGER NOT NULL DEFAULT 0,
+    owner_user_id TEXT NOT NULL REFERENCES users(user_id),
+    library_id TEXT NOT NULL REFERENCES libraries(library_id) DEFAULT 'library-default',
+    created_by TEXT REFERENCES users(user_id),
+    updated_by TEXT REFERENCES users(user_id),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     meta_json BLOB CHECK (meta_json IS NULL OR json_valid(meta_json, 8))
   )
+  """,
+  """
+  CREATE INDEX IF NOT EXISTS idx_notebooks_owner
+  ON notebooks (owner_user_id, updated_at DESC)
+  """,
+  """
+  CREATE INDEX IF NOT EXISTS idx_notebooks_library
+  ON notebooks (library_id, updated_at DESC)
   """,
   """
   CREATE TABLE IF NOT EXISTS notes (
@@ -404,6 +550,8 @@ private let schemaStatements = [
     title_source TEXT NOT NULL DEFAULT 'derived' CHECK (title_source IN ('derived','explicit')),
     body_markdown TEXT NOT NULL,
     read_only INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT REFERENCES users(user_id),
+    updated_by TEXT REFERENCES users(user_id),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     meta_json BLOB CHECK (meta_json IS NULL OR json_valid(meta_json, 8)),
@@ -532,6 +680,7 @@ private let schemaStatements = [
     client_id TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,
     token_hash TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(user_id),
     created_at TEXT NOT NULL,
     last_seen_at TEXT,
     revoked_at TEXT
@@ -606,6 +755,12 @@ struct NoteStoreClock: Sendable {
 }
 
 private let noteStoreTimestampFormatter = NoteStoreTimestampFormatter()
+
+/// Store timestamps are ISO-8601 with fractional seconds, so they compare
+/// lexicographically; expiry predicates in SQL rely on that.
+func noteStoreTimestamp(from date: Date) -> String {
+  noteStoreTimestampFormatter.string(from: date)
+}
 
 private final class NoteStoreTimestampFormatter: @unchecked Sendable {
   private let formatter: ISO8601DateFormatter

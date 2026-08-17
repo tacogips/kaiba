@@ -56,11 +56,11 @@ final class TursoHTTPDatabase: @unchecked Sendable {
   }
 
   func execute(_ sql: String, bindings: [SQLiteValue]) throws -> TursoHTTPExecutionResult {
-    let statement: [String: Any] = [
-      "sql": sql,
-      "args": bindings.map(Self.encodedValue)
-    ]
-    let response = try send(requests: [["type": "execute", "stmt": statement]])
+    let statement: JSONValue = .object([
+      "sql": .string(sql),
+      "args": .array(bindings.map(Self.encodedValue))
+    ])
+    let response = try send(requests: [.object(["type": .string("execute"), "stmt": statement])])
     guard let first = response.results.first else {
       throw TursoDatabaseError.invalidResponse
     }
@@ -76,15 +76,15 @@ final class TursoHTTPDatabase: @unchecked Sendable {
     guard baton != nil else {
       return
     }
-    _ = try send(requests: [["type": "close"]])
+    _ = try send(requests: [.object(["type": .string("close")])])
     baton = nil
     routedEndpoint = nil
   }
 
-  private func send(requests: [[String: Any]]) throws -> PipelineResponse {
-    var body: [String: Any] = ["requests": requests]
+  private func send(requests: [JSONValue]) throws -> PipelineResponse {
+    var body: JSONObject = ["requests": .array(requests)]
     if let baton {
-      body["baton"] = baton
+      body["baton"] = .string(baton)
     }
     var request = URLRequest(url: routedEndpoint ?? endpoint)
     request.httpMethod = "POST"
@@ -92,7 +92,7 @@ final class TursoHTTPDatabase: @unchecked Sendable {
     if !authToken.isEmpty {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
-    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    request.httpBody = try JSONValue.object(body).encodedData()
 
     let result = try Self.perform(request, session: session)
     guard (200..<300).contains(result.statusCode) else {
@@ -136,12 +136,12 @@ final class TursoHTTPDatabase: @unchecked Sendable {
     return endpoint
   }
 
-  private static func encodedValue(_ value: SQLiteValue) -> [String: Any] {
+  private static func encodedValue(_ value: SQLiteValue) -> JSONValue {
     switch value {
-    case .text(let value): return ["type": "text", "value": value]
-    case .int(let value): return ["type": "integer", "value": String(value)]
-    case .double(let value): return ["type": "float", "value": value]
-    case .null: return ["type": "null"]
+    case .text(let value): return .object(["type": .string("text"), "value": .string(value)])
+    case .int(let value): return .object(["type": .string("integer"), "value": .string(String(value))])
+    case .double(let value): return .object(["type": .string("float"), "value": .number(value)])
+    case .null: return .object(["type": .string("null")])
     }
   }
 
@@ -164,67 +164,68 @@ final class TursoHTTPDatabase: @unchecked Sendable {
   }
 
   private static func decodeResponse(_ data: Data) throws -> PipelineResponse {
-    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let rawResults = object["results"] as? [[String: Any]] else {
+    guard let object = try? JSONValue(parsing: data),
+          let rawResults = object["results"]?.asArray else {
       throw TursoDatabaseError.invalidResponse
     }
     let results = try rawResults.map(decodePipelineResult)
     return PipelineResponse(
-      baton: object["baton"] as? String,
-      baseURL: object["base_url"] as? String,
+      baton: object["baton"]?.asString,
+      baseURL: object["base_url"]?.asString,
       results: results
     )
   }
 
-  private static func decodePipelineResult(_ object: [String: Any]) throws -> PipelineResult {
-    if object["type"] as? String == "error" {
-      let error = object["error"] as? [String: Any]
-      return .error(error?["message"] as? String ?? "remote database request failed")
+  private static func decodePipelineResult(_ object: JSONValue) throws -> PipelineResult {
+    if object["type"]?.asString == "error" {
+      return .error(object["error"]?["message"]?.asString ?? "remote database request failed")
     }
-    guard object["type"] as? String == "ok",
-          let response = object["response"] as? [String: Any] else {
+    guard object["type"]?.asString == "ok", let response = object["response"] else {
       throw TursoDatabaseError.invalidResponse
     }
-    if response["type"] as? String == "close" {
+    if response["type"]?.asString == "close" {
       return .ok(TursoHTTPExecutionResult(rows: [], affectedRowCount: 0))
     }
-    guard let result = response["result"] as? [String: Any],
-          let columns = result["cols"] as? [[String: Any]],
-          let rawRows = result["rows"] as? [[[String: Any]]] else {
+    guard let result = response["result"],
+          let columns = result["cols"]?.asArray,
+          let rawRows = result["rows"]?.asArray else {
       throw TursoDatabaseError.invalidResponse
     }
     let names = try columns.map { column -> String in
-      guard let name = column["name"] as? String else {
+      guard let name = column["name"]?.asString else {
         throw TursoDatabaseError.invalidResponse
       }
       return name
     }
     let rows = try rawRows.map { rawRow -> SQLiteRow in
-      guard rawRow.count == names.count else {
+      guard let rawValues = rawRow.asArray, rawValues.count == names.count else {
         throw TursoDatabaseError.invalidResponse
       }
       var values: [String: String?] = [:]
-      for (name, rawValue) in zip(names, rawRow) {
+      for (name, rawValue) in zip(names, rawValues) {
         values[name] = try decodedTextValue(rawValue)
       }
       return SQLiteRow(values: values)
     }
     return .ok(TursoHTTPExecutionResult(
       rows: rows,
-      affectedRowCount: result["affected_row_count"] as? Int ?? 0
+      affectedRowCount: result["affected_row_count"]?.asInt ?? 0
     ))
   }
 
-  private static func decodedTextValue(_ value: [String: Any]) throws -> String? {
-    switch value["type"] as? String {
+  /// Every libsql value arrives as `{type, value}`; the row model is text, so
+  /// numbers are rendered the way the SQLite driver would have.
+  private static func decodedTextValue(_ value: JSONValue) throws -> String? {
+    switch value["type"]?.asString {
     case "null": return nil
-    case "text", "integer": return value["value"] as? String
+    case "text", "integer": return value["value"]?.asString
     case "float":
-      guard let number = value["value"] as? NSNumber else {
-        throw TursoDatabaseError.invalidResponse
+      switch value["value"] {
+      case let .integer(number): return String(number)
+      case let .number(number): return String(number)
+      default: throw TursoDatabaseError.invalidResponse
       }
-      return number.stringValue
-    case "blob": return value["base64"] as? String
+    case "blob": return value["base64"]?.asString
     default: throw TursoDatabaseError.invalidResponse
     }
   }

@@ -19,7 +19,7 @@ public struct S3NoteFileStore: NoteFileStore {
     self.now = now
   }
 
-  public func store(data: Data, fileId: String) throws -> StoredNoteFile {
+  public func store(data: Data, fileId: FileID) throws -> StoredNoteFile {
     let key = storageKey(for: fileId)
     let request = try signedRequest(method: "PUT", key: key, body: data, contentType: "application/octet-stream")
     let response = try httpClient.send(request)
@@ -87,10 +87,10 @@ public struct S3NoteFileStore: NoteFileStore {
     }
   }
 
-  private func storageKey(for fileId: String) -> String {
+  private func storageKey(for fileId: FileID) -> String {
     let trimmedPrefix = profile.keyPrefix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     guard !trimmedPrefix.isEmpty else {
-      return fileId
+      return fileId.rawValue
     }
     return "\(trimmedPrefix)/\(fileId)"
   }

@@ -1,9 +1,10 @@
+import { notebookId as asNotebookId, tagClassId as asTagClassId, tagId as asTagId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import { NotebookReadOnlyController } from './controller'
 import type { Notebook } from './types'
 
 const notebook = (): Notebook => ({
-  notebookId: 'book-1',
+  notebookId: asNotebookId('book-1'),
   title: 'Launch',
   readOnly: false,
   createdAt: '2026-07-25T00:00:00Z',
@@ -13,9 +14,9 @@ const notebook = (): Notebook => ({
 
 const folderAssignment = {
   tag: {
-    tagId: 'tag-folder-work',
+    tagId: asTagId('tag-folder-work'),
     name: 'Work',
-    classId: 'folder',
+    classId: asTagClassId('folder'),
     parentTagId: null,
     isSystem: false,
     createdAt: '2026-07-25T00:00:00Z',

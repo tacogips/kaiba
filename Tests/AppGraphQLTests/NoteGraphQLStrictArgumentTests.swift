@@ -121,8 +121,8 @@ final class NoteGraphQLStrictArgumentTests: XCTestCase {
   func testMultipleRootSelectionsReturnBothFields() async throws {
     let service = try makeNoteGraphQLService()
     let executor = NoteGraphQLDocumentExecutor(service: service)
-    _ = try service.service.defineTagClass(classId: "custom-topic", label: "Topic")
-    _ = try service.service.defineTag(name: "swift", classId: "custom-topic")
+    _ = try service.service.defineTagClass(classId: TagClassID("custom-topic"), label: "Topic")
+    _ = try service.service.defineTag(name: "swift", classId: TagClassID("custom-topic"))
 
     let response = await executor.execute(GraphQLDocumentRequest(
       query: """

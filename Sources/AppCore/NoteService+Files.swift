@@ -3,7 +3,7 @@ import Foundation
 public extension NoteService {
   @discardableResult
   func attachFile(
-    noteId: String,
+    noteId: NoteID,
     data: Data,
     role: NoteFileRole = .related,
     mediaType: String,
@@ -23,7 +23,7 @@ public extension NoteService {
 
   @discardableResult
   func attachFile(
-    noteId: String,
+    noteId: NoteID,
     fileURL: URL,
     role: NoteFileRole = .related,
     mediaType: String,
@@ -45,7 +45,7 @@ public extension NoteService {
 
   @discardableResult
   func attachFile(
-    noteId: String,
+    noteId: NoteID,
     data: Data,
     role: NoteFileRole = .related,
     mediaType: String,
@@ -69,7 +69,7 @@ public extension NoteService {
 
   @discardableResult
   func attachNotebookFile(
-    notebookId: String,
+    notebookId: NotebookID,
     data: Data,
     role: NotebookFileRole = .related,
     mediaType: String,
@@ -89,7 +89,7 @@ public extension NoteService {
 
   @discardableResult
   func attachNotebookFile(
-    notebookId: String,
+    notebookId: NotebookID,
     fileURL: URL,
     role: NotebookFileRole = .related,
     mediaType: String,
@@ -115,7 +115,7 @@ internal extension NoteService {
   /// attaches them with the guard lifted.
   @discardableResult
   func storeNoteFileAttachment(
-    noteId: String,
+    noteId: NoteID,
     data: Data,
     role: NoteFileRole,
     mediaType: String,
@@ -140,7 +140,7 @@ internal extension NoteService {
   /// only for the source document that is part of creating a read-only import.
   @discardableResult
   func storeNotebookFileAttachment(
-    notebookId: String,
+    notebookId: NotebookID,
     fileURL: URL,
     role: NotebookFileRole,
     mediaType: String,
@@ -166,23 +166,23 @@ internal extension NoteService {
   /// write for an early rejection and again inside the transaction as the
   /// authoritative check.
   private func persistNoteFileAttachment(
-    noteId: String,
+    noteId: NoteID,
     role: NoteFileRole,
     mediaType: String,
     originalFilename: String?,
     position: Int,
     requiresWritableNote: Bool,
-    storeContent: (String) throws -> StoredNoteFile,
+    storeContent: (FileID) throws -> StoredNoteFile,
     deleteContent: (FileRecord) -> Void
   ) throws -> NoteFileAttachment {
-    let requireNoteForAttachment: (String, SQLiteDatabase) throws -> Void = { noteId, database in
+    let requireNoteForAttachment: (NoteID, SQLiteDatabase) throws -> Void = { noteId, database in
       if requiresWritableNote {
         _ = try requireWritableNote(noteId, in: database)
       } else {
         _ = try requireNote(noteId, in: database)
       }
     }
-    let fileId = makeNoteId(prefix: "file")
+    let fileId = FileID.generate()
     try driver.withDatabase { database in
       try requireNoteForAttachment(noteId, database)
     }
@@ -206,8 +206,8 @@ internal extension NoteService {
               position = excluded.position
             """,
             bindings: [
-              .text(noteId),
-              .text(fileId),
+              .id(noteId),
+              .id(fileId),
               .text(role.rawValue),
               .int(Int64(position))
             ]
@@ -227,22 +227,22 @@ internal extension NoteService {
   }
 
   private func persistNotebookFileAttachment(
-    notebookId: String,
+    notebookId: NotebookID,
     role: NotebookFileRole,
     mediaType: String,
     originalFilename: String?,
     requiresWritableNotebook: Bool,
-    storeContent: (String) throws -> StoredNoteFile,
+    storeContent: (FileID) throws -> StoredNoteFile,
     deleteContent: (FileRecord) -> Void
   ) throws -> NotebookFileAttachment {
-    let requireNotebookForAttachment: (String, SQLiteDatabase) throws -> Void = { notebookId, database in
+    let requireNotebookForAttachment: (NotebookID, SQLiteDatabase) throws -> Void = { notebookId, database in
       if requiresWritableNotebook {
         _ = try requireWritableNotebook(notebookId, in: database)
       } else {
         _ = try requireNotebook(notebookId, in: database)
       }
     }
-    let fileId = makeNoteId(prefix: "file")
+    let fileId = FileID.generate()
     try driver.withDatabase { database in
       try requireNotebookForAttachment(notebookId, database)
     }
@@ -264,7 +264,7 @@ internal extension NoteService {
             VALUES (?, ?, ?)
             ON CONFLICT(notebook_id, file_id, role) DO NOTHING
             """,
-            bindings: [.text(notebookId), .text(fileId), .text(role.rawValue)]
+            bindings: [.id(notebookId), .id(fileId), .text(role.rawValue)]
           )
           return NotebookFileAttachment(notebookId: notebookId, file: record, role: role)
         }
@@ -282,7 +282,7 @@ internal extension NoteService {
 }
 
 public extension NoteService {
-  func listFiles(noteId: String) throws -> [NoteFileAttachment] {
+  func listFiles(noteId: NoteID) throws -> [NoteFileAttachment] {
     try driver.withDatabase { database in
       _ = try requireNote(noteId, in: database)
       return try database.query(
@@ -295,12 +295,12 @@ public extension NoteService {
         WHERE nf.note_id = ?
         ORDER BY nf.position, f.created_at, f.file_id
         """,
-        bindings: [.text(noteId)]
+        bindings: [.id(noteId)]
       ).map(noteFileAttachment(from:))
     }
   }
 
-  func listFiles(notebookId: String) throws -> [NotebookFileAttachment] {
+  func listFiles(notebookId: NotebookID) throws -> [NotebookFileAttachment] {
     try driver.withDatabase { database in
       _ = try requireNotebook(notebookId, in: database)
       return try database.query(
@@ -313,12 +313,12 @@ public extension NoteService {
         WHERE nf.notebook_id = ?
         ORDER BY f.created_at, f.file_id
         """,
-        bindings: [.text(notebookId)]
+        bindings: [.id(notebookId)]
       ).map(notebookFileAttachment(from:))
     }
   }
 
-  func resolveFileContent(fileId: String) throws -> Data {
+  func resolveFileContent(fileId: FileID) throws -> Data {
     let record = try getFileRecord(fileId: fileId)
     guard record.storageKind == .local else {
       throw NoteFileStoreError.unsupportedStorageKind(record.storageKind)
@@ -327,7 +327,7 @@ public extension NoteService {
   }
 
   func resolveFileContent(
-    fileId: String,
+    fileId: FileID,
     s3Profiles: [S3StorageProfile],
     httpClient: S3HTTPClient = URLSessionS3HTTPClient()
   ) throws -> Data {
@@ -345,7 +345,7 @@ public extension NoteService {
   }
 
   func resolveFileContent(
-    fileId: String,
+    fileId: FileID,
     s3Profiles: [S3StorageProfile],
     httpClient: any AsyncS3HTTPClient
   ) async throws -> Data {
@@ -362,9 +362,13 @@ public extension NoteService {
     }
   }
 
-  func getFileRecord(fileId: String) throws -> FileRecord {
+  /// The chokepoint for reading a file by id: every `resolveFileContent`
+  /// variant goes through it, so the library check sits here rather than in
+  /// each one (`design-docs/specs/library.md`).
+  func getFileRecord(fileId: FileID) throws -> FileRecord {
     try driver.withDatabase { database in
-      try requireFileRecord(fileId: fileId, in: database)
+      try requireReachableFile(fileId, in: database)
+      return try requireFileRecord(fileId: fileId, in: database)
     }
   }
 
@@ -420,7 +424,7 @@ public extension NoteService {
         }
       }
       try driver.withDatabase { database in
-        try database.execute("DELETE FROM files WHERE file_id = ?", bindings: [.text(record.fileId)])
+        try database.execute("DELETE FROM files WHERE file_id = ?", bindings: [.id(record.fileId)])
       }
       result.deletedFileIds.append(record.fileId)
     }
@@ -445,11 +449,11 @@ public extension NoteService {
 
 public struct NoteFileReclamationResult: Equatable, Sendable {
   /// `files` rows removed because nothing referenced them.
-  public var deletedFileIds: [String]
+  public var deletedFileIds: [FileID]
   /// Local blob / temp-file relative paths swept from disk in pass 2.
   public var sweptPaths: [String]
 
-  public init(deletedFileIds: [String] = [], sweptPaths: [String] = []) {
+  public init(deletedFileIds: [FileID] = [], sweptPaths: [String] = []) {
     self.deletedFileIds = deletedFileIds
     self.sweptPaths = sweptPaths
   }
@@ -508,7 +512,7 @@ private func sweepUnreferencedLocalBlobs(
 }
 
 func insertFileRecord(
-  fileId: String,
+  fileId: FileID,
   stored: StoredNoteFile,
   mediaType: String,
   originalFilename: String?,
@@ -523,7 +527,7 @@ func insertFileRecord(
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
     """,
     bindings: [
-      .text(fileId),
+      .id(fileId),
       .text(stored.locator.storageKind.rawValue),
       .optionalText(stored.locator.localPath),
       .optionalText(stored.locator.s3Profile),
@@ -553,7 +557,7 @@ func insertFileRecord(
 }
 
 func storedFileRecord(
-  fileId: String,
+  fileId: FileID,
   stored: StoredNoteFile,
   mediaType: String,
   originalFilename: String?
@@ -574,7 +578,7 @@ func storedFileRecord(
   )
 }
 
-func requireFileRecord(fileId: String, in database: SQLiteDatabase) throws -> FileRecord {
+func requireFileRecord(fileId: FileID, in database: SQLiteDatabase) throws -> FileRecord {
   let rows = try database.query(
     """
     SELECT file_id, storage_kind, local_path, s3_profile, s3_bucket, s3_key,
@@ -583,7 +587,7 @@ func requireFileRecord(fileId: String, in database: SQLiteDatabase) throws -> Fi
     WHERE file_id = ?
     LIMIT 1
     """,
-    bindings: [.text(fileId)]
+    bindings: [.id(fileId)]
   )
   guard let row = rows.first else {
     throw NoteServiceError.notFound("file not found: \(fileId)")
@@ -592,7 +596,7 @@ func requireFileRecord(fileId: String, in database: SQLiteDatabase) throws -> Fi
 }
 
 private func noteFileAttachment(from row: SQLiteRow) throws -> NoteFileAttachment {
-  guard let noteId = row["note_id"],
+  guard let noteId = row.identifier("note_id", as: NoteID.self),
         let roleText = row["role"],
         let role = NoteFileRole(rawValue: roleText),
         let positionText = row["position"],
@@ -603,7 +607,7 @@ private func noteFileAttachment(from row: SQLiteRow) throws -> NoteFileAttachmen
 }
 
 private func notebookFileAttachment(from row: SQLiteRow) throws -> NotebookFileAttachment {
-  guard let notebookId = row["notebook_id"],
+  guard let notebookId = row.identifier("notebook_id", as: NotebookID.self),
         let roleText = row["role"],
         let role = NotebookFileRole(rawValue: roleText) else {
     throw NoteServiceError.invalidRow("notebook file row is missing required fields")
@@ -612,7 +616,7 @@ private func notebookFileAttachment(from row: SQLiteRow) throws -> NotebookFileA
 }
 
 func fileRecord(from row: SQLiteRow) throws -> FileRecord {
-  guard let fileId = row["file_id"],
+  guard let fileId = row.identifier("file_id", as: FileID.self),
         let storageKindText = row["storage_kind"],
         let storageKind = NoteFileStorageKind(rawValue: storageKindText),
         let mediaType = row["media_type"],

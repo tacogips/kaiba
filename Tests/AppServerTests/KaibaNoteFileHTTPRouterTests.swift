@@ -21,7 +21,7 @@ private struct StubAuthenticator: NoteAPIAuthenticating {
     guard context.bearerToken == acceptedToken else {
       return .rejected(noteAPIUnauthorizedResponse("note API bearer token is invalid or revoked"))
     }
-    return .accepted(NoteAPIAuthenticatedClient(clientId: "client-1", displayName: "tester"))
+    return .accepted(NoteAPIAuthenticatedClient(clientId: APIClientID("client-1"), displayName: "tester", userId: NoteStoreSchema.defaultUserId))
   }
 }
 
@@ -33,7 +33,11 @@ private struct AgentModelsAuthenticator: NoteAPIAuthenticating {
     guard context.bearerToken == "agent-models-token" else {
       return .rejected(noteAPIUnauthorizedResponse("agent model catalog requires authentication"))
     }
-    return .accepted(NoteAPIAuthenticatedClient(clientId: "agent-client", displayName: "Agent client"))
+    return .accepted(NoteAPIAuthenticatedClient(
+      clientId: APIClientID("agent-client"),
+      displayName: "Agent client",
+      userId: NoteStoreSchema.defaultUserId
+    ))
   }
 }
 

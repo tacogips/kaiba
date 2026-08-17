@@ -69,7 +69,7 @@ private final class FailSecondChatAttachmentStore: NoteFileStore, @unchecked Sen
   private var storeCount = 0
   private var deletedRecords: [FileRecord] = []
 
-  func store(data: Data, fileId: String) throws -> StoredNoteFile {
+  func store(data: Data, fileId: FileID) throws -> StoredNoteFile {
     lock.withLock { storeCount += 1 }
     guard lock.withLock({ storeCount }) == 1 else {
       throw NoteServiceError.invalidInput("injected attachment store failure")

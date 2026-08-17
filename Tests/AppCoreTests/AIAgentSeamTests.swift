@@ -71,7 +71,7 @@ final class AIConfigurationTests: NoteTestCase {
 }
 
 final class AITagProposalParsingTests: NoteTestCase {
-  private let allowed: Set<String> = ["person", "topic", "year"]
+  private let allowed: Set<TagClassID> = [.person, .topic, .year]
 
   func testParsesPlainJSONArray() throws {
     let proposals = try AITagExtractionService.parseProposals(
@@ -79,7 +79,7 @@ final class AITagProposalParsingTests: NoteTestCase {
       allowedClassIds: allowed
     )
     XCTAssertEqual(proposals.map(\.name), ["swift", "2026"])
-    XCTAssertEqual(proposals[0].class, "topic")
+    XCTAssertEqual(proposals[0].class, .topic)
   }
 
   func testParsesFencedReply() throws {
@@ -142,7 +142,7 @@ final class AITagExtractionServiceTests: NoteTestCase {
     )
     XCTAssertEqual(assignment.provenance, .ai)
     XCTAssertEqual(assignment.assignedBy, AITagExtractionService.assignedBy)
-    XCTAssertEqual(assignment.tag.classId, "topic")
+    XCTAssertEqual(assignment.tag.classId, TagClassID("topic"))
     let parent = try XCTUnwrap(try service.listTags().first { $0.name == "swift" })
     XCTAssertEqual(assignment.tag.parentTagId, parent.tagId)
   }
@@ -243,14 +243,14 @@ final class AITagExtractionServiceTests: NoteTestCase {
 
 final class KaibaAutoActionDispatcherTests: NoteTestCase {
   private func record(
-    workflowId: String,
+    workflowId: WorkflowID,
     trigger: NoteAutoActionTrigger,
-    noteId: String? = nil,
-    notebookId: String? = nil
+    noteId: NoteID? = nil,
+    notebookId: NotebookID? = nil
   ) -> AutoActionDispatchRecord {
     AutoActionDispatchRecord(
       action: AutoAction(
-        actionId: "test-action",
+        actionId: AutoActionID("test-action"),
         trigger: trigger,
         workflowId: workflowId,
         filterJSON: nil,
@@ -269,7 +269,7 @@ final class KaibaAutoActionDispatcherTests: NoteTestCase {
       invoker: StubInvoker(reply: "[]")
     )
     let outcome = try await dispatcher.dispatch(
-      record(workflowId: "mystery", trigger: .noteCreated, noteId: "n1")
+      record(workflowId: WorkflowID("mystery"), trigger: .noteCreated, noteId: NoteID("n1"))
     )
     guard case .failed(let message) = outcome else {
       return XCTFail("expected failure")
@@ -319,7 +319,7 @@ final class KaibaAutoActionDispatcherTests: NoteTestCase {
 }
 
 final class AIAutoActionReconciliationTests: NoteTestCase {
-  private func enabledActionIds(_ service: NoteService) throws -> Set<String> {
+  private func enabledActionIds(_ service: NoteService) throws -> Set<AutoActionID> {
     Set(try service.listAutoActions().filter(\.enabled).map(\.actionId))
   }
 
@@ -335,9 +335,9 @@ final class AIAutoActionReconciliationTests: NoteTestCase {
       invokerAvailable: true
     )
     let enabled = try enabledActionIds(service)
-    XCTAssertTrue(enabled.contains("default-ai-tagging-note-created"))
-    XCTAssertTrue(enabled.contains("default-ai-tagging-note-updated"))
-    XCTAssertTrue(enabled.contains("default-ai-tagging-notebook-created"))
+    XCTAssertTrue(enabled.contains(AutoActionID("default-ai-tagging-note-created")))
+    XCTAssertTrue(enabled.contains(AutoActionID("default-ai-tagging-note-updated")))
+    XCTAssertTrue(enabled.contains(AutoActionID("default-ai-tagging-notebook-created")))
     XCTAssertTrue(enabled.contains(NoteStoreSchema.agentChatReplyActionId))
 
     let chatAction = try XCTUnwrap(
@@ -360,7 +360,7 @@ final class AIAutoActionReconciliationTests: NoteTestCase {
       invokerAvailable: true
     )
     let enabled = try enabledActionIds(service)
-    XCTAssertFalse(enabled.contains("default-ai-tagging-note-created"))
+    XCTAssertFalse(enabled.contains(AutoActionID("default-ai-tagging-note-created")))
     XCTAssertTrue(enabled.contains(NoteStoreSchema.agentChatReplyActionId))
   }
 

@@ -5,9 +5,9 @@ import Foundation
 /// implements it and fans chunks out to long-polling web clients, giving the
 /// memo pane its streaming chat UX over the single-write HTTP server.
 public protocol AgentReplyStreamPublishing: Sendable {
-  func publishAgentReplyChunk(turnNoteId: String, text: String)
+  func publishAgentReplyChunk(turnNoteId: NoteID, text: String)
   /// `status` is the final turn status ("answered" / "failed").
-  func finishAgentReplyStream(turnNoteId: String, status: String, message: String?)
+  func finishAgentReplyStream(turnNoteId: NoteID, status: String, message: String?)
 }
 
 /// An invoker that can surface the reply incrementally as the agent produces

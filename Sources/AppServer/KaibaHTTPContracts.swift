@@ -1,4 +1,5 @@
 import Foundation
+import AppCore
 import AppGraphQL
 
 public struct KaibaHTTPRequest: Equatable, Sendable {

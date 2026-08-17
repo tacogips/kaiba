@@ -28,39 +28,39 @@ final class NoteHierarchyProgressTests: NoteTestCase {
 
   func testCreateOnlyTagUsesIdentityDomainWithoutChangingExistingFolder() throws {
     let service = try NoteService(driver: makeNoteDriver())
-    let parent = try service.defineTag(name: "Parent", classId: "folder")
+    let parent = try service.defineTag(name: "Parent", classId: TagClassID("folder"))
     let existing = try service.defineTag(
       name: "Shared",
-      classId: "folder",
+      classId: TagClassID("folder"),
       parentTagId: parent.tagId
     )
 
-    let topic = try service.defineTag(name: "Shared", classId: "topic", createOnly: true)
+    let topic = try service.defineTag(name: "Shared", classId: TagClassID("topic"), createOnly: true)
     XCTAssertNotEqual(topic.tagId, existing.tagId)
     let persisted = try XCTUnwrap(try service.listTags().first { $0.tagId == existing.tagId })
-    XCTAssertEqual(persisted.classId, "folder")
+    XCTAssertEqual(persisted.classId, TagClassID("folder"))
     XCTAssertEqual(persisted.parentTagId, parent.tagId)
 
-    let updated = try service.defineTag(name: "Shared", classId: "topic")
+    let updated = try service.defineTag(name: "Shared", classId: TagClassID("topic"))
     XCTAssertEqual(updated.tagId, topic.tagId, "non-folder upsert must stay in its identity domain")
-    XCTAssertEqual(updated.classId, "topic")
+    XCTAssertEqual(updated.classId, TagClassID("topic"))
     XCTAssertNil(updated.parentTagId)
   }
 
   func testHierarchyFiltersNotesAndNotebooksTransitively() throws {
     let service = try NoteService(driver: makeNoteDriver())
-    let parent = try service.defineTag(name: "portfolio", classId: "topic")
+    let parent = try service.defineTag(name: "portfolio", classId: TagClassID("topic"))
     let child = try service.defineTag(
       name: "project",
-      classId: "topic",
+      classId: TagClassID("topic"),
       parentTagId: parent.tagId
     )
     let grandchild = try service.defineTag(
       name: "launch",
-      classId: "topic",
+      classId: TagClassID("topic"),
       parentTagId: child.tagId
     )
-    let leaf = try service.defineTag(name: "standalone", classId: "topic")
+    let leaf = try service.defineTag(name: "standalone", classId: TagClassID("topic"))
 
     let parentNote = try service.createNote(
       bodyMarkdown: "# Parent\nAlpha parent",
@@ -167,26 +167,26 @@ final class NoteHierarchyProgressTests: NoteTestCase {
 
   func testLegacyNoteFiltersRejectAmbiguousFolderNamesBeforeIdExpansion() throws {
     let service = try NoteService(driver: makeNoteDriver())
-    let work = try service.defineTag(name: "Work", classId: "folder")
-    let archive = try service.defineTag(name: "Archive", classId: "folder")
+    let work = try service.defineTag(name: "Work", classId: TagClassID("folder"))
+    let archive = try service.defineTag(name: "Archive", classId: TagClassID("folder"))
     let workShared = try service.defineTag(
       name: "Shared",
-      classId: "folder",
+      classId: TagClassID("folder"),
       parentTagId: work.tagId
     )
     let archiveShared = try service.defineTag(
       name: "Shared",
-      classId: "folder",
+      classId: TagClassID("folder"),
       parentTagId: archive.tagId
     )
     let workTopic = try service.defineTag(
       name: "Work topic",
-      classId: "topic",
+      classId: TagClassID("topic"),
       parentTagId: workShared.tagId
     )
     let archiveTopic = try service.defineTag(
       name: "Archive topic",
-      classId: "topic",
+      classId: TagClassID("topic"),
       parentTagId: archiveShared.tagId
     )
     _ = try service.createNote(
@@ -214,15 +214,15 @@ final class NoteHierarchyProgressTests: NoteTestCase {
 
   func testGroupedNotebookFiltersIntersectExpandedUnionsAndPreserveFlatCompatibility() throws {
     let service = try NoteService(driver: makeNoteDriver())
-    let folder = try service.defineTag(name: "Work", classId: "folder")
+    let folder = try service.defineTag(name: "Work", classId: TagClassID("folder"))
     let child = try service.defineTag(
       name: "Launch",
-      classId: "folder",
+      classId: TagClassID("folder"),
       parentTagId: folder.tagId
     )
-    try service.defineTagClass(classId: "priority", label: "Priority")
-    let urgent = try service.defineTag(name: "Urgent", classId: "priority")
-    let normal = try service.defineTag(name: "Normal", classId: "priority")
+    try service.defineTagClass(classId: TagClassID("priority"), label: "Priority")
+    let urgent = try service.defineTag(name: "Urgent", classId: TagClassID("priority"))
+    let normal = try service.defineTag(name: "Normal", classId: TagClassID("priority"))
     let launchUrgent = try service.createNotebook(title: "Launch urgent")
     let workNormal = try service.createNotebook(title: "Work normal")
     let urgentOnly = try service.createNotebook(title: "Urgent only")
@@ -281,14 +281,14 @@ final class NoteHierarchyProgressTests: NoteTestCase {
       [launchUrgent.notebookId]
     )
     XCTAssertTrue(
-      try service.listNotebooks(tagFilterIdGroups: [[folder.tagId], ["unknown-id"]]).isEmpty
+      try service.listNotebooks(tagFilterIdGroups: [[folder.tagId], [TagID("unknown-id")]]).isEmpty
     )
   }
 
   func testGroupedNotebookFilterBoundsDeduplicateAndFailClosedBeforeFurtherExpansion() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
-    let work = try service.defineTag(name: "Work", classId: "folder")
+    let work = try service.defineTag(name: "Work", classId: TagClassID("folder"))
     let notebook = try service.createNotebook(title: "Work notebook")
     try service.applyNotebookTags(
       notebookId: notebook.notebookId,
@@ -378,7 +378,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
   func testGroupedNotebookFilterRejectsOversizedDescendantExpansion() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
-    let root = try service.defineTag(name: "Root", classId: "folder")
+    let root = try service.defineTag(name: "Root", classId: TagClassID("folder"))
     try driver.withDatabase { database in
       try database.transaction { transaction in
         for index in 0..<NoteService.maximumExpandedNotebookTagFilterNames {
@@ -390,7 +390,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
             bindings: [
               .text("child-\(index)"),
               .text("Child \(index)"),
-              .text(root.tagId)
+              .id(root.tagId)
             ]
           )
         }
@@ -428,7 +428,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
   func testLegacyNotebookFilterRejectsOversizedDescendantExpansion() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
-    let root = try service.defineTag(name: "Root", classId: "folder")
+    let root = try service.defineTag(name: "Root", classId: TagClassID("folder"))
     try driver.withDatabase { database in
       try database.transaction { transaction in
         for index in 0..<NoteService.maximumExpandedNotebookTagFilterNames {
@@ -440,7 +440,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
             bindings: [
               .text("legacy-child-\(index)"),
               .text("Legacy Child \(index)"),
-              .text(root.tagId)
+              .id(root.tagId)
             ]
           )
         }
@@ -476,7 +476,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
     try driver.withDatabase { database in
       try database.execute(
         "UPDATE tags SET parent_tag_id = ? WHERE tag_id = ?",
-        bindings: [.text(child.tagId), .text(parent.tagId)]
+        bindings: [.id(child.tagId), .id(parent.tagId)]
       )
     }
     let expanded = try driver.withDatabase { database in
@@ -487,14 +487,14 @@ final class NoteHierarchyProgressTests: NoteTestCase {
 
   func testFolderTagsRoundTrip() throws {
     let service = try NoteService(driver: makeNoteDriver())
-    let folder = try service.defineTag(name: "Work", classId: "folder")
+    let folder = try service.defineTag(name: "Work", classId: TagClassID("folder"))
     let notebook = try service.createNotebook(title: "Quarterly Plan")
     let tagged = try service.applyNotebookTags(
       notebookId: notebook.notebookId,
       tags: [folder.name],
       provenance: .human
     )
-    XCTAssertEqual(tagged.tags.first?.tag.classId, "folder")
+    XCTAssertEqual(tagged.tags.first?.tag.classId, TagClassID("folder"))
     XCTAssertEqual(try service.getNotebook(notebook.notebookId), tagged)
   }
 }

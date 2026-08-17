@@ -1,10 +1,10 @@
 import Foundation
 
 public struct NoteFileMigrationFailure: Equatable, Sendable {
-  public var fileId: String
+  public var fileId: FileID
   public var message: String
 
-  public init(fileId: String, message: String) {
+  public init(fileId: FileID, message: String) {
     self.fileId = fileId
     self.message = message
   }
@@ -39,7 +39,7 @@ public struct SingleFileMigrationOutcome: Sendable {
 public extension NoteService {
   @discardableResult
   func migrateFileStorage(
-    fileId: String,
+    fileId: FileID,
     to profile: S3StorageProfile,
     httpClient: S3HTTPClient = URLSessionS3HTTPClient(),
     verifyRemoteRead: Bool = false
@@ -65,7 +65,7 @@ public extension NoteService {
         WHERE storage_kind = 'local'
         ORDER BY created_at, file_id
         """
-      ).compactMap { $0["file_id"] }
+      ).compactMap { $0.identifier("file_id", as: FileID.self) }
     }
     var result = NoteFileMigrationResult()
     for fileId in localFileIds {
@@ -90,7 +90,7 @@ public extension NoteService {
   }
 
   func migrateFileStorageOutcome(
-    fileId: String,
+    fileId: FileID,
     to profile: S3StorageProfile,
     httpClient: S3HTTPClient,
     verifyRemoteRead: Bool
@@ -148,7 +148,7 @@ public extension NoteService {
               .int(stored.byteSize),
               .text(stored.sha256),
               .text(migratedAt),
-              .text(fileId)
+              .id(fileId)
             ]
           )
           return try requireFileRecord(fileId: fileId, in: db)

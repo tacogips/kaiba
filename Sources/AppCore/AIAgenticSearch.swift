@@ -63,7 +63,7 @@ public struct AIAgenticSearchService: Sendable {
     partial words) when the first pass finds nothing.
     """
 
-  static func searchSystemPrompt(notebookId: String?) -> String {
+  static func searchSystemPrompt(notebookId: NotebookID?) -> String {
     let scope = notebookId.map { "Scope every search to notebook \($0)." }
       ?? "Search across all notebooks."
     return """
@@ -86,7 +86,7 @@ public struct AIAgenticSearchService: Sendable {
 
   public func search(
     query: String,
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     limit: Int = 20
   ) async throws -> Result {
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -97,9 +97,9 @@ public struct AIAgenticSearchService: Sendable {
     // question like "which note mentions pepper?" matches nothing verbatim,
     // but "pepper" does.
     var noteMatches: [NoteSearchResult] = []
-    var seenNoteIds = Set<String>()
+    var seenNoteIds = Set<NoteID>()
     var memoMatches: [NoteComment] = []
-    var seenCommentIds = Set<String>()
+    var seenCommentIds = Set<CommentID>()
     for term in Self.grepTerms(from: trimmed) {
       for match in try service.searchNotes(query: term, notebookId: notebookId, limit: limit)
       where seenNoteIds.insert(match.note.noteId).inserted {

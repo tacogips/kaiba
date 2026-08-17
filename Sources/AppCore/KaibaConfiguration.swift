@@ -3,17 +3,20 @@ import Foundation
 public struct KaibaConfiguration: Codable, Equatable, Sendable {
   public var database: KaibaDatabaseConfiguration
   public var storageProfiles: [KaibaS3ProfileConfiguration]
+  public var libraries: [KaibaLibraryBinding]
   public var importSettings: KaibaImportConfiguration?
   public var ai: KaibaAIConfiguration?
 
   public init(
     database: KaibaDatabaseConfiguration = .sqlite(path: nil),
     storageProfiles: [KaibaS3ProfileConfiguration] = [],
+    libraries: [KaibaLibraryBinding] = [],
     importSettings: KaibaImportConfiguration? = nil,
     ai: KaibaAIConfiguration? = nil
   ) {
     self.database = database
     self.storageProfiles = storageProfiles
+    self.libraries = libraries
     self.importSettings = importSettings
     self.ai = ai
   }
@@ -21,6 +24,7 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
   private enum CodingKeys: String, CodingKey {
     case database
     case storageProfiles
+    case libraries
     case importSettings = "import"
     case ai
   }
@@ -35,11 +39,48 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
       [KaibaS3ProfileConfiguration].self,
       forKey: .storageProfiles
     ) ?? []
+    libraries = try container.decodeIfPresent(
+      [KaibaLibraryBinding].self,
+      forKey: .libraries
+    ) ?? []
     importSettings = try container.decodeIfPresent(
       KaibaImportConfiguration.self,
       forKey: .importSettings
     )
     ai = try container.decodeIfPresent(KaibaAIConfiguration.self, forKey: .ai)
+  }
+
+  public func libraryBinding(named name: String) -> KaibaLibraryBinding? {
+    libraries.first { $0.name.lowercased() == name.lowercased() }
+  }
+
+  /// The environment variables a library's storage reads from. Names only:
+  /// the config never holds a secret, and neither does this output.
+  public func environmentVariableNames(forLibrary name: String) -> [String] {
+    guard let binding = libraryBinding(named: name),
+          let profileName = binding.storageProfile,
+          let profile = storageProfiles.first(where: { $0.name == profileName }) else {
+      return []
+    }
+    return [profile.accessKeyIdEnvironmentVariable, profile.secretAccessKeyEnvironmentVariable]
+  }
+}
+
+/// Binds a library to the credential scope it reads from. Policy — whether the
+/// library requires authentication — lives in the store, not here: two sources
+/// of truth for one flag is how they drift (`design-docs/specs/library.md`).
+public struct KaibaLibraryBinding: Codable, Equatable, Sendable {
+  public var name: String
+  /// The kinko scope supplying this library's secrets, e.g.
+  /// `logical:kaiba/shared`. Defaults to `logical:kaiba/<name>` when absent.
+  public var kinkoPath: String?
+  /// A `storageProfiles` entry this library's attachments live in.
+  public var storageProfile: String?
+
+  public init(name: String, kinkoPath: String? = nil, storageProfile: String? = nil) {
+    self.name = name
+    self.kinkoPath = kinkoPath
+    self.storageProfile = storageProfile
   }
 }
 

@@ -7,20 +7,20 @@ public enum NoteGraphEdgeKind: String, Codable, Equatable, Sendable {
 }
 
 public struct NoteGraphNeighbor: Equatable, Sendable {
-  public var seedNoteId: String
+  public var seedNoteId: NoteID
   public var note: Note
   public var edgeKind: NoteGraphEdgeKind
   public var weight: Double
   public var hopCount: Int
-  public var pathNoteIds: [String]
+  public var pathNoteIds: [NoteID]
 
   public init(
-    seedNoteId: String,
+    seedNoteId: NoteID,
     note: Note,
     edgeKind: NoteGraphEdgeKind,
     weight: Double,
     hopCount: Int,
-    pathNoteIds: [String]
+    pathNoteIds: [NoteID]
   ) {
     self.seedNoteId = seedNoteId
     self.note = note
@@ -50,18 +50,24 @@ public enum NoteGraphPolicy {
 
 public extension NoteService {
   func graphNeighbors(
-    noteIds: [String],
+    noteIds: [NoteID],
     maxDepth: Int = NoteGraphPolicy.defaultMaxDepth,
     limit: Int = NoteGraphPolicy.defaultLimit
   ) throws -> [NoteGraphNeighbor] {
     try driver.withDatabase { database in
-      try noteGraphNeighborsInDatabase(
+      for noteId in noteIds {
+        _ = try requireNote(noteId, in: database)
+      }
+      let neighbors = try noteGraphNeighborsInDatabase(
         noteIds: noteIds,
         maxDepth: maxDepth,
         limit: limit,
         resultExclusions: [],
         in: database
       )
+      // A link may cross into a library this caller cannot see
+      // (`design-docs/specs/library.md`).
+      return try filterReachable(neighbors, in: database)
     }
   }
 }

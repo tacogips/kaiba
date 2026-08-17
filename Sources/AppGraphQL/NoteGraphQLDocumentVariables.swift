@@ -19,6 +19,41 @@ func requiredInput<T: Decodable>(_ key: String, variables: JSONObject) throws ->
   return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
 }
 
+/// Reads a required id variable. GraphQL still carries ids as plain strings,
+/// so this is the boundary where one becomes a typed identifier; the same
+/// emptiness rules as `requiredString` apply first.
+func requiredIdentifier<Identifier: KaibaIdentifier>(
+  _ key: String,
+  as type: Identifier.Type = Identifier.self,
+  variables: JSONObject
+) throws -> Identifier {
+  Identifier(try requiredString(key, variables: variables))
+}
+
+func optionalIdentifier<Identifier: KaibaIdentifier>(
+  _ key: String,
+  as type: Identifier.Type = Identifier.self,
+  variables: JSONObject
+) throws -> Identifier? {
+  try optionalString(key, variables: variables).map(Identifier.init)
+}
+
+func optionalIdentifierArray<Identifier: KaibaIdentifier>(
+  _ key: String,
+  as type: Identifier.Type = Identifier.self,
+  variables: JSONObject
+) throws -> [Identifier]? {
+  try optionalStringArray(key, variables: variables)?.map(Identifier.init)
+}
+
+func optionalIdentifierArrayArray<Identifier: KaibaIdentifier>(
+  _ key: String,
+  as type: Identifier.Type = Identifier.self,
+  variables: JSONObject
+) throws -> [[Identifier]]? {
+  try optionalStringArrayArray(key, variables: variables)?.map { $0.map(Identifier.init) }
+}
+
 func requiredString(_ key: String, variables: JSONObject) throws -> String {
   guard case let .string(value)? = variables[key] else {
     throw NoteGraphQLDocumentExecutorError.missingVariable(key)

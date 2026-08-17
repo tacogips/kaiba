@@ -1,4 +1,5 @@
 import Foundation
+import AppCore
 
 struct ParsedNoteGraphQLOperation: Equatable, Sendable {
   var name: String?

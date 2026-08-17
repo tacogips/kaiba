@@ -1,6 +1,6 @@
 import Foundation
 
-func noteTags(noteId: String, in database: SQLiteDatabase) throws -> [TagAssignment] {
+func noteTags(noteId: NoteID, in database: SQLiteDatabase) throws -> [TagAssignment] {
   try tagAssignments(
     sql: """
       SELECT t.tag_id, t.name, t.class_id, t.parent_tag_id, t.is_system, t.created_at,
@@ -15,7 +15,7 @@ func noteTags(noteId: String, in database: SQLiteDatabase) throws -> [TagAssignm
   )
 }
 
-func noteTags(noteIds: [String], in database: SQLiteDatabase) throws -> [String: [TagAssignment]] {
+func noteTags(noteIds: [NoteID], in database: SQLiteDatabase) throws -> [NoteID: [TagAssignment]] {
   let orderedNoteIds = orderedUnique(noteIds)
   guard !orderedNoteIds.isEmpty else {
     return [:]
@@ -29,12 +29,12 @@ func noteTags(noteIds: [String], in database: SQLiteDatabase) throws -> [String:
       WHERE nt.note_id IN (\(placeholders(count: orderedNoteIds.count)))
       ORDER BY nt.note_id, t.name, ifnull(t.parent_tag_id, ''), t.tag_id
       """,
-    bindings: orderedNoteIds.map(SQLiteValue.text)
+    bindings: orderedNoteIds.sqliteBindings
   )
-  var tagsByNoteId: [String: [TagAssignment]] = [:]
+  var tagsByNoteId: [NoteID: [TagAssignment]] = [:]
   tagsByNoteId.reserveCapacity(orderedNoteIds.count)
   for row in rows {
-    guard let noteId = row["note_id"] else {
+    guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("tag assignment row is missing note_id")
     }
     tagsByNoteId[noteId, default: []].append(try tagAssignment(from: row))
@@ -42,7 +42,7 @@ func noteTags(noteIds: [String], in database: SQLiteDatabase) throws -> [String:
   return tagsByNoteId
 }
 
-func notebookTags(notebookId: String, in database: SQLiteDatabase) throws -> [TagAssignment] {
+func notebookTags(notebookId: NotebookID, in database: SQLiteDatabase) throws -> [TagAssignment] {
   try tagAssignments(
     sql: """
       SELECT t.tag_id, t.name, t.class_id, t.parent_tag_id, t.is_system, t.created_at,
@@ -57,7 +57,7 @@ func notebookTags(notebookId: String, in database: SQLiteDatabase) throws -> [Ta
   )
 }
 
-func tagAssignment(noteId: String, tagName: String, in database: SQLiteDatabase) throws -> TagAssignment? {
+func tagAssignment(noteId: NoteID, tagName: String, in database: SQLiteDatabase) throws -> TagAssignment? {
   try tagAssignments(
     sql: """
       SELECT t.tag_id, t.name, t.class_id, t.parent_tag_id, t.is_system, t.created_at,
@@ -67,17 +67,17 @@ func tagAssignment(noteId: String, tagName: String, in database: SQLiteDatabase)
       WHERE nt.note_id = ? AND t.name = ?
         AND (t.class_id IS NULL OR t.class_id <> 'folder')
       """,
-    bindings: [.text(noteId), .text(tagName)],
+    bindings: [.id(noteId), .text(tagName)],
     in: database
   ).first
 }
 
-func notebookTagAssignment(notebookId: String, tagName: String, in database: SQLiteDatabase) throws -> TagAssignment? {
+func notebookTagAssignment(notebookId: NotebookID, tagName: String, in database: SQLiteDatabase) throws -> TagAssignment? {
   guard let tag = try findTag(name: tagName, in: database) else { return nil }
   return try notebookTagAssignment(notebookId: notebookId, tagId: tag.tagId, in: database)
 }
 
-func notebookTagAssignment(notebookId: String, tagId: String, in database: SQLiteDatabase) throws -> TagAssignment? {
+func notebookTagAssignment(notebookId: NotebookID, tagId: TagID, in database: SQLiteDatabase) throws -> TagAssignment? {
   try tagAssignments(
     sql: """
       SELECT t.tag_id, t.name, t.class_id, t.parent_tag_id, t.is_system, t.created_at,
@@ -86,13 +86,17 @@ func notebookTagAssignment(notebookId: String, tagId: String, in database: SQLit
       INNER JOIN tags t ON t.tag_id = nt.tag_id
       WHERE nt.notebook_id = ? AND t.tag_id = ?
       """,
-    bindings: [.text(notebookId), .text(tagId)],
+    bindings: [.id(notebookId), .id(tagId)],
     in: database
   ).first
 }
 
-private func tagAssignments(sql: String, id: String, in database: SQLiteDatabase) throws -> [TagAssignment] {
-  try tagAssignments(sql: sql, bindings: [.text(id)], in: database)
+private func tagAssignments(
+  sql: String,
+  id: some KaibaIdentifier,
+  in database: SQLiteDatabase
+) throws -> [TagAssignment] {
+  try tagAssignments(sql: sql, bindings: [.id(id)], in: database)
 }
 
 private func tagAssignments(sql: String, bindings: [SQLiteValue], in database: SQLiteDatabase) throws -> [TagAssignment] {
@@ -114,12 +118,12 @@ private func tagAssignment(from row: SQLiteRow) throws -> TagAssignment {
   )
 }
 
-func orderedUnique(_ values: [String]) -> [String] {
-  var seen = Set<String>()
+func orderedUnique<Value: Hashable>(_ values: [Value]) -> [Value] {
+  var seen = Set<Value>()
   return values.filter { seen.insert($0).inserted }
 }
 
-func firstNotePreview(notebookId: String, in database: SQLiteDatabase) throws -> String? {
+func firstNotePreview(notebookId: NotebookID, in database: SQLiteDatabase) throws -> String? {
   let rows = try database.query(
     """
     SELECT body_markdown
@@ -128,7 +132,7 @@ func firstNotePreview(notebookId: String, in database: SQLiteDatabase) throws ->
     ORDER BY note_number
     LIMIT 1
     """,
-    bindings: [.text(notebookId)]
+    bindings: [.id(notebookId)]
   )
   guard let body = rows.first?["body_markdown"] else {
     return nil
@@ -136,10 +140,10 @@ func firstNotePreview(notebookId: String, in database: SQLiteDatabase) throws ->
   return notebookPreviewText(body)
 }
 
-func nextNoteNumber(notebookId: String, in database: SQLiteDatabase) throws -> Int {
+func nextNoteNumber(notebookId: NotebookID, in database: SQLiteDatabase) throws -> Int {
   let rows = try database.query(
     "SELECT ifnull(max(note_number), 0) + 1 AS next_note_number FROM notes WHERE notebook_id = ?",
-    bindings: [.text(notebookId)]
+    bindings: [.id(notebookId)]
   )
   return Int(rows.first?["next_note_number"] ?? "") ?? 1
 }
@@ -180,10 +184,10 @@ enum NoteTitleSource: String, Sendable {
   case explicit
 }
 
-func noteTitleSource(noteId: String, in database: SQLiteDatabase) throws -> NoteTitleSource {
+func noteTitleSource(noteId: NoteID, in database: SQLiteDatabase) throws -> NoteTitleSource {
   let rows = try database.query(
     "SELECT title_source FROM notes WHERE note_id = ? LIMIT 1",
-    bindings: [.text(noteId)]
+    bindings: [.id(noteId)]
   )
   guard let raw = rows.first?["title_source"], let source = NoteTitleSource(rawValue: raw) else {
     return .derived
@@ -191,7 +195,10 @@ func noteTitleSource(noteId: String, in database: SQLiteDatabase) throws -> Note
   return source
 }
 
-func makeNoteId(prefix: String) -> String {
+/// Mints an opaque one-off token — a dispatch lease, a login code — that names
+/// no stored entity and so has no identifier type of its own. Entity ids come
+/// from `KaibaIdentifier.generate()` instead.
+func makeOpaqueToken(prefix: String) -> String {
   let milliseconds = Int64(Date().timeIntervalSince1970 * 1_000)
   return "\(prefix)-\(milliseconds)-\(UUID().uuidString.lowercased())"
 }

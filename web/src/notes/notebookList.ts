@@ -1,4 +1,5 @@
 import type { Notebook, NoteTagAssignment } from './types'
+import type { TagId } from './ids'
 
 const hiddenNotebookKinds = new Set([
   'notebook-kind:agent-conversation',
@@ -8,7 +9,7 @@ const hiddenNotebookKinds = new Set([
 
 /** User-facing notebooks in most-recently-written order. Internal notebooks
  * that back agent conversations, memory, and tag memos stay out of the diary. */
-export function diaryNotebooks(notebooks: Notebook[], tagId?: string): Notebook[] {
+export function diaryNotebooks(notebooks: Notebook[], tagId?: TagId): Notebook[] {
   return notebooks
     .filter((notebook) => !notebook.tags.some((assignment) =>
       hiddenNotebookKinds.has(assignment.tag.name)))

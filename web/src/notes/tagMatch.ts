@@ -1,5 +1,6 @@
 import type { InlineSegment } from './markdown'
 import type { NoteTagAssignment } from './types'
+import type { TagId } from './ids'
 
 // Inline tag-term matching (design-docs/specs/tag-detail-pane.md, T1/T2).
 // Given the tags attached to a note (and its notebook), plain text segments of
@@ -8,11 +9,11 @@ import type { NoteTagAssignment } from './types'
 // longest-name-first, and never touches code, links, or styled segments.
 
 export interface TagTerm {
-  tagId: string
+  tagId: TagId
   name: string
 }
 
-export type TagAwareSegment = InlineSegment | { kind: 'tagTerm'; text: string; tagId: string }
+export type TagAwareSegment = InlineSegment | { kind: 'tagTerm'; text: string; tagId: TagId }
 
 /** Names shorter than this underline half the document; skip them. */
 export const minimumTagTermLength = 2
@@ -23,7 +24,7 @@ export const minimumTagTermLength = 2
 export function tagTermsFromAssignments(
   groups: ReadonlyArray<readonly NoteTagAssignment[] | undefined>,
 ): TagTerm[] {
-  const byId = new Map<string, TagTerm>()
+  const byId = new Map<TagId, TagTerm>()
   for (const assignments of groups) {
     for (const assignment of assignments ?? []) {
       const tag = assignment.tag

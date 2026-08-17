@@ -3,7 +3,7 @@ import Foundation
 extension AppCommand {
   func runAdd(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    let notebookId = try cursor.extractOption("--notebook")
+    let notebookId = try cursor.extractIdentifierOption("--notebook", as: NotebookID.self)
     let title = try cursor.extractOption("--title")
     let tagNames = try cursor.extractOptionValues("--tag")
     let readOnly = cursor.extractFlag("--read-only")
@@ -36,7 +36,7 @@ extension AppCommand {
     let append = cursor.extractFlag("--append")
     let output = try cursor.extractOutputMode()
     let body = try readBody(cursor: &cursor, required: true)
-    guard let noteId = cursor.next(), let body else {
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self), let body else {
       throw Error.invalidUsage("edit requires <note-id> and a body")
     }
     try cursor.finish()
@@ -61,7 +61,7 @@ extension AppCommand {
   func runShow(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     let output = try cursor.extractOutputMode()
-    guard let noteId = cursor.next() else {
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self) else {
       throw Error.invalidUsage("show requires <note-id>")
     }
     try cursor.finish()
@@ -75,14 +75,14 @@ extension AppCommand {
     switch output {
     case .json:
       var object = jsonObject(note)
-      object["comments"] = comments.map(jsonObject)
-      object["files"] = files.map { attachment -> [String: Any] in
+      object["comments"] = .array(comments.map { .object(jsonObject($0)) })
+      object["files"] = .array(files.map { attachment in
         var file = jsonObject(attachment.file)
-        file["role"] = attachment.role.rawValue
-        file["position"] = attachment.position
-        return file
-      }
-      object["links"] = links.map(jsonObject)
+        file["role"] = .string(attachment.role.rawValue)
+        file["position"] = .integer(Int64(attachment.position))
+        return .object(file)
+      })
+      object["links"] = .array(links.map { .object(jsonObject($0)) })
       return try renderJSON(object)
     case .text:
       var lines: [String] = []
@@ -102,7 +102,7 @@ extension AppCommand {
       if !files.isEmpty {
         lines.append("files:")
         for attachment in files {
-          let name = attachment.file.originalFilename ?? attachment.file.fileId
+          let name = attachment.file.originalFilename ?? attachment.file.fileId.rawValue
           lines.append(
             "  \(attachment.file.fileId)  \(attachment.role.rawValue)  \(name)  \(attachment.file.mediaType)"
           )
@@ -123,7 +123,7 @@ extension AppCommand {
 
   func runList(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    let notebookId = try cursor.extractOption("--notebook")
+    let notebookId = try cursor.extractIdentifierOption("--notebook", as: NotebookID.self)
     let tagFilter = try cursor.extractOptionValues("--tag")
     let limit = try cursor.extractIntOption("--limit") ?? 100
     let offset = try cursor.extractIntOption("--offset") ?? 0
@@ -152,7 +152,7 @@ extension AppCommand {
     var cursor = context.cursor
     let tagFilter = try cursor.extractOptionValues("--tag")
     let classFilter = try cursor.extractOptionValues("--class")
-    let notebookId = try cursor.extractOption("--notebook")
+    let notebookId = try cursor.extractIdentifierOption("--notebook", as: NotebookID.self)
     let includeLinked = cursor.extractFlag("--include-linked")
     let includeMemos = cursor.extractFlag("--memos")
     let sort = try cursor.extractSort()
@@ -184,16 +184,16 @@ extension AppCommand {
       : []
     switch output {
     case .json:
-      var payload: [[String: Any]] = results.map(jsonObject)
+      var payload: [JSONObject] = results.map(jsonObject)
       payload.append(contentsOf: memoMatches.map { memo in
         [
-          "kind": "memo",
-          "commentId": memo.commentId,
-          "noteId": memo.noteId ?? NSNull(),
-          "notebookId": memo.notebookId ?? NSNull(),
-          "author": memo.author,
-          "createdAt": memo.createdAt,
-          "bodyMarkdown": memo.bodyMarkdown
+          "kind": .string("memo"),
+          "commentId": .id(memo.commentId),
+          "noteId": .optionalID(memo.noteId),
+          "notebookId": .optionalID(memo.notebookId),
+          "author": .string(memo.author),
+          "createdAt": .string(memo.createdAt),
+          "bodyMarkdown": .string(memo.bodyMarkdown)
         ]
       })
       return try renderJSON(payload)
@@ -220,7 +220,7 @@ extension AppCommand {
     var cursor = context.cursor
     let on = cursor.extractFlag("--on")
     let off = cursor.extractFlag("--off")
-    guard let noteId = cursor.next(), on != off else {
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self), on != off else {
       throw Error.invalidUsage("readonly requires <note-id> and exactly one of --on/--off")
     }
     try cursor.finish()
@@ -232,7 +232,7 @@ extension AppCommand {
 
   func runDelete(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    guard let noteId = cursor.next() else {
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self) else {
       throw Error.invalidUsage("delete requires <note-id>")
     }
     try cursor.finish()

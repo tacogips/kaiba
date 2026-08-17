@@ -1,3 +1,4 @@
+import { tagClassId as asTagClassId, tagId as asTagId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import {
   assignableTagGroups,
@@ -14,19 +15,26 @@ import {
 } from './tree'
 import type { NoteTag, NoteTagAssignment, NoteTagClass } from './types'
 
-const tag = (tagId: string, name: string, parentTagId: string | null = null, classId: string | null = 'folder'): NoteTag => ({
-  tagId,
+// The fixtures spell ids as plain text; branding happens here so each test
+// body stays readable.
+const tag = (
+  rawTagId: string,
+  name: string,
+  rawParentTagId: string | null = null,
+  rawClassId: string | null = 'folder',
+): NoteTag => ({
+  tagId: asTagId(rawTagId),
   name,
-  parentTagId,
-  classId,
+  parentTagId: rawParentTagId === null ? null : asTagId(rawParentTagId),
+  classId: rawClassId === null ? null : asTagClassId(rawClassId),
   isSystem: false,
   createdAt: '2026-07-25T00:00:00Z',
 })
 const classes: NoteTagClass[] = [
-  { classId: 'folder', label: 'Folder', description: null },
-  { classId: 'topic', label: 'Topic', description: null },
-  { classId: 'priority', label: 'Priority', description: null },
-  { classId: 'empty', label: 'Empty', description: null },
+  { classId: asTagClassId('folder'), label: 'Folder', description: null },
+  { classId: asTagClassId('topic'), label: 'Topic', description: null },
+  { classId: asTagClassId('priority'), label: 'Priority', description: null },
+  { classId: asTagClassId('empty'), label: 'Empty', description: null },
 ]
 const assignment = (value: NoteTag, deletable = true): NoteTagAssignment => ({
   tag: value,
@@ -48,7 +56,7 @@ describe('folder tree', () => {
     const tree = buildFolderTree(tags, 'en')
     expect(tree.map((node) => node.tag.name)).toEqual(['Archive', 'Work'])
     expect(tree[1]?.children[0]?.children[0]?.tag.name).toBe('Launch')
-    expect(folderBreadcrumb(tags, 'grandchild').map((value) => value.name)).toEqual(['Work', 'Project', 'Launch'])
+    expect(folderBreadcrumb(tags, asTagId('grandchild')).map((value) => value.name)).toEqual(['Work', 'Project', 'Launch'])
   })
 
   test('terminates malformed cycles and detects sibling-only trimmed-name collisions', () => {
@@ -64,32 +72,32 @@ describe('folder tree', () => {
     const tree = buildFolderTree(tags, 'en')
     expect(tree.length).toBeGreaterThan(0)
     expect(folderNameCollision(tags, 'Shared')).toBeUndefined()
-    expect(folderNameCollision(tags, 'Shared', 'root-a')?.tagId).toBe('child-a')
-    expect(folderNameCollision(tags, 'Shared', 'root-b')?.tagId).toBe('child-b')
-    expect(qualifiedTagLabel(tags, 'child-a')).toBe('A /  Shared ')
-    expect(qualifiedTagLabel(tags, 'missing')).toBe('[missing: missing]')
-    expect(qualifiedTagLabel(tags, 'one')).toContain('[cycle:')
-    expect(qualifiedTagBreadcrumb(tags, 'child-a').map((segment) => segment.label))
+    expect(folderNameCollision(tags, 'Shared', asTagId('root-a'))?.tagId).toBe(asTagId('child-a'))
+    expect(folderNameCollision(tags, 'Shared', asTagId('root-b'))?.tagId).toBe(asTagId('child-b'))
+    expect(qualifiedTagLabel(tags, asTagId('child-a'))).toBe('A /  Shared ')
+    expect(qualifiedTagLabel(tags, asTagId('missing'))).toBe('[missing: missing]')
+    expect(qualifiedTagLabel(tags, asTagId('one'))).toContain('[cycle:')
+    expect(qualifiedTagBreadcrumb(tags, asTagId('child-a')).map((segment) => segment.label))
       .toEqual(['A', ' Shared '])
-    expect(qualifiedTagBreadcrumb(tags, 'one').map((segment) => segment.label))
+    expect(qualifiedTagBreadcrumb(tags, asTagId('one')).map((segment) => segment.label))
       .toEqual(['[cycle: one]', 'Two', 'One'])
     expect(qualifiedTagBreadcrumb([
       tag('orphan', 'Orphan', 'absent'),
-    ], 'orphan').map((segment) => segment.label))
+    ], asTagId('orphan')).map((segment) => segment.label))
       .toEqual(['[missing: absent]', 'Orphan'])
     expect(qualifiedTagBreadcrumb([
       tag('topic-child', 'Child', 'missing-topic', 'topic'),
-    ], 'topic-child').map((segment) => segment.label))
+    ], asTagId('topic-child')).map((segment) => segment.label))
       .toEqual(['[missing: missing-topic]', 'Child'])
-    expect(qualifiedTagBreadcrumb(tags, 'child-a', 1).map((segment) => segment.label))
+    expect(qualifiedTagBreadcrumb(tags, asTagId('child-a'), 1).map((segment) => segment.label))
       .toEqual(['[depth: child-a]', ' Shared '])
   })
 
   test('validates the authoritative class and parent returned for creation', () => {
-    expect(matchesCreatedFolder(tag('child', 'Child', 'root'), 'folder', 'root')).toBe(true)
-    expect(matchesCreatedFolder(tag('child', 'Child', 'other'), 'folder', 'root')).toBe(false)
-    expect(matchesCreatedFolder(tag('root', 'Root'), 'folder')).toBe(true)
-    expect(matchesCreatedFolder(tag('topic', 'Topic', null, 'topic'), 'folder')).toBe(false)
+    expect(matchesCreatedFolder(tag('child', 'Child', 'root'), asTagClassId('folder'), asTagId('root'))).toBe(true)
+    expect(matchesCreatedFolder(tag('child', 'Child', 'other'), asTagClassId('folder'), asTagId('root'))).toBe(false)
+    expect(matchesCreatedFolder(tag('root', 'Root'), asTagClassId('folder'))).toBe(true)
+    expect(matchesCreatedFolder(tag('topic', 'Topic', null, 'topic'), asTagClassId('folder'))).toBe(false)
   })
 
   test('builds class-scoped trees without following cross-class parents', () => {
@@ -99,11 +107,11 @@ describe('folder tree', () => {
       tag('topic-grandchild', 'Web', 'topic-child', 'topic'),
       tag('priority', 'High', 'topic-root', 'priority'),
     ]
-    const topicTree = buildTagTree(tags, 'topic', 'en')
-    const priorityTree = buildTagTree(tags, 'priority', 'en')
+    const topicTree = buildTagTree(tags, asTagClassId('topic'), 'en')
+    const priorityTree = buildTagTree(tags, asTagClassId('priority'), 'en')
     expect(topicTree[0]?.children[0]?.children[0]?.tag.name).toBe('Web')
     expect(priorityTree.map((node) => node.tag.name)).toEqual(['High'])
-    expect(tagBreadcrumb(tags, 'topic-grandchild', 'topic').map((value) => value.name))
+    expect(tagBreadcrumb(tags, asTagId('topic-grandchild'), asTagClassId('topic')).map((value) => value.name))
       .toEqual(['Product', 'Launch', 'Web'])
   })
 

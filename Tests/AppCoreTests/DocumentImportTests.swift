@@ -332,12 +332,12 @@ final class DocumentImportServiceTests: NoteTestCase {
 
   private func fetchNotebookMetaJSON(
     service: NoteService,
-    notebookId: String
+    notebookId: NotebookID
   ) throws -> String? {
     try service.driver.withDatabase { database in
       try database.query(
         "SELECT json(meta_json) AS meta FROM notebooks WHERE notebook_id = ?",
-        bindings: [.text(notebookId)]
+        bindings: [.id(notebookId)]
       ).first?["meta"]
     }
   }
