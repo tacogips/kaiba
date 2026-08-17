@@ -1,4 +1,5 @@
 import type { Note } from './types'
+import type { TagId } from './ids'
 
 export const tagOccurrencesPageLimit = 200
 
@@ -9,8 +10,8 @@ export type TagOccurrencePageLoader = (tagName: string, offset: number, limit: n
 /** Synchronous state transition used by the tag Links controller before it
  * starts a request. Changing tag identity must remove all old link targets. */
 export function transitionTagOccurrences(
-  previousTagId: string,
-  nextTagId: string,
+  previousTagId: TagId | null,
+  nextTagId: TagId,
   current: Note[],
 ): Note[] {
   return previousTagId === nextTagId ? current : []

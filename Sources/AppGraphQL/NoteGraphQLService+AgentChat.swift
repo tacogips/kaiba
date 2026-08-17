@@ -101,7 +101,7 @@ public extension GraphQLNoteGraphQLService {
   private func conversationNotebookId(
     for input: GraphQLSendAgentChatMessageInput,
     mode: AgentChatTurnMode?
-  ) throws -> String {
+  ) throws -> NotebookID {
     if let existing = input.conversationNotebookId {
       guard let existingSubject = try service.chatSubject(notebookId: existing) else {
         throw GraphQLNoteServiceError.invalidRequest(
@@ -146,7 +146,7 @@ public extension GraphQLNoteGraphQLService {
     let note = try service.getNote(noteId)
     let notebook = try service.getNotebook(note.notebookId)
     guard !note.readOnly, !notebook.readOnly else {
-      throw NoteServiceError.readOnly(noteId)
+      throw NoteServiceError.readOnly(noteId.rawValue)
     }
   }
 

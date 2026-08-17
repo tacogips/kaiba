@@ -4,10 +4,10 @@ import Foundation
 /// tag class; `parent` optionally names a parent tag for the hierarchy.
 public struct AITagProposal: Codable, Equatable, Sendable {
   public var name: String
-  public var `class`: String?
+  public var `class`: TagClassID?
   public var parent: String?
 
-  public init(name: String, class classId: String? = nil, parent: String? = nil) {
+  public init(name: String, class classId: TagClassID? = nil, parent: String? = nil) {
     self.name = name
     self.class = classId
     self.parent = parent
@@ -15,8 +15,8 @@ public struct AITagProposal: Codable, Equatable, Sendable {
 }
 
 public enum AITagExtractionSubject: Equatable, Sendable {
-  case note(String)
-  case notebook(String)
+  case note(NoteID)
+  case notebook(NotebookID)
 }
 
 public struct AITagExtractionResult: Equatable, Sendable {
@@ -32,7 +32,7 @@ public struct AITagExtractionResult: Equatable, Sendable {
 }
 
 public extension NoteService {
-  static let manualTagExtractionActionId = "manual-tag-extraction"
+  static let manualTagExtractionActionId = AutoActionID("manual-tag-extraction")
 
   /// Queues a manual tag-extraction dispatch for the subject (the UI's
   /// "extract tags" button and the GraphQL `requestTagExtraction` mutation).
@@ -88,7 +88,7 @@ extension NoteService {
     event: NoteAutoActionEvent,
     in database: SQLiteDatabase
   ) throws -> QueuedAutoActionDispatch {
-    let dispatchId = makeNoteId(prefix: "auto-action-dispatch")
+    let dispatchId = AutoActionDispatchID.generate()
     let now = NoteStoreClock.system.now()
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
@@ -104,10 +104,10 @@ extension NoteService {
       ) VALUES (?, ?, ?, ?, jsonb(?), ?, ?, ?, jsonb(?), 'pending', 0, ?, ?)
       """,
       bindings: [
-        .text(dispatchId),
-        .text(action.actionId),
+        .id(dispatchId),
+        .id(action.actionId),
         .text(action.trigger.rawValue),
-        .text(action.workflowId),
+        .id(action.workflowId),
         .optionalText(action.filterJSON),
         .int(action.enabled ? 1 : 0),
         .int(Int64(action.position)),
@@ -159,8 +159,8 @@ public struct AITagExtractionService: Sendable {
     if context.isAgentConversation {
       return AITagExtractionResult(subject: subject, proposals: [], applied: false)
     }
-    let classes = try service.listTagClasses().filter { $0.classId != "folder" }
-    let existingTags = try service.listTags().filter { $0.classId != "folder" }
+    let classes = try service.listTagClasses().filter { $0.classId != .folder }
+    let existingTags = try service.listTags().filter { $0.classId != .folder }
     let request = AgentInvocationRequest(
       purpose: .tagExtraction,
       systemPrompt: Self.systemPrompt(classes: classes, existingTags: existingTags),
@@ -212,7 +212,7 @@ public struct AITagExtractionService: Sendable {
 
   public static func parseProposals(
     reply: String,
-    allowedClassIds: Set<String>
+    allowedClassIds: Set<TagClassID>
   ) throws -> [AITagProposal] {
     let json = extractJSONArray(from: reply)
     guard let data = json.data(using: .utf8) else {
@@ -238,7 +238,7 @@ public struct AITagExtractionService: Sendable {
         continue
       }
       if let classId = proposal.class {
-        guard classId != "folder", allowedClassIds.contains(classId) else {
+        guard classId != .folder, allowedClassIds.contains(classId) else {
           continue
         }
       }
@@ -274,14 +274,14 @@ public struct AITagExtractionService: Sendable {
     // or parent — reclassifying a human-authored tag is a silent ontology
     // mutation, not an assignment (which D6 already protects).
     var existingNames = Set(
-      try service.listTags().filter { $0.classId != "folder" }.map(\.name)
+      try service.listTags().filter { $0.classId != .folder }.map(\.name)
     )
     for proposal in proposals {
-      var parentTagId: String?
+      var parentTagId: TagID?
       if let parentName = proposal.parent {
         if existingNames.contains(parentName) {
           parentTagId = try service.listTags()
-            .first { $0.name == parentName && $0.classId != "folder" }?.tagId
+            .first { $0.name == parentName && $0.classId != .folder }?.tagId
         } else {
           let parent = try service.defineTag(name: parentName, classId: proposal.class)
           existingNames.insert(parentName)

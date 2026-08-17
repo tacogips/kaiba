@@ -2,11 +2,11 @@ import Foundation
 import AppCore
 
 public struct GraphQLUpdateNoteInput: Codable, Equatable, Sendable {
-  public var noteId: String
+  public var noteId: NoteID
   public var bodyMarkdown: String
-  public var originatingActionId: String?
+  public var originatingActionId: AutoActionID?
 
-  public init(noteId: String, bodyMarkdown: String, originatingActionId: String? = nil) {
+  public init(noteId: NoteID, bodyMarkdown: String, originatingActionId: AutoActionID? = nil) {
     self.noteId = noteId
     self.bodyMarkdown = bodyMarkdown
     self.originatingActionId = originatingActionId
@@ -14,13 +14,13 @@ public struct GraphQLUpdateNoteInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLApplyNoteTagsInput: Codable, Equatable, Sendable {
-  public var noteId: String
+  public var noteId: NoteID
   public var tags: [GraphQLNoteTagInput]
   public var provenance: String?
   public var assignedBy: String?
 
   public init(
-    noteId: String,
+    noteId: NoteID,
     tags: [GraphQLNoteTagInput],
     provenance: String? = nil,
     assignedBy: String? = nil
@@ -33,13 +33,13 @@ public struct GraphQLApplyNoteTagsInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLApplyNotebookTagsInput: Codable, Equatable, Sendable {
-  public var notebookId: String
+  public var notebookId: NotebookID
   public var tags: [String]
   public var provenance: String?
   public var assignedBy: String?
 
   public init(
-    notebookId: String,
+    notebookId: NotebookID,
     tags: [String],
     provenance: String? = nil,
     assignedBy: String? = nil
@@ -52,14 +52,14 @@ public struct GraphQLApplyNotebookTagsInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLApplyNotebookTagIdsInput: Codable, Equatable, Sendable {
-  public var notebookId: String
-  public var tagIds: [String]
+  public var notebookId: NotebookID
+  public var tagIds: [TagID]
   public var provenance: String?
   public var assignedBy: String?
 
   public init(
-    notebookId: String,
-    tagIds: [String],
+    notebookId: NotebookID,
+    tagIds: [TagID],
     provenance: String? = nil,
     assignedBy: String? = nil
   ) {
@@ -71,11 +71,11 @@ public struct GraphQLApplyNotebookTagIdsInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLAddNoteCommentInput: Codable, Equatable, Sendable {
-  public var noteId: String
+  public var noteId: NoteID
   public var bodyMarkdown: String
   public var author: String?
 
-  public init(noteId: String, bodyMarkdown: String, author: String? = nil) {
+  public init(noteId: NoteID, bodyMarkdown: String, author: String? = nil) {
     self.noteId = noteId
     self.bodyMarkdown = bodyMarkdown
     self.author = author
@@ -83,11 +83,11 @@ public struct GraphQLAddNoteCommentInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLAddNotebookCommentInput: Codable, Equatable, Sendable {
-  public var notebookId: String
+  public var notebookId: NotebookID
   public var bodyMarkdown: String
   public var author: String?
 
-  public init(notebookId: String, bodyMarkdown: String, author: String? = nil) {
+  public init(notebookId: NotebookID, bodyMarkdown: String, author: String? = nil) {
     self.notebookId = notebookId
     self.bodyMarkdown = bodyMarkdown
     self.author = author
@@ -105,14 +105,14 @@ public struct GraphQLSetAppSettingInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLLinkNotesInput: Codable, Equatable, Sendable {
-  public var fromNoteId: String
-  public var toNoteId: String
+  public var fromNoteId: NoteID
+  public var toNoteId: NoteID
   public var linkKind: String?
   public var provenance: String?
 }
 
 public struct GraphQLAttachNoteFileInput: Codable, Equatable, Sendable {
-  public var noteId: String
+  public var noteId: NoteID
   public var contentBase64: String
   public var role: String?
   public var mediaType: String
@@ -120,7 +120,7 @@ public struct GraphQLAttachNoteFileInput: Codable, Equatable, Sendable {
   public var position: Int?
 
   public init(
-    noteId: String,
+    noteId: NoteID,
     contentBase64: String,
     role: String? = nil,
     mediaType: String,
@@ -137,9 +137,9 @@ public struct GraphQLAttachNoteFileInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLConfigureNoteAutoActionInput: Codable, Equatable, Sendable {
-  public var actionId: String
+  public var actionId: AutoActionID
   public var trigger: String
-  public var workflowId: String
+  public var workflowId: WorkflowID
   public var filterJSON: String?
   public var enabled: Bool?
   public var position: Int?
@@ -148,13 +148,13 @@ public struct GraphQLConfigureNoteAutoActionInput: Codable, Equatable, Sendable 
 public struct GraphQLNoteConversationTurnInput: Codable, Equatable, Sendable {
   public var userMarkdown: String
   public var assistantMarkdown: String
-  public var sourceNoteIds: [String]
+  public var sourceNoteIds: [NoteID]
 
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     userMarkdown = try container.decode(String.self, forKey: .userMarkdown)
     assistantMarkdown = try container.decode(String.self, forKey: .assistantMarkdown)
-    sourceNoteIds = try container.decodeIfPresent([String].self, forKey: .sourceNoteIds) ?? []
+    sourceNoteIds = try container.decodeIfPresent([NoteID].self, forKey: .sourceNoteIds) ?? []
   }
 
   public var noteTurn: NoteConversationTurn {
@@ -170,7 +170,7 @@ public struct GraphQLSaveNoteConversationInput: Codable, Equatable, Sendable {
   public var title: String
   public var transcript: [GraphQLNoteConversationTurnInput]
   public var assignedBy: String?
-  public var originatingActionId: String?
+  public var originatingActionId: AutoActionID?
 }
 
 /// The subject is a note (`subjectNoteId`) or a whole notebook
@@ -178,9 +178,9 @@ public struct GraphQLSaveNoteConversationInput: Codable, Equatable, Sendable {
 /// conversation, and neither is needed when `conversationNotebookId` names an
 /// existing one.
 public struct GraphQLSendAgentChatMessageInput: Codable, Equatable, Sendable {
-  public var subjectNoteId: String?
-  public var subjectNotebookId: String?
-  public var conversationNotebookId: String?
+  public var subjectNoteId: NoteID?
+  public var subjectNotebookId: NotebookID?
+  public var conversationNotebookId: NotebookID?
   public var userMarkdown: String
   public var idempotencyKey: String?
   public var model: String?
@@ -189,9 +189,9 @@ public struct GraphQLSendAgentChatMessageInput: Codable, Equatable, Sendable {
   public var attachments: [GraphQLAgentChatAttachmentInput]?
 
   public init(
-    subjectNoteId: String? = nil,
-    subjectNotebookId: String? = nil,
-    conversationNotebookId: String? = nil,
+    subjectNoteId: NoteID? = nil,
+    subjectNotebookId: NotebookID? = nil,
+    conversationNotebookId: NotebookID? = nil,
     userMarkdown: String,
     idempotencyKey: String? = nil,
     model: String? = nil,
@@ -222,21 +222,21 @@ public struct GraphQLAgentChatAttachmentInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLRequestTagExtractionInput: Codable, Equatable, Sendable {
-  public var noteId: String?
-  public var notebookId: String?
+  public var noteId: NoteID?
+  public var notebookId: NotebookID?
 
-  public init(noteId: String? = nil, notebookId: String? = nil) {
+  public init(noteId: NoteID? = nil, notebookId: NotebookID? = nil) {
     self.noteId = noteId
     self.notebookId = notebookId
   }
 }
 
 public struct GraphQLRequestNotebookTranslationInput: Codable, Equatable, Sendable {
-  public var notebookId: String
+  public var notebookId: NotebookID
   public var targetLanguage: String
   public var title: String?
 
-  public init(notebookId: String, targetLanguage: String, title: String? = nil) {
+  public init(notebookId: NotebookID, targetLanguage: String, title: String? = nil) {
     self.notebookId = notebookId
     self.targetLanguage = targetLanguage
     self.title = title
@@ -244,7 +244,7 @@ public struct GraphQLRequestNotebookTranslationInput: Codable, Equatable, Sendab
 }
 
 public struct GraphQLMigrateNoteFileStorageInput: Codable, Equatable, Sendable {
-  public var fileId: String
+  public var fileId: FileID
   public var s3ProfileName: String?
   public var s3Endpoint: String?
   public var s3Region: String?
@@ -255,7 +255,7 @@ public struct GraphQLMigrateNoteFileStorageInput: Codable, Equatable, Sendable {
   public var s3KeyPrefix: String?
 
   public init(
-    fileId: String,
+    fileId: FileID,
     s3ProfileName: String? = nil,
     s3Endpoint: String? = nil,
     s3Region: String? = nil,
@@ -380,7 +380,7 @@ public struct GraphQLReclaimNoteFileStorageInput: Codable, Equatable, Sendable {
       return nil
     }
     return try GraphQLMigrateNoteFileStorageInput(
-      fileId: "",
+      fileId: FileID(""),
       s3ProfileName: s3ProfileName,
       s3Endpoint: s3Endpoint,
       s3Region: s3Region,
@@ -435,7 +435,7 @@ public struct GraphQLMigrateAllNoteFilesInput: Codable, Equatable, Sendable {
     rawEnvironmentAllowlist: Set<String>
   ) throws -> S3StorageProfile {
     try GraphQLMigrateNoteFileStorageInput(
-      fileId: "",
+      fileId: FileID(""),
       s3ProfileName: s3ProfileName,
       s3Endpoint: s3Endpoint,
       s3Region: s3Region,

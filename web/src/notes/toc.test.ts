@@ -1,3 +1,4 @@
+import { noteId as asNoteId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import { parseMarkdownBlocks } from './markdown'
 import {
@@ -28,16 +29,16 @@ describe('heading slugs', () => {
   })
 
   test('a note prefix namespaces every anchor so notes never collide in the reader', () => {
-    const prefix = noteHeadingPrefix('n-42')
+    const prefix = noteHeadingPrefix(asNoteId('n-42'))
     const anchors = headingAnchors(parseMarkdownBlocks('# Notes\n\n## Notes\n'), prefix)
     expect(anchors.map((anchor) => anchor.id)).toEqual(['note-n-42--notes', 'note-n-42--notes-2'])
-    const tree = markdownHeadingTree('# Notes\n', noteHeadingPrefix('other'))
+    const tree = markdownHeadingTree('# Notes\n', noteHeadingPrefix(asNoteId('other')))
     expect(tree[0]?.id).toBe('note-other--notes')
   })
 
   test('prefixed block-index anchors match the prefixed anchor list', () => {
     const blocks = parseMarkdownBlocks('# One\n\ntext\n\n## Two\n')
-    const byIndex = headingAnchorsByBlockIndex(blocks, noteHeadingPrefix('x'))
+    const byIndex = headingAnchorsByBlockIndex(blocks, noteHeadingPrefix(asNoteId('x')))
     expect(byIndex.get(0)?.id).toBe('note-x--one')
     expect(byIndex.get(2)?.id).toBe('note-x--two')
   })

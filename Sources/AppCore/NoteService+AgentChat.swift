@@ -112,23 +112,23 @@ public enum AgentChatAttachmentValidation {
 
 /// What a chat conversation is about: a single note, or a whole notebook.
 public enum AgentChatSubject: Equatable, Sendable {
-  case note(String)
-  case notebook(String)
+  case note(NoteID)
+  case notebook(NotebookID)
 }
 
 public struct AgentChatConversation: Equatable, Sendable {
   public var notebook: Notebook
   /// Nil for a notebook-scoped conversation.
-  public var subjectNoteId: String?
+  public var subjectNoteId: NoteID?
   /// The subject notebook: the note's notebook for note-scoped chats, the
   /// subject itself for notebook-scoped ones.
-  public var subjectNotebookId: String?
+  public var subjectNotebookId: NotebookID?
   public var turnCount: Int
 
   public init(
     notebook: Notebook,
-    subjectNoteId: String?,
-    subjectNotebookId: String? = nil,
+    subjectNoteId: NoteID?,
+    subjectNotebookId: NotebookID? = nil,
     turnCount: Int
   ) {
     self.notebook = notebook
@@ -142,7 +142,7 @@ public extension NoteService {
   /// Creates the conversation notebook for a subject note.
   @discardableResult
   func startAgentConversation(
-    subjectNoteId: String,
+    subjectNoteId: NoteID,
     title: String? = nil
   ) throws -> Notebook {
     let subject = try getNote(subjectNoteId)
@@ -163,7 +163,7 @@ public extension NoteService {
   /// thread started with no note selected).
   @discardableResult
   func startAgentConversation(
-    subjectNotebookId: String,
+    subjectNotebookId: NotebookID,
     title: String? = nil
   ) throws -> Notebook {
     let subject = try getNotebook(subjectNotebookId)
@@ -184,7 +184,7 @@ public extension NoteService {
   /// when no runtime is available (`agentAvailable: false`).
   @discardableResult
   func appendPendingAgentChatTurn(
-    conversationNotebookId: String,
+    conversationNotebookId: NotebookID,
     userMarkdown: String,
     agentAvailable: Bool,
     idempotencyKey: String? = nil,
@@ -205,7 +205,7 @@ public extension NoteService {
     }
     struct StagedAttachment {
       var attachment: AgentChatAttachment
-      var fileId: String
+      var fileId: FileID
       var stored: StoredNoteFile
     }
     let fileStore: any NoteFileStore = chatAttachmentFileStore
@@ -213,7 +213,7 @@ public extension NoteService {
     var staged: [StagedAttachment] = []
     do {
       for attachment in attachments {
-        let fileId = makeNoteId(prefix: "file")
+        let fileId = FileID.generate()
         let stored = try fileStore.store(data: attachment.data, fileId: fileId)
         staged.append(StagedAttachment(attachment: attachment, fileId: fileId, stored: stored))
       }
@@ -269,7 +269,7 @@ public extension NoteService {
         }
         let now = NoteStoreClock.system.now()
         let noteNumber = try nextNoteNumber(notebookId: conversationNotebookId, in: db)
-        let noteId = makeNoteId(prefix: "note")
+        let noteId = NoteID.generate()
         let body = Self.chatTurnBody(
           noteNumber: noteNumber,
           userMarkdown: trimmed,
@@ -283,15 +283,22 @@ public extension NoteService {
           """
           INSERT INTO notes (
             note_id, notebook_id, note_number, title, body_markdown,
-            read_only, created_at, updated_at, meta_json
-          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?, jsonb(?))
+            read_only, created_by, updated_by, created_at, updated_at, meta_json
+          ) VALUES (
+            ?, ?, ?, ?, ?, 0,
+            (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+            (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+            ?, ?, jsonb(?)
+          )
           """,
           bindings: [
-            .text(noteId),
-            .text(conversationNotebookId),
+            .id(noteId),
+            .id(conversationNotebookId),
             .int(Int64(noteNumber)),
             .optionalText(noteTitle(from: body)),
             .text(body),
+            .id(conversationNotebookId),
+            .id(conversationNotebookId),
             .text(now),
             .text(now),
             .text(metaJSON)
@@ -308,7 +315,7 @@ public extension NoteService {
           try db.execute(
             "INSERT INTO note_files (note_id, file_id, role, position) VALUES (?, ?, ?, ?)",
             bindings: [
-              .text(noteId), .text(record.fileId), .text(NoteFileRole.related.rawValue), .int(Int64(position))
+              .id(noteId), .id(record.fileId), .text(NoteFileRole.related.rawValue), .int(Int64(position))
             ]
           )
         }
@@ -322,8 +329,8 @@ public extension NoteService {
           )
         }
         try db.execute(
-          "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-          bindings: [.text(now), .text(conversationNotebookId)]
+          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+          bindings: [.text(now), .id(conversationNotebookId)]
         )
         try refreshFTS(noteId: noteId, previous: nil, in: db)
         let note = try requireNote(noteId, in: db)
@@ -357,9 +364,9 @@ public extension NoteService {
   /// Fills in the assistant half and marks the turn answered.
   @discardableResult
   func completeAgentChatTurn(
-    turnNoteId: String,
+    turnNoteId: NoteID,
     assistantMarkdown: String,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) throws -> Note {
     try updateChatTurn(turnNoteId: turnNoteId) { state in
       AgentChatTurnState(
@@ -376,9 +383,9 @@ public extension NoteService {
   /// Records a failed reply attempt; the turn stays retryable.
   @discardableResult
   func failAgentChatTurn(
-    turnNoteId: String,
+    turnNoteId: NoteID,
     message: String,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) throws -> Note {
     try updateChatTurn(turnNoteId: turnNoteId) { state in
       AgentChatTurnState(
@@ -395,7 +402,7 @@ public extension NoteService {
 
   /// Conversations whose subject is the note, newest first.
   func listAgentConversations(
-    subjectNoteId: String,
+    subjectNoteId: NoteID,
     limit: Int = 50
   ) throws -> [AgentChatConversation] {
     try listAgentConversations(
@@ -409,7 +416,7 @@ public extension NoteService {
   /// selected), newest first. Note-scoped conversations inside the notebook do
   /// not appear here — they belong to their note.
   func listAgentConversations(
-    subjectNotebookId: String,
+    subjectNotebookId: NotebookID,
     limit: Int = 50
   ) throws -> [AgentChatConversation] {
     try listAgentConversations(
@@ -424,7 +431,7 @@ public extension NoteService {
 
   private func listAgentConversations(
     predicate: String,
-    binding: String,
+    binding: some KaibaIdentifier,
     limit: Int
   ) throws -> [AgentChatConversation] {
     guard (0...200).contains(limit) else {
@@ -442,10 +449,10 @@ public extension NoteService {
         ORDER BY nb.updated_at DESC, nb.notebook_id
         LIMIT ?
         """,
-        bindings: [.text(binding), .int(Int64(limit))]
+        bindings: [.id(binding), .int(Int64(limit))]
       )
       return try rows.map { row in
-        guard let notebookId = row["notebook_id"],
+        guard let notebookId = row.identifier("notebook_id", as: NotebookID.self),
           let countText = row["turn_count"],
           let turnCount = Int(countText)
         else {
@@ -453,8 +460,8 @@ public extension NoteService {
         }
         return AgentChatConversation(
           notebook: try requireNotebook(notebookId, in: database),
-          subjectNoteId: row["subject_note_id"] ?? nil,
-          subjectNotebookId: row["subject_notebook_id"] ?? nil,
+          subjectNoteId: row.identifier("subject_note_id", as: NoteID.self) ?? nil,
+          subjectNotebookId: row.identifier("subject_notebook_id", as: NotebookID.self) ?? nil,
           turnCount: turnCount
         )
       }
@@ -464,26 +471,25 @@ public extension NoteService {
   /// Parses chat turn state from a turn note's meta JSON; nil for non-chat notes.
   static func chatTurnState(of note: Note) -> AgentChatTurnState? {
     guard let metaJSON = note.metaJSON,
-      let data = metaJSON.data(using: .utf8),
-      let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-      let chat = root["kaibaChat"] as? [String: Any],
-      let statusText = chat["status"] as? String,
+      let root = try? JSONValue(parsing: metaJSON),
+      let chat = root["kaibaChat"],
+      let statusText = chat["status"]?.asString,
       let status = AgentChatTurnStatus(rawValue: statusText),
-      let userMarkdown = chat["userMarkdown"] as? String
+      let userMarkdown = chat["userMarkdown"]?.asString
     else {
       return nil
     }
     return AgentChatTurnState(
       status: status,
       userMarkdown: userMarkdown,
-      errorMessage: chat["error"] as? String,
-      model: chat["model"] as? String,
-      mode: (chat["mode"] as? String).flatMap(AgentChatTurnMode.init(rawValue:))
+      errorMessage: chat["error"]?.asString,
+      model: chat["model"]?.asString,
+      mode: chat["mode"]?.asString.flatMap(AgentChatTurnMode.init(rawValue:))
     )
   }
 
   /// The subject note id recorded in a conversation notebook's meta JSON.
-  func chatSubjectNoteId(notebookId: String) throws -> String? {
+  func chatSubjectNoteId(notebookId: NotebookID) throws -> NoteID? {
     try driver.withDatabase { database in
       try chatSubjectNoteId(notebookId: notebookId, in: database)
     }
@@ -491,7 +497,7 @@ public extension NoteService {
 
   /// The conversation's subject (note or notebook); nil when the notebook is
   /// not an agent chat conversation.
-  func chatSubject(notebookId: String) throws -> AgentChatSubject? {
+  func chatSubject(notebookId: NotebookID) throws -> AgentChatSubject? {
     try driver.withDatabase { database in
       try chatSubject(notebookId: notebookId, in: database)
     }
@@ -502,11 +508,11 @@ public extension NoteService {
   /// Generates the assistant reply for a pending (or previously failed) turn.
   /// Answered turns are skipped, making dispatch retries idempotent.
   func generateAgentChatReply(
-    turnNoteId: String,
+    turnNoteId: NoteID,
     invoker: any AgentInvoking,
     provider: String? = nil,
     model: String? = nil,
-    originatingActionId: String? = nil,
+    originatingActionId: AutoActionID? = nil,
     streamPublisher: (any AgentReplyStreamPublishing)? = nil
   ) async throws {
     let turnNote = try getNote(turnNoteId)
@@ -545,7 +551,7 @@ public extension NoteService {
     ))
     // Edit mode only ever targets a note subject (enforced at append time);
     // a stale or hand-written mode on another subject degrades to memo chat.
-    var editSubjectNoteId: String?
+    var editSubjectNoteId: NoteID?
     if state.mode == .edit, case let .note(subjectNoteId) = subject {
       editSubjectNoteId = subjectNoteId
     }
@@ -644,7 +650,7 @@ public extension NoteService {
   /// Notebook-subject context: title plus each note's markdown in page order,
   /// capped so a large imported document cannot blow the prompt.
   func notebookContextMarkdown(
-    notebookId: String,
+    notebookId: NotebookID,
     limitBytes: Int = 200 * 1024
   ) throws -> String {
     let notebook = try getNotebook(notebookId)
@@ -684,7 +690,7 @@ public extension NoteService {
         $0.position == $1.position ? $0.file.fileId < $1.file.fileId : $0.position < $1.position
       }
       for attachment in attachments {
-        let filename = promptMetadata(attachment.file.originalFilename ?? attachment.file.fileId)
+        let filename = promptMetadata(attachment.file.originalFilename ?? attachment.file.fileId.rawValue)
         let mediaType = promptMetadata(attachment.file.mediaType)
         let header = "<attachment filename=\"\(filename)\" media-type=\"\(mediaType)\">\n"
         let footer = "\n</attachment>"
@@ -726,12 +732,12 @@ public extension NoteService {
   // MARK: - Internals
 
   private func updateChatTurn(
-    turnNoteId: String,
+    turnNoteId: NoteID,
     transformState: (AgentChatTurnState) -> AgentChatTurnState,
     assistantMarkdown: (AgentChatTurnState) -> String?
   ) throws -> Note {
     let result = try driver.withDatabase { database in
-      try database.transaction { db -> (note: Note, notebookId: String) in
+      try database.transaction { db -> (note: Note, notebookId: NotebookID) in
         let note = try requireNote(turnNoteId, in: db)
         guard let state = Self.chatTurnState(of: note) else {
           throw NoteServiceError.invalidInput("note is not an agent chat turn: \(turnNoteId)")
@@ -750,7 +756,8 @@ public extension NoteService {
         try db.execute(
           """
           UPDATE notes
-          SET body_markdown = ?, title = ?, meta_json = jsonb(?), updated_at = ?
+          SET body_markdown = ?, title = ?, meta_json = jsonb(?), updated_at = ?,
+            updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id)
           WHERE note_id = ?
           """,
           bindings: [
@@ -758,12 +765,12 @@ public extension NoteService {
             .optionalText(noteTitle(from: body)),
             .text(metaJSON),
             .text(now),
-            .text(turnNoteId)
+            .id(turnNoteId)
           ]
         )
         try db.execute(
-          "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-          bindings: [.text(now), .text(note.notebookId)]
+          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+          bindings: [.text(now), .id(note.notebookId)]
         )
         try refreshFTS(noteId: turnNoteId, previous: previous, in: db)
         return (try requireNote(turnNoteId, in: db), note.notebookId)
@@ -777,9 +784,9 @@ public extension NoteService {
   }
 
   private func chatSubjectNoteId(
-    notebookId: String,
+    notebookId: NotebookID,
     in database: SQLiteDatabase
-  ) throws -> String? {
+  ) throws -> NoteID? {
     try database.query(
       """
       SELECT json_extract(meta_json, '$.kaibaChat.subjectNoteId') AS subject
@@ -787,12 +794,12 @@ public extension NoteService {
       WHERE notebook_id = ?
       LIMIT 1
       """,
-      bindings: [.text(notebookId)]
-    ).first?["subject"] ?? nil
+      bindings: [.id(notebookId)]
+    ).first?.identifier("subject", as: NoteID.self)
   }
 
   private func chatSubject(
-    notebookId: String,
+    notebookId: NotebookID,
     in database: SQLiteDatabase
   ) throws -> AgentChatSubject? {
     guard let row = try database.query(
@@ -803,21 +810,21 @@ public extension NoteService {
       WHERE notebook_id = ?
       LIMIT 1
       """,
-      bindings: [.text(notebookId)]
+      bindings: [.id(notebookId)]
     ).first else {
       return nil
     }
-    if let subjectNoteId = row["subject_note"] ?? nil {
+    if let subjectNoteId = row.identifier("subject_note", as: NoteID.self) {
       return .note(subjectNoteId)
     }
-    if let subjectNotebookId = row["subject_notebook"] ?? nil {
+    if let subjectNotebookId = row.identifier("subject_notebook", as: NotebookID.self) {
       return .notebook(subjectNotebookId)
     }
     return nil
   }
 
   private func chatTurn(
-    notebookId: String,
+    notebookId: NotebookID,
     idempotencyKey: String,
     in database: SQLiteDatabase
   ) throws -> Note? {
@@ -829,18 +836,18 @@ public extension NoteService {
         AND json_extract(meta_json, '$.kaibaChat.idempotencyKey') = ?
       LIMIT 1
       """,
-      bindings: [.text(notebookId), .text(idempotencyKey)]
+      bindings: [.id(notebookId), .text(idempotencyKey)]
     )
-    guard let noteId = rows.first?["note_id"] else {
+    guard let noteId = rows.first?.identifier("note_id", as: NoteID.self) else {
       return nil
     }
     return try requireNote(noteId, in: database)
   }
 
-  private func noteExists(_ noteId: String, in database: SQLiteDatabase) throws -> Bool {
+  private func noteExists(_ noteId: NoteID, in database: SQLiteDatabase) throws -> Bool {
     try !database.query(
       "SELECT note_id FROM notes WHERE note_id = ? LIMIT 1",
-      bindings: [.text(noteId)]
+      bindings: [.id(noteId)]
     ).isEmpty
   }
 
@@ -871,50 +878,43 @@ public extension NoteService {
 
   static func chatIdempotencyKey(of note: Note) -> String? {
     guard let metaJSON = note.metaJSON,
-      let data = metaJSON.data(using: .utf8),
-      let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-      let chat = root["kaibaChat"] as? [String: Any]
+      let root = try? JSONValue(parsing: metaJSON),
+      let chat = root["kaibaChat"]
     else {
       return nil
     }
-    return chat["idempotencyKey"] as? String
+    return chat["idempotencyKey"]?.asString
   }
 
   static func chatNotebookMetaJSON(
-    subjectNoteId: String?,
-    subjectNotebookId: String
+    subjectNoteId: NoteID?,
+    subjectNotebookId: NotebookID
   ) throws -> String {
-    var chat: [String: Any] = ["subjectNotebookId": subjectNotebookId]
-    chat["subjectNoteId"] = subjectNoteId
-    let data = try JSONSerialization.data(
-      withJSONObject: ["kaibaChat": chat],
-      options: [.sortedKeys]
-    )
-    guard let json = String(data: data, encoding: .utf8) else {
+    var chat: JSONObject = ["subjectNotebookId": .id(subjectNotebookId)]
+    chat["subjectNoteId"] = subjectNoteId.map(JSONValue.id)
+    do {
+      return try JSONValue.object(["kaibaChat": .object(chat)]).encodedString()
+    } catch {
       throw NoteServiceError.invalidInput("chat notebook meta JSON must be UTF-8")
     }
-    return json
   }
 
   static func chatTurnMetaJSON(
     state: AgentChatTurnState,
     idempotencyKey: String?
   ) throws -> String {
-    var chat: [String: Any] = [
-      "status": state.status.rawValue,
-      "userMarkdown": state.userMarkdown
+    var chat: JSONObject = [
+      "status": .string(state.status.rawValue),
+      "userMarkdown": .string(state.userMarkdown)
     ]
-    chat["idempotencyKey"] = idempotencyKey
-    chat["error"] = state.errorMessage
-    chat["model"] = state.model
-    chat["mode"] = state.mode?.rawValue
-    let data = try JSONSerialization.data(
-      withJSONObject: ["kaibaChat": chat],
-      options: [.sortedKeys]
-    )
-    guard let json = String(data: data, encoding: .utf8) else {
+    chat["idempotencyKey"] = idempotencyKey.map(JSONValue.string)
+    chat["error"] = state.errorMessage.map(JSONValue.string)
+    chat["model"] = state.model.map(JSONValue.string)
+    chat["mode"] = state.mode.map { .string($0.rawValue) }
+    do {
+      return try JSONValue.object(["kaibaChat": .object(chat)]).encodedString()
+    } catch {
       throw NoteServiceError.invalidInput("chat turn meta JSON must be UTF-8")
     }
-    return json
   }
 }

@@ -84,6 +84,7 @@ let supportedNoteGraphQLFields: Set<String> = [
   "note",
   "notebook",
   "notebooks",
+  "libraries",
   "notes",
   "searchNotes",
   "noteGraphNeighbors",
@@ -138,6 +139,7 @@ let noteGraphQLQueryFields: Set<String> = [
   "note",
   "notebook",
   "notebooks",
+  "libraries",
   "notes",
   "searchNotes",
   "noteGraphNeighbors",
@@ -276,6 +278,7 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "note": "NoteQueryPayload",
   "notebook": "NotebookQueryPayload",
   "notebooks": "NotebooksQueryPayload",
+  "libraries": "NoteLibrariesQueryPayload",
   "notes": "NotesQueryPayload",
   "searchNotes": "NoteSearchQueryPayload",
   "noteGraphNeighbors": "NoteGraphNeighborsQueryPayload",
@@ -315,6 +318,7 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
   "NoteQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Note"),
   "NotebookQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Notebook"),
   "NotebooksQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Notebook"),
+  "NoteLibrariesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteLibrary"),
   "NotesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Note"),
   "NoteSearchQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteSearchResult"),
   "NoteGraphNeighborsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteGraphNeighbor"),
@@ -428,7 +432,17 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "metaJSON": nil,
     "tags": "NoteTagAssignment",
     "firstNotePreview": nil,
-    "noteCount": nil
+    "noteCount": nil,
+    "libraryId": nil
+  ],
+  "NoteLibrary": [
+    "libraryId": nil,
+    "name": nil,
+    "title": nil,
+    "authRequired": nil,
+    "isDefault": nil,
+    "createdAt": nil,
+    "notebookCount": nil
   ],
   "NoteTagAssignment": [
     "tag": "NoteTag",

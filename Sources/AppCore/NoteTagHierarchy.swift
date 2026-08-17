@@ -1,13 +1,13 @@
 func expandedTagFilterIds(
-  _ tagIds: [String],
+  _ tagIds: [TagID],
   in database: SQLiteDatabase
-) throws -> [String] {
+) throws -> [TagID] {
   let roots = orderedUnique(tagIds)
   guard !roots.isEmpty else { return [] }
   let existingRoots = try database.query(
     "SELECT tag_id FROM tags WHERE tag_id IN (\(placeholders(count: roots.count)))",
-    bindings: roots.map(SQLiteValue.text)
-  ).compactMap { $0["tag_id"] }
+    bindings: roots.sqliteBindings
+  ).compactMap { $0.identifier("tag_id", as: TagID.self) }
   guard existingRoots.count == roots.count else { return [] }
   return try database.query(
     """
@@ -22,15 +22,15 @@ func expandedTagFilterIds(
     )
     SELECT tag_id FROM descendant_tags ORDER BY tag_id
     """,
-    bindings: roots.map(SQLiteValue.text)
-  ).compactMap { $0["tag_id"] }
+    bindings: roots.sqliteBindings
+  ).compactMap { $0.identifier("tag_id", as: TagID.self) }
 }
 
 func expandedLegacyTagFilterIds(
   _ names: [String],
   in database: SQLiteDatabase
-) throws -> [String] {
-  var roots: [String] = []
+) throws -> [TagID] {
+  var roots: [TagID] = []
   for name in orderedUnique(names) {
     guard let tag = try findTag(name: name, in: database) else { return [] }
     roots.append(tag.tagId)
@@ -38,11 +38,11 @@ func expandedLegacyTagFilterIds(
   return try expandedTagFilterIds(roots, in: database)
 }
 
-func canonicalTagFilterGroups(
-  _ groups: [[String]],
+func canonicalTagFilterGroups<Element: Hashable & Comparable>(
+  _ groups: [[Element]],
   discardingEmpty: Bool
-) -> [[String]] {
-  var canonical: [[String]] = []
+) -> [[Element]] {
+  var canonical: [[Element]] = []
   for group in groups {
     let normalized = orderedUnique(group).sorted()
     if normalized.isEmpty, discardingEmpty { continue }
@@ -52,8 +52,8 @@ func canonicalTagFilterGroups(
 }
 
 func validateTagParent(
-  childTagId: String,
-  parentTagId: String,
+  childTagId: TagID,
+  parentTagId: TagID,
   in database: SQLiteDatabase
 ) throws {
   guard childTagId != parentTagId else {
@@ -61,7 +61,7 @@ func validateTagParent(
   }
   let parentRows = try database.query(
     "SELECT tag_id FROM tags WHERE tag_id = ? LIMIT 1",
-    bindings: [.text(parentTagId)]
+    bindings: [.id(parentTagId)]
   )
   guard !parentRows.isEmpty else {
     throw NoteServiceError.notFound("parent tag not found: \(parentTagId)")
@@ -83,7 +83,7 @@ func validateTagParent(
     WHERE tag_id = ?
     LIMIT 1
     """,
-    bindings: [.text(parentTagId), .text(childTagId)]
+    bindings: [.id(parentTagId), .id(childTagId)]
   )
   guard cycleRows.isEmpty else {
     throw NoteServiceError.invalidInput("tag parent would create a cycle")

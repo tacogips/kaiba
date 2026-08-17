@@ -23,7 +23,7 @@ final class NoteChangeObserverTests: NoteTestCase {
   func testSetNotebookReadOnlyPublishesLockAndUnlockEvents() throws {
     let observer = RecordingNoteChangeObserver()
     let service = try NoteService(driver: makeNoteDriver(), changeObserver: observer)
-    _ = try service.defineTag(name: "proj/locked", classId: "folder")
+    _ = try service.defineTag(name: "proj/locked", classId: TagClassID("folder"))
     let notebook = try service.createNotebook(title: "Lockable")
     _ = try service.applyNotebookTags(
       notebookId: notebook.notebookId,
@@ -43,7 +43,7 @@ final class NoteChangeObserverTests: NoteTestCase {
   func testNotebookLifecycleAndTagMutationsPublishTheirOwnKinds() throws {
     let observer = RecordingNoteChangeObserver()
     let service = try NoteService(driver: makeNoteDriver(), changeObserver: observer)
-    _ = try service.defineTag(name: "proj/alpha", classId: "folder")
+    _ = try service.defineTag(name: "proj/alpha", classId: TagClassID("folder"))
     let notebook = try service.createNotebook(title: "Card")
     try service.applyNotebookTags(
       notebookId: notebook.notebookId,

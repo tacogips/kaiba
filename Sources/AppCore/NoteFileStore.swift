@@ -35,15 +35,15 @@ public struct StoredNoteFile: Equatable, Sendable {
 }
 
 public protocol NoteFileStore: Sendable {
-  func store(data: Data, fileId: String) throws -> StoredNoteFile
+  func store(data: Data, fileId: FileID) throws -> StoredNoteFile
   func read(record: FileRecord) throws -> Data
   func delete(record: FileRecord) throws
 }
 
 public enum NoteFileStoreError: Error, Equatable, Sendable {
   case unsupportedStorageKind(NoteFileStorageKind)
-  case missingLocalPath(String)
-  case missingS3Locator(String)
+  case missingLocalPath(FileID)
+  case missingS3Locator(FileID)
   case checksumMismatch(expected: String, actual: String)
   case missingEnvironmentValue(String)
   case s3HTTPFailure(statusCode: Int, message: String)

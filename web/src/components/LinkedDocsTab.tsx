@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal, type JSX } from 'solid-js'
 import { errorMessage, useApp } from '../state/appStore'
 import type { NoteGraphNeighbor } from '../notes/types'
 import { noteDisplayTitle } from '../notes/noteText'
+import type { NoteId } from '../notes/ids'
 
 // Links tab: the open note's linked documents, grouped by link kind. The graph
 // query is bounded to one hop so the list is the note's own links rather than a
@@ -26,7 +27,7 @@ export function LinkedDocsTab(): JSX.Element {
     void load(noteId)
   })
 
-  const load = async (noteId: string) => {
+  const load = async (noteId: NoteId) => {
     const current = ++generation
     setLoading(true)
     setError('')

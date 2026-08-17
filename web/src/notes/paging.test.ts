@@ -1,3 +1,4 @@
+import { notebookId as asNotebookId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import {
   NotebookPartialLoadError,
@@ -7,7 +8,7 @@ import {
 import type { Notebook } from './types'
 
 const notebook = (index: number): Notebook => ({
-  notebookId: `book-${index}`,
+  notebookId: asNotebookId(`book-${index}`),
   title: `Book ${index}`,
   readOnly: false,
   createdAt: '',

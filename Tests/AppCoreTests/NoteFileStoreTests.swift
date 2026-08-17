@@ -106,7 +106,7 @@ final class NoteFileStoreTests: NoteTestCase {
     let service = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root))
 
     XCTAssertThrowsError(try service.attachFile(
-      noteId: "missing-note",
+      noteId: NoteID("missing-note"),
       data: Data("orphan".utf8),
       mediaType: "text/plain"
     )) { error in
@@ -122,7 +122,7 @@ final class NoteFileStoreTests: NoteTestCase {
     let service = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root))
 
     XCTAssertThrowsError(try service.attachNotebookFile(
-      notebookId: "missing-notebook",
+      notebookId: NotebookID("missing-notebook"),
       data: Data("orphan".utf8),
       mediaType: "text/plain"
     )) { error in
@@ -149,9 +149,9 @@ final class NoteFileStoreTests: NoteTestCase {
     let root = try makeNoteRoot()
     let store = LocalNoteFileStore(noteRoot: root)
     let data = Data("expected".utf8)
-    let stored = try store.store(data: data, fileId: "file-checksum")
+    let stored = try store.store(data: data, fileId: FileID("file-checksum"))
     let record = FileRecord(
-      fileId: "file-checksum",
+      fileId: FileID("file-checksum"),
       storageKind: .local,
       localPath: stored.locator.localPath,
       s3Profile: nil,
@@ -177,7 +177,7 @@ final class NoteFileStoreTests: NoteTestCase {
     let root = try makeNoteRoot()
     let store = LocalNoteFileStore(noteRoot: root)
 
-    let stored = try store.store(data: Data("sharded".utf8), fileId: "file-hash-shard")
+    let stored = try store.store(data: Data("sharded".utf8), fileId: FileID("file-hash-shard"))
 
     XCTAssertEqual(stored.locator.localPath, "b0/file-hash-shard")
     XCTAssertNotEqual(stored.locator.localPath, "fi/file-hash-shard")
@@ -186,7 +186,7 @@ final class NoteFileStoreTests: NoteTestCase {
   func testLocalFileStoreReplacesExistingBlobWithoutLeavingTemporaryFiles() throws {
     let root = try makeNoteRoot()
     let store = LocalNoteFileStore(noteRoot: root)
-    let fileId = "file-replace"
+    let fileId = FileID("file-replace")
     let first = try store.store(data: Data("first".utf8), fileId: fileId)
     let secondData = Data("second".utf8)
 
@@ -199,7 +199,7 @@ final class NoteFileStoreTests: NoteTestCase {
     XCTAssertEqual(try Data(contentsOf: fileURL), secondData)
     let remainingTemporaryFiles = try FileManager.default.contentsOfDirectory(
       atPath: fileURL.deletingLastPathComponent().path
-    ).filter { $0.hasPrefix(".\(fileId).tmp-") }
+    ).filter { $0.hasPrefix(".\(fileId.rawValue).tmp-") }
     XCTAssertEqual(remainingTemporaryFiles, [])
   }
 
@@ -321,7 +321,7 @@ final class NoteFileStoreTests: NoteTestCase {
       keyPrefix: "riela"
     )
     let store = S3NoteFileStore(profile: profile, now: fixedS3Date)
-    let fileId = "file space+日本語"
+    let fileId = FileID("file space+日本語")
     let data = Data("encoded key".utf8)
 
     let stored = try store.store(data: data, fileId: fileId)

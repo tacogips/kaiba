@@ -1,4 +1,5 @@
 import type { Note } from './types'
+import type { NoteId } from './ids'
 
 // Agent chat turns are ordinary notes in a conversation notebook: the request
 // and its status live in `metaJSON.kaibaChat`, the reply in the body after the
@@ -8,7 +9,7 @@ import type { Note } from './types'
 export type ChatTurnStatus = 'pending' | 'answered' | 'failed' | 'unavailable'
 
 export interface ChatTurn {
-  noteId: string
+  noteId: NoteId
   noteNumber: number
   status: ChatTurnStatus
   userMarkdown: string

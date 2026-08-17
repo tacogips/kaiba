@@ -1,3 +1,4 @@
+import type { FileId, NoteId, NotebookId, TagClassId, TagId } from './ids'
 import type {
   AgentChatMessageResult,
   AgentChatAttachmentInput,
@@ -27,9 +28,9 @@ export const notebookPageLimit = 200
 
 export interface NoteClientEnvironment {
   request(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
-  getSessionItem(key: string): string | null
-  setSessionItem(key: string, value: string): void
-  removeSessionItem(key: string): void
+  getStoredItem(key: string): string | null
+  setStoredItem(key: string, value: string): void
+  removeStoredItem(key: string): void
   currentURL(): string
   replaceURL(value: string): void
 }
@@ -68,14 +69,33 @@ export class NoteGraphQLClient {
     if (!response.ok || !bearer) {
       throw new NoteTransportError(value.error ?? 'Registration failed.', 'registration', response.status)
     }
-    this.environment.setSessionItem(bearerKey, bearer)
+    this.environment.setStoredItem(bearerKey, bearer)
+  }
+
+  /** True once a credential is held, whether it came from a registration code
+   * or was pasted into the login view. */
+  hasCredential(): boolean {
+    return Boolean(this.environment.getStoredItem(bearerKey))
+  }
+
+  /** Adopts a key issued by `kaiba client issue`. The server is the only
+   * judge of validity, so this stores the value and lets the next request
+   * answer 401 if it was wrong. */
+  useCredential(token: string): void {
+    const trimmed = token.trim()
+    if (!trimmed) throw new NoteTransportError('An API key is required.', 'registration')
+    this.environment.setStoredItem(bearerKey, trimmed)
+  }
+
+  clearCredential(): void {
+    this.environment.removeStoredItem(bearerKey)
   }
 
   /** Headers for the streaming note-events request (EventSource cannot send
    * an Authorization header, so the stream uses fetch with these). */
   streamHeaders(): Record<string, string> {
     const headers: Record<string, string> = {}
-    const bearer = this.environment.getSessionItem(bearerKey)
+    const bearer = this.environment.getStoredItem(bearerKey)
     if (bearer) headers.Authorization = `Bearer ${bearer}`
     return headers
   }
@@ -117,7 +137,7 @@ export class NoteGraphQLClient {
     return values.map(normalizeNotebook)
   }
 
-  async notebook(notebookId: string): Promise<Notebook> {
+  async notebook(notebookId: NotebookId): Promise<Notebook> {
     const value = await this.queryValue<{ notebook: QueryPayload<Notebook> }, Notebook>('Notebook', `
       query Notebook($notebookId: String!) {
         notebook(notebookId: $notebookId) {
@@ -131,7 +151,7 @@ export class NoteGraphQLClient {
 
   /** Notebook page listing. Carries each note's tag assignments so the right
    * pane can aggregate deduped tags across the notebook without extra reads. */
-  async notes(notebookId: string, offset: number): Promise<Note[]> {
+  async notes(notebookId: NotebookId, offset: number): Promise<Note[]> {
     return this.queryValue<{ notes: QueryPayload<Note[]> }, Note[]>('Notes', `
       query Notes($notebookId: String!, $limit: Int, $offset: Int) {
         notes(notebookId: $notebookId, limit: $limit, offset: $offset) {
@@ -147,7 +167,7 @@ export class NoteGraphQLClient {
 
   /** The single-note read the reader and the Info tab share: unlike the list
    * query it carries the note's own tag assignments. */
-  async note(noteId: string): Promise<Note> {
+  async note(noteId: NoteId): Promise<Note> {
     return this.queryValue<{ note: QueryPayload<Note> }, Note>('Note', `
       query Note($noteId: String!) {
         note(noteId: $noteId) {
@@ -163,14 +183,14 @@ export class NoteGraphQLClient {
 
   /** Linked documents for the Links tab; `edgeKind` is the link kind the tab
    * groups by. Depth stays at one hop so the list is the note's own links. */
-  async noteGraphNeighbors(noteId: string, limit = 20): Promise<NoteGraphNeighbor[]> {
+  async noteGraphNeighbors(noteId: NoteId, limit = 20): Promise<NoteGraphNeighbor[]> {
     return this.noteGraphNeighborsMany([noteId], limit)
   }
 
   /** Same one-hop link read for several seed notes at once (the notebook-wide
    * links aggregate). The graph traversal caps `limit` at 20 per request, so
    * callers chunk the seeds and merge. */
-  async noteGraphNeighborsMany(noteIds: string[], limit = 20): Promise<NoteGraphNeighbor[]> {
+  async noteGraphNeighborsMany(noteIds: NoteId[], limit = 20): Promise<NoteGraphNeighbor[]> {
     if (noteIds.length === 0) return []
     return this.queryValue<{ noteGraphNeighbors: QueryPayload<NoteGraphNeighbor[]> }, NoteGraphNeighbor[]>('NoteGraphNeighbors', `
       query NoteGraphNeighbors($noteIds: [String!]!, $depth: Int, $limit: Int) {
@@ -186,7 +206,7 @@ export class NoteGraphQLClient {
   }
 
   /** Stored memos for a note, oldest first (the server's own ordering). */
-  async noteComments(noteId: string): Promise<NoteComment[]> {
+  async noteComments(noteId: NoteId): Promise<NoteComment[]> {
     return this.queryValue<{ noteComments: QueryPayload<NoteComment[]> }, NoteComment[]>('NoteComments', `
       query NoteComments($noteId: String!) {
         noteComments(noteId: $noteId) {
@@ -199,7 +219,7 @@ export class NoteGraphQLClient {
 
   /** Files attached to a note. Page captures and extracted images of an
    * imported document arrive here with image/* media types. */
-  async noteFiles(noteId: string): Promise<NoteFileAttachment[]> {
+  async noteFiles(noteId: NoteId): Promise<NoteFileAttachment[]> {
     return this.queryValue<{ noteFiles: QueryPayload<NoteFileAttachment[]> }, NoteFileAttachment[]>('NoteFiles', `
       query NoteFiles($noteId: String!) {
         noteFiles(noteId: $noteId) {
@@ -212,7 +232,7 @@ export class NoteGraphQLClient {
 
   /** Raw bytes of an attached file. `<img src>` cannot send the bearer
    * header, so callers fetch a Blob and show it through an object URL. */
-  async noteFileBlob(fileId: string): Promise<Blob> {
+  async noteFileBlob(fileId: FileId): Promise<Blob> {
     let response: Response
     try {
       response = await this.environment.request(`/files/${encodeURIComponent(fileId)}`, {
@@ -231,7 +251,7 @@ export class NoteGraphQLClient {
 
   /** Cross-notebook tag detail: the tag, its class, aggregate counts and its
    * memo notebook id (null until one is created). */
-  async tagDetail(tagId: string): Promise<TagDetail> {
+  async tagDetail(tagId: TagId): Promise<TagDetail> {
     return this.queryValue<{ tagDetail: QueryPayload<TagDetail> }, TagDetail>('TagDetail', `
       query TagDetail($tagId: String!) {
         tagDetail(tagId: $tagId) {
@@ -248,7 +268,7 @@ export class NoteGraphQLClient {
 
   /** The tag's memo history: memos of notes/notebooks carrying the tag
    * (descendants included), across all notebooks, newest first. */
-  async tagComments(tagId: string, offset = 0, limit = 50): Promise<TagComment[]> {
+  async tagComments(tagId: TagId, offset = 0, limit = 50): Promise<TagComment[]> {
     return this.queryValue<{ tagComments: QueryPayload<TagComment[]> }, TagComment[]>('TagComments', `
       query TagComments($tagId: String!, $limit: Int, $offset: Int) {
         tagComments(tagId: $tagId, limit: $limit, offset: $offset) {
@@ -279,7 +299,7 @@ export class NoteGraphQLClient {
   }
 
   /** Finds or creates the tag's memo/chat notebook. */
-  async ensureTagMemoNotebook(tagId: string): Promise<Notebook> {
+  async ensureTagMemoNotebook(tagId: TagId): Promise<Notebook> {
     return this.notebookMutation('EnsureTagMemoNotebook', `
       mutation EnsureTagMemoNotebook($tagId: String!) {
         ensureTagMemoNotebook(tagId: $tagId) {
@@ -291,7 +311,7 @@ export class NoteGraphQLClient {
   }
 
   /** Every memo in the notebook — note-anchored and notebook-level alike. */
-  async notebookComments(notebookId: string): Promise<NoteComment[]> {
+  async notebookComments(notebookId: NotebookId): Promise<NoteComment[]> {
     return this.queryValue<{ notebookComments: QueryPayload<NoteComment[]> }, NoteComment[]>('NotebookComments', `
       query NotebookComments($notebookId: String!) {
         notebookComments(notebookId: $notebookId) {
@@ -302,7 +322,7 @@ export class NoteGraphQLClient {
     `, { notebookId }, (data) => data.notebookComments)
   }
 
-  async addNoteComment(noteId: string, bodyMarkdown: string): Promise<NoteComment> {
+  async addNoteComment(noteId: NoteId, bodyMarkdown: string): Promise<NoteComment> {
     const payload = await this.mutation('AddNoteComment', `
       mutation AddNoteComment($input: AddNoteCommentInput!) {
         addNoteComment(input: $input) {
@@ -316,7 +336,7 @@ export class NoteGraphQLClient {
   }
 
   /** A notebook-level memo (no note selected). */
-  async addNotebookComment(notebookId: string, bodyMarkdown: string): Promise<NoteComment> {
+  async addNotebookComment(notebookId: NotebookId, bodyMarkdown: string): Promise<NoteComment> {
     const payload = await this.mutation('AddNotebookComment', `
       mutation AddNotebookComment($input: AddNotebookCommentInput!) {
         addNotebookComment(input: $input) {
@@ -329,7 +349,7 @@ export class NoteGraphQLClient {
     return payload.comment
   }
 
-  async noteConversations(noteId: string, limit = 50): Promise<AgentConversation[]> {
+  async noteConversations(noteId: NoteId, limit = 50): Promise<AgentConversation[]> {
     return this.queryValue<{ noteConversations: QueryPayload<AgentConversation[]> }, AgentConversation[]>('NoteConversations', `
       query NoteConversations($noteId: String!, $limit: Int) {
         noteConversations(noteId: $noteId, limit: $limit) {
@@ -341,7 +361,7 @@ export class NoteGraphQLClient {
   }
 
   /** Conversations whose subject is the whole notebook (no note selected). */
-  async notebookConversations(notebookId: string, limit = 50): Promise<AgentConversation[]> {
+  async notebookConversations(notebookId: NotebookId, limit = 50): Promise<AgentConversation[]> {
     return this.queryValue<{ notebookConversations: QueryPayload<AgentConversation[]> }, AgentConversation[]>('NotebookConversations', `
       query NotebookConversations($notebookId: String!, $limit: Int) {
         notebookConversations(notebookId: $notebookId, limit: $limit) {
@@ -357,9 +377,9 @@ export class NoteGraphQLClient {
    * reports whether an agent runtime accepted it, and the note events feed
    * (plus the agent reply stream) delivers the completion. */
   async sendAgentChatMessage(input: {
-    subjectNoteId?: string
-    subjectNotebookId?: string
-    conversationNotebookId?: string
+    subjectNoteId?: NoteId
+    subjectNotebookId?: NotebookId
+    conversationNotebookId?: NotebookId
     userMarkdown: string
     idempotencyKey?: string
     model?: string
@@ -419,7 +439,7 @@ export class NoteGraphQLClient {
 
   /** Queues AI tag extraction for one note or a whole notebook; the returned
    * status is "queued" or "agent-unavailable". */
-  async requestTagExtraction(subject: { noteId: string } | { notebookId: string }): Promise<string> {
+  async requestTagExtraction(subject: { noteId: NoteId } | { notebookId: NotebookId }): Promise<string> {
     const data = await this.request<{ requestTagExtraction: { result: ControlResult; status: string } }>('RequestTagExtraction', `
       mutation RequestTagExtraction($input: RequestTagExtractionInput!) {
         requestTagExtraction(input: $input) {
@@ -438,11 +458,11 @@ export class NoteGraphQLClient {
    * pending translation notebook is created immediately; translated notes
    * arrive via the events feed. Status is "queued" or "agent-unavailable". */
   async requestNotebookTranslation(input: {
-    notebookId: string
+    notebookId: NotebookId
     targetLanguage: string
     title?: string
-  }): Promise<{ translationNotebookId: string | null; status: string }> {
-    const data = await this.request<{ requestNotebookTranslation: { result: ControlResult; translationNotebookId?: string | null; status: string } }>('RequestNotebookTranslation', `
+  }): Promise<{ translationNotebookId: NotebookId | null; status: string }> {
+    const data = await this.request<{ requestNotebookTranslation: { result: ControlResult; translationNotebookId?: NotebookId | null; status: string } }>('RequestNotebookTranslation', `
       mutation RequestNotebookTranslation($input: RequestNotebookTranslationInput!) {
         requestNotebookTranslation(input: $input) {
           result { accepted status diagnostics }
@@ -486,7 +506,7 @@ export class NoteGraphQLClient {
     ensureAccepted(data.setAppSetting.result)
   }
 
-  async applyTagById(notebookId: string, tagId: string): Promise<Notebook> {
+  async applyTagById(notebookId: NotebookId, tagId: TagId): Promise<Notebook> {
     return this.notebookMutation('ApplyNotebookTagIds', `
       mutation ApplyNotebookTagIds($input: ApplyNotebookTagIdsInput!) {
         applyNotebookTagIds(input: $input) {
@@ -497,7 +517,7 @@ export class NoteGraphQLClient {
     `, { input: { notebookId, tagIds: [tagId], provenance: 'human', assignedBy: 'kaiba-web' } }, 'applyNotebookTagIds')
   }
 
-  async removeTagById(notebookId: string, tagId: string): Promise<Notebook> {
+  async removeTagById(notebookId: NotebookId, tagId: TagId): Promise<Notebook> {
     return this.notebookMutation('RemoveNotebookTagById', `
       mutation RemoveNotebookTagById($notebookId: String!, $tagId: String!, $provenance: String) {
         removeNotebookTagById(notebookId: $notebookId, tagId: $tagId, provenance: $provenance) {
@@ -508,7 +528,7 @@ export class NoteGraphQLClient {
     `, { notebookId, tagId, provenance: 'human' }, 'removeNotebookTagById')
   }
 
-  async setNotebookReadOnly(notebookId: string, readOnly: boolean): Promise<Notebook> {
+  async setNotebookReadOnly(notebookId: NotebookId, readOnly: boolean): Promise<Notebook> {
     return this.notebookMutation('SetNotebookReadOnly', `
       mutation SetNotebookReadOnly($notebookId: String!, $readOnly: Boolean!) {
         setNotebookReadOnly(notebookId: $notebookId, readOnly: $readOnly) {
@@ -523,7 +543,7 @@ export class NoteGraphQLClient {
     query: string
     tagFilter?: string[]
     classFilter?: string[]
-    notebookId?: string
+    notebookId?: NotebookId
     sort?: string
     createdAfter?: string
     createdBefore?: string
@@ -557,7 +577,7 @@ export class NoteGraphQLClient {
    * Slow by nature — expect seconds to minutes. */
   async agenticSearch(input: {
     query: string
-    notebookId?: string
+    notebookId?: NotebookId
     limit?: number
   }): Promise<AgenticSearchResult> {
     const data = await this.request<{ agenticSearch: AgenticSearchResult & { result: ControlResult } }>('AgenticSearch', `
@@ -582,7 +602,7 @@ export class NoteGraphQLClient {
   /** One long poll of the agent reply chunk stream for a pending chat turn.
    * `cursor` is the number of chunks already seen. */
   async pollAgentReplyStream(
-    turnNoteId: string,
+    turnNoteId: NoteId,
     cursor: number,
     timeoutMs = 25_000,
   ): Promise<AgentReplyStreamPoll> {
@@ -614,7 +634,7 @@ export class NoteGraphQLClient {
     }
   }
 
-  async applyNoteTag(noteId: string, tagName: string, classId?: string): Promise<void> {
+  async applyNoteTag(noteId: NoteId, tagName: string, classId?: TagClassId): Promise<void> {
     const data = await this.request<{ applyNoteTags: { result: { accepted: boolean; status: string; diagnostics: string[] } } }>('ApplyNoteTags', `
       mutation ApplyNoteTags($input: ApplyNoteTagsInput!) {
         applyNoteTags(input: $input) { result { accepted status diagnostics } }
@@ -667,7 +687,7 @@ export class NoteGraphQLClient {
     // Send the bearer when registered; without one the request still goes
     // out so a `kaiba serve --allow-unauthenticated` host works, and an
     // auth-required host answers 401 with a registration hint.
-    const bearer = this.environment.getSessionItem(bearerKey)
+    const bearer = this.environment.getStoredItem(bearerKey)
     if (bearer) headers.Authorization = `Bearer ${bearer}`
     let response: Response
     try {
@@ -681,7 +701,7 @@ export class NoteGraphQLClient {
       throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
     }
     const envelope = await parseJSON<GraphQLEnvelope<T>>(response)
-    if (response.status === 401) this.environment.removeSessionItem(bearerKey)
+    if (response.status === 401) this.environment.removeStoredItem(bearerKey)
     if (!response.ok) {
       throw new NoteTransportError(envelope.error ?? `Request failed (${response.status}).`, 'http', response.status)
     }
@@ -697,12 +717,15 @@ function normalizeNotebook(notebook: Notebook): Notebook {
   return { ...notebook, readOnly: Boolean(notebook.readOnly) }
 }
 
+// The credential lives in localStorage, not sessionStorage: a registration
+// code is single-use, expires in 300 seconds and is printed only at server
+// startup, so a per-tab credential would strand every new tab.
 function browserEnvironment(): NoteClientEnvironment {
   return {
     request: (input, init) => fetch(input, init),
-    getSessionItem: (key) => sessionStorage.getItem(key),
-    setSessionItem: (key, value) => sessionStorage.setItem(key, value),
-    removeSessionItem: (key) => sessionStorage.removeItem(key),
+    getStoredItem: (key) => localStorage.getItem(key),
+    setStoredItem: (key, value) => localStorage.setItem(key, value),
+    removeStoredItem: (key) => localStorage.removeItem(key),
     currentURL: () => window.location.href,
     replaceURL: (value) => history.replaceState(null, '', value),
   }

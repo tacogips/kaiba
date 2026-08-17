@@ -5,10 +5,10 @@ import Foundation
 /// available; an empty array means the affected tag scope is unknown.
 public struct NoteChangeEvent: Equatable, Sendable {
   public var kind: String
-  public var notebookId: String?
+  public var notebookId: NotebookID?
   public var tagNames: [String]
 
-  public init(kind: String, notebookId: String? = nil, tagNames: [String] = []) {
+  public init(kind: String, notebookId: NotebookID? = nil, tagNames: [String] = []) {
     self.kind = kind
     self.notebookId = notebookId
     self.tagNames = tagNames
@@ -40,5 +40,5 @@ extension NoteService {
 }
 
 func folderTagNames(of notebook: Notebook) -> [String] {
-  notebook.tags.filter { $0.tag.classId == "folder" }.map(\.tag.name).sorted()
+  notebook.tags.filter { $0.tag.classId == .folder }.map(\.tag.name).sorted()
 }

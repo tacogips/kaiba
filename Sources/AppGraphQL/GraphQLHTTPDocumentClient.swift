@@ -1,4 +1,5 @@
 import Foundation
+import AppCore
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif

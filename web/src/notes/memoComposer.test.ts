@@ -1,3 +1,4 @@
+import { noteId as asNoteId, notebookId as asNotebookId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import {
   agentComposerExtensionsEnabled,
@@ -83,32 +84,32 @@ describe('memo composer state', () => {
 
   test('new chat request omits existing conversation while preserving model and attachment contract', () => {
     const options = {
-      subject: { kind: 'note' as const, id: 'note-1' },
-      conversations: [{ notebookId: 'conversation-old', title: 'Old', updatedAt: '2026-08-13T00:00:00Z', turnCount: 2, subjectNoteId: 'note-1' }],
+      subject: { kind: 'note' as const, id: asNoteId('note-1') },
+      conversations: [{ notebookId: asNotebookId('conversation-old'), title: 'Old', updatedAt: '2026-08-13T00:00:00Z', turnCount: 2, subjectNoteId: asNoteId('note-1') }],
       userMarkdown: '  Ask this  ',
       idempotencyKey: 'turn-1',
       selectedModel: 'openai/gpt-5-mini',
       attachments: [{ contentBase64: 'eA==', mediaType: 'text/plain', originalFilename: 'x.txt' }],
     }
     expect(buildAgentChatComposerRequest({ ...options, newConversation: true })).toEqual({
-      subjectNoteId: 'note-1', userMarkdown: 'Ask this', idempotencyKey: 'turn-1',
+      subjectNoteId: asNoteId('note-1'), userMarkdown: 'Ask this', idempotencyKey: 'turn-1',
       model: 'openai/gpt-5-mini', attachments: options.attachments,
     })
     expect(buildAgentChatComposerRequest({ ...options, newConversation: false }).conversationNotebookId)
-      .toBe('conversation-old')
+      .toBe(asNotebookId('conversation-old'))
     expect(buildAgentChatComposerRequest({
-      ...options, newConversation: false, activeConversationId: 'conversation-new',
-    }).conversationNotebookId).toBe('conversation-new')
+      ...options, newConversation: false, activeConversationId: asNotebookId('conversation-new'),
+    }).conversationNotebookId).toBe(asNotebookId('conversation-new'))
   })
 
   test('memo-only stays on the memo path and bare requests omit optional fields', () => {
     expect(composerSubmitKind(true)).toBe('memo')
     expect(composerSubmitKind(false)).toBe('agent')
     const request = buildAgentChatComposerRequest({
-      subject: { kind: 'notebook', id: 'notebook-1' }, conversations: [], newConversation: false,
+      subject: { kind: 'notebook' as const, id: asNotebookId('notebook-1') }, conversations: [], newConversation: false,
       userMarkdown: 'Message', idempotencyKey: 'turn-2', attachments: [],
     })
-    expect(request).toEqual({ subjectNotebookId: 'notebook-1', userMarkdown: 'Message', idempotencyKey: 'turn-2' })
+    expect(request).toEqual({ subjectNotebookId: asNotebookId('notebook-1'), userMarkdown: 'Message', idempotencyKey: 'turn-2' })
   })
 
   test('memo-only control exposes its selected accessible state and tooltip', () => {
@@ -122,15 +123,15 @@ describe('memo composer state', () => {
   })
 
   test('note edit mode requires a writable note subject matching the loaded note', () => {
-    const subject = { kind: 'note' as const, id: 'note-1' }
-    const note = { noteId: 'note-1', readOnly: false }
+    const subject = { kind: 'note' as const, id: asNoteId('note-1') }
+    const note = { noteId: asNoteId('note-1'), readOnly: false }
     const notebook = { readOnly: false }
     expect(canEnableNoteEdit(subject, note, notebook)).toBe(true)
     expect(canEnableNoteEdit(undefined, note, notebook)).toBe(false)
-    expect(canEnableNoteEdit({ kind: 'notebook', id: 'notebook-1' }, note, notebook)).toBe(false)
-    expect(canEnableNoteEdit(subject, { noteId: 'other', readOnly: false }, notebook)).toBe(false)
+    expect(canEnableNoteEdit({ kind: 'notebook', id: asNotebookId('notebook-1') }, note, notebook)).toBe(false)
+    expect(canEnableNoteEdit(subject, { noteId: asNoteId('other'), readOnly: false }, notebook)).toBe(false)
     expect(canEnableNoteEdit(subject, undefined, notebook)).toBe(false)
-    expect(canEnableNoteEdit(subject, { noteId: 'note-1', readOnly: true }, notebook)).toBe(false)
+    expect(canEnableNoteEdit(subject, { noteId: asNoteId('note-1'), readOnly: true }, notebook)).toBe(false)
     // Imported documents lock the notebook, not each page.
     expect(canEnableNoteEdit(subject, note, { readOnly: true })).toBe(false)
     expect(canEnableNoteEdit(subject, note, undefined)).toBe(false)
@@ -158,7 +159,7 @@ describe('memo composer state', () => {
 
   test('note edit sends mode "edit" exactly when the toggle is on', () => {
     const options = {
-      subject: { kind: 'note' as const, id: 'note-1' },
+      subject: { kind: 'note' as const, id: asNoteId('note-1') },
       conversations: [],
       newConversation: false,
       userMarkdown: 'Reword the intro',

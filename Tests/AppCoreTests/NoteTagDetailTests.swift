@@ -38,8 +38,8 @@ private final class TagDetailRecordingDispatcher: AutoActionDispatching, @unchec
 final class NoteTagDetailTests: NoteTestCase {
   func testTagDetailCountsAcrossNotebooksWithDescendantExpansion() throws {
     let service = try makeService()
-    _ = try service.defineTagClass(classId: "person-test", label: "Person Test")
-    let parent = try service.defineTag(name: "tanaka", classId: "person-test")
+    _ = try service.defineTagClass(classId: TagClassID("person-test"), label: "Person Test")
+    let parent = try service.defineTag(name: "tanaka", classId: TagClassID("person-test"))
     let child = try service.defineTag(name: "tanaka-taro", parentTagId: parent.tagId)
 
     let first = try service.createNote(
@@ -72,7 +72,7 @@ final class NoteTagDetailTests: NoteTestCase {
     let detail = try service.tagDetail(tagId: parent.tagId)
 
     XCTAssertEqual(detail.tag.tagId, parent.tagId)
-    XCTAssertEqual(detail.tagClass?.classId, "person-test")
+    XCTAssertEqual(detail.tagClass?.classId, TagClassID("person-test"))
     XCTAssertEqual(detail.noteCount, 2, "parent tag must count descendant-tagged notes")
     XCTAssertEqual(detail.notebookCount, 1)
     XCTAssertNil(detail.memoNotebookId, "no memo notebook exists before ensure")
@@ -81,7 +81,7 @@ final class NoteTagDetailTests: NoteTestCase {
 
   func testTagDetailRejectsUnknownTag() throws {
     let service = try makeService()
-    XCTAssertThrowsError(try service.tagDetail(tagId: "tag-missing")) { error in
+    XCTAssertThrowsError(try service.tagDetail(tagId: TagID("tag-missing"))) { error in
       guard case NoteServiceError.notFound = error else {
         return XCTFail("expected notFound, got \(error)")
       }
@@ -202,7 +202,7 @@ final class NoteTagDetailTests: NoteTestCase {
     XCTAssertNotNil(kindTag, "memo notebook must carry the tag-memo kind tag")
     XCTAssertEqual(try service.tagMemoSubjectTagId(notebookId: created.notebookId), tag.tagId)
     XCTAssertEqual(try service.tagDetail(tagId: tag.tagId).memoNotebookId, created.notebookId)
-    XCTAssertNil(try service.tagMemoSubjectTagId(notebookId: "notebook-missing"))
+    XCTAssertNil(try service.tagMemoSubjectTagId(notebookId: NotebookID("notebook-missing")))
   }
 
   func testEnsureTagMemoNotebookIsAtomicForConcurrentCallers() async throws {
@@ -213,9 +213,9 @@ final class NoteTagDetailTests: NoteTestCase {
     )
     let tag = try service.defineTag(name: "concurrent-tag-memo")
     _ = try service.configureAutoAction(
-      actionId: "tag-memo-created",
+      actionId: AutoActionID("tag-memo-created"),
       trigger: .notebookCreated,
-      workflowId: "tag-memo-workflow",
+      workflowId: WorkflowID("tag-memo-workflow"),
       filterJSON: #"{"notebookKindTag":"notebook-kind:tag-memo"}"#
     )
 
@@ -235,7 +235,7 @@ final class NoteTagDetailTests: NoteTestCase {
     let persisted = try service.driver.withDatabase { database in
       try database.query(
         "SELECT notebook_id FROM notebooks WHERE json_extract(meta_json, '$.kaibaTagMemo.subjectTagId') = ?",
-        bindings: [.text(tag.tagId)]
+        bindings: [.id(tag.tagId)]
       )
     }
     XCTAssertEqual(persisted.count, 1)
@@ -245,7 +245,7 @@ final class NoteTagDetailTests: NoteTestCase {
     )
     await service.drainAutoActionDispatches()
     XCTAssertEqual(
-      dispatcher.records().filter { $0.action.actionId == "tag-memo-created" }.count,
+      dispatcher.records().filter { $0.action.actionId == AutoActionID("tag-memo-created") }.count,
       1
     )
   }
@@ -267,7 +267,7 @@ final class NoteTagDetailTests: NoteTestCase {
     let notebooks = try service.driver.withDatabase { database in
       try database.query(
         "SELECT notebook_id FROM notebooks WHERE json_extract(meta_json, '$.kaibaTagMemo.subjectTagId') = ?",
-        bindings: [.text(tag.tagId)]
+        bindings: [.id(tag.tagId)]
       )
     }
     XCTAssertTrue(notebooks.isEmpty)
@@ -275,7 +275,7 @@ final class NoteTagDetailTests: NoteTestCase {
 
   func testTagContextMarkdownGroundsOnTaggedNotes() throws {
     let service = try makeService()
-    let tag = try service.defineTag(name: "meiji", classId: "topic")
+    let tag = try service.defineTag(name: "meiji", classId: TagClassID("topic"))
     let tagged = try service.createNote(
       notebookTitle: "History",
       bodyMarkdown: "# Meiji Era\nThe restoration began."

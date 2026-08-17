@@ -26,7 +26,7 @@ final class NoteGraphQLNotebookStatsTests: XCTestCase {
         notebook(notebookId: $notebookId) { value { notebookId noteCount } }
       }
       """,
-      variables: ["notebookId": .string(notebookId)],
+      variables: ["notebookId": .string(notebookId.rawValue)],
       operationName: "Notebook"
     ))
 
@@ -34,7 +34,7 @@ final class NoteGraphQLNotebookStatsTests: XCTestCase {
     XCTAssertEqual(response.status, 200)
     let payload = try graphQLPayload(response.body, field: "notebook")
     let value = try objectValue(payload["value"], field: "notebook.value")
-    XCTAssertEqual(value["notebookId"], .string(notebookId))
+    XCTAssertEqual(value["notebookId"], .string(notebookId.rawValue))
     XCTAssertEqual(value["noteCount"], .integer(2))
   }
 

@@ -1,3 +1,5 @@
+import type { CommentId, FileId, NoteId, NotebookId, TagClassId, TagId } from './ids'
+
 export type NoteListSort = 'updatedAtDesc' | 'title' | 'createdAtDesc' | 'createdAtAsc'
 
 export interface ControlResult {
@@ -7,16 +9,16 @@ export interface ControlResult {
 }
 
 export interface NoteTag {
-  tagId: string
+  tagId: TagId
   name: string
-  classId: string | null
-  parentTagId: string | null
+  classId: TagClassId | null
+  parentTagId: TagId | null
   isSystem: boolean
   createdAt: string
 }
 
 export interface NoteTagClass {
-  classId: string
+  classId: TagClassId
   label: string
   description: string | null
 }
@@ -30,7 +32,7 @@ export interface NoteTagAssignment {
 }
 
 export interface Notebook {
-  notebookId: string
+  notebookId: NotebookId
   title: string
   readOnly: boolean
   createdAt: string
@@ -41,8 +43,8 @@ export interface Notebook {
 }
 
 export interface Note {
-  noteId: string
-  notebookId: string
+  noteId: NoteId
+  notebookId: NotebookId
   noteNumber: number
   title: string | null
   bodyMarkdown: string
@@ -57,7 +59,7 @@ export interface Note {
 /** A file stored for a note attachment. Only the fields the web reader needs
  * are queried; bytes are served separately via `GET /files/<fileId>`. */
 export interface NoteFileRecord {
-  fileId: string
+  fileId: FileId
   storageKind: string
   mediaType: string
   byteSize: number
@@ -70,7 +72,7 @@ export interface NoteFileRecord {
  * the imported source document (position = 1-based page number); role
  * "embedded" is an image that appeared on those pages. */
 export interface NoteFileAttachment {
-  noteId: string
+  noteId: NoteId
   file: NoteFileRecord
   role: string
   position: number
@@ -79,9 +81,9 @@ export interface NoteFileAttachment {
 /** A memo: anchored to a note (`noteId` set) or to a whole notebook
  * (`noteId` null); `notebookId` names the containing notebook either way. */
 export interface NoteComment {
-  commentId: string
-  noteId: string | null
-  notebookId?: string | null
+  commentId: CommentId
+  noteId: NoteId | null
+  notebookId?: NotebookId | null
   bodyMarkdown: string
   author: string
   createdAt: string
@@ -94,7 +96,7 @@ export interface TagDetail {
   noteCount: number
   notebookCount: number
   /** The tag's memo/chat notebook, once one has been created. */
-  memoNotebookId: string | null
+  memoNotebookId: NotebookId | null
 }
 
 /** A memo in a tag's cross-notebook history, attributed with the titles of
@@ -106,22 +108,22 @@ export interface TagComment {
 }
 
 export interface NoteGraphNeighbor {
-  seedNoteId: string
+  seedNoteId: NoteId
   note: Note
   edgeKind: string
   weight: number
   hopCount: number
-  pathNoteIds: string[]
+  pathNoteIds: NoteId[]
 }
 
 export interface AgentConversation {
-  notebookId: string
+  notebookId: NotebookId
   title: string
   updatedAt: string
   turnCount: number
   /** Null for a notebook-scoped conversation (started with no note selected). */
-  subjectNoteId: string | null
-  subjectNotebookId?: string | null
+  subjectNoteId: NoteId | null
+  subjectNotebookId?: NotebookId | null
 }
 
 export interface AgenticSearchResult {
@@ -140,8 +142,8 @@ export interface AgentReplyStreamPoll {
 }
 
 export interface AgentChatMessageResult {
-  conversationNotebookId: string | null
-  turnNoteId: string | null
+  conversationNotebookId: NotebookId | null
+  turnNoteId: NoteId | null
   agentStatus: string
 }
 

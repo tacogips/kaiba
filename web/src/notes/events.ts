@@ -1,6 +1,7 @@
+import type { NotebookId } from './ids'
 export interface NoteChangeEvent {
   kind: string
-  notebookId?: string | null
+  notebookId?: NotebookId | null
   tagNames?: string[] | null
 }
 

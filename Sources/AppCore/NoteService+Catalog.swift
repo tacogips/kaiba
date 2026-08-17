@@ -1,11 +1,10 @@
 public extension NoteService {
   @discardableResult
   func defineTagClass(
-    classId rawClassId: String,
+    classId: TagClassID,
     label rawLabel: String,
     description rawDescription: String? = nil
   ) throws -> TagClass {
-    let classId = rawClassId.trimmingCharacters(in: .whitespacesAndNewlines)
     let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
     let description = rawDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !classId.isEmpty else {
@@ -31,7 +30,7 @@ public extension NoteService {
             description = excluded.description
           """,
           bindings: [
-            .text(classId),
+            .id(classId),
             .text(label),
             .optionalText(description?.isEmpty == true ? nil : description),
             .text(NoteStoreClock.system.now())
@@ -45,13 +44,11 @@ public extension NoteService {
   @discardableResult
   func defineTag(
     name rawName: String,
-    classId rawClassId: String? = nil,
-    parentTagId rawParentTagId: String? = nil,
+    classId: TagClassID? = nil,
+    parentTagId: TagID? = nil,
     createOnly: Bool = false
   ) throws -> Tag {
     let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-    let classId = rawClassId?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let parentTagId = rawParentTagId?.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else {
       throw NoteServiceError.invalidInput("tag name is required")
     }
@@ -60,7 +57,7 @@ public extension NoteService {
         if let classId, !classId.isEmpty {
           _ = try requireTagClass(classId: classId, in: db)
         }
-        let isFolder = classId == "folder"
+        let isFolder = classId == .folder
         let normalizedParentTagId = parentTagId?.isEmpty == true ? nil : parentTagId
         let existing = isFolder
           ? try findFolderTag(name: name, parentTagId: normalizedParentTagId, in: db)
@@ -77,7 +74,7 @@ public extension NoteService {
           }
           return existing
         }
-        let tagId = existing?.tagId ?? makeNoteId(prefix: "tag")
+        let tagId = existing?.tagId ?? TagID.generate()
         if let parentTagId, !parentTagId.isEmpty {
           try validateTagParent(childTagId: tagId, parentTagId: parentTagId, in: db)
         }
@@ -90,9 +87,9 @@ public extension NoteService {
             WHERE tag_id = ?
             """,
             bindings: [
-              .optionalText(classId?.isEmpty == true ? nil : classId),
-              .optionalText(normalizedParentTagId),
-              .text(existing.tagId)
+              .optionalID(classId?.isEmpty == true ? nil : classId),
+              .optionalID(normalizedParentTagId),
+              .id(existing.tagId)
             ]
           )
           return try requireTag(id: existing.tagId, in: db)
@@ -104,10 +101,10 @@ public extension NoteService {
             VALUES (?, ?, ?, ?, 0, ?)
             """,
             bindings: [
-              .text(tagId),
+              .id(tagId),
               .text(name),
-              .optionalText(classId?.isEmpty == true ? nil : classId),
-              .optionalText(normalizedParentTagId),
+              .optionalID(classId?.isEmpty == true ? nil : classId),
+              .optionalID(normalizedParentTagId),
               .text(NoteStoreClock.system.now())
             ]
           )
@@ -151,7 +148,7 @@ public extension NoteService {
   }
 }
 
-private func findTagClass(classId: String, in database: SQLiteDatabase) throws -> TagClass? {
+private func findTagClass(classId: TagClassID, in database: SQLiteDatabase) throws -> TagClass? {
   try database.query(
     """
     SELECT class_id, label, description, is_system, created_at
@@ -159,11 +156,11 @@ private func findTagClass(classId: String, in database: SQLiteDatabase) throws -
     WHERE class_id = ?
     LIMIT 1
     """,
-    bindings: [.text(classId)]
+    bindings: [.id(classId)]
   ).first.map(noteCatalogTagClass(from:))
 }
 
-func requireTagClass(classId: String, in database: SQLiteDatabase) throws -> TagClass {
+func requireTagClass(classId: TagClassID, in database: SQLiteDatabase) throws -> TagClass {
   guard let tagClass = try findTagClass(classId: classId, in: database) else {
     throw NoteServiceError.notFound("tag class not found: \(classId)")
   }
@@ -178,7 +175,7 @@ func requireCatalogTag(name: String, in database: SQLiteDatabase) throws -> Tag 
 }
 
 private func noteCatalogTag(from row: SQLiteRow) throws -> Tag {
-  guard let tagId = row["tag_id"],
+  guard let tagId = row.identifier("tag_id", as: TagID.self),
         let name = row["name"],
         let createdAt = row["created_at"] else {
     throw NoteServiceError.invalidRow("tag row is missing required fields")
@@ -186,15 +183,15 @@ private func noteCatalogTag(from row: SQLiteRow) throws -> Tag {
   return Tag(
     tagId: tagId,
     name: name,
-    classId: row["class_id"] ?? nil,
-    parentTagId: row["parent_tag_id"] ?? nil,
+    classId: row.identifier("class_id", as: TagClassID.self) ?? nil,
+    parentTagId: row.identifier("parent_tag_id", as: TagID.self) ?? nil,
     isSystem: row["is_system"] == "1",
     createdAt: createdAt
   )
 }
 
 private func noteCatalogTagClass(from row: SQLiteRow) throws -> TagClass {
-  guard let classId = row["class_id"],
+  guard let classId = row.identifier("class_id", as: TagClassID.self),
         let label = row["label"],
         let createdAt = row["created_at"] else {
     throw NoteServiceError.invalidRow("tag class row is missing required fields")

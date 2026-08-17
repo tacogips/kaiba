@@ -1,4 +1,5 @@
 import type { NoteFileAttachment } from './types'
+import type { FileId } from './ids'
 
 // Projection of a note's file attachments into the ordered image list the
 // reader's carousel shows: captured source pages first (in page order), then
@@ -9,7 +10,7 @@ export const sourcePageImageRole = 'source-page-image'
 export const embeddedImageRole = 'embedded'
 
 export interface NoteImageEntry {
-  fileId: string
+  fileId: FileId
   mediaType: string
   /** Human label: "Page 3" for a page capture, the original filename or
    * "Image 2" for an embedded image. */

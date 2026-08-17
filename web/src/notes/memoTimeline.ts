@@ -1,5 +1,6 @@
 import type { AgentConversation, Note, NoteComment } from './types'
 import { chatTurns, type ChatTurn } from './chatState'
+import type { NotebookId } from './ids'
 
 // The unified memo feature: plain memos (comments) and agent chat turns are one
 // timeline, ordered by creation time. Everything here is pure so the merge and
@@ -7,11 +8,11 @@ import { chatTurns, type ChatTurn } from './chatState'
 
 export type MemoTimelineEntry =
   | { kind: 'memo'; createdAt: string; memo: NoteComment }
-  | { kind: 'turn'; createdAt: string; turn: ChatTurn; conversationId: string }
+  | { kind: 'turn'; createdAt: string; turn: ChatTurn; conversationId: NotebookId }
 
 export function memoTimeline(
   memos: NoteComment[],
-  turnsByConversation: Array<{ conversationId: string; turns: ChatTurn[] }>,
+  turnsByConversation: Array<{ conversationId: NotebookId; turns: ChatTurn[] }>,
 ): MemoTimelineEntry[] {
   const entries: MemoTimelineEntry[] = memos.map((memo) => ({
     kind: 'memo',
@@ -35,7 +36,7 @@ export function memoTimeline(
 }
 
 /** The conversation a new "Send" continues: the most recently updated one. */
-export function latestConversationId(conversations: AgentConversation[]): string | undefined {
+export function latestConversationId(conversations: AgentConversation[]): NotebookId | undefined {
   let latest: AgentConversation | undefined
   for (const conversation of conversations) {
     if (!latest || conversation.updatedAt > latest.updatedAt) latest = conversation

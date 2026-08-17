@@ -1,3 +1,4 @@
+import { notebookId as asNotebookId, tagId as asTagId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import {
   NoteGraphQLClient,
@@ -25,9 +26,9 @@ function environment(
           headers: { 'Content-Type': 'application/json' },
         })
       },
-      getSessionItem: (key) => storage.get(key) ?? null,
-      setSessionItem: (key, value) => storage.set(key, value),
-      removeSessionItem: (key) => { storage.delete(key) },
+      getStoredItem: (key) => storage.get(key) ?? null,
+      setStoredItem: (key, value) => storage.set(key, value),
+      removeStoredItem: (key) => { storage.delete(key) },
       currentURL: () => href,
       replaceURL: (value) => replacements.push(value),
     },
@@ -55,7 +56,7 @@ describe('Note GraphQL transport', () => {
 
   test('adopts the canonical notebook lock mutation response', async () => {
     const canonical = {
-      notebookId: 'notebook-system-memory',
+      notebookId: asNotebookId('notebook-system-memory'),
       title: 'System Memory',
       readOnly: false,
       createdAt: '',
@@ -76,7 +77,7 @@ describe('Note GraphQL transport', () => {
 
   test('projects notebook read-only state and persists explicit unlocks', async () => {
     const notebook = {
-      notebookId: 'system-memory',
+      notebookId: asNotebookId('system-memory'),
       title: 'Riela System Memory',
       readOnly: true,
       createdAt: '',
@@ -96,10 +97,10 @@ describe('Note GraphQL transport', () => {
     const client = new NoteGraphQLClient(harness.value)
 
     expect(await client.notebooks(0, 'updatedAtDesc', [])).toMatchObject([{ readOnly: true }])
-    expect(await client.setNotebookReadOnly('system-memory', false)).toMatchObject({ readOnly: false })
+    expect(await client.setNotebookReadOnly(asNotebookId('system-memory'), false)).toMatchObject({ readOnly: false })
     const body = requestBody(harness.requests[1])
     expect(body.operationName).toBe('SetNotebookReadOnly')
-    expect(body.variables).toEqual({ notebookId: 'system-memory', readOnly: false })
+    expect(body.variables).toEqual({ notebookId: asNotebookId('system-memory'), readOnly: false })
   })
 
   test('uses the shared notebook page limit for note previews', async () => {
@@ -111,10 +112,10 @@ describe('Note GraphQL transport', () => {
     ])
     const client = new NoteGraphQLClient(harness.value)
 
-    await client.notes('book', notebookPageLimit)
+    await client.notes(asNotebookId('book'), notebookPageLimit)
 
     expect(requestBody(harness.requests[0]).variables).toEqual({
-      notebookId: 'book',
+      notebookId: asNotebookId('book'),
       limit: notebookPageLimit,
       offset: notebookPageLimit,
     })
@@ -137,14 +138,14 @@ describe('Note GraphQL transport', () => {
   test('sends explicit human provenance for catalog-selected tag membership', async () => {
     const harness = environment([{ data: { applyNotebookTagIds: {
       result: { accepted: true, status: 'ok', diagnostics: [] },
-      notebook: { notebookId: 'book', title: 'Book', createdAt: '', updatedAt: '', tags: [] },
+      notebook: { notebookId: asNotebookId('book'), title: 'Book', createdAt: '', updatedAt: '', tags: [] },
     } } }])
     const client = new NoteGraphQLClient(harness.value)
-    await client.applyTagById('book', 'tag-urgent')
+    await client.applyTagById(asNotebookId('book'), asTagId('tag-urgent'))
     const body = JSON.parse(String(harness.requests[0]?.init?.body)) as { variables: { input: Record<string, unknown> } }
     expect(body.variables.input).toEqual({
-      notebookId: 'book',
-      tagIds: ['tag-urgent'],
+      notebookId: asNotebookId('book'),
+      tagIds: [asTagId('tag-urgent')],
       provenance: 'human',
       assignedBy: 'kaiba-web',
     })
@@ -154,7 +155,7 @@ describe('Note GraphQL transport', () => {
 
   test('sends human remove provenance for notebook tag removal', async () => {
     const notebook = {
-      notebookId: 'book',
+      notebookId: asNotebookId('book'),
       title: 'Book',
       createdAt: '',
       updatedAt: '',
@@ -168,11 +169,11 @@ describe('Note GraphQL transport', () => {
     ])
     const client = new NoteGraphQLClient(harness.value)
 
-    await client.removeTagById('book', 'folder-child')
+    await client.removeTagById(asNotebookId('book'), asTagId('folder-child'))
     const removeBody = requestBody(harness.requests[0])
     expect(removeBody.variables).toEqual({
-      notebookId: 'book',
-      tagId: 'folder-child',
+      notebookId: asNotebookId('book'),
+      tagId: asTagId('folder-child'),
       provenance: 'human',
     })
     expect(removeBody.operationName).toBe('RemoveNotebookTagById')
@@ -182,18 +183,18 @@ describe('Note GraphQL transport', () => {
   test('queues notebook translation and surfaces the pending notebook id', async () => {
     const harness = environment([{ data: { requestNotebookTranslation: {
       result: { accepted: true, status: 'ok', diagnostics: [] },
-      translationNotebookId: 'notebook-translated',
+      translationNotebookId: asNotebookId('notebook-translated'),
       status: 'queued',
     } } }])
     const client = new NoteGraphQLClient(harness.value)
 
     expect(await client.requestNotebookTranslation({
-      notebookId: 'notebook-source',
+      notebookId: asNotebookId('notebook-source'),
       targetLanguage: 'English',
-    })).toEqual({ translationNotebookId: 'notebook-translated', status: 'queued' })
+    })).toEqual({ translationNotebookId: asNotebookId('notebook-translated'), status: 'queued' })
     const body = requestBody(harness.requests[0])
     expect(body.variables).toEqual({
-      input: { notebookId: 'notebook-source', targetLanguage: 'English' },
+      input: { notebookId: asNotebookId('notebook-source'), targetLanguage: 'English' },
     })
     expect(body.query).toContain('requestNotebookTranslation')
   })

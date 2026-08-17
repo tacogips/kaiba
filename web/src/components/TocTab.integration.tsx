@@ -1,3 +1,4 @@
+import { noteId as asNoteId, notebookId as asNotebookId } from '../notes/ids'
 import { render } from 'solid-js/web'
 import { describe, expect, test } from 'vitest'
 import type { NoteGraphQLClient } from '../notes/client'
@@ -6,7 +7,7 @@ import type { AppStore } from '../state/appStore'
 import { TocTab } from './TocTab'
 
 const notebook: Notebook = {
-  notebookId: 'notebook-1',
+  notebookId: asNotebookId('notebook-1'),
   title: 'Research',
   readOnly: false,
   createdAt: '2026-08-13T00:00:00Z',
@@ -16,7 +17,7 @@ const notebook: Notebook = {
 
 const notes: Note[] = [
   {
-    noteId: 'note-1',
+    noteId: asNoteId('note-1'),
     notebookId: notebook.notebookId,
     noteNumber: 1,
     title: 'Selected note',
@@ -26,7 +27,7 @@ const notes: Note[] = [
     updatedAt: '2026-08-13T00:01:00Z',
   },
   {
-    noteId: 'note-2',
+    noteId: asNoteId('note-2'),
     notebookId: notebook.notebookId,
     noteNumber: 2,
     title: 'Collapsed note',

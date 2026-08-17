@@ -58,9 +58,9 @@ final class NoteServiceMemoKindTagTests: NoteTestCase {
     let dispatcher = RecordingMemoAutoActionDispatcher()
     let service = try makeService(autoActionDispatcher: dispatcher)
     _ = try service.configureAutoAction(
-      actionId: "memo-kind",
+      actionId: AutoActionID("memo-kind"),
       trigger: .notebookCreated,
-      workflowId: "memo-workflow",
+      workflowId: WorkflowID("memo-workflow"),
       filterJSON: #"{"notebookKindTag":"notebook-kind:user-memo"}"#
     )
 
@@ -74,7 +74,7 @@ final class NoteServiceMemoKindTagTests: NoteTestCase {
 
     // The kind-filtered notebook-created action fires exactly once, only for the
     // memo notebook — the earlier plain notebook is filtered out.
-    let memoKindDispatches = dispatcher.records().filter { $0.action.actionId == "memo-kind" }
+    let memoKindDispatches = dispatcher.records().filter { $0.action.actionId == AutoActionID("memo-kind") }
     XCTAssertEqual(memoKindDispatches.map(\.event.notebookId), [memo.notebookId])
   }
 

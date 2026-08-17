@@ -29,9 +29,9 @@ final class NoteGraphQLTests: XCTestCase {
     let secondResult = try objectValue(values[1], field: "noteGraphNeighbors.value[1]")
     XCTAssertEqual(secondResult["hopCount"], .integer(2))
     XCTAssertEqual(secondResult["pathNoteIds"], .array([
-      .string(seed.noteId),
-      .string(first.noteId),
-      .string(second.noteId)
+      .string(seed.noteId.rawValue),
+      .string(first.noteId.rawValue),
+      .string(second.noteId.rawValue)
     ]))
 
     let search = await service.searchNotes(
@@ -47,7 +47,7 @@ final class NoteGraphQLTests: XCTestCase {
     let create = await service.createNote(GraphQLCreateNoteInput(
       title: "GraphQL Note",
       bodyMarkdown: "# GraphQL Note\n\nAlpha graphql body.",
-      tags: [GraphQLNoteTagInput(name: "research", classId: "topic")]
+      tags: [GraphQLNoteTagInput(name: "research", classId: TagClassID("topic"))]
     ))
 
     XCTAssertTrue(create.result.accepted)
@@ -120,22 +120,22 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertEqual(saved.notes.count, 1)
 
     let configured = await service.configureAutoAction(
-      actionId: "graphql-auto-tag",
+      actionId: AutoActionID("graphql-auto-tag"),
       trigger: "note-created",
-      workflowId: "note-auto-tagging",
+      workflowId: WorkflowID("note-auto-tagging"),
       filterJSON: "{\"noteTags\":[\"research\"]}",
       enabled: true,
       position: 4
     )
-    XCTAssertEqual(configured.autoAction?.actionId, "graphql-auto-tag")
+    XCTAssertEqual(configured.autoAction?.actionId, AutoActionID("graphql-auto-tag"))
 
     let actions = await service.autoActions()
-    XCTAssertTrue(actions.value?.contains(where: { $0.actionId == "graphql-auto-tag" }) == true)
+    XCTAssertTrue(actions.value?.contains(where: { $0.actionId == AutoActionID("graphql-auto-tag") }) == true)
 
-    let deleted = await service.deleteAutoAction(actionId: "graphql-auto-tag")
+    let deleted = await service.deleteAutoAction(actionId: AutoActionID("graphql-auto-tag"))
     XCTAssertTrue(deleted.accepted)
     let remainingActions = await service.autoActions()
-    XCTAssertFalse(remainingActions.value?.contains(where: { $0.actionId == "graphql-auto-tag" }) == true)
+    XCTAssertFalse(remainingActions.value?.contains(where: { $0.actionId == AutoActionID("graphql-auto-tag") }) == true)
   }
 
   func testNoteGraphQLServiceFiltersNotebooksByTag() async throws {
@@ -200,7 +200,7 @@ final class NoteGraphQLTests: XCTestCase {
     let created = try graphQLPayload(create.body, field: "createNote")
     XCTAssertEqual(try resultObject(created)["accepted"], .bool(true))
     let note = try objectValue(created["note"], field: "createNote.note")
-    let noteId = try stringValue(note["noteId"], field: "note.noteId")
+    let noteId = NoteID(try stringValue(note["noteId"], field: "note.noteId"))
 
     let search = await executor.execute(GraphQLDocumentRequest(
       query: """
@@ -226,7 +226,7 @@ final class NoteGraphQLTests: XCTestCase {
       return XCTFail("expected at least one search result")
     }
     let firstNote = try objectValue(try objectValue(values[0], field: "search result")["note"], field: "search result.note")
-    XCTAssertEqual(firstNote["noteId"], .string(noteId))
+    XCTAssertEqual(firstNote["noteId"], .string(noteId.rawValue))
 
     let notes = await executor.execute(GraphQLDocumentRequest(
       query: """
@@ -241,7 +241,7 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertEqual(try resultObject(noteList)["accepted"], .bool(true))
     XCTAssertEqual(
       try objectValue(try arrayValue(noteList["value"], field: "notes.value")[0], field: "notes.value[0]")["noteId"],
-      .string(noteId)
+      .string(noteId.rawValue)
     )
 
     let defineClass = await executor.execute(GraphQLDocumentRequest(
@@ -277,7 +277,7 @@ final class NoteGraphQLTests: XCTestCase {
     ))
     let notebookPayload = try graphQLPayload(createNotebook.body, field: "createNotebook")
     let notebook = try objectValue(notebookPayload["notebook"], field: "createNotebook.notebook")
-    let notebookId = try stringValue(notebook["notebookId"], field: "notebook.notebookId")
+    let notebookId = NotebookID(try stringValue(notebook["notebookId"], field: "notebook.notebookId"))
 
     let filteredNotebooks = await executor.execute(GraphQLDocumentRequest(
       query: """
@@ -295,7 +295,7 @@ final class NoteGraphQLTests: XCTestCase {
         try arrayValue(notebookList["value"], field: "notebooks.value")[0],
         field: "notebooks.value[0]"
       )["notebookId"],
-      .string(notebookId)
+      .string(notebookId.rawValue)
     )
 
     try await assertDocumentNotebookTagsAndAutoActionDeletion(
@@ -309,7 +309,7 @@ final class NoteGraphQLTests: XCTestCase {
         deleteNotebook(notebookId: $notebookId) { accepted status }
       }
       """,
-      variables: ["notebookId": .string(notebookId)],
+      variables: ["notebookId": .string(notebookId.rawValue)],
       operationName: "DeleteNotebook"
     ))
     let deleteNotebookPayload = try graphQLPayload(deleteNotebook.body, field: "deleteNotebook")
@@ -338,7 +338,7 @@ final class NoteGraphQLTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "fileId": .string(attachment.file.fileId),
+          "fileId": .string(attachment.file.fileId.rawValue),
           "s3ProfileName": .string("graphql-s3")
         ])
       ],
@@ -369,7 +369,7 @@ final class NoteGraphQLTests: XCTestCase {
             .object([
               "userMarkdown": .string("What did the document say?"),
               "assistantMarkdown": .string("It cited the source."),
-              "sourceNoteIds": .array([.string(noteId)])
+              "sourceNoteIds": .array([.string(noteId.rawValue)])
             ])
           ])
         ])
@@ -419,7 +419,7 @@ final class NoteGraphQLTests: XCTestCase {
     let overGraphLimit = await executor.execute(GraphQLDocumentRequest(
       query: "query Graph($ids: [String!]!, $limit: Int) { noteGraphNeighbors(noteIds: $ids, limit: $limit) { value { note { noteId } } result { accepted } } }",
       variables: [
-        "ids": .array([.string(note.noteId)]),
+        "ids": .array([.string(note.noteId.rawValue)]),
         "limit": .integer(Int64(NoteGraphPolicy.maximumLimit + 1))
       ],
       operationName: "Graph"
@@ -431,7 +431,7 @@ final class NoteGraphQLTests: XCTestCase {
     let overProposalLimit = await executor.execute(GraphQLDocumentRequest(
       query: "query Proposals($noteId: String!, $limit: Int) { proposeNoteLinks(noteId: $noteId, limit: $limit) { value { targetNote { noteId } } result { accepted } } }",
       variables: [
-        "noteId": .string(note.noteId),
+        "noteId": .string(note.noteId.rawValue),
         "limit": .integer(Int64(NoteGraphPolicy.maximumLimit + 1))
       ],
       operationName: "Proposals"
@@ -458,7 +458,7 @@ final class NoteGraphQLTests: XCTestCase {
         deleteNote(noteId: $noteId) { accepted status }
       }
       """,
-      variables: ["noteId": .string(note.noteId)],
+      variables: ["noteId": .string(note.noteId.rawValue)],
       operationName: "DeleteAsQuery"
     ))
 
@@ -504,7 +504,7 @@ final class NoteGraphQLTests: XCTestCase {
     let values = try arrayValue(payload["value"], field: "parsedNotes.value")
     XCTAssertEqual(
       try objectValue(values.first, field: "parsedNotes.value[0]")["noteId"],
-      .string(note.noteId)
+      .string(note.noteId.rawValue)
     )
 
     let deleted = await executor.execute(GraphQLDocumentRequest(
@@ -592,7 +592,7 @@ final class NoteGraphQLTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "fileId": .string(attachment.file.fileId),
+          "fileId": .string(attachment.file.fileId.rawValue),
           "s3Endpoint": .string("https://attacker.example.test"),
           "s3Region": .string("ap-northeast-1"),
           "s3Bucket": .string("notes"),
@@ -611,7 +611,7 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertEqual(result["status"], .string("failed"))
     let failures = try arrayValue(payload["failures"], field: "migrateNoteFileStorage.failures")
     let firstFailure = try objectValue(failures.first, field: "migrateNoteFileStorage.failures[0]")
-    XCTAssertEqual(firstFailure["fileId"], .string(attachment.file.fileId))
+    XCTAssertEqual(firstFailure["fileId"], .string(attachment.file.fileId.rawValue))
     XCTAssertTrue(
       try stringValue(firstFailure["message"], field: "failures[0].message")
         .contains("s3ProfileName is required")
@@ -642,7 +642,7 @@ final class NoteGraphQLTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "fileId": .string(attachment.file.fileId),
+          "fileId": .string(attachment.file.fileId.rawValue),
           "s3ProfileName": .string("graphql-s3"),
           "s3Endpoint": .string("https://attacker.example.test"),
           "s3AccessKeyIdEnv": .string("GITHUB_TOKEN")
@@ -657,7 +657,7 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertEqual(try resultObject(payload)["accepted"], .bool(false))
     let failures = try arrayValue(payload["failures"], field: "migrateNoteFileStorage.failures")
     let firstFailure = try objectValue(failures.first, field: "migrateNoteFileStorage.failures[0]")
-    XCTAssertEqual(firstFailure["fileId"], .string(attachment.file.fileId))
+    XCTAssertEqual(firstFailure["fileId"], .string(attachment.file.fileId.rawValue))
     XCTAssertTrue(
       try stringValue(firstFailure["message"], field: "failures[0].message")
         .contains("raw S3 fields are not allowed with s3ProfileName")
@@ -718,15 +718,15 @@ final class NoteGraphQLTests: XCTestCase {
       }
       return message
     }
-    XCTAssertTrue(diagnosticMessages.contains { $0.contains(secondFile.file.fileId) })
+    XCTAssertTrue(diagnosticMessages.contains { $0.contains(secondFile.file.fileId.rawValue) })
     let migratedFiles = try arrayValue(payload["migrated"], field: "migrateAllNoteFiles.migrated")
     XCTAssertEqual(
       try objectValue(migratedFiles.first, field: "migrateAllNoteFiles.migrated[0]")["fileId"],
-      .string(firstFile.file.fileId)
+      .string(firstFile.file.fileId.rawValue)
     )
     let failures = try arrayValue(payload["failures"], field: "migrateAllNoteFiles.failures")
     let failure = try objectValue(failures.first, field: "migrateAllNoteFiles.failures[0]")
-    XCTAssertEqual(failure["fileId"], .string(secondFile.file.fileId))
+    XCTAssertEqual(failure["fileId"], .string(secondFile.file.fileId.rawValue))
     XCTAssertEqual(try service.service.getFileRecord(fileId: firstFile.file.fileId).storageKind, .s3)
     XCTAssertEqual(try service.service.getFileRecord(fileId: secondFile.file.fileId).storageKind, .local)
   }
@@ -781,6 +781,7 @@ final class NoteGraphQLTests: XCTestCase {
       "note",
       "notebook",
       "notebooks",
+      "libraries",
       "notes",
       "searchNotes",
       "noteGraphNeighbors",
@@ -898,7 +899,7 @@ final class NoteGraphQLTests: XCTestCase {
 
   private func assertDocumentNotebookTagsAndAutoActionDeletion(
     executor: NoteGraphQLDocumentExecutor,
-    notebookId: String
+    notebookId: NotebookID
   ) async throws {
     let taggedNotebook = await executor.execute(GraphQLDocumentRequest(
       query: """
@@ -910,7 +911,7 @@ final class NoteGraphQLTests: XCTestCase {
       }
       """,
       variables: ["input": .object([
-        "notebookId": .string(notebookId),
+        "notebookId": .string(notebookId.rawValue),
         "tags": .array([.string("document-active")]),
         "provenance": .string("human")
       ])],
@@ -935,7 +936,7 @@ final class NoteGraphQLTests: XCTestCase {
       }
       """,
       variables: [
-        "notebookId": .string(notebookId),
+        "notebookId": .string(notebookId.rawValue),
         "tagName": .string("document-active")
       ],
       operationName: "RemoveNotebookTag"

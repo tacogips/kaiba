@@ -4,6 +4,7 @@ import type { JSX } from 'solid-js'
 import { isSafeHref, parseInlineSegments, parseMarkdownBlocks } from '../notes/markdown'
 import { splitSegmentsByTagTerms, type TagTerm } from '../notes/tagMatch'
 import { headingAnchorsByBlockIndex } from '../notes/toc'
+import type { TagId } from '../notes/ids'
 
 // Rendering builds DOM nodes directly from the parsed block model — raw HTML in
 // note bodies is never interpreted. Headings render at their authored level with
@@ -16,7 +17,7 @@ export type { InlineSegment, MarkdownBlock } from '../notes/markdown'
 
 interface TagDecoration {
   terms?: readonly TagTerm[]
-  onTagClick?: (tagId: string) => void
+  onTagClick?: (tagId: TagId) => void
 }
 
 function InlineText(props: { text: string } & TagDecoration): JSX.Element {
@@ -53,7 +54,7 @@ export function MarkdownBody(props: {
   anchorIds?: boolean
   anchorPrefix?: string
   tagTerms?: readonly TagTerm[]
-  onTagClick?: (tagId: string) => void
+  onTagClick?: (tagId: TagId) => void
 }): JSX.Element {
   const blocks = createMemo(() => parseMarkdownBlocks(props.markdown))
   const anchors = createMemo(() => headingAnchorsByBlockIndex(blocks(), props.anchorPrefix ?? ''))

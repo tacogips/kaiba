@@ -8,7 +8,7 @@ public struct LocalNoteFileStore: NoteFileStore {
     self.noteRoot = noteRoot
   }
 
-  public func store(data: Data, fileId: String) throws -> StoredNoteFile {
+  public func store(data: Data, fileId: FileID) throws -> StoredNoteFile {
     let relativePath = localPath(for: fileId)
     let destination = filesRoot().appendingPathComponent(relativePath)
     try FileManager.default.createDirectory(
@@ -41,7 +41,7 @@ public struct LocalNoteFileStore: NoteFileStore {
     )
   }
 
-  public func store(fileURL: URL, fileId: String) throws -> StoredNoteFile {
+  public func store(fileURL: URL, fileId: FileID) throws -> StoredNoteFile {
     let relativePath = localPath(for: fileId)
     let destination = filesRoot().appendingPathComponent(relativePath)
     try FileManager.default.createDirectory(
@@ -107,8 +107,8 @@ public struct LocalNoteFileStore: NoteFileStore {
     URL(fileURLWithPath: noteRoot, isDirectory: true).appendingPathComponent("files", isDirectory: true)
   }
 
-  private func localPath(for fileId: String) -> String {
-    let shard = SHA256.hash(data: Data(fileId.utf8))
+  private func localPath(for fileId: FileID) -> String {
+    let shard = SHA256.hash(data: Data(fileId.rawValue.utf8))
       .prefix(1)
       .map { String(format: "%02x", $0) }
       .joined()

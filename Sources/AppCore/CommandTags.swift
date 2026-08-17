@@ -5,7 +5,7 @@ extension AppCommand {
     var cursor = context.cursor
     let additions = try cursor.extractOptionValues("--add")
     let removals = try cursor.extractOptionValues("--remove")
-    guard let noteId = cursor.next() else {
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self) else {
       throw Error.invalidUsage("tag requires <note-id>")
     }
     guard !additions.isEmpty || !removals.isEmpty else {
@@ -33,7 +33,7 @@ extension AppCommand {
 
   func runTags(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    let classFilter = try cursor.extractOption("--class")
+    let classFilter = try cursor.extractIdentifierOption("--class", as: TagClassID.self)
     let output = try cursor.extractOutputMode()
     try cursor.finish()
 
@@ -56,7 +56,7 @@ extension AppCommand {
           parts.append("class=\(classId)")
         }
         if let parent = tag.parentTagId {
-          parts.append("parent=\(byId[parent] ?? parent)")
+          parts.append("parent=\(byId[parent] ?? parent.rawValue)")
         }
         if tag.isSystem {
           parts.append("[system]")
@@ -75,14 +75,14 @@ extension AppCommand {
     let classes = try service.listTagClasses()
     switch output {
     case .json:
-      return try renderJSON(classes.map { tagClass -> [String: Any] in
-        var object: [String: Any] = [
-          "classId": tagClass.classId,
-          "label": tagClass.label,
-          "isSystem": tagClass.isSystem,
-          "createdAt": tagClass.createdAt
+      return try renderJSON(classes.map { tagClass -> JSONObject in
+        var object: JSONObject = [
+          "classId": .id(tagClass.classId),
+          "label": .string(tagClass.label),
+          "isSystem": .bool(tagClass.isSystem),
+          "createdAt": .string(tagClass.createdAt)
         ]
-        object["description"] = tagClass.description
+        object["description"] = tagClass.description.map(JSONValue.string)
         return object
       })
     case .text:
@@ -101,7 +101,7 @@ extension AppCommand {
 
   func runTagDefine(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    let classId = try cursor.extractOption("--class")
+    let classId = try cursor.extractIdentifierOption("--class", as: TagClassID.self)
     let parentName = try cursor.extractOption("--parent")
     guard let name = cursor.next() else {
       throw Error.invalidUsage("tag-define requires <name>")
@@ -109,7 +109,7 @@ extension AppCommand {
     try cursor.finish()
 
     let service = try makeService(context)
-    var parentTagId: String?
+    var parentTagId: TagID?
     if let parentName {
       guard let parent = try service.listTags().first(where: { $0.name == parentName }) else {
         throw Error.invalidUsage("parent tag not found: \(parentName)")
@@ -131,7 +131,7 @@ extension AppCommand {
     var cursor = context.cursor
     let label = try cursor.extractOption("--label")
     let description = try cursor.extractOption("--description")
-    guard let classId = cursor.next(), let label else {
+    guard let classId = cursor.nextIdentifier(as: TagClassID.self), let label else {
       throw Error.invalidUsage("class-define requires <class-id> and --label")
     }
     try cursor.finish()

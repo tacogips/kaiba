@@ -22,13 +22,13 @@ final class NoteGraphQLVerifiedIdentityTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "noteId": .string(note.noteId),
+          "noteId": .string(note.noteId.rawValue),
           "tags": .array([.object(["name": .string("topic")])]),
           "assignedBy": .string("client:other")
         ])
       ],
       operationName: "ApplyTags",
-      authenticatedClientId: "abc123"
+      authenticatedClientId: APIClientID("abc123")
     ))
 
     XCTAssertTrue(response.handled)
@@ -50,12 +50,12 @@ final class NoteGraphQLVerifiedIdentityTests: XCTestCase {
       """,
       variables: [
         "input": .object([
-          "noteId": .string(note.noteId),
+          "noteId": .string(note.noteId.rawValue),
           "tags": .array([.object(["name": .string("topic")])])
         ])
       ],
       operationName: "ApplyTags",
-      authenticatedClientId: "abc123"
+      authenticatedClientId: APIClientID("abc123")
     ))
 
     XCTAssertTrue(response.handled)

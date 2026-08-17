@@ -1,3 +1,5 @@
+import { noteId as asNoteId } from '../notes/ids'
+import type { NoteId, TagClassId, TagId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
 import { errorMessage, useApp } from '../state/appStore'
 import type { NoteGraphNeighbor, NoteTag } from '../notes/types'
@@ -12,7 +14,7 @@ export function NotebookTagsTab(): JSX.Element {
 
   const aggregated = createMemo(() => {
     const notebook = app.notebook()
-    const counts = new Map<string, { tag: NoteTag; noteCount: number }>()
+    const counts = new Map<TagId, { tag: NoteTag; noteCount: number }>()
     for (const assignment of notebook?.tags ?? []) {
       counts.set(assignment.tag.tagId, { tag: assignment.tag, noteCount: 0 })
     }
@@ -23,9 +25,9 @@ export function NotebookTagsTab(): JSX.Element {
         else counts.set(assignment.tag.tagId, { tag: assignment.tag, noteCount: 1 })
       }
     }
-    const byClass = new Map<string, Array<{ tag: NoteTag; noteCount: number }>>()
+    const byClass = new Map<TagClassId | null, Array<{ tag: NoteTag; noteCount: number }>>()
     for (const entry of counts.values()) {
-      const classId = entry.tag.classId ?? 'untyped'
+      const classId = entry.tag.classId
       byClass.set(classId, [...(byClass.get(classId) ?? []), entry])
     }
     return [...byClass.entries()]
@@ -33,7 +35,7 @@ export function NotebookTagsTab(): JSX.Element {
         classId,
         tags: tags.sort((left, right) => left.tag.name.localeCompare(right.tag.name)),
       }))
-      .sort((left, right) => left.classId.localeCompare(right.classId))
+      .sort((left, right) => (left.classId ?? '').localeCompare(right.classId ?? ''))
   })
 
   return (
@@ -48,7 +50,7 @@ export function NotebookTagsTab(): JSX.Element {
         <div class="info-tags">
           <For each={aggregated()}>{(group) =>
             <section class="info-tag-group">
-              <h3>{group.classId}</h3>
+              <h3>{group.classId ?? 'untyped'}</h3>
               <For each={group.tags}>{(entry) =>
                 <div class="info-tag-class">
                   <button
@@ -87,7 +89,7 @@ export function NotebookLinksTab(): JSX.Element {
 
   createEffect(() => {
     const notebookId = app.state.notebookId
-    const ids = noteIds().split('\n').filter((id) => id.length > 0)
+    const ids = noteIds().split('\n').filter((id) => id.length > 0).map(asNoteId)
     if (notebookId) void app.state.notebookRevisions[notebookId]
     if (!notebookId || ids.length === 0) {
       generation += 1
@@ -97,12 +99,12 @@ export function NotebookLinksTab(): JSX.Element {
     void load(ids)
   })
 
-  const load = async (ids: string[]) => {
+  const load = async (ids: NoteId[]) => {
     const requested = ++generation
     setLoading(true)
     setError('')
     try {
-      const chunks: string[][] = []
+      const chunks: NoteId[][] = []
       for (let index = 0; index < ids.length; index += linkSeedChunkSize) {
         chunks.push(ids.slice(index, index + linkSeedChunkSize))
       }
@@ -122,7 +124,7 @@ export function NotebookLinksTab(): JSX.Element {
 
   const groups = createMemo(() => {
     const titles = new Map(app.notes().map((note) => [note.noteId, noteDisplayTitle(note)]))
-    const bySeed = new Map<string, NoteGraphNeighbor[]>()
+    const bySeed = new Map<NoteId, NoteGraphNeighbor[]>()
     for (const neighbor of neighbors()) {
       bySeed.set(neighbor.seedNoteId, [...(bySeed.get(neighbor.seedNoteId) ?? []), neighbor])
     }

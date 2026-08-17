@@ -1,4 +1,5 @@
 import Foundation
+import AppCore
 
 public enum NoteGraphQLDocumentLimits {
   public static let maximumDocumentUTF8Bytes = 512 * 1024

@@ -7,16 +7,16 @@ func isSQLiteUniqueConstraintViolation(_ error: SQLiteError) -> Bool {
     && error.message.lowercased().contains(sqliteUniqueConstraintMessage)
 }
 
-func requireNotebook(_ notebookId: String, in database: SQLiteDatabase) throws -> Notebook {
+func loadNotebook(_ notebookId: NotebookID, in database: SQLiteDatabase) throws -> Notebook {
   let rows = try database.query(
     """
-    SELECT notebook_id, title, read_only, created_at, updated_at,
+    SELECT notebook_id, title, read_only, created_at, updated_at, library_id,
       CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
     FROM notebooks
     WHERE notebook_id = ?
     LIMIT 1
     """,
-    bindings: [.text(notebookId)]
+    bindings: [.id(notebookId)]
   )
   guard let row = rows.first else {
     throw NoteServiceError.notFound("notebook not found: \(notebookId)")
@@ -26,7 +26,7 @@ func requireNotebook(_ notebookId: String, in database: SQLiteDatabase) throws -
   return notebook
 }
 
-func requireNote(_ noteId: String, in database: SQLiteDatabase) throws -> Note {
+func loadNote(_ noteId: NoteID, in database: SQLiteDatabase) throws -> Note {
   let rows = try database.query(
     """
     SELECT note_id, notebook_id, note_number, title, body_markdown, read_only,
@@ -36,7 +36,7 @@ func requireNote(_ noteId: String, in database: SQLiteDatabase) throws -> Note {
     WHERE note_id = ?
     LIMIT 1
     """,
-    bindings: [.text(noteId)]
+    bindings: [.id(noteId)]
   )
   guard let row = rows.first else {
     throw NoteServiceError.notFound("note not found: \(noteId)")
@@ -45,25 +45,25 @@ func requireNote(_ noteId: String, in database: SQLiteDatabase) throws -> Note {
 }
 
 @discardableResult
-func requireWritableNote(_ noteId: String, in database: SQLiteDatabase) throws -> Note {
-  let note = try requireNote(noteId, in: database)
-  let notebook = try requireNotebook(note.notebookId, in: database)
+func loadWritableNote(_ noteId: NoteID, in database: SQLiteDatabase) throws -> Note {
+  let note = try loadNote(noteId, in: database)
+  let notebook = try loadNotebook(note.notebookId, in: database)
   guard !note.readOnly, !notebook.readOnly else {
-    throw NoteServiceError.readOnly(noteId)
+    throw NoteServiceError.readOnly(noteId.rawValue)
   }
   return note
 }
 
 @discardableResult
-func requireWritableNotebook(_ notebookId: String, in database: SQLiteDatabase) throws -> Notebook {
-  let notebook = try requireNotebook(notebookId, in: database)
+func loadWritableNotebook(_ notebookId: NotebookID, in database: SQLiteDatabase) throws -> Notebook {
+  let notebook = try loadNotebook(notebookId, in: database)
   guard !notebook.readOnly else {
-    throw NoteServiceError.readOnly(notebookId)
+    throw NoteServiceError.readOnly(notebookId.rawValue)
   }
   return notebook
 }
 
-func requireNotes(_ noteIds: [String], in database: SQLiteDatabase) throws -> [String: Note] {
+func requireNotes(_ noteIds: [NoteID], in database: SQLiteDatabase) throws -> [NoteID: Note] {
   let orderedNoteIds = orderedUnique(noteIds)
   guard !orderedNoteIds.isEmpty else {
     return [:]
@@ -76,10 +76,10 @@ func requireNotes(_ noteIds: [String], in database: SQLiteDatabase) throws -> [S
     FROM notes
     WHERE note_id IN (\(placeholders(count: orderedNoteIds.count)))
     """,
-    bindings: orderedNoteIds.map(SQLiteValue.text)
+    bindings: orderedNoteIds.sqliteBindings
   )
   let hydratedNotes = try notes(from: rows, in: database)
-  var notesById: [String: Note] = [:]
+  var notesById: [NoteID: Note] = [:]
   notesById.reserveCapacity(hydratedNotes.count)
   for note in hydratedNotes {
     notesById[note.noteId] = note
@@ -110,14 +110,14 @@ func requireTag(name: String, in database: SQLiteDatabase) throws -> Tag {
   return tag
 }
 
-func requireTag(id tagId: String, in database: SQLiteDatabase) throws -> Tag {
+func requireTag(id tagId: TagID, in database: SQLiteDatabase) throws -> Tag {
   let rows = try database.query(
     """
     SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
     FROM tags
     WHERE tag_id = ?
     """,
-    bindings: [.text(tagId)]
+    bindings: [.id(tagId)]
   )
   guard let row = rows.first else {
     throw NoteServiceError.notFound("tag not found: \(tagId)")
@@ -127,7 +127,7 @@ func requireTag(id tagId: String, in database: SQLiteDatabase) throws -> Tag {
 
 func findFolderTag(
   name: String,
-  parentTagId: String?,
+  parentTagId: TagID?,
   in database: SQLiteDatabase
 ) throws -> Tag? {
   let parentPredicate = parentTagId == nil ? "parent_tag_id IS NULL" : "parent_tag_id = ?"
@@ -137,7 +137,7 @@ func findFolderTag(
     FROM tags
     WHERE name = ? AND class_id = 'folder' AND \(parentPredicate)
     """,
-    bindings: [.text(name)] + (parentTagId.map { [.text($0)] } ?? [])
+    bindings: [.text(name)] + (parentTagId.map { [SQLiteValue.id($0)] } ?? [])
   )
   guard rows.count <= 1 else {
     throw NoteServiceError.invalidInput("duplicate sibling folder name: \(name)")
@@ -169,7 +169,7 @@ func requireNonFolderTag(name: String, in database: SQLiteDatabase) throws -> Ta
 }
 
 func notebook(from row: SQLiteRow, in database: SQLiteDatabase) throws -> Notebook {
-  guard let notebookId = row["notebook_id"],
+  guard let notebookId = row.identifier("notebook_id", as: NotebookID.self),
         let title = row["title"],
         let createdAt = row["created_at"],
         let updatedAt = row["updated_at"] else {
@@ -182,22 +182,23 @@ func notebook(from row: SQLiteRow, in database: SQLiteDatabase) throws -> Notebo
     createdAt: createdAt,
     updatedAt: updatedAt,
     metaJSON: row["meta_json"] ?? nil,
-    tags: try notebookTags(notebookId: notebookId, in: database)
+    tags: try notebookTags(notebookId: notebookId, in: database),
+    libraryId: row.identifier("library_id", as: LibraryID.self) ?? nil
   )
 }
 
 func note(from row: SQLiteRow, in database: SQLiteDatabase) throws -> Note {
-  guard let noteId = row["note_id"] else {
+  guard let noteId = row.identifier("note_id", as: NoteID.self) else {
     throw NoteServiceError.invalidRow("note row is missing note_id")
   }
   return try note(from: row, tags: noteTags(noteId: noteId, in: database))
 }
 
 func notes(from rows: [SQLiteRow], in database: SQLiteDatabase) throws -> [Note] {
-  let noteIds = rows.compactMap { $0["note_id"] }
+  let noteIds = rows.compactMap { $0.identifier("note_id", as: NoteID.self) }
   let tagsByNoteId = try noteTags(noteIds: noteIds, in: database)
   return try rows.map { row in
-    guard let noteId = row["note_id"] else {
+    guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("note row is missing note_id")
     }
     return try note(from: row, tags: tagsByNoteId[noteId] ?? [])
@@ -205,8 +206,8 @@ func notes(from rows: [SQLiteRow], in database: SQLiteDatabase) throws -> [Note]
 }
 
 private func note(from row: SQLiteRow, tags: [TagAssignment]) throws -> Note {
-  guard let noteId = row["note_id"],
-        let notebookId = row["notebook_id"],
+  guard let noteId = row.identifier("note_id", as: NoteID.self),
+        let notebookId = row.identifier("notebook_id", as: NotebookID.self),
         let noteNumberText = row["note_number"],
         let noteNumber = Int(noteNumberText),
         let bodyMarkdown = row["body_markdown"],
@@ -229,7 +230,7 @@ private func note(from row: SQLiteRow, tags: [TagAssignment]) throws -> Note {
 }
 
 func tag(from row: SQLiteRow) throws -> Tag {
-  guard let tagId = row["tag_id"],
+  guard let tagId = row.identifier("tag_id", as: TagID.self),
         let name = row["name"],
         let createdAt = row["created_at"] else {
     throw NoteServiceError.invalidRow("tag row is missing required fields")
@@ -237,8 +238,8 @@ func tag(from row: SQLiteRow) throws -> Tag {
   return Tag(
     tagId: tagId,
     name: name,
-    classId: row["class_id"] ?? nil,
-    parentTagId: row["parent_tag_id"] ?? nil,
+    classId: row.identifier("class_id", as: TagClassID.self) ?? nil,
+    parentTagId: row.identifier("parent_tag_id", as: TagID.self) ?? nil,
     isSystem: row["is_system"] == "1",
     createdAt: createdAt
   )

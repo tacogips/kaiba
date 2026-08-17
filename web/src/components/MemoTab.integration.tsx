@@ -1,3 +1,4 @@
+import { noteId as asNoteId, notebookId as asNotebookId } from '../notes/ids'
 import { render } from 'solid-js/web'
 import { describe, expect, test } from 'vitest'
 import type { NoteGraphQLClient } from '../notes/client'
@@ -5,19 +6,20 @@ import type { WebAppSettings } from '../notes/settings'
 import type { AgentChatAttachmentInput, AgentChatMessageResult, Note } from '../notes/types'
 import type { AppStore } from '../state/appStore'
 import { MemoTab } from './MemoTab'
+import type { NotebookId } from '../notes/ids'
 
 const subject: Note = {
-  noteId: 'subject-1', notebookId: 'notebook-1', noteNumber: 1, title: 'Subject', bodyMarkdown: '# Subject',
+  noteId: asNoteId('subject-1'), notebookId: asNotebookId('notebook-1'), noteNumber: 1, title: 'Subject', bodyMarkdown: '# Subject',
   readOnly: false, createdAt: '2026-08-13T00:00:00Z', updatedAt: '2026-08-13T00:00:00Z',
 }
 const earlierTurn: Note = {
-  noteId: 'turn-old', notebookId: 'conversation-old', noteNumber: 1, title: 'Earlier question',
+  noteId: asNoteId('turn-old'), notebookId: asNotebookId('conversation-old'), noteNumber: 1, title: 'Earlier question',
   bodyMarkdown: '## User\nEarlier question\n## Agent\nEarlier answer', readOnly: false,
   createdAt: '2026-08-13T00:01:00Z', updatedAt: '2026-08-13T00:01:00Z',
   metaJSON: JSON.stringify({ kaibaChat: { status: 'answered', userMarkdown: 'Earlier question' } }),
 }
 const newTurn: Note = {
-  noteId: 'turn-new', notebookId: 'conversation-new', noteNumber: 1, title: 'New question',
+  noteId: asNoteId('turn-new'), notebookId: asNotebookId('conversation-new'), noteNumber: 1, title: 'New question',
   bodyMarkdown: '## User\nAsk in a new chat\n## Agent\nNew answer', readOnly: false,
   createdAt: '2026-08-13T00:02:00Z', updatedAt: '2026-08-13T00:02:00Z',
   metaJSON: JSON.stringify({ kaibaChat: { status: 'answered', userMarkdown: 'Ask in a new chat' } }),
@@ -65,19 +67,19 @@ function testStore(requests: Array<Record<string, unknown>>, memoWrites: string[
     noteComments: async () => [],
     noteConversations: async () => [
       {
-        notebookId: 'conversation-old', title: 'Earlier conversation', updatedAt: '2026-08-13T00:01:00Z',
+        notebookId: asNotebookId('conversation-old'), title: 'Earlier conversation', updatedAt: '2026-08-13T00:01:00Z',
         turnCount: 1, subjectNoteId: subject.noteId,
       },
       ...(newConversationCreated ? [{
-        notebookId: 'conversation-new', title: 'New conversation', updatedAt: '2026-08-13T00:02:00Z',
+        notebookId: asNotebookId('conversation-new'), title: 'New conversation', updatedAt: '2026-08-13T00:02:00Z',
         turnCount: 1, subjectNoteId: subject.noteId,
       }] : []),
     ],
-    notes: async (notebookId: string) => notebookId === 'conversation-new' ? [newTurn] : [earlierTurn],
+    notes: async (notebookId: NotebookId) => notebookId === 'conversation-new' ? [newTurn] : [earlierTurn],
     sendAgentChatMessage: async (request: Record<string, unknown>): Promise<AgentChatMessageResult> => {
       requests.push(request)
       newConversationCreated = true
-      return { conversationNotebookId: 'conversation-new', turnNoteId: null, agentStatus: 'answered' }
+      return { conversationNotebookId: asNotebookId('conversation-new'), turnNoteId: null, agentStatus: 'answered' }
     },
     addNoteComment: async (_noteId: string, body: string) => { memoWrites.push(body) },
   } as unknown as NoteGraphQLClient
@@ -185,7 +187,7 @@ describe('MemoTab integration', () => {
       composer!.dispatchEvent(new Event('input', { bubbles: true }))
       composer!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       await waitFor(() => expect(requests).toHaveLength(3))
-      expect(requests[2]).toMatchObject({ conversationNotebookId: 'conversation-new', mode: 'edit' })
+      expect(requests[2]).toMatchObject({ conversationNotebookId: asNotebookId('conversation-new'), mode: 'edit' })
     } finally {
       dispose()
       host.remove()

@@ -13,6 +13,11 @@ type Notebook {
   notebookId: String!, title: String!, readOnly: Boolean!
   createdAt: String!, updatedAt: String!, metaJSON: String
   tags: [NoteTagAssignment!]!, firstNotePreview: String, noteCount: Int
+  libraryId: String
+}
+type NoteLibrary {
+  libraryId: String!, name: String!, title: String!
+  authRequired: Boolean!, isDefault: Boolean!, createdAt: String!, notebookCount: Int
 }
 type Note { noteId: String!, notebookId: String!, noteNumber: Int!, title: String, bodyMarkdown: String!, readOnly: Boolean!, createdAt: String!, updatedAt: String!, metaJSON: String, tags: [NoteTagAssignment!]! }
 type NoteFile {
@@ -40,6 +45,7 @@ enum NoteListSort { createdAtDesc createdAtAsc updatedAtDesc title }
 type NoteQueryPayload { result: ControlPlaneResult!, value: Note }
 type NotebookQueryPayload { result: ControlPlaneResult!, value: Notebook }
 type NotebooksQueryPayload { result: ControlPlaneResult!, value: [Notebook!] }
+type NoteLibrariesQueryPayload { result: ControlPlaneResult!, value: [NoteLibrary!] }
 type NotesQueryPayload { result: ControlPlaneResult!, value: [Note!] }
 type NoteSearchQueryPayload { result: ControlPlaneResult!, value: [NoteSearchResult!] }
 type NoteGraphNeighborsQueryPayload { result: ControlPlaneResult!, value: [NoteGraphNeighbor!] }

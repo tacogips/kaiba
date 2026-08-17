@@ -156,13 +156,11 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
   /// Extracts the text of a single ACP `agent_message_chunk` update line;
   /// nil for every other line kind.
   static func agentMessageChunkText(fromACPLine lineData: Data) -> String? {
-    guard let object = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any],
-      object["method"] as? String == "session/update",
-      let params = object["params"] as? [String: Any],
-      let update = params["update"] as? [String: Any],
-      update["sessionUpdate"] as? String == "agent_message_chunk",
-      let content = update["content"] as? [String: Any],
-      let text = content["text"] as? String
+    guard let object = try? JSONValue(parsing: lineData),
+      object["method"]?.asString == "session/update",
+      let update = object["params"]?["update"],
+      update["sessionUpdate"]?.asString == "agent_message_chunk",
+      let text = update["content"]?["text"]?.asString
     else {
       return nil
     }
@@ -181,31 +179,25 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
   static func parseACPOutput(_ data: Data) -> ParsedACPOutput {
     var parsed = ParsedACPOutput()
     for lineData in data.split(separator: UInt8(ascii: "\n")) {
-      guard let object = (try? JSONSerialization.jsonObject(with: Data(lineData)))
-        as? [String: Any]
-      else {
+      guard let object = try? JSONValue(parsing: Data(lineData)) else {
         continue
       }
-      if let error = object["error"] as? [String: Any] {
-        let code = error["code"].map { "\($0)" } ?? "?"
-        let message = error["message"] as? String ?? "unknown agent error"
+      if let error = object["error"] {
+        let code = error["code"]?.asInt64.map(String.init) ?? error["code"]?.asString ?? "?"
+        let message = error["message"]?.asString ?? "unknown agent error"
         parsed.errorMessage = "agent error \(code): \(message)"
         continue
       }
-      if let params = object["params"] as? [String: Any],
-        object["method"] as? String == "session/update",
-        let update = params["update"] as? [String: Any],
-        update["sessionUpdate"] as? String == "agent_message_chunk",
-        let content = update["content"] as? [String: Any],
-        let text = content["text"] as? String {
+      if object["method"]?.asString == "session/update",
+        let update = object["params"]?["update"],
+        update["sessionUpdate"]?.asString == "agent_message_chunk",
+        let text = update["content"]?["text"]?.asString {
         parsed.streamedText += text
         continue
       }
-      if let result = object["result"] as? [String: Any],
+      if let result = object["result"],
         result["stopReason"] != nil,
-        let meta = result["_meta"] as? [String: Any],
-        let gateway = meta["agentGateway"] as? [String: Any],
-        let text = gateway["resultText"] as? String {
+        let text = result["_meta"]?["agentGateway"]?["resultText"]?.asString {
         parsed.resultText = text
       }
     }

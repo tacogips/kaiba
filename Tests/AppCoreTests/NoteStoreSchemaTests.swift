@@ -44,7 +44,9 @@ final class NoteStoreSchemaTests: NoteTestCase {
       XCTAssertTrue(try database.tableExists("note_fts_map"))
       XCTAssertEqual(
         try NoteStoreSchema.seededTagClassIds(in: database),
-        ["content-kind", "document-kind", "event", "folder", "person", "source", "topic", "workflow", "year"]
+        [
+        .contentKind, .documentKind, .event, .folder, .person, .source, .topic, .workflow, .year
+      ]
       )
 
       let kindTags = try database.query(
@@ -71,7 +73,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
         autoActions.map { $0["trigger"] },
         ["note-created", "note-updated", "notebook-created"]
       )
-      XCTAssertTrue(autoActions.allSatisfy { $0["workflow_id"] == NoteStoreSchema.autoTaggingWorkflowId })
+      XCTAssertTrue(autoActions.allSatisfy { $0.identifier("workflow_id", as: WorkflowID.self) == NoteStoreSchema.autoTaggingWorkflowId })
       XCTAssertEqual(try database.query("PRAGMA foreign_keys").first?["foreign_keys"], "1")
       XCTAssertEqual(try schemaVersions(in: database), [NoteStoreSchema.currentVersion])
 
@@ -146,8 +148,8 @@ final class NoteStoreSchemaTests: NoteTestCase {
         "SELECT tag_id, class_id, is_system FROM tags WHERE name = ?",
         bindings: [.text(NoteStoreSchema.longTermMemoryNotebookKindTag)]
       ).first)
-      XCTAssertEqual(tagRow["tag_id"], NoteStoreSchema.longTermMemoryNotebookKindTagId)
-      XCTAssertEqual(tagRow["class_id"], "document-kind")
+      XCTAssertEqual(tagRow.identifier("tag_id", as: TagID.self), NoteStoreSchema.longTermMemoryNotebookKindTagId)
+      XCTAssertEqual(tagRow.identifier("class_id", as: TagClassID.self), .documentKind)
       XCTAssertEqual(tagRow["is_system"], "1")
       XCTAssertEqual(try schemaVersions(in: database), [NoteStoreSchema.currentVersion])
     }
@@ -249,7 +251,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       )
       try database.execute(
         "INSERT INTO note_fts_map (fts_rowid, note_id) VALUES (1, ?)",
-        bindings: [.text(note.noteId)]
+        bindings: [.id(note.noteId)]
       )
     }
 
@@ -329,8 +331,11 @@ final class NoteStoreSchemaTests: NoteTestCase {
 
       let sharedRows = try database.query(
         "SELECT tag_id FROM tags WHERE name = 'Shared' ORDER BY tag_id"
-      ).compactMap { $0["tag_id"] }
-      XCTAssertEqual(sharedRows, ["nested-a", "nested-b", "root-shared", "topic-shared"])
+      ).compactMap { $0.identifier("tag_id", as: TagID.self) }
+      XCTAssertEqual(
+        sharedRows,
+        [TagID("nested-a"), TagID("nested-b"), TagID("root-shared"), TagID("topic-shared")]
+      )
     }
   }
 

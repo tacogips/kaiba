@@ -59,6 +59,29 @@ public struct CommandCursor: Sendable {
     return true
   }
 
+  /// Reads `option <id>` as a typed identifier. The CLI is one of the places a
+  /// raw string legitimately becomes an id, and blank text is rejected here
+  /// rather than reaching the store as a lookup key that matches nothing.
+  public mutating func extractIdentifierOption<Identifier: KaibaIdentifier>(
+    _ option: String,
+    as type: Identifier.Type = Identifier.self
+  ) throws -> Identifier? {
+    guard let raw = try extractOption(option) else {
+      return nil
+    }
+    guard let identifier = Identifier(validating: raw) else {
+      throw AppCommand.Error.invalidUsage("\(option) expects an id, got an empty value")
+    }
+    return identifier
+  }
+
+  /// Reads the next positional argument as a typed identifier.
+  public mutating func nextIdentifier<Identifier: KaibaIdentifier>(
+    as type: Identifier.Type = Identifier.self
+  ) -> Identifier? {
+    next().flatMap { Identifier(validating: $0) }
+  }
+
   public mutating func extractIntOption(_ option: String) throws -> Int? {
     guard let raw = try extractOption(option) else {
       return nil
@@ -84,11 +107,56 @@ struct CommandContext {
   var noteRoot: String
   var configuration: KaibaConfiguration
   var cursor: CommandCursor
+  /// The `--jwt` credential, verified once the store is open. Nil runs the
+  /// command unscoped, which is the operator view of the whole store.
+  var authToken: String?
+  /// The `--library` selection (or `KAIBA_LIBRARY`), resolved to a library id
+  /// once the store is open. Nil writes to the default library and reads
+  /// across every library the caller may see.
+  var librarySelection: String?
 }
 
 enum OutputMode: String {
   case text
   case json
+}
+
+/// Runs one async call from a synchronous command. The CLI entry point is not
+/// async, and the rest of the package bridges the same way (see
+/// `TursoHTTPDatabase.perform`).
+func runBlocking<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) throws -> T {
+  let box = BlockingResultBox<T>()
+  let semaphore = DispatchSemaphore(value: 0)
+  Task {
+    do {
+      box.store(.success(try await work()))
+    } catch {
+      box.store(.failure(error))
+    }
+    semaphore.signal()
+  }
+  semaphore.wait()
+  return try box.take()
+}
+
+private final class BlockingResultBox<T: Sendable>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var result: Result<T, Swift.Error>?
+
+  func store(_ value: Result<T, Swift.Error>) {
+    lock.lock()
+    defer { lock.unlock() }
+    result = value
+  }
+
+  func take() throws -> T {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let result else {
+      throw NoteServiceError.invalidInput("background work did not complete")
+    }
+    return try result.get()
+  }
 }
 
 extension CommandCursor {
@@ -128,16 +196,45 @@ extension AppCommand {
     return try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: noteRoot))
   }
 
+  /// Opens the store for a command, scoped to the `--jwt` account when one was
+  /// supplied. Every write the command makes is then attributed to that user
+  /// and every catalog read is filtered to it, which is what lets an agent run
+  /// `kaiba` as the person who asked it to
+  /// (`design-docs/specs/note-api-auth.md`).
   func makeService(_ context: CommandContext) throws -> NoteService {
     try FileManager.default.createDirectory(
       atPath: context.noteRoot,
       withIntermediateDirectories: true
     )
-    return try NoteService(driver: KaibaConfigurationLoader.makeDriver(
+    let service = try NoteService(driver: KaibaConfigurationLoader.makeDriver(
       configuration: context.configuration.database,
       noteRoot: context.noteRoot,
       environment: environment
     ))
+    var resolved = service
+    if let authToken = context.authToken {
+      let user = try service.resolveAuthToken(authToken)
+      resolved = service.scoped(to: user.userId)
+    }
+    return try applyLibrarySelection(context.librarySelection, to: resolved)
+  }
+
+  /// Resolves `--library` against what the caller may see. An unscoped caller
+  /// naming an authenticated library is refused with the same message as a
+  /// missing one, so the selection cannot be used to probe for libraries that
+  /// are hidden from it (`design-docs/specs/library.md`).
+  private func applyLibrarySelection(
+    _ selection: String?,
+    to service: NoteService
+  ) throws -> NoteService {
+    guard let selection else {
+      return service
+    }
+    let normalized = try normalizedLibraryName(selection)
+    guard let library = try service.listLibraries().first(where: { $0.name == normalized }) else {
+      throw AppCommand.Error.invalidUsage("library not found: \(selection)")
+    }
+    return service.scoped(toLibrary: library.libraryId)
   }
 
   /// Reads a body from `--body`, `--body-file`, or stdin when `-` is present.
@@ -174,109 +271,118 @@ extension AppCommand {
 
 // MARK: - Rendering
 
-func renderJSON(_ object: Any) throws -> String {
-  let data = try JSONSerialization.data(
-    withJSONObject: object,
-    options: [.prettyPrinted, .sortedKeys]
-  )
-  return String(data: data, encoding: .utf8) ?? "{}"
+/// Renders `--output json`. Values are `JSONValue` rather than `Any`, so a
+/// type the JSON writer cannot represent is a compile error instead of a
+/// crash inside `JSONSerialization`.
+func renderJSON(_ value: JSONValue) throws -> String {
+  try value.encodedString(prettyPrinted: true)
 }
 
-func jsonObject(_ tag: Tag) -> [String: Any] {
-  var object: [String: Any] = [
-    "tagId": tag.tagId,
-    "name": tag.name,
-    "isSystem": tag.isSystem,
-    "createdAt": tag.createdAt
+func renderJSON(_ object: JSONObject) throws -> String {
+  try renderJSON(.object(object))
+}
+
+func renderJSON(_ objects: [JSONObject]) throws -> String {
+  try renderJSON(.array(objects.map(JSONValue.object)))
+}
+
+/// Optional members are dropped rather than written as null, which is the
+/// shape these payloads have always had.
+func jsonObject(_ tag: Tag) -> JSONObject {
+  var object: JSONObject = [
+    "tagId": .id(tag.tagId),
+    "name": .string(tag.name),
+    "isSystem": .bool(tag.isSystem),
+    "createdAt": .string(tag.createdAt)
   ]
-  object["classId"] = tag.classId
-  object["parentTagId"] = tag.parentTagId
+  object["classId"] = tag.classId.map(JSONValue.id)
+  object["parentTagId"] = tag.parentTagId.map(JSONValue.id)
   return object
 }
 
-func jsonObject(_ assignment: TagAssignment) -> [String: Any] {
+func jsonObject(_ assignment: TagAssignment) -> JSONObject {
   var object = jsonObject(assignment.tag)
-  object["provenance"] = assignment.provenance.rawValue
-  object["assignedBy"] = assignment.assignedBy
-  object["deletable"] = assignment.deletable
+  object["provenance"] = .string(assignment.provenance.rawValue)
+  object["assignedBy"] = assignment.assignedBy.map(JSONValue.string)
+  object["deletable"] = .bool(assignment.deletable)
   return object
 }
 
-func jsonObject(_ note: Note) -> [String: Any] {
-  var object: [String: Any] = [
-    "noteId": note.noteId,
-    "notebookId": note.notebookId,
-    "noteNumber": note.noteNumber,
-    "bodyMarkdown": note.bodyMarkdown,
-    "readOnly": note.readOnly,
-    "createdAt": note.createdAt,
-    "updatedAt": note.updatedAt,
-    "tags": note.tags.map(jsonObject)
+func jsonObject(_ note: Note) -> JSONObject {
+  var object: JSONObject = [
+    "noteId": .id(note.noteId),
+    "notebookId": .id(note.notebookId),
+    "noteNumber": .integer(Int64(note.noteNumber)),
+    "bodyMarkdown": .string(note.bodyMarkdown),
+    "readOnly": .bool(note.readOnly),
+    "createdAt": .string(note.createdAt),
+    "updatedAt": .string(note.updatedAt),
+    "tags": .array(note.tags.map { .object(jsonObject($0)) })
   ]
-  object["title"] = note.title
-  object["metaJSON"] = note.metaJSON
+  object["title"] = note.title.map(JSONValue.string)
+  object["metaJSON"] = note.metaJSON.map(JSONValue.string)
   return object
 }
 
-func jsonObject(_ notebook: Notebook) -> [String: Any] {
-  var object: [String: Any] = [
-    "notebookId": notebook.notebookId,
-    "title": notebook.title,
-    "readOnly": notebook.readOnly,
-    "createdAt": notebook.createdAt,
-    "updatedAt": notebook.updatedAt,
-    "tags": notebook.tags.map(jsonObject)
+func jsonObject(_ notebook: Notebook) -> JSONObject {
+  var object: JSONObject = [
+    "notebookId": .id(notebook.notebookId),
+    "title": .string(notebook.title),
+    "readOnly": .bool(notebook.readOnly),
+    "createdAt": .string(notebook.createdAt),
+    "updatedAt": .string(notebook.updatedAt),
+    "tags": .array(notebook.tags.map { .object(jsonObject($0)) })
   ]
-  object["firstNotePreview"] = notebook.firstNotePreview
-  object["noteCount"] = notebook.noteCount
+  object["firstNotePreview"] = notebook.firstNotePreview.map(JSONValue.string)
+  object["noteCount"] = notebook.noteCount.map { .integer(Int64($0)) }
   return object
 }
 
-func jsonObject(_ file: FileRecord) -> [String: Any] {
-  var object: [String: Any] = [
-    "fileId": file.fileId,
-    "storageKind": file.storageKind.rawValue,
-    "mediaType": file.mediaType,
-    "byteSize": file.byteSize,
-    "sha256": file.sha256,
-    "createdAt": file.createdAt
+func jsonObject(_ file: FileRecord) -> JSONObject {
+  var object: JSONObject = [
+    "fileId": .id(file.fileId),
+    "storageKind": .string(file.storageKind.rawValue),
+    "mediaType": .string(file.mediaType),
+    "byteSize": .integer(file.byteSize),
+    "sha256": .string(file.sha256),
+    "createdAt": .string(file.createdAt)
   ]
-  object["localPath"] = file.localPath
-  object["s3Profile"] = file.s3Profile
-  object["s3Bucket"] = file.s3Bucket
-  object["s3Key"] = file.s3Key
-  object["originalFilename"] = file.originalFilename
-  object["migratedAt"] = file.migratedAt
+  object["localPath"] = file.localPath.map(JSONValue.string)
+  object["s3Profile"] = file.s3Profile.map(JSONValue.string)
+  object["s3Bucket"] = file.s3Bucket.map(JSONValue.string)
+  object["s3Key"] = file.s3Key.map(JSONValue.string)
+  object["originalFilename"] = file.originalFilename.map(JSONValue.string)
+  object["migratedAt"] = file.migratedAt.map(JSONValue.string)
   return object
 }
 
-func jsonObject(_ comment: NoteComment) -> [String: Any] {
+func jsonObject(_ comment: NoteComment) -> JSONObject {
   [
-    "commentId": comment.commentId,
-    "noteId": comment.noteId ?? NSNull(),
-    "notebookId": comment.notebookId ?? NSNull(),
-    "bodyMarkdown": comment.bodyMarkdown,
-    "author": comment.author,
-    "createdAt": comment.createdAt
+    "commentId": .id(comment.commentId),
+    "noteId": .optionalID(comment.noteId),
+    "notebookId": .optionalID(comment.notebookId),
+    "bodyMarkdown": .string(comment.bodyMarkdown),
+    "author": .string(comment.author),
+    "createdAt": .string(comment.createdAt)
   ]
 }
 
-func jsonObject(_ link: NoteLink) -> [String: Any] {
+func jsonObject(_ link: NoteLink) -> JSONObject {
   [
-    "fromNoteId": link.fromNoteId,
-    "toNoteId": link.toNoteId,
-    "linkKind": link.linkKind,
-    "provenance": link.provenance.rawValue,
-    "createdAt": link.createdAt
+    "fromNoteId": .id(link.fromNoteId),
+    "toNoteId": .id(link.toNoteId),
+    "linkKind": .string(link.linkKind),
+    "provenance": .string(link.provenance.rawValue),
+    "createdAt": .string(link.createdAt)
   ]
 }
 
-func jsonObject(_ result: NoteSearchResult) -> [String: Any] {
+func jsonObject(_ result: NoteSearchResult) -> JSONObject {
   var object = jsonObject(result.note)
-  object["snippet"] = result.snippet
-  object["rank"] = result.rank
-  object["matchedTags"] = result.matchedTags.map(jsonObject)
-  object["isLinkedNeighbor"] = result.isLinkedNeighbor
+  object["snippet"] = .string(result.snippet)
+  object["rank"] = .number(result.rank)
+  object["matchedTags"] = .array(result.matchedTags.map { .object(jsonObject($0)) })
+  object["isLinkedNeighbor"] = .bool(result.isLinkedNeighbor)
   return object
 }
 

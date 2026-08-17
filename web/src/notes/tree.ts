@@ -1,4 +1,6 @@
 import type { NoteTag, NoteTagAssignment, NoteTagClass } from './types'
+import { FOLDER_TAG_CLASS } from './ids'
+import type { TagClassId, TagId } from './ids'
 
 export interface TagTreeNode {
   tag: NoteTag
@@ -9,7 +11,7 @@ export type FolderNode = TagTreeNode
 
 export interface TagCatalogGroup {
   key: string
-  classId: string | null
+  classId: TagClassId | null
   label: string
   tags: NoteTag[]
   tree: TagTreeNode[]
@@ -18,7 +20,7 @@ export interface TagCatalogGroup {
 
 export interface TagAssignmentGroup {
   key: string
-  classId: string | null
+  classId: TagClassId | null
   label: string
   assignments: NoteTagAssignment[]
 }
@@ -30,10 +32,10 @@ export interface TagBreadcrumbSegment {
 }
 
 export function folderTags(tags: NoteTag[]): NoteTag[] {
-  return tags.filter((tag) => tag.classId === 'folder')
+  return tags.filter((tag) => tag.classId === FOLDER_TAG_CLASS)
 }
 
-export function buildTagTree(tags: NoteTag[], classId: string, locale?: string): TagTreeNode[] {
+export function buildTagTree(tags: NoteTag[], classId: TagClassId, locale?: string): TagTreeNode[] {
   const classTags = tags.filter((tag) => tag.classId === classId)
   const byId = new Map(classTags.map((tag) => [tag.tagId, tag]))
   const children = new Map<string, NoteTag[]>()
@@ -65,13 +67,13 @@ export function buildTagTree(tags: NoteTag[], classId: string, locale?: string):
 }
 
 export function buildFolderTree(tags: NoteTag[], locale?: string): TagTreeNode[] {
-  return buildTagTree(tags, 'folder', locale)
+  return buildTagTree(tags, FOLDER_TAG_CLASS, locale)
 }
 
 export function tagBreadcrumb(
   tags: NoteTag[],
-  selectedId: string | undefined,
-  classId: string,
+  selectedId: TagId | undefined,
+  classId: TagClassId,
 ): NoteTag[] {
   if (!selectedId) return []
   const byId = new Map(tags.filter((tag) => tag.classId === classId).map((tag) => [tag.tagId, tag]))
@@ -86,13 +88,13 @@ export function tagBreadcrumb(
   return path
 }
 
-export function folderBreadcrumb(tags: NoteTag[], selectedId?: string): NoteTag[] {
-  return tagBreadcrumb(tags, selectedId, 'folder')
+export function folderBreadcrumb(tags: NoteTag[], selectedId?: TagId): NoteTag[] {
+  return tagBreadcrumb(tags, selectedId, FOLDER_TAG_CLASS)
 }
 
 export function qualifiedTagBreadcrumb(
   tags: NoteTag[],
-  selectedId: string | undefined,
+  selectedId: TagId | undefined,
   depthLimit = 64,
 ): TagBreadcrumbSegment[] {
   if (!selectedId) return []
@@ -152,11 +154,11 @@ export function groupTagAssignments(
   }
   const sortAssignments = (values: NoteTagAssignment[]) => [...values].sort((left, right) =>
     collator.compare(left.tag.name, right.tag.name) || left.tag.tagId.localeCompare(right.tag.tagId))
-  const folder = byClass.get('folder')
+  const folder = byClass.get(FOLDER_TAG_CLASS)
   const named = [...byClass.entries()]
-    .filter(([classId]) => classId !== null && classId !== 'folder')
+    .filter(([classId]) => classId !== null && classId !== FOLDER_TAG_CLASS)
     .map(([classId, values]) => {
-      const resolvedClassId = classId as string
+      const resolvedClassId = classId as TagClassId
       return {
         key: groupKey(resolvedClassId),
         classId: resolvedClassId,
@@ -169,8 +171,8 @@ export function groupTagAssignments(
   const classless = byClass.get(null)
   return [
     ...(folder?.length ? [{
-      key: groupKey('folder'),
-      classId: 'folder',
+      key: groupKey(FOLDER_TAG_CLASS),
+      classId: FOLDER_TAG_CLASS,
       label: 'Folder',
       assignments: sortAssignments(folder),
     }] : []),
@@ -187,15 +189,15 @@ export function groupTagAssignments(
 export function folderNameCollision(
   tags: NoteTag[],
   candidate: string,
-  parentTagId?: string,
+  parentTagId?: TagId,
 ): NoteTag | undefined {
   const normalized = candidate.trim()
-  return tags.find((tag) => tag.classId === 'folder'
+  return tags.find((tag) => tag.classId === FOLDER_TAG_CLASS
     && tag.name.trim() === normalized
     && tag.parentTagId === (parentTagId ?? null))
 }
 
-export function qualifiedTagLabel(tags: NoteTag[], tagId: string, depthLimit = 64): string {
+export function qualifiedTagLabel(tags: NoteTag[], tagId: TagId, depthLimit = 64): string {
   return qualifiedTagBreadcrumb(tags, tagId, depthLimit)
     .map((segment) => segment.label)
     .join(' / ')
@@ -203,14 +205,14 @@ export function qualifiedTagLabel(tags: NoteTag[], tagId: string, depthLimit = 6
 
 export function matchesCreatedFolder(
   tag: NoteTag,
-  classId: string,
-  parentTagId?: string,
+  classId: TagClassId,
+  parentTagId?: TagId,
 ): boolean {
   return tag.classId === classId && tag.parentTagId === (parentTagId ?? null)
 }
 
 export function directFolderAssignments(notebook: { tags: Array<{ tag: NoteTag }> }): NoteTag[] {
-  return notebook.tags.map((assignment) => assignment.tag).filter((tag) => tag.classId === 'folder')
+  return notebook.tags.map((assignment) => assignment.tag).filter((tag) => tag.classId === FOLDER_TAG_CLASS)
 }
 
 function catalogGroups(
@@ -221,12 +223,12 @@ function catalogGroups(
 ): TagCatalogGroup[] {
   const collator = new Intl.Collator(locale, { sensitivity: 'base' })
   const classesById = new Map(classes.map((tagClass) => [tagClass.classId, tagClass]))
-  const nonFolderClassIds = new Set<string>()
+  const nonFolderClassIds = new Set<TagClassId>()
   for (const tagClass of classes) {
-    if (tagClass.classId !== 'folder') nonFolderClassIds.add(tagClass.classId)
+    if (tagClass.classId !== FOLDER_TAG_CLASS) nonFolderClassIds.add(tagClass.classId)
   }
   for (const tag of tags) {
-    if (tag.classId && tag.classId !== 'folder') nonFolderClassIds.add(tag.classId)
+    if (tag.classId && tag.classId !== FOLDER_TAG_CLASS) nonFolderClassIds.add(tag.classId)
   }
   const named = [...nonFolderClassIds].map((classId) => {
     const classTags = tags.filter((tag) => tag.classId === classId)
@@ -260,10 +262,10 @@ function tagSorter(locale?: string): (values: NoteTag[]) => NoteTag[] {
     collator.compare(left.name, right.name) || left.tagId.localeCompare(right.tagId))
 }
 
-function groupKey(classId: string | null): string {
+function groupKey(classId: TagClassId | null): string {
   return classId === null ? 'classless' : `class:${classId}`
 }
 
-function unknownClassLabel(classId: string): string {
+function unknownClassLabel(classId: TagClassId): string {
   return `Unknown class (${classId})`
 }

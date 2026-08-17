@@ -22,7 +22,7 @@ final class NoteGraphQLNotebookOrderingTests: XCTestCase {
         notes(notebookId: $notebookId) { value { noteNumber title } }
       }
       """,
-      variables: ["notebookId": .string(ingest.notebook.notebookId)],
+      variables: ["notebookId": .string(ingest.notebook.notebookId.rawValue)],
       operationName: "Notes"
     ))
 

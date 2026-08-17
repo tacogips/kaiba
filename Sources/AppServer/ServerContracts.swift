@@ -245,7 +245,16 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
           operationName: envelope.operationName,
           environment: context.sanitizedEnvironment,
           authenticatedClientId: authenticatedNoteAPIClient?.clientId,
-          transportCredential: context.bearerToken.map(GraphQLTransportCredential.init)
+          // Every note-API request acts as an account. Without a credential
+          // that is the default user, which is what an unauthenticated host
+          // has always effectively been (`design-docs/specs/multi-user.md`).
+          actingUserId: authenticatedNoteAPIClient?.userId ?? NoteStoreSchema.defaultUserId,
+          transportCredential: context.bearerToken.map(GraphQLTransportCredential.init),
+          // Only the transport knows the request arrived without a credential:
+          // it acts as the default user either way, so libraries that require
+          // authentication have to be excluded from this marker, not from the
+          // account (`design-docs/specs/library.md`).
+          isUnauthenticatedRequest: authenticatedNoteAPIClient == nil
         ))
         if executed.handled {
           return .init(status: executed.status, body: executed.body)
@@ -364,7 +373,7 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
       return noteAPIUnavailableResponse("note API authentication is not configured")
     }
     let parameters = request.queryParameters
-    guard let turnNoteId = parameters["turn"], !turnNoteId.isEmpty else {
+    guard let turnNoteId = parameters["turn"].flatMap({ NoteID(validating: $0) }) else {
       return .init(status: 400, body: [
         "error": .string("turn query parameter is required")
       ])
@@ -398,7 +407,7 @@ public enum NoteEventPollLimits {
 private func noteChangeEventJSON(_ event: NoteChangeEvent) -> JSONValue {
   .object([
     "kind": .string(event.kind),
-    "notebookId": event.notebookId.map(JSONValue.string) ?? .null,
+    "notebookId": event.notebookId.map { JSONValue.string($0.rawValue) } ?? .null,
     "tagNames": .array(event.tagNames.map(JSONValue.string))
   ])
 }

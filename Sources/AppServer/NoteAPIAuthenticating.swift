@@ -1,13 +1,18 @@
 import Foundation
+import AppCore
 import AppGraphQL
 
 public struct NoteAPIAuthenticatedClient: Codable, Equatable, Sendable {
-  public var clientId: String
+  public var clientId: APIClientID
   public var displayName: String
+  /// The account this credential acts as. Requests are scoped to it, so a
+  /// credential can never read another user's notebooks.
+  public var userId: UserID
 
-  public init(clientId: String, displayName: String) {
+  public init(clientId: APIClientID, displayName: String, userId: UserID) {
     self.clientId = clientId
     self.displayName = displayName
+    self.userId = userId
   }
 }
 

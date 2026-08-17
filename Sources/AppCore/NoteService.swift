@@ -29,6 +29,21 @@ public struct NoteService: Sendable {
   /// Shared registry of background dispatch tasks fired by this service value,
   /// awaited by `drainAutoActionDispatches()`.
   let autoActionDispatchTasks: AutoActionDispatchTaskTracker
+  /// The account this service value acts as: new notebooks take it as owner and
+  /// notebook reads are filtered to it. Nil is the unscoped view the CLI and
+  /// internal bootstrap paths use. Set with `scoped(to:)`.
+  public internal(set) var actingUserId: UserID?
+  /// The library this service value acts in: new notebooks land in it and
+  /// notebook reads are filtered to it. Nil selects the default library for
+  /// writes and leaves reads spanning every library the caller may see
+  /// (`design-docs/specs/library.md`). Set with `scoped(toLibrary:)`.
+  public internal(set) var actingLibraryId: LibraryID?
+  /// True when the caller presented no credential at all — an
+  /// `--allow-unauthenticated` note-API request, which still acts as the
+  /// default user. Such a caller sees only the libraries that do not require
+  /// authentication. The local CLI is not one of these: an operator with the
+  /// store file already has every library (`design-docs/specs/library.md`).
+  public internal(set) var isUnauthenticatedPrincipal: Bool
 
   public init(
     driver: NoteDatabaseDriving,
@@ -44,6 +59,9 @@ public struct NoteService: Sendable {
     self.autoActionDispatchLeaseStaleness = autoActionDispatchLeaseStaleness
     self.changeObserver = changeObserver
     self.autoActionDispatchTasks = AutoActionDispatchTaskTracker()
+    self.actingUserId = nil
+    self.actingLibraryId = nil
+    self.isUnauthenticatedPrincipal = false
     try NoteStoreSchema.prepare(on: driver)
     try bootstrapLongTermMemoryNotebook()
     // Recovery+retry is no longer run from init; it is an explicit entry point
@@ -57,7 +75,7 @@ public struct NoteService: Sendable {
     kindTagName: String? = nil,
     folderPath: [String] = [],
     metaJSON: String? = nil,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) throws -> Notebook {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
@@ -89,18 +107,23 @@ public struct NoteService: Sendable {
     kindTagName: String?,
     folderPath: [String] = [],
     metaJSON: String?,
-    originatingActionId: String?,
+    originatingActionId: AutoActionID?,
     in db: SQLiteDatabase
   ) throws -> (notebook: Notebook, dispatches: [QueuedAutoActionDispatch]) {
     let now = NoteStoreClock.system.now()
-    let notebookId = makeNoteId(prefix: "notebook")
+    let notebookId = NotebookID.generate()
     try db.execute(
       """
-      INSERT INTO notebooks (notebook_id, title, created_at, updated_at, meta_json)
-      VALUES (?, ?, ?, ?, jsonb(?))
+      INSERT INTO notebooks (
+        notebook_id, title, owner_user_id, library_id, created_by, updated_by,
+        created_at, updated_at, meta_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, jsonb(?))
       """,
       bindings: [
-        .text(notebookId), .text(title), .text(now), .text(now), .optionalText(metaJSON)
+        .id(notebookId), .text(title), .id(writeOwnerUserId()),
+        .id(writeLibraryId()),
+        .id(writeOwnerUserId()), .id(writeOwnerUserId()),
+        .text(now), .text(now), .optionalText(metaJSON)
       ]
     )
     if let kindTagName {
@@ -149,13 +172,13 @@ public struct NoteService: Sendable {
         parent = existing
         continue
       }
-      _ = try requireTagClass(classId: "folder", in: db)
-      let tagId = makeNoteId(prefix: "tag")
+      _ = try requireTagClass(classId: .folder, in: db)
+      let tagId = TagID.generate()
       if let parent { try validateTagParent(childTagId: tagId, parentTagId: parent.tagId, in: db) }
       do {
         try db.execute(
           "INSERT INTO tags (tag_id, name, class_id, parent_tag_id, is_system, created_at) VALUES (?, ?, 'folder', ?, 0, ?)",
-          bindings: [.text(tagId), .text(name), .optionalText(parent?.tagId), .text(NoteStoreClock.system.now())]
+          bindings: [.id(tagId), .text(name), .optionalID(parent?.tagId), .text(NoteStoreClock.system.now())]
         )
         parent = try requireTag(id: tagId, in: db)
       } catch let error as SQLiteError where isSQLiteUniqueConstraintViolation(error) {
@@ -170,7 +193,7 @@ public struct NoteService: Sendable {
 
   @discardableResult
   public func createNote(
-    notebookId requestedNotebookId: String? = nil,
+    notebookId requestedNotebookId: NotebookID? = nil,
     notebookTitle: String? = nil,
     notebookKindTagName: String? = nil,
     title: String? = nil,
@@ -180,30 +203,37 @@ public struct NoteService: Sendable {
     provenance: NoteProvenance = .human,
     assignedBy: String? = nil,
     metaJSON: String? = nil,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
         let now = NoteStoreClock.system.now()
-        let notebookId: String
-        let createdNotebookId: String?
+        let notebookId: NotebookID
+        let createdNotebookId: NotebookID?
         if let requestedNotebookId {
           let notebook = try requireNotebook(requestedNotebookId, in: db)
           guard !notebook.readOnly else {
-            throw NoteServiceError.readOnly(requestedNotebookId)
+            throw NoteServiceError.readOnly(requestedNotebookId.rawValue)
           }
           notebookId = requestedNotebookId
           createdNotebookId = nil
         } else {
           let derivedTitle = title ?? noteTitle(from: bodyMarkdown) ?? notebookTitle ?? "Untitled"
-          notebookId = makeNoteId(prefix: "notebook")
+          notebookId = NotebookID.generate()
           createdNotebookId = notebookId
           try db.execute(
             """
-            INSERT INTO notebooks (notebook_id, title, created_at, updated_at, meta_json)
-            VALUES (?, ?, ?, ?, NULL)
+            INSERT INTO notebooks (
+              notebook_id, title, owner_user_id, library_id, created_by, updated_by,
+              created_at, updated_at, meta_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
             """,
-            bindings: [.text(notebookId), .text(derivedTitle), .text(now), .text(now)]
+            bindings: [
+              .id(notebookId), .text(derivedTitle), .id(writeOwnerUserId()),
+              .id(writeLibraryId()),
+              .id(writeOwnerUserId()), .id(writeOwnerUserId()),
+              .text(now), .text(now)
+            ]
           )
           if let notebookKindTagName {
             let kindTag = try ensureNotebookKindTag(notebookKindTagName, in: db)
@@ -219,32 +249,39 @@ public struct NoteService: Sendable {
         }
 
         let noteNumber = try nextNoteNumber(notebookId: notebookId, in: db)
-        let noteId = makeNoteId(prefix: "note")
+        let noteId = NoteID.generate()
         let noteTitle = title ?? noteTitle(from: bodyMarkdown)
         let titleSource: NoteTitleSource = title == nil ? .derived : .explicit
         try db.execute(
           """
           INSERT INTO notes (
             note_id, notebook_id, note_number, title, title_source, body_markdown,
-            read_only, created_at, updated_at, meta_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, jsonb(?))
+            read_only, created_by, updated_by, created_at, updated_at, meta_json
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?,
+            (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+            (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+            ?, ?, jsonb(?)
+          )
           """,
           bindings: [
-            .text(noteId),
-            .text(notebookId),
+            .id(noteId),
+            .id(notebookId),
             .int(Int64(noteNumber)),
             .optionalText(noteTitle),
             .text(titleSource.rawValue),
             .text(bodyMarkdown),
             .int(readOnly ? 1 : 0),
+            .id(notebookId),
+            .id(notebookId),
             .text(now),
             .text(now),
             .optionalText(metaJSON)
           ]
         )
         try db.execute(
-          "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-          bindings: [.text(now), .text(notebookId)]
+          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+          bindings: [.text(now), .id(notebookId)]
         )
         for tag in tags {
           try applyTag(
@@ -306,7 +343,7 @@ public struct NoteService: Sendable {
     notebookReadOnly: Bool = false,
     provenance: NoteProvenance = .system,
     assignedBy: String? = "kaiba-note-ingest",
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) throws -> NotebookIngestResult {
     guard !pages.isEmpty else {
       throw NoteServiceError.invalidInput("notebook ingest pages must not be empty")
@@ -351,20 +388,26 @@ public struct NoteService: Sendable {
     notebookReadOnly: Bool,
     provenance: NoteProvenance,
     assignedBy: String?,
-    originatingActionId: String?,
+    originatingActionId: AutoActionID?,
     in db: SQLiteDatabase
   ) throws -> (ingestResult: NotebookIngestResult, dispatches: [QueuedAutoActionDispatch]) {
     let now = NoteStoreClock.system.now()
-    let notebookId = makeNoteId(prefix: "notebook")
+    let notebookId = NotebookID.generate()
     try db.execute(
       """
-      INSERT INTO notebooks (notebook_id, title, read_only, created_at, updated_at, meta_json)
-      VALUES (?, ?, ?, ?, ?, jsonb(?))
+      INSERT INTO notebooks (
+        notebook_id, title, read_only, owner_user_id, library_id, created_by, updated_by,
+        created_at, updated_at, meta_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, jsonb(?))
       """,
       bindings: [
-        .text(notebookId),
+        .id(notebookId),
         .text(title),
         .int(notebookReadOnly ? 1 : 0),
+        .id(writeOwnerUserId()),
+        .id(writeLibraryId()),
+        .id(writeOwnerUserId()),
+        .id(writeOwnerUserId()),
         .text(now),
         .text(now),
         .optionalText(metaJSON)
@@ -385,22 +428,29 @@ public struct NoteService: Sendable {
     var notes: [Note] = []
     for (index, page) in pages.enumerated() {
       let noteNumber = page.noteNumber ?? index + 1
-      let noteId = makeNoteId(prefix: "note")
+      let noteId = NoteID.generate()
       let noteTitle = noteTitle(from: page.bodyMarkdown)
       try db.execute(
         """
         INSERT INTO notes (
           note_id, notebook_id, note_number, title, title_source, body_markdown,
-          read_only, created_at, updated_at, meta_json
-        ) VALUES (?, ?, ?, ?, 'derived', ?, ?, ?, ?, jsonb(?))
+          read_only, created_by, updated_by, created_at, updated_at, meta_json
+        ) VALUES (
+          ?, ?, ?, ?, 'derived', ?, ?,
+          (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+          (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+          ?, ?, jsonb(?)
+        )
         """,
         bindings: [
-          .text(noteId),
-          .text(notebookId),
+          .id(noteId),
+          .id(notebookId),
           .int(Int64(noteNumber)),
           .optionalText(noteTitle),
           .text(page.bodyMarkdown),
           .int(page.readOnly ? 1 : 0),
+          .id(notebookId),
+          .id(notebookId),
           .text(now),
           .text(now),
           .optionalText(page.metaJSON)
@@ -452,8 +502,8 @@ public struct NoteService: Sendable {
   /// public methods (`createNotebookWithNotes`, `linkNotes`) are intentionally NOT composed.
   @discardableResult
   public func promoteCommentToNotebook(
-    noteId: String,
-    commentId: String,
+    noteId: NoteID,
+    commentId: CommentID,
     notebookTitle: String? = nil,
     linkKind: String = "related",
     provenance: NoteProvenance = .human,
@@ -469,7 +519,7 @@ public struct NoteService: Sendable {
           WHERE comment_id = ? AND note_id = ?
           LIMIT 1
           """,
-          bindings: [.text(commentId), .text(noteId)]
+          bindings: [.id(commentId), .id(noteId)]
         )
         guard let commentRow = commentRows.first,
               let commentBody = commentRow["body_markdown"] else {
@@ -514,8 +564,8 @@ public struct NoteService: Sendable {
             END
           """,
           bindings: [
-            .text(noteId),
-            .text(newNote.noteId),
+            .id(noteId),
+            .id(newNote.noteId),
             .text(linkKind),
             .text(provenance.rawValue),
             .text(now)
@@ -532,19 +582,19 @@ public struct NoteService: Sendable {
     return (notebook: result.notebook, note: result.note)
   }
 
-  public func getNotebook(_ notebookId: String) throws -> Notebook {
+  public func getNotebook(_ notebookId: NotebookID) throws -> Notebook {
     try driver.withDatabase { database in
       try requireNotebook(notebookId, in: database)
     }
   }
 
-  public func getNote(_ noteId: String) throws -> Note {
+  public func getNote(_ noteId: NoteID) throws -> Note {
     try driver.withDatabase { database in
       try requireNote(noteId, in: database)
     }
   }
 
-  public func listNotes(notebookId: String, limit: Int = 100, offset: Int = 0) throws -> [Note] {
+  public func listNotes(notebookId: NotebookID, limit: Int = 100, offset: Int = 0) throws -> [Note] {
     try driver.withDatabase { database in
       _ = try requireNotebook(notebookId, in: database)
       let rows = try database.query(
@@ -557,7 +607,7 @@ public struct NoteService: Sendable {
         ORDER BY note_number, note_id
         LIMIT ? OFFSET ?
         """,
-        bindings: [.text(notebookId), .int(Int64(limit)), .int(Int64(offset))]
+        bindings: [.id(notebookId), .int(Int64(limit)), .int(Int64(offset))]
       )
       return try notes(from: rows, in: database)
     }
@@ -566,7 +616,7 @@ public struct NoteService: Sendable {
   public func listNotes(
     limit: Int = 100,
     offset: Int = 0,
-    notebookId: String? = nil,
+    notebookId: NotebookID? = nil,
     tagFilter: [String] = []
   ) throws -> [Note] {
     try driver.withDatabase { database in
@@ -576,10 +626,18 @@ public struct NoteService: Sendable {
       }
       var predicates: [String] = []
       var bindings: [SQLiteValue] = []
+      // The cross-notebook feed spans libraries, so it carries the same scope
+      // the catalog does (`design-docs/specs/library.md`).
+      appendLibraryScopePredicate(
+        alias: "notes",
+        reachableLibraryIds: try reachableLibraryIds(in: database),
+        predicates: &predicates,
+        bindings: &bindings
+      )
       if let notebookId {
         _ = try requireNotebook(notebookId, in: database)
         predicates.append("notebook_id = ?")
-        bindings.append(.text(notebookId))
+        bindings.append(.id(notebookId))
       }
       if !expandedTagFilterIds.isEmpty {
         predicates.append(
@@ -592,7 +650,7 @@ public struct NoteService: Sendable {
           )
           """
         )
-        bindings.append(contentsOf: expandedTagFilterIds.map(SQLiteValue.text))
+        bindings.append(contentsOf: expandedTagFilterIds.sqliteBindings)
       }
       let whereClause = predicates.isEmpty ? "" : "WHERE \(predicates.joined(separator: " AND "))"
       // A notebook-scoped listing returns the notebook's pages in their intrinsic
@@ -619,9 +677,9 @@ public struct NoteService: Sendable {
 
   @discardableResult
   public func updateNoteBody(
-    noteId: String,
+    noteId: NoteID,
     bodyMarkdown: String,
-    originatingActionId: String? = nil
+    originatingActionId: AutoActionID? = nil
   ) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
@@ -637,19 +695,20 @@ public struct NoteService: Sendable {
         try db.execute(
           """
           UPDATE notes
-          SET title = ?, body_markdown = ?, updated_at = ?
+          SET title = ?, body_markdown = ?, updated_at = ?,
+            updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id)
           WHERE note_id = ?
           """,
           bindings: [
             .optionalText(updatedTitle),
             .text(bodyMarkdown),
             .text(now),
-            .text(noteId)
+            .id(noteId)
           ]
         )
         try db.execute(
-          "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-          bindings: [.text(now), .text(existing.notebookId)]
+          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+          bindings: [.text(now), .id(existing.notebookId)]
         )
         try refreshFTS(noteId: noteId, previous: previous, in: db)
         let note = try requireNote(noteId, in: db)
@@ -676,7 +735,7 @@ public struct NoteService: Sendable {
 
   @discardableResult
   public func applyTags(
-    noteId: String,
+    noteId: NoteID,
     tags: [NoteTagInput],
     provenance: NoteProvenance,
     assignedBy: String? = nil
@@ -709,7 +768,7 @@ public struct NoteService: Sendable {
   }
 
   @discardableResult
-  public func removeTag(noteId: String, tagName: String, removedBy provenance: NoteProvenance) throws -> Note {
+  public func removeTag(noteId: NoteID, tagName: String, removedBy provenance: NoteProvenance) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db -> (note: Note, removed: Bool) in
         let existing = try tagAssignment(noteId: noteId, tagName: tagName, in: db)
@@ -728,7 +787,7 @@ public struct NoteService: Sendable {
           DELETE FROM note_tags
           WHERE note_id = ? AND tag_id = ?
           """,
-          bindings: [.text(noteId), .text(existing.tag.tagId)]
+          bindings: [.id(noteId), .id(existing.tag.tagId)]
         )
         try refreshFTS(noteId: noteId, previous: previous, in: db)
         return (try requireNote(noteId, in: db), true)
@@ -757,7 +816,7 @@ func promoteCommentNotebookTitle(explicit: String?, commentBody: String) -> Stri
 }
 
 func applyNotebookTag(
-  notebookId: String,
+  notebookId: NotebookID,
   tagName: String,
   provenance: NoteProvenance,
   assignedBy: String?,
@@ -784,8 +843,8 @@ func applyNotebookTag(
 }
 
 func applyNotebookTag(
-  notebookId: String,
-  tagId: String,
+  notebookId: NotebookID,
+  tagId: TagID,
   provenance: NoteProvenance,
   assignedBy: String?,
   deletable: Bool,
@@ -824,8 +883,8 @@ func applyNotebookTag(
       END
     """,
     bindings: [
-      .text(notebookId),
-      .text(tag.tagId),
+      .id(notebookId),
+      .id(tag.tagId),
       .text(provenance.rawValue),
       .optionalText(assignedBy),
       .int(deletable ? 1 : 0),
@@ -835,7 +894,7 @@ func applyNotebookTag(
 }
 
 func applyTag(
-  noteId: String,
+  noteId: NoteID,
   tag: NoteTagInput,
   provenance: NoteProvenance,
   assignedBy: String?,
@@ -871,8 +930,8 @@ func applyTag(
       END
     """,
     bindings: [
-      .text(noteId),
-      .text(storedTag.tagId),
+      .id(noteId),
+      .id(storedTag.tagId),
       .text(provenance.rawValue),
       .optionalText(assignedBy),
       .int(deletable ? 1 : 0),
@@ -882,14 +941,14 @@ func applyTag(
 }
 
 func ensureTag(_ tag: NoteTagInput, in database: SQLiteDatabase) throws {
-  if let classId = tag.classId?.trimmingCharacters(in: .whitespacesAndNewlines), !classId.isEmpty {
+  if let classId = tag.classId, !classId.isEmpty {
     _ = try requireTagClass(classId: classId, in: database)
   }
   if let existing = try findNonFolderTag(name: tag.name, in: database) {
     if existing.classId == nil, let classId = tag.classId, !classId.isEmpty {
       try database.execute(
         "UPDATE tags SET class_id = ? WHERE tag_id = ?",
-        bindings: [.text(classId), .text(existing.tagId)]
+        bindings: [.id(classId), .id(existing.tagId)]
       )
     }
     return
@@ -901,9 +960,9 @@ func ensureTag(_ tag: NoteTagInput, in database: SQLiteDatabase) throws {
       VALUES (?, ?, ?, 0, ?)
       """,
       bindings: [
-        .text(makeNoteId(prefix: "tag")),
+        .id(TagID.generate()),
         .text(tag.name),
-        .optionalText(tag.classId),
+        .optionalID(tag.classId),
         .text(NoteStoreClock.system.now())
       ]
     )
@@ -914,7 +973,7 @@ func ensureTag(_ tag: NoteTagInput, in database: SQLiteDatabase) throws {
   }
 }
 
-func deleteNoteRows(noteId: String, in database: SQLiteDatabase) throws {
+func deleteNoteRows(noteId: NoteID, in database: SQLiteDatabase) throws {
   if let previous = try ftsPayload(noteId: noteId, in: database) {
     try database.execute(
       """
@@ -924,13 +983,13 @@ func deleteNoteRows(noteId: String, in database: SQLiteDatabase) throws {
       bindings: [.int(previous.rowId), .text(previous.title), .text(previous.body), .text(previous.tags)]
     )
   }
-  try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.text(noteId)])
-  try database.execute("DELETE FROM note_tags WHERE note_id = ?", bindings: [.text(noteId)])
-  try database.execute("DELETE FROM note_files WHERE note_id = ?", bindings: [.text(noteId)])
+  try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.id(noteId)])
+  try database.execute("DELETE FROM note_tags WHERE note_id = ?", bindings: [.id(noteId)])
+  try database.execute("DELETE FROM note_files WHERE note_id = ?", bindings: [.id(noteId)])
   try database.execute(
     "DELETE FROM note_links WHERE from_note_id = ? OR to_note_id = ?",
-    bindings: [.text(noteId), .text(noteId)]
+    bindings: [.id(noteId), .id(noteId)]
   )
-  try database.execute("DELETE FROM note_comments WHERE note_id = ?", bindings: [.text(noteId)])
-  try database.execute("DELETE FROM notes WHERE note_id = ?", bindings: [.text(noteId)])
+  try database.execute("DELETE FROM note_comments WHERE note_id = ?", bindings: [.id(noteId)])
+  try database.execute("DELETE FROM notes WHERE note_id = ?", bindings: [.id(noteId)])
 }

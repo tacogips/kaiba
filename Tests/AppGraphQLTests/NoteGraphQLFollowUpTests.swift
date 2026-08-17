@@ -107,7 +107,9 @@ final class NoteGraphQLFollowUpTests: XCTestCase {
       field: "notebooks.value"
     )
     let notebookIds = try notebookValues.map { value in
-      try stringValue(try objectValue(value, field: "notebook")["notebookId"], field: "notebook.notebookId")
+      NotebookID(
+        try stringValue(try objectValue(value, field: "notebook")["notebookId"], field: "notebook.notebookId")
+      )
     }
     XCTAssertLessThan(
       try XCTUnwrap(notebookIds.firstIndex(of: try XCTUnwrap(notebookA.notebook?.notebookId))),
@@ -118,7 +120,7 @@ final class NoteGraphQLFollowUpTests: XCTestCase {
   private func assertProposeNoteLinks(
     executor: NoteGraphQLDocumentExecutor,
     service: GraphQLNoteGraphQLService,
-    subjectNoteId: String
+    subjectNoteId: NoteID
   ) async throws {
     _ = try service.service.createNote(bodyMarkdown: "# Planning Reference\n\nProject planning alpha reference.")
     let proposals = await executor.execute(GraphQLDocumentRequest(
@@ -131,7 +133,7 @@ final class NoteGraphQLFollowUpTests: XCTestCase {
       }
       """,
       variables: [
-        "noteId": .string(subjectNoteId),
+        "noteId": .string(subjectNoteId.rawValue),
         "limit": .integer(4)
       ],
       operationName: "Propose"
@@ -165,9 +167,9 @@ final class NoteGraphQLFollowUpTests: XCTestCase {
     try objectValue(payload["result"], field: "result")
   }
 
-  private func noteId(in value: JSONValue, field: String) throws -> String {
+  private func noteId(in value: JSONValue, field: String) throws -> NoteID {
     let note = try objectValue(try objectValue(value, field: field)["note"], field: "\(field).note")
-    return try stringValue(note["noteId"], field: "\(field).note.noteId")
+    return NoteID(try stringValue(note["noteId"], field: "\(field).note.noteId"))
   }
 
   private func objectValue(_ value: JSONValue?, field: String) throws -> JSONObject {

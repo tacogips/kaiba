@@ -1,3 +1,4 @@
+import { noteId as asNoteId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { MarkdownBody } from '../components/Markdown'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
@@ -10,6 +11,7 @@ import { noteHeadingPrefix } from '../notes/toc'
 import { errorMessage, useApp } from '../state/appStore'
 import type { Note } from '../notes/types'
 import type { CenterTab } from '../state/paneState'
+import type { NoteId } from '../notes/ids'
 
 // Center reader: the open notebook's notes as one continuous scroll. Notes lazy-
 // render as they approach the viewport, a click selects (or deselects) a note
@@ -39,7 +41,7 @@ export function ReaderPane(): JSX.Element {
   const notes = createMemo(() => app.notes())
   const index = createMemo(() => notes().findIndex((note) => note.noteId === app.state.noteId))
   const [selectionTag, setSelectionTag] =
-    createSignal<{ noteId: string; name: string; x: number; y: number }>()
+    createSignal<{ noteId: NoteId; name: string; x: number; y: number }>()
   const [selectionBusy, setSelectionBusy] = createSignal(false)
 
   // A completed drag selection inside one note offers registration as a tag
@@ -54,9 +56,9 @@ export function ReaderPane(): JSX.Element {
       const anchorSection = selectionElement(selection.anchorNode)?.closest('[data-note-id]')
       const focusSection = selectionElement(selection.focusNode)?.closest('[data-note-id]')
       if (!anchorSection || anchorSection !== focusSection) return
-      const noteId = anchorSection.getAttribute('data-note-id')
-      if (!noteId) return
-      setSelectionTag({ noteId, name, x: clientX, y: clientY })
+      const rawNoteId = anchorSection.getAttribute('data-note-id')
+      if (!rawNoteId) return
+      setSelectionTag({ noteId: asNoteId(rawNoteId), name, x: clientX, y: clientY })
     })
   }
 
@@ -438,7 +440,7 @@ function LoadMoreSentinel(): JSX.Element {
   return <div ref={(el) => { element = el }} class="reader-load-more" aria-hidden="true" />
 }
 
-function scrollToNote(container: HTMLElement, noteId: string): void {
+function scrollToNote(container: HTMLElement, noteId: NoteId): void {
   const target = container.querySelector<HTMLElement>(`[data-note-id="${cssEscape(noteId)}"]`)
   if (!target) return
   const containerBox = container.getBoundingClientRect()

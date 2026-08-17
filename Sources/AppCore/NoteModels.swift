@@ -29,7 +29,7 @@ public enum NoteAutoActionTrigger: String, Codable, Equatable, Sendable {
 }
 
 public struct Notebook: Equatable, Sendable {
-  public var notebookId: String
+  public var notebookId: NotebookID
   public var title: String
   public var readOnly: Bool
   public var createdAt: String
@@ -38,9 +38,14 @@ public struct Notebook: Equatable, Sendable {
   public var tags: [TagAssignment]
   public var firstNotePreview: String?
   public var noteCount: Int?
+  /// The library this notebook belongs to. Optional on the model rather than
+  /// on the row: a notebook always has one, but the reads that do not select
+  /// it leave it nil rather than inventing the default
+  /// (`design-docs/specs/library.md`).
+  public var libraryId: LibraryID?
 
   public init(
-    notebookId: String,
+    notebookId: NotebookID,
     title: String,
     readOnly: Bool = false,
     createdAt: String,
@@ -48,7 +53,8 @@ public struct Notebook: Equatable, Sendable {
     metaJSON: String? = nil,
     tags: [TagAssignment] = [],
     firstNotePreview: String? = nil,
-    noteCount: Int? = nil
+    noteCount: Int? = nil,
+    libraryId: LibraryID? = nil
   ) {
     self.notebookId = notebookId
     self.title = title
@@ -59,12 +65,47 @@ public struct Notebook: Equatable, Sendable {
     self.tags = tags
     self.firstNotePreview = firstNotePreview
     self.noteCount = noteCount
+    self.libraryId = libraryId
+  }
+}
+
+/// A named set of notebooks. `authRequired` answers one question — may an
+/// unauthenticated caller see this library at all — and per-user reach inside
+/// it remains notebook ownership (`design-docs/specs/library.md`).
+public struct NoteLibrary: Codable, Equatable, Sendable {
+  public var libraryId: LibraryID
+  public var name: String
+  public var title: String
+  public var authRequired: Bool
+  public var isDefault: Bool
+  public var createdAt: String
+  public var createdBy: UserID?
+  public var notebookCount: Int?
+
+  public init(
+    libraryId: LibraryID,
+    name: String,
+    title: String,
+    authRequired: Bool,
+    isDefault: Bool = false,
+    createdAt: String,
+    createdBy: UserID? = nil,
+    notebookCount: Int? = nil
+  ) {
+    self.libraryId = libraryId
+    self.name = name
+    self.title = title
+    self.authRequired = authRequired
+    self.isDefault = isDefault
+    self.createdAt = createdAt
+    self.createdBy = createdBy
+    self.notebookCount = notebookCount
   }
 }
 
 public struct Note: Equatable, Sendable {
-  public var noteId: String
-  public var notebookId: String
+  public var noteId: NoteID
+  public var notebookId: NotebookID
   public var noteNumber: Int
   public var title: String?
   public var bodyMarkdown: String
@@ -75,8 +116,8 @@ public struct Note: Equatable, Sendable {
   public var tags: [TagAssignment]
 
   public init(
-    noteId: String,
-    notebookId: String,
+    noteId: NoteID,
+    notebookId: NotebookID,
     noteNumber: Int,
     title: String?,
     bodyMarkdown: String,
@@ -132,13 +173,13 @@ public struct NotebookIngestResult: Equatable, Sendable {
 }
 
 public struct TagClass: Equatable, Sendable {
-  public var classId: String
+  public var classId: TagClassID
   public var label: String
   public var description: String?
   public var isSystem: Bool
   public var createdAt: String
 
-  public init(classId: String, label: String, description: String?, isSystem: Bool, createdAt: String) {
+  public init(classId: TagClassID, label: String, description: String?, isSystem: Bool, createdAt: String) {
     self.classId = classId
     self.label = label
     self.description = description
@@ -148,18 +189,18 @@ public struct TagClass: Equatable, Sendable {
 }
 
 public struct Tag: Equatable, Sendable {
-  public var tagId: String
+  public var tagId: TagID
   public var name: String
-  public var classId: String?
-  public var parentTagId: String?
+  public var classId: TagClassID?
+  public var parentTagId: TagID?
   public var isSystem: Bool
   public var createdAt: String
 
   public init(
-    tagId: String,
+    tagId: TagID,
     name: String,
-    classId: String?,
-    parentTagId: String? = nil,
+    classId: TagClassID?,
+    parentTagId: TagID? = nil,
     isSystem: Bool,
     createdAt: String
   ) {
@@ -195,7 +236,7 @@ public struct TagAssignment: Equatable, Sendable {
 }
 
 public struct FileRecord: Equatable, Sendable {
-  public var fileId: String
+  public var fileId: FileID
   public var storageKind: NoteFileStorageKind
   public var localPath: String?
   public var s3Profile: String?
@@ -209,7 +250,7 @@ public struct FileRecord: Equatable, Sendable {
   public var migratedAt: String?
 
   public init(
-    fileId: String,
+    fileId: FileID,
     storageKind: NoteFileStorageKind,
     localPath: String?,
     s3Profile: String?,
@@ -238,12 +279,12 @@ public struct FileRecord: Equatable, Sendable {
 }
 
 public struct NoteFileAttachment: Equatable, Sendable {
-  public var noteId: String
+  public var noteId: NoteID
   public var file: FileRecord
   public var role: NoteFileRole
   public var position: Int
 
-  public init(noteId: String, file: FileRecord, role: NoteFileRole, position: Int) {
+  public init(noteId: NoteID, file: FileRecord, role: NoteFileRole, position: Int) {
     self.noteId = noteId
     self.file = file
     self.role = role
@@ -252,11 +293,11 @@ public struct NoteFileAttachment: Equatable, Sendable {
 }
 
 public struct NotebookFileAttachment: Equatable, Sendable {
-  public var notebookId: String
+  public var notebookId: NotebookID
   public var file: FileRecord
   public var role: NotebookFileRole
 
-  public init(notebookId: String, file: FileRecord, role: NotebookFileRole) {
+  public init(notebookId: NotebookID, file: FileRecord, role: NotebookFileRole) {
     self.notebookId = notebookId
     self.file = file
     self.role = role
@@ -266,17 +307,17 @@ public struct NotebookFileAttachment: Equatable, Sendable {
 /// A memo. Anchored to a note (`noteId` set) or to a whole notebook
 /// (`noteId` nil); `notebookId` names the containing notebook either way.
 public struct NoteComment: Equatable, Sendable {
-  public var commentId: String
-  public var noteId: String?
-  public var notebookId: String?
+  public var commentId: CommentID
+  public var noteId: NoteID?
+  public var notebookId: NotebookID?
   public var bodyMarkdown: String
   public var author: String
   public var createdAt: String
 
   public init(
-    commentId: String,
-    noteId: String?,
-    notebookId: String? = nil,
+    commentId: CommentID,
+    noteId: NoteID?,
+    notebookId: NotebookID? = nil,
     bodyMarkdown: String,
     author: String,
     createdAt: String
@@ -291,15 +332,15 @@ public struct NoteComment: Equatable, Sendable {
 }
 
 public struct NoteLink: Equatable, Sendable {
-  public var fromNoteId: String
-  public var toNoteId: String
+  public var fromNoteId: NoteID
+  public var toNoteId: NoteID
   public var linkKind: String
   public var provenance: NoteProvenance
   public var createdAt: String
 
   public init(
-    fromNoteId: String,
-    toNoteId: String,
+    fromNoteId: NoteID,
+    toNoteId: NoteID,
     linkKind: String,
     provenance: NoteProvenance,
     createdAt: String
@@ -334,18 +375,18 @@ public struct NoteLinkProposal: Equatable, Sendable {
 }
 
 public struct AutoAction: Codable, Equatable, Sendable {
-  public var actionId: String
+  public var actionId: AutoActionID
   public var trigger: NoteAutoActionTrigger
-  public var workflowId: String
+  public var workflowId: WorkflowID
   public var filterJSON: String?
   public var enabled: Bool
   public var position: Int
   public var createdAt: String
 
   public init(
-    actionId: String,
+    actionId: AutoActionID,
     trigger: NoteAutoActionTrigger,
-    workflowId: String,
+    workflowId: WorkflowID,
     filterJSON: String? = nil,
     enabled: Bool = true,
     position: Int = 0,
@@ -368,7 +409,7 @@ public enum AutoActionDispatchStatus: String, Codable, Equatable, Sendable {
 }
 
 public struct AutoActionDispatchAttempt: Codable, Equatable, Sendable {
-  public var dispatchId: String
+  public var dispatchId: AutoActionDispatchID
   public var record: AutoActionDispatchRecord
   public var status: AutoActionDispatchStatus
   public var attemptCount: Int
@@ -377,7 +418,7 @@ public struct AutoActionDispatchAttempt: Codable, Equatable, Sendable {
   public var updatedAt: String
 
   public init(
-    dispatchId: String,
+    dispatchId: AutoActionDispatchID,
     record: AutoActionDispatchRecord,
     status: AutoActionDispatchStatus,
     attemptCount: Int,
@@ -395,18 +436,52 @@ public struct AutoActionDispatchAttempt: Codable, Equatable, Sendable {
   }
 }
 
+/// An account. A store always holds at least the default user, which every
+/// unauthenticated request acts as (`design-docs/specs/multi-user.md`).
+public struct NoteUser: Codable, Equatable, Sendable {
+  public var userId: UserID
+  public var email: String?
+  public var displayName: String
+  public var isDefault: Bool
+  public var createdAt: String
+  public var disabledAt: String?
+
+  public init(
+    userId: UserID,
+    email: String? = nil,
+    displayName: String,
+    isDefault: Bool = false,
+    createdAt: String,
+    disabledAt: String? = nil
+  ) {
+    self.userId = userId
+    self.email = email
+    self.displayName = displayName
+    self.isDefault = isDefault
+    self.createdAt = createdAt
+    self.disabledAt = disabledAt
+  }
+
+  public var isEnabled: Bool {
+    disabledAt == nil
+  }
+}
+
 public struct NoteAPIClient: Codable, Equatable, Sendable {
-  public var clientId: String
+  public var clientId: APIClientID
   public var displayName: String
   public var tokenHash: String
+  /// The account this credential acts as.
+  public var userId: UserID
   public var createdAt: String
   public var lastSeenAt: String?
   public var revokedAt: String?
 
   public init(
-    clientId: String,
+    clientId: APIClientID,
     displayName: String,
     tokenHash: String,
+    userId: UserID,
     createdAt: String,
     lastSeenAt: String? = nil,
     revokedAt: String? = nil
@@ -414,6 +489,7 @@ public struct NoteAPIClient: Codable, Equatable, Sendable {
     self.clientId = clientId
     self.displayName = displayName
     self.tokenHash = tokenHash
+    self.userId = userId
     self.createdAt = createdAt
     self.lastSeenAt = lastSeenAt
     self.revokedAt = revokedAt
@@ -444,9 +520,9 @@ public struct NoteSearchResult: Equatable, Sendable {
 
 public struct NoteTagInput: Equatable, Sendable {
   public var name: String
-  public var classId: String?
+  public var classId: TagClassID?
 
-  public init(name: String, classId: String? = nil) {
+  public init(name: String, classId: TagClassID? = nil) {
     self.name = name
     self.classId = classId
   }
@@ -455,9 +531,9 @@ public struct NoteTagInput: Equatable, Sendable {
 public struct NoteConversationTurn: Equatable, Sendable {
   public var userMarkdown: String
   public var assistantMarkdown: String
-  public var sourceNoteIds: [String]
+  public var sourceNoteIds: [NoteID]
 
-  public init(userMarkdown: String, assistantMarkdown: String, sourceNoteIds: [String] = []) {
+  public init(userMarkdown: String, assistantMarkdown: String, sourceNoteIds: [NoteID] = []) {
     self.userMarkdown = userMarkdown
     self.assistantMarkdown = assistantMarkdown
     self.sourceNoteIds = sourceNoteIds
@@ -465,13 +541,13 @@ public struct NoteConversationTurn: Equatable, Sendable {
 }
 
 public struct NoteConversationSourceLinks: Equatable, Sendable {
-  public var sourceNoteIds: [String]
+  public var sourceNoteIds: [NoteID]
   public var linkKind: String
   public var provenance: NoteProvenance
   public var allowMissingSourceNotes: Bool
 
   public init(
-    sourceNoteIds: [String],
+    sourceNoteIds: [NoteID],
     linkKind: String = "source-citation",
     provenance: NoteProvenance = .ai,
     allowMissingSourceNotes: Bool = false

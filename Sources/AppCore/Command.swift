@@ -31,6 +31,17 @@ public struct AppCommand: Sendable {
     var cursor = CommandCursor(arguments: arguments)
     let noteRootOverride = try cursor.extractOption("--note-root")
     let configPathOverride = try cursor.extractOption("--config")
+    // `--jwt` names the account the command acts as. `--jwt-env` keeps the
+    // token out of the process table and the shell history, which is how an
+    // agent should receive one.
+    let authToken = try resolveAuthToken(
+      token: try cursor.extractOption("--jwt"),
+      environmentVariable: try cursor.extractOption("--jwt-env")
+    )
+    // `--library` names the set of notebooks the command reads and writes.
+    let librarySelection = resolveLibrarySelection(
+      override: try cursor.extractOption("--library")
+    )
     let configPath = resolveConfigPath(override: configPathOverride)
     guard let command = cursor.next() else {
       return usage
@@ -42,7 +53,9 @@ public struct AppCommand: Sendable {
         at: configPath,
         required: configPathOverride != nil || !(environment["KAIBA_CONFIG_PATH"] ?? "").isEmpty
       ),
-      cursor: cursor
+      cursor: cursor,
+      authToken: authToken,
+      librarySelection: librarySelection
     )
 
     switch command {
@@ -66,12 +79,52 @@ public struct AppCommand: Sendable {
     case "import": return try runImport(context)
     case "storage": return try runStorage(context)
     case "client": return try runClient(context)
+    case "user": return try runUser(context)
+    case "auth": return try runAuth(context)
+    case "library": return try runLibrary(context)
     default:
       if command.hasPrefix("-") {
         throw Error.unknownArgument(command)
       }
       throw Error.unknownCommand(command)
     }
+  }
+
+  /// Resolves the command's credential from `--jwt` or `--jwt-env`. Passing
+  /// both is refused rather than silently preferring one, because two options
+  /// naming different accounts is a mistake worth surfacing.
+  func resolveAuthToken(token: String?, environmentVariable: String?) throws -> String? {
+    if token != nil, environmentVariable != nil {
+      throw Error.invalidUsage("--jwt and --jwt-env cannot be combined")
+    }
+    if let token {
+      let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else {
+        throw Error.invalidUsage("--jwt requires a token")
+      }
+      return trimmed
+    }
+    guard let environmentVariable else {
+      return nil
+    }
+    guard let value = environment[environmentVariable]?
+      .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+      throw Error.invalidUsage("\(environmentVariable) is empty or unset")
+    }
+    return value
+  }
+
+  /// The library the command acts in: the explicit flag, then
+  /// `KAIBA_LIBRARY`, then nil for the default library
+  /// (`design-docs/specs/library.md`).
+  public func resolveLibrarySelection(override: String?) -> String? {
+    if let override, !override.isEmpty {
+      return override
+    }
+    if let env = environment["KAIBA_LIBRARY"], !env.isEmpty {
+      return env
+    }
+    return nil
   }
 
   public func resolveNoteRoot(override: String?) -> String {
@@ -170,8 +223,46 @@ public struct AppCommand: Sendable {
                  [--endpoint <url> [--api-key-env <VAR>]]
                  # send the document to a running kaiba server's POST /graphql
                  # instead; the API key is read from the named env variable
-      client     issue --name <n> | list [--all] | revoke <client-id>
-                 # API keys accepted as bearer tokens by kaiba serve
+      client     issue --name <n> [--user <user-id>] | list [--all]
+                 | revoke <client-id>
+                 # API keys accepted as bearer tokens by kaiba serve;
+                 # without --user the key acts as the default user
+
+    Users:
+      user       add --email <address> [--name <n>] [--output json|text]
+      user       list [--all] [--output json|text]
+      user       disable <user-id> | enable <user-id>
+                 # each user owns their own notebooks; a store is created with
+                 # a default user, which unauthenticated requests act as
+      auth       token issue --user <user-id> [--ttl-minutes N]
+                 [--output json|text]
+      auth       whoami [--output json|text]
+      auth       login request --email <address>
+                 [--mail-sender log|resend] [--from <address>]
+                 [--mail-command <path>] [--output json|text]
+      auth       login verify --email <address> --code <code>
+                 [--output json|text]
+                 # passwordless sign-in: a one-time code is mailed to an
+                 # address that already has an account, and verifying it
+                 # returns a token for --jwt. `resend` delivers through
+                 # resend-gateway-writer, which holds the API key.
+
+    Libraries:
+      library    list [--output json|text]
+      library    show <name> [--output json|text]
+      library    create <name> [--title <t>] [--auth required|none]
+      library    update <name> [--title <t>] [--auth required|none]
+      library    delete <name>          # refuses a non-empty or default library
+      library    move <notebook-id> --to <name>
+      library    env <name> [--output json|text]
+      library    grant <name> --user <user-id> [--role owner|member]
+      library    revoke <name> --user <user-id>
+      library    members <name> [--output json|text]
+                 # a library groups notebooks. --auth decides whether a caller
+                 # with no credential may see it at all; grant/revoke decide
+                 # which accounts may. An open library needs no grants.
+                 # `env` reports the kinko scope and variable names, never a
+                 # secret value.
 
     Storage:
       storage    migrate (<file-id>|--all) --profile <name> --endpoint <url>
@@ -181,6 +272,14 @@ public struct AppCommand: Sendable {
       storage    gc [--grace-hours N]   # reclaim unreferenced file content
 
     Global:
+      --jwt <token>       Act as the token's user; writes are attributed to it
+                          and reads are scoped to it. Without it the command
+                          runs unscoped over the whole store.
+      --jwt-env <VAR>     Read the token from an environment variable instead,
+                          keeping it out of the process table
+      --library <name>    Act in one library: writes land in it and reads are
+                          filtered to it (env KAIBA_LIBRARY). Without it writes
+                          go to the default library.
       --note-root <dir>   Note store root (default ~/.kaiba, env KAIBA_NOTE_ROOT)
       --config <path>     Config file (default ~/.config/kaiba/config.json,
                           env KAIBA_CONFIG_PATH)

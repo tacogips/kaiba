@@ -1,3 +1,4 @@
+import { tagClassId as asTagClassId, tagId as asTagId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import { parseInlineSegments } from './markdown'
 import {
@@ -8,9 +9,10 @@ import {
   type TagTerm,
 } from './tagMatch'
 import type { NoteTagAssignment } from './types'
+import type { TagId } from './ids'
 
 function assignment(
-  tagId: string,
+  tagId: TagId,
   name: string,
   overrides: Partial<NoteTagAssignment['tag']> = {},
 ): NoteTagAssignment {
@@ -35,43 +37,43 @@ describe('tagTermsFromAssignments', () => {
   test('dedupes across groups and excludes folders, system tags and short names', () => {
     const terms = tagTermsFromAssignments([
       [
-        assignment('tag-1', '田中太郎', { classId: 'person' }),
-        assignment('tag-2', 'archive', { classId: 'folder' }),
-        assignment('tag-3', 'notebook-kind:user-memo', { isSystem: true }),
-        assignment('tag-4', 'x'),
+        assignment(asTagId('tag-1'), '田中太郎', { classId: asTagClassId('person') }),
+        assignment(asTagId('tag-2'), 'archive', { classId: asTagClassId('folder') }),
+        assignment(asTagId('tag-3'), 'notebook-kind:user-memo', { isSystem: true }),
+        assignment(asTagId('tag-4'), 'x'),
       ],
-      [assignment('tag-1', '田中太郎', { classId: 'person' }), assignment('tag-5', 'meiji')],
+      [assignment(asTagId('tag-1'), '田中太郎', { classId: asTagClassId('person') }), assignment(asTagId('tag-5'), 'meiji')],
     ])
-    expect(terms.map((term) => term.tagId).sort()).toEqual(['tag-1', 'tag-5'])
+    expect(terms.map((term) => term.tagId).sort()).toEqual([asTagId('tag-1'), asTagId('tag-5')])
   })
 
   test('orders longest name first', () => {
-    const terms = tagTermsFromAssignments([[assignment('a', 'meiji'), assignment('b', 'meiji era')]])
-    expect(terms.map((term) => term.name)).toEqual(['meiji era', 'meiji'])
+    const terms = tagTermsFromAssignments([[assignment(asTagId('a'), 'meiji'), assignment(asTagId('b'), 'meiji era')]])
+    expect(terms.map((term) => term.name)).toEqual([asTagId('meiji era'), asTagId('meiji')])
   })
 })
 
 describe('splitTextByTagTerms', () => {
   const terms: TagTerm[] = [
-    { tagId: 'era', name: 'meiji era' },
-    { tagId: 'person', name: '田中' },
-    { tagId: 'meiji', name: 'meiji' },
+    { tagId: asTagId('era'), name: 'meiji era' },
+    { tagId: asTagId('person'), name: '田中' },
+    { tagId: asTagId('meiji'), name: 'meiji' },
   ]
 
   test('marks occurrences and keeps surrounding text', () => {
     const segments = splitTextByTagTerms('The meiji restoration and 田中 met.', terms)
     expect(segments).toEqual([
       { kind: 'text', text: 'The ' },
-      { kind: 'tagTerm', text: 'meiji', tagId: 'meiji' },
+      { kind: 'tagTerm', text: 'meiji', tagId: asTagId('meiji') },
       { kind: 'text', text: ' restoration and ' },
-      { kind: 'tagTerm', text: '田中', tagId: 'person' },
+      { kind: 'tagTerm', text: '田中', tagId: asTagId('person') },
       { kind: 'text', text: ' met.' },
     ])
   })
 
   test('prefers the longest tag at a shared position and matches case-insensitively', () => {
     const segments = splitTextByTagTerms('Meiji Era politics', terms)
-    expect(segments[0]).toEqual({ kind: 'tagTerm', text: 'Meiji Era', tagId: 'era' })
+    expect(segments[0]).toEqual({ kind: 'tagTerm', text: 'Meiji Era', tagId: asTagId('era') })
     expect(segments[1]).toEqual({ kind: 'text', text: ' politics' })
   })
 
@@ -82,11 +84,11 @@ describe('splitTextByTagTerms', () => {
   })
 
   test('matches adjacent occurrences in Japanese text without delimiters', () => {
-    const segments = splitTextByTagTerms('田中は田中です', [{ tagId: 'p', name: '田中' }])
+    const segments = splitTextByTagTerms('田中は田中です', [{ tagId: asTagId('p'), name: '田中' }])
     expect(segments).toEqual([
-      { kind: 'tagTerm', text: '田中', tagId: 'p' },
+      { kind: 'tagTerm', text: '田中', tagId: asTagId('p') },
       { kind: 'text', text: 'は' },
-      { kind: 'tagTerm', text: '田中', tagId: 'p' },
+      { kind: 'tagTerm', text: '田中', tagId: asTagId('p') },
       { kind: 'text', text: 'です' },
     ])
   })
@@ -95,8 +97,8 @@ describe('splitTextByTagTerms', () => {
 describe('splitSegmentsByTagTerms', () => {
   test('splits only plain text segments', () => {
     const segments = parseInlineSegments('meiji **meiji** `meiji` [meiji](https://example.com)')
-    const decorated = splitSegmentsByTagTerms(segments, [{ tagId: 'meiji', name: 'meiji' }])
-    expect(decorated[0]).toEqual({ kind: 'tagTerm', text: 'meiji', tagId: 'meiji' })
+    const decorated = splitSegmentsByTagTerms(segments, [{ tagId: asTagId('meiji'), name: 'meiji' }])
+    expect(decorated[0]).toEqual({ kind: 'tagTerm', text: 'meiji', tagId: asTagId('meiji') })
     expect(decorated.filter((segment) => segment.kind === 'tagTerm')).toHaveLength(1)
     expect(decorated.some((segment) => segment.kind === 'bold')).toBe(true)
     expect(decorated.some((segment) => segment.kind === 'code')).toBe(true)

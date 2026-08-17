@@ -17,14 +17,14 @@ func enrichNotebookListMetadata(_ notebooks: inout [Notebook], in database: SQLi
   }
 }
 
-private func notebookNoteCount(notebookId: String, in database: SQLiteDatabase) throws -> Int {
+private func notebookNoteCount(notebookId: NotebookID, in database: SQLiteDatabase) throws -> Int {
   let rows = try database.query(
     """
     SELECT COUNT(*) AS note_count
     FROM notes
     WHERE notebook_id = ?
     """,
-    bindings: [.text(notebookId)]
+    bindings: [.id(notebookId)]
   )
   guard let rawCount = rows.first?["note_count"], let count = Int(rawCount) else {
     throw NoteServiceError.invalidRow("note count row is missing required fields")
@@ -32,7 +32,7 @@ private func notebookNoteCount(notebookId: String, in database: SQLiteDatabase) 
   return count
 }
 
-private func firstNotePreviews(notebookIds: [String], in database: SQLiteDatabase) throws -> [String: String] {
+private func firstNotePreviews(notebookIds: [NotebookID], in database: SQLiteDatabase) throws -> [NotebookID: String] {
   let rows = try database.query(
     """
     SELECT outer_notes.notebook_id, outer_notes.body_markdown
@@ -46,11 +46,11 @@ private func firstNotePreviews(notebookIds: [String], in database: SQLiteDatabas
         LIMIT 1
       )
     """,
-    bindings: notebookIds.map(SQLiteValue.text)
+    bindings: notebookIds.sqliteBindings
   )
-  var previews: [String: String] = [:]
+  var previews: [NotebookID: String] = [:]
   for row in rows {
-    guard let notebookId = row["notebook_id"], let body = row["body_markdown"] else {
+    guard let notebookId = row.identifier("notebook_id", as: NotebookID.self), let body = row["body_markdown"] else {
       throw NoteServiceError.invalidRow("first note preview row is missing required fields")
     }
     previews[notebookId] = notebookPreviewText(body)
@@ -58,7 +58,7 @@ private func firstNotePreviews(notebookIds: [String], in database: SQLiteDatabas
   return previews
 }
 
-private func notebookNoteCounts(notebookIds: [String], in database: SQLiteDatabase) throws -> [String: Int] {
+private func notebookNoteCounts(notebookIds: [NotebookID], in database: SQLiteDatabase) throws -> [NotebookID: Int] {
   let rows = try database.query(
     """
     SELECT notebook_id, COUNT(*) AS note_count
@@ -66,11 +66,11 @@ private func notebookNoteCounts(notebookIds: [String], in database: SQLiteDataba
     WHERE notebook_id IN (\(noteStatPlaceholders(count: notebookIds.count)))
     GROUP BY notebook_id
     """,
-    bindings: notebookIds.map(SQLiteValue.text)
+    bindings: notebookIds.sqliteBindings
   )
-  var counts: [String: Int] = [:]
+  var counts: [NotebookID: Int] = [:]
   for row in rows {
-    guard let notebookId = row["notebook_id"],
+    guard let notebookId = row.identifier("notebook_id", as: NotebookID.self),
           let rawCount = row["note_count"],
           let count = Int(rawCount) else {
       throw NoteServiceError.invalidRow("note count row is missing required fields")

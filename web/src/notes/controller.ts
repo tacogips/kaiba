@@ -1,7 +1,8 @@
 import type { Notebook } from './types'
+import type { NotebookId } from './ids'
 
 export interface ReadOnlyOperations {
-  setReadOnly(notebookId: string, readOnly: boolean): Promise<Notebook>
+  setReadOnly(notebookId: NotebookId, readOnly: boolean): Promise<Notebook>
 }
 
 export class NotebookReadOnlyController {
@@ -55,7 +56,7 @@ export class NotebookReadOnlyController {
     return operation
   }
 
-  private async converge(notebookId: string): Promise<void> {
+  private async converge(notebookId: NotebookId): Promise<void> {
     while (this.desired.has(notebookId)) {
       const target = this.desired.get(notebookId) as boolean
       const generation = this.generations.get(notebookId) ?? 0
@@ -83,7 +84,7 @@ export class NotebookReadOnlyController {
   }
 
   private reconcileMutationResponse(
-    notebookId: string,
+    notebookId: NotebookId,
     updated: Notebook,
     startedModelVersion: number,
   ): Notebook {
@@ -92,19 +93,19 @@ export class NotebookReadOnlyController {
     return { ...latest, readOnly: updated.readOnly }
   }
 
-  private modelVersion(notebookId: string): number {
+  private modelVersion(notebookId: NotebookId): number {
     return this.modelVersions.get(notebookId) ?? 0
   }
 
-  private bumpModelVersion(notebookId: string): void {
+  private bumpModelVersion(notebookId: NotebookId): void {
     this.modelVersions.set(notebookId, this.modelVersion(notebookId) + 1)
   }
 
-  private stateVersion(notebookId: string): number {
+  private stateVersion(notebookId: NotebookId): number {
     return this.stateVersions.get(notebookId) ?? 0
   }
 
-  private bumpStateVersion(notebookId: string): void {
+  private bumpStateVersion(notebookId: NotebookId): void {
     this.stateVersions.set(notebookId, this.stateVersion(notebookId) + 1)
   }
 }

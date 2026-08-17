@@ -5,10 +5,10 @@ import Foundation
 /// runs on fresh stores, so the idempotent `configureAutoAction` upsert is the
 /// mechanism that keeps existing stores in sync with `config.json`.
 public enum AIAutoActionReconciliation {
-  public static let taggingActions: [(actionId: String, trigger: NoteAutoActionTrigger)] = [
-    ("default-ai-tagging-note-created", .noteCreated),
-    ("default-ai-tagging-note-updated", .noteUpdated),
-    ("default-ai-tagging-notebook-created", .notebookCreated)
+  public static let taggingActions: [(actionId: AutoActionID, trigger: NoteAutoActionTrigger)] = [
+    (AutoActionID("default-ai-tagging-note-created"), .noteCreated),
+    (AutoActionID("default-ai-tagging-note-updated"), .noteUpdated),
+    (AutoActionID("default-ai-tagging-notebook-created"), .notebookCreated)
   ]
 
   public static let chatReplyFilterJSON =

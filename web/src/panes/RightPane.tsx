@@ -1,4 +1,5 @@
 import { Show, createMemo, type JSX } from 'solid-js'
+import type { TagId } from '../notes/ids'
 import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
 import { MemoTab } from '../components/MemoTab'
 import { NoteInfoTab } from '../components/NoteInfoTab'
@@ -46,7 +47,7 @@ export function RightPane(): JSX.Element {
           </div>
         }
       >
-        <Show when={!tagId()} fallback={<TagPane tagId={tagId() ?? ''} />}>
+        <Show when={!tagId()} fallback={<TagPane tagId={tagId() as TagId} />}>
         <div class="pane-head">
           <button
             type="button"

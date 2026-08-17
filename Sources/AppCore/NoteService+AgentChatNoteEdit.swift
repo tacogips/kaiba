@@ -53,8 +53,8 @@ public extension NoteService {
   /// the turn was accepted).
   internal func applyNoteEditReply(
     _ markdown: String,
-    subjectNoteId: String,
-    originatingActionId: String?
+    subjectNoteId: NoteID,
+    originatingActionId: AutoActionID?
   ) throws -> (assistantMarkdown: String, updatedNote: Bool) {
     let parsed = Self.noteEditReply(from: markdown)
     guard let bodyMarkdown = parsed.bodyMarkdown else {

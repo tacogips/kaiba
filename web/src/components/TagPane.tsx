@@ -7,6 +7,7 @@ import { errorMessage, useApp } from '../state/appStore'
 import { noteDisplayTitle } from '../notes/noteText'
 import { loadTagOccurrences, transitionTagOccurrences } from '../notes/tagOccurrences'
 import type { Note, TagComment, TagDetail } from '../notes/types'
+import type { NotebookId, TagId } from '../notes/ids'
 
 // The right pane's tag mode (design-docs/specs/tag-detail-pane.md): the
 // cross-notebook analogue of the per-note panes for one tag. Memo binds the
@@ -19,14 +20,14 @@ type TagPaneTab = 'memo' | 'history' | 'links'
 
 const tagCommentsPageLimit = 50
 
-export function TagPane(props: { tagId: string }): JSX.Element {
+export function TagPane(props: { tagId: TagId }): JSX.Element {
   const app = useApp()
   const [tab, setTab] = createSignal<TagPaneTab>('memo')
   const [detail, setDetail] = createSignal<TagDetail>()
-  const [memoNotebookId, setMemoNotebookId] = createSignal<string>()
+  const [memoNotebookId, setMemoNotebookId] = createSignal<NotebookId>()
   const [error, setError] = createSignal('')
   let generation = 0
-  let loadedTagId = ''
+  let loadedTagId: TagId | null = null
 
   const tabs: readonly TabDescriptor<TagPaneTab>[] = [
     { value: 'memo', label: 'Memo' },
@@ -131,14 +132,14 @@ export function TagPane(props: { tagId: string }): JSX.Element {
 
 /** Every memo written on notes/notebooks carrying the tag, across all
  * notebooks, newest first, with jump-to attribution. */
-function TagHistoryTab(props: { tagId: string }): JSX.Element {
+function TagHistoryTab(props: { tagId: TagId }): JSX.Element {
   const app = useApp()
   const [comments, setComments] = createSignal<TagComment[]>([])
   const [loading, setLoading] = createSignal(false)
   const [exhausted, setExhausted] = createSignal(true)
   const [error, setError] = createSignal('')
   let generation = 0
-  let loadedTagId = ''
+  let loadedTagId: TagId | null = null
 
   createEffect(() => {
     const tagId = props.tagId
@@ -154,7 +155,7 @@ function TagHistoryTab(props: { tagId: string }): JSX.Element {
 
   /** Replaces the list with up to `target` entries re-fetched page by page
    * (at least one page), preserving "Load older memos" progress. */
-  const reload = async (tagId: string, target: number) => {
+  const reload = async (tagId: TagId, target: number) => {
     const requested = ++generation
     const pages = Math.max(1, Math.ceil(target / tagCommentsPageLimit))
     setLoading(true)
@@ -246,13 +247,13 @@ function TagHistoryTab(props: { tagId: string }): JSX.Element {
 
 /** Every note carrying the tag (descendants included) across all notebooks,
  * grouped by notebook. */
-function TagLinksTab(props: { tagId: string; tagName?: string }): JSX.Element {
+function TagLinksTab(props: { tagId: TagId; tagName?: string }): JSX.Element {
   const app = useApp()
   const [occurrences, setOccurrences] = createSignal<Note[]>([])
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
   let generation = 0
-  let loadedTagId = ''
+  let loadedTagId: TagId | null = null
   let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
   createEffect(() => {
@@ -306,7 +307,7 @@ function TagLinksTab(props: { tagId: string; tagName?: string }): JSX.Element {
 
   const groups = createMemo(() => {
     const titles = new Map(app.state.notebooks.map((notebook) => [notebook.notebookId, notebook.title]))
-    const byNotebook = new Map<string, Note[]>()
+    const byNotebook = new Map<NotebookId, Note[]>()
     for (const note of occurrences()) {
       byNotebook.set(note.notebookId, [...(byNotebook.get(note.notebookId) ?? []), note])
     }

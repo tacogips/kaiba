@@ -1,3 +1,5 @@
+import { noteId as asNoteId, notebookId as asNotebookId, tagId as asTagId } from './notes/ids'
+import type { NoteId, NotebookId, TagId } from './notes/ids'
 // Hash routing for the chatbook shell. Hash-based routes need no server rewrite
 // and no router dependency; every route is a pure string transform so deep links
 // can be restored, compared and tested without a DOM.
@@ -7,9 +9,9 @@ export type SearchMethod = 'agentic' | 'grep'
 
 export type Route =
   | { kind: 'home' }
-  | { kind: 'notebook'; notebookId: string; conversationId?: string; tagId?: string }
-  | { kind: 'note'; noteId: string; conversationId?: string; tagId?: string }
-  | { kind: 'search'; query: string; scope: SearchScope; method: SearchMethod; notebookId?: string }
+  | { kind: 'notebook'; notebookId: NotebookId; conversationId?: NotebookId; tagId?: TagId }
+  | { kind: 'note'; noteId: NoteId; conversationId?: NotebookId; tagId?: TagId }
+  | { kind: 'search'; query: string; scope: SearchScope; method: SearchMethod; notebookId?: NotebookId }
   | { kind: 'config' }
 
 export const homeRoute: Route = { kind: 'home' }
@@ -28,8 +30,12 @@ export function parseRoute(hash: string): Route {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
   const [pathPart = '', queryPart = ''] = splitOnce(raw, '?')
   const segments = pathPart.split('/').filter((segment) => segment.length > 0)
-  const conversationId = readQueryId(queryPart, 'conv')
-  const tagId = readQueryId(queryPart, 'tag')
+  const rawConversationId = readQueryId(queryPart, 'conv')
+  const rawTagId = readQueryId(queryPart, 'tag')
+  // The URL is one of the two places raw text becomes an id (the other is the
+  // GraphQL payload); everything downstream of here is typed.
+  const conversationId = rawConversationId ? asNotebookId(rawConversationId) : undefined
+  const tagId = rawTagId ? asTagId(rawTagId) : undefined
   const [head, tail] = segments
   if (head === 'config') return { kind: 'config' }
   if (head === 'search') {
@@ -43,13 +49,13 @@ export function parseRoute(hash: string): Route {
       query,
       scope,
       method,
-      ...(notebookId ? { notebookId } : {}),
+      ...(notebookId ? { notebookId: asNotebookId(notebookId) } : {}),
     }
   }
   if (head === 'notebook' && tail) {
     return {
       kind: 'notebook',
-      notebookId: decodeSegment(tail),
+      notebookId: asNotebookId(decodeSegment(tail)),
       ...(conversationId ? { conversationId } : {}),
       ...(tagId ? { tagId } : {}),
     }
@@ -57,7 +63,7 @@ export function parseRoute(hash: string): Route {
   if (head === 'note' && tail) {
     return {
       kind: 'note',
-      noteId: decodeSegment(tail),
+      noteId: asNoteId(decodeSegment(tail)),
       ...(conversationId ? { conversationId } : {}),
       ...(tagId ? { tagId } : {}),
     }
@@ -87,7 +93,7 @@ export function formatRoute(route: Route): string {
 
 /** Same route with a different open conversation; routes without a reader
  * selection carry no conversation and are returned unchanged. */
-export function withConversation(route: Route, conversationId?: string): Route {
+export function withConversation(route: Route, conversationId?: NotebookId): Route {
   if (route.kind === 'note') {
     return {
       kind: 'note',
@@ -108,13 +114,13 @@ export function withConversation(route: Route, conversationId?: string): Route {
 }
 
 /** The tag whose detail pane the route opens (`?tag=<id>`). */
-export function routeTagId(route: Route): string | undefined {
+export function routeTagId(route: Route): TagId | undefined {
   return route.kind === 'note' || route.kind === 'notebook' ? route.tagId : undefined
 }
 
 /** Same route with the tag detail pane opened (or closed with undefined);
  * routes without a reader selection are returned unchanged. */
-export function withTag(route: Route, tagId?: string): Route {
+export function withTag(route: Route, tagId?: TagId): Route {
   if (route.kind === 'note') {
     return {
       kind: 'note',
@@ -167,7 +173,7 @@ export function navigate(environment: RouterEnvironment, route: Route): void {
   environment.setHash(next)
 }
 
-function selectionQuery(conversationId?: string, tagId?: string): string {
+function selectionQuery(conversationId?: NotebookId, tagId?: TagId): string {
   const parameters: string[] = []
   if (conversationId) parameters.push(`conv=${encodeURIComponent(conversationId)}`)
   if (tagId) parameters.push(`tag=${encodeURIComponent(tagId)}`)

@@ -41,27 +41,27 @@ final class NoteGraphTraversalTests: NoteTestCase {
     let seed = try service.createNote(
       bodyMarkdown: "# A\nx",
       tags: [
-        NoteTagInput(name: "rare-entity", classId: "topic"),
-        NoteTagInput(name: "common-entity", classId: "topic"),
-        NoteTagInput(name: "structural-label", classId: "document-kind")
+        NoteTagInput(name: "rare-entity", classId: TagClassID("topic")),
+        NoteTagInput(name: "common-entity", classId: TagClassID("topic")),
+        NoteTagInput(name: "structural-label", classId: TagClassID("document-kind"))
       ]
     )
     let rare = try service.createNote(
       bodyMarkdown: "# B\ny",
-      tags: [NoteTagInput(name: "rare-entity", classId: "topic")]
+      tags: [NoteTagInput(name: "rare-entity", classId: TagClassID("topic"))]
     )
     let common = try service.createNote(
       bodyMarkdown: "# C\nz",
-      tags: [NoteTagInput(name: "common-entity", classId: "topic")]
+      tags: [NoteTagInput(name: "common-entity", classId: TagClassID("topic"))]
     )
     let structural = try service.createNote(
       bodyMarkdown: "# D\nq",
-      tags: [NoteTagInput(name: "structural-label", classId: "document-kind")]
+      tags: [NoteTagInput(name: "structural-label", classId: TagClassID("document-kind"))]
     )
     for index in 0..<6 {
       _ = try service.createNote(
         bodyMarkdown: "# X\(index)\nq",
-        tags: [NoteTagInput(name: "common-entity", classId: "topic")]
+        tags: [NoteTagInput(name: "common-entity", classId: TagClassID("topic"))]
       )
     }
 
@@ -125,8 +125,8 @@ final class NoteGraphTraversalTests: NoteTestCase {
     let proposals = try service.proposeLinks(noteId: seed.noteId)
 
     XCTAssertEqual(proposals.map(\.targetNote.noteId), [candidate.noteId])
-    XCTAssertTrue(proposals[0].reason.contains(seed.noteId))
-    XCTAssertTrue(proposals[0].reason.contains(candidate.noteId))
+    XCTAssertTrue(proposals[0].reason.contains(seed.noteId.rawValue))
+    XCTAssertTrue(proposals[0].reason.contains(candidate.noteId.rawValue))
     XCTAssertEqual(try service.listLinks(noteId: seed.noteId).count, 1)
   }
 
@@ -134,11 +134,11 @@ final class NoteGraphTraversalTests: NoteTestCase {
     let service = try makeService()
     let direct = try service.createNote(
       bodyMarkdown: "# Seed\nprojectalpha",
-      tags: [NoteTagInput(name: "shared-entity", classId: "topic")]
+      tags: [NoteTagInput(name: "shared-entity", classId: TagClassID("topic"))]
     )
     let neighbor = try service.createNote(
       bodyMarkdown: "# B\ny",
-      tags: [NoteTagInput(name: "shared-entity", classId: "topic")]
+      tags: [NoteTagInput(name: "shared-entity", classId: TagClassID("topic"))]
     )
 
     XCTAssertEqual(try service.searchNotes(query: "projectalpha").map(\.note.noteId), [direct.noteId])
@@ -160,7 +160,7 @@ final class NoteGraphTraversalTests: NoteTestCase {
     )
     XCTAssertThrowsError(try service.graphNeighbors(noteIds: [seed.noteId], maxDepth: -1))
     XCTAssertThrowsError(try service.graphNeighbors(noteIds: [seed.noteId], limit: -1))
-    XCTAssertThrowsError(try service.graphNeighbors(noteIds: ["missing-note"]))
+    XCTAssertThrowsError(try service.graphNeighbors(noteIds: [NoteID("missing-note")]))
   }
 
   func testSourceLimitFiltersRequestSeedsBeforeTruncation() throws {
@@ -184,19 +184,19 @@ final class NoteGraphTraversalTests: NoteTestCase {
     let service = try makeService()
     let seed = try service.createNote(
       bodyMarkdown: "# A\nx",
-      tags: [NoteTagInput(name: "seed-to-b", classId: "topic")]
+      tags: [NoteTagInput(name: "seed-to-b", classId: TagClassID("topic"))]
     )
     let first = try service.createNote(
       bodyMarkdown: "# B\ny",
-      tags: [NoteTagInput(name: "first-to-destination", classId: "topic")]
+      tags: [NoteTagInput(name: "first-to-destination", classId: TagClassID("topic"))]
     )
     let later = try service.createNote(
       bodyMarkdown: "# C\nz",
-      tags: [NoteTagInput(name: "seed-to-b", classId: "topic")]
+      tags: [NoteTagInput(name: "seed-to-b", classId: TagClassID("topic"))]
     )
     let destination = try service.createNote(
       bodyMarkdown: "# D\nq",
-      tags: [NoteTagInput(name: "first-to-destination", classId: "topic")]
+      tags: [NoteTagInput(name: "first-to-destination", classId: TagClassID("topic"))]
     )
     _ = try service.linkNotes(from: seed.noteId, to: first.noteId)
     _ = try service.linkNotes(from: later.noteId, to: destination.noteId)
@@ -220,8 +220,8 @@ final class NoteGraphTraversalTests: NoteTestCase {
     let direct = try service.createNote(
       bodyMarkdown: "# Seed\nprojectalpha",
       tags: [
-        NoteTagInput(name: "eligible", classId: "topic"),
-        NoteTagInput(name: "shared-entity", classId: "topic")
+        NoteTagInput(name: "eligible", classId: TagClassID("topic")),
+        NoteTagInput(name: "shared-entity", classId: TagClassID("topic"))
       ]
     )
     // Highest-weight neighbor (explicit link, weight 0.5) but fails the filter.
@@ -230,8 +230,8 @@ final class NoteGraphTraversalTests: NoteTestCase {
     let eligibleShared = try service.createNote(
       bodyMarkdown: "# C\ny",
       tags: [
-        NoteTagInput(name: "eligible", classId: "topic"),
-        NoteTagInput(name: "shared-entity", classId: "topic")
+        NoteTagInput(name: "eligible", classId: TagClassID("topic")),
+        NoteTagInput(name: "shared-entity", classId: TagClassID("topic"))
       ]
     )
     _ = try service.linkNotes(from: direct.noteId, to: filteredExplicit.noteId)

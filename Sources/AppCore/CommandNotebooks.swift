@@ -23,7 +23,7 @@ extension AppCommand {
     var cursor = context.cursor
     let on = cursor.extractFlag("--on")
     let off = cursor.extractFlag("--off")
-    guard let notebookId = cursor.next(), on != off else {
+    guard let notebookId = cursor.nextIdentifier(as: NotebookID.self), on != off else {
       throw Error.invalidUsage(
         "notebook readonly requires <notebook-id> and exactly one of --on/--off"
       )
@@ -69,7 +69,7 @@ extension AppCommand {
   private func runNotebookShow(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     let output = try cursor.extractOutputMode()
-    guard let notebookId = cursor.next() else {
+    guard let notebookId = cursor.nextIdentifier(as: NotebookID.self) else {
       throw Error.invalidUsage("notebook show requires <notebook-id>")
     }
     try cursor.finish()
@@ -81,12 +81,12 @@ extension AppCommand {
     switch output {
     case .json:
       var object = jsonObject(notebook)
-      object["notes"] = notes.map(jsonObject)
-      object["files"] = files.map { attachment -> [String: Any] in
+      object["notes"] = .array(notes.map { .object(jsonObject($0)) })
+      object["files"] = .array(files.map { attachment in
         var file = jsonObject(attachment.file)
-        file["role"] = attachment.role.rawValue
-        return file
-      }
+        file["role"] = .string(attachment.role.rawValue)
+        return .object(file)
+      })
       return try renderJSON(object)
     case .text:
       var lines = [renderNotebookLine(notebook)]
@@ -96,7 +96,7 @@ extension AppCommand {
       if !files.isEmpty {
         lines.append("files:")
         for attachment in files {
-          let name = attachment.file.originalFilename ?? attachment.file.fileId
+          let name = attachment.file.originalFilename ?? attachment.file.fileId.rawValue
           lines.append("  \(attachment.file.fileId)  \(attachment.role.rawValue)  \(name)")
         }
       }
@@ -124,7 +124,7 @@ extension AppCommand {
 
   private func runNotebookDelete(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    guard let notebookId = cursor.next() else {
+    guard let notebookId = cursor.nextIdentifier(as: NotebookID.self) else {
       throw Error.invalidUsage("notebook delete requires <notebook-id>")
     }
     try cursor.finish()
@@ -137,7 +137,7 @@ extension AppCommand {
   func runComment(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     let body = try cursor.extractOption("--body")
-    guard let noteId = cursor.next(), let body else {
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self), let body else {
       throw Error.invalidUsage("comment requires <note-id> and --body <text>")
     }
     try cursor.finish()
@@ -150,7 +150,7 @@ extension AppCommand {
   func runLink(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     let kind = try cursor.extractOption("--kind") ?? "related"
-    guard let fromNoteId = cursor.next(), let toNoteId = cursor.next() else {
+    guard let fromNoteId = cursor.nextIdentifier(as: NoteID.self), let toNoteId = cursor.nextIdentifier(as: NoteID.self) else {
       throw Error.invalidUsage("link requires <from-note-id> <to-note-id>")
     }
     try cursor.finish()

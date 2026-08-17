@@ -12,14 +12,80 @@ struct NoteSearchGraphOptions {
   var depth: Int
 }
 
+/// What a search may see: one notebook when the caller asked for it, and the
+/// libraries the caller may reach at all (`design-docs/specs/library.md`).
+struct NoteSearchScope {
+  var notebookId: NotebookID?
+  /// Nil is unrestricted — an authenticated caller with no library selected.
+  var reachableLibraryIds: [LibraryID]?
+  var createdAfter: String?
+  var createdBefore: String?
+
+  init(
+    notebookId: NotebookID? = nil,
+    reachableLibraryIds: [LibraryID]? = nil,
+    createdAfter: String? = nil,
+    createdBefore: String? = nil
+  ) {
+    self.notebookId = notebookId
+    self.reachableLibraryIds = reachableLibraryIds
+    self.createdAfter = createdAfter
+    self.createdBefore = createdBefore
+  }
+}
+
+/// Restricts a note query to the libraries the caller may reach
+/// (`design-docs/specs/library.md`). Nil means unrestricted — an authenticated
+/// caller with no library selected. An empty list means nothing is reachable,
+/// which must match no rows rather than every row.
+func appendLibraryScopePredicate(
+  alias: String,
+  reachableLibraryIds: [LibraryID]?,
+  predicates: inout [String],
+  bindings: inout [SQLiteValue]
+) {
+  guard let reachableLibraryIds else {
+    return
+  }
+  guard !reachableLibraryIds.isEmpty else {
+    predicates.append("0")
+    return
+  }
+  predicates.append(
+    """
+    \(alias).notebook_id IN (
+      SELECT notebook_id FROM notebooks
+      WHERE library_id IN (\(placeholders(count: reachableLibraryIds.count)))
+    )
+    """
+  )
+  bindings.append(contentsOf: reachableLibraryIds.sqliteBindings)
+}
+
+func appendLibraryScopePredicate(
+  alias: String,
+  reachableLibraryIds: [LibraryID]?,
+  sql: inout String,
+  bindings: inout [SQLiteValue]
+) {
+  var predicates: [String] = []
+  appendLibraryScopePredicate(
+    alias: alias,
+    reachableLibraryIds: reachableLibraryIds,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  for predicate in predicates {
+    sql += "\n  AND \(predicate)"
+  }
+}
+
 func searchNotesInDatabase(
   query: String,
   tagFilter: [String],
   classFilter: [String],
-  notebookId: String? = nil,
+  scope: NoteSearchScope,
   sort: NoteListSort,
-  createdAfter: String?,
-  createdBefore: String?,
   graphOptions: NoteSearchGraphOptions,
   limit: Int,
   offset: Int,
@@ -48,10 +114,8 @@ func searchNotesInDatabase(
       results = try searchNotesByFilters(
         tagFilterIds: expandedTagFilterIds,
         classFilter: classFilter,
-        notebookId: notebookId,
+        scope: scope,
         sort: sort,
-        createdAfter: createdAfter,
-        createdBefore: createdBefore,
         limit: fetchLimit,
         in: database
       )
@@ -60,11 +124,9 @@ func searchNotesInDatabase(
         query: query,
         tagFilterIds: expandedTagFilterIds,
         classFilter: classFilter,
-        notebookId: notebookId,
+        scope: scope,
         excludedNoteIds: [],
         sort: sort,
-        createdAfter: createdAfter,
-        createdBefore: createdBefore,
         limit: fetchLimit,
         in: database
       )
@@ -75,10 +137,8 @@ func searchNotesInDatabase(
           query: query,
           tagFilterIds: expandedTagFilterIds,
           classFilter: classFilter,
-          notebookId: notebookId,
+          scope: scope,
           sort: sort,
-          createdAfter: createdAfter,
-          createdBefore: createdBefore,
           depth: graphOptions.depth,
           limit: fetchLimit,
           in: database
@@ -94,14 +154,20 @@ func searchNotesInDatabase(
     WHERE note_fts MATCH ?
     """
   var bindings: [SQLiteValue] = [.text(matchQuery)]
-  if let notebookId {
+  if let notebookId = scope.notebookId {
     sql += "\n  AND n.notebook_id = ?"
-    bindings.append(.text(notebookId))
+    bindings.append(.id(notebookId))
   }
+  appendLibraryScopePredicate(
+    alias: "n",
+    reachableLibraryIds: scope.reachableLibraryIds,
+    sql: &sql,
+    bindings: &bindings
+  )
   appendCreatedAtPredicates(
     alias: "n",
-    createdAfter: createdAfter,
-    createdBefore: createdBefore,
+    createdAfter: scope.createdAfter,
+    createdBefore: scope.createdBefore,
     sql: &sql,
     bindings: &bindings
   )
@@ -115,7 +181,7 @@ func searchNotesInDatabase(
           AND nt.tag_id IN (\(placeholders(count: expandedTagFilterIds.count)))
       )
       """
-    bindings.append(contentsOf: expandedTagFilterIds.map(SQLiteValue.text))
+    bindings.append(contentsOf: expandedTagFilterIds.sqliteBindings)
   }
   if !classFilter.isEmpty {
     sql += """
@@ -134,9 +200,9 @@ func searchNotesInDatabase(
   bindings.append(.int(Int64(fetchLimit)))
 
   let rows = try database.query(sql, bindings: bindings)
-  let notesById = try requireNotes(rows.compactMap { $0["note_id"] }, in: database)
+  let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
   var results = try rows.map { row in
-    guard let noteId = row["note_id"] else {
+    guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("search row is missing note_id")
     }
     guard let note = notesById[noteId] else {
@@ -155,11 +221,9 @@ func searchNotesInDatabase(
       query: query,
       tagFilterIds: expandedTagFilterIds,
       classFilter: classFilter,
-      notebookId: notebookId,
+      scope: scope,
       excludedNoteIds: Set(results.map(\.note.noteId)),
       sort: sort,
-      createdAfter: createdAfter,
-      createdBefore: createdBefore,
       limit: fetchLimit - results.count,
       in: database
     )
@@ -171,10 +235,8 @@ func searchNotesInDatabase(
         query: query,
         tagFilterIds: expandedTagFilterIds,
         classFilter: classFilter,
-        notebookId: notebookId,
+        scope: scope,
         sort: sort,
-        createdAfter: createdAfter,
-        createdBefore: createdBefore,
         depth: graphOptions.depth,
         limit: fetchLimit,
         in: database
@@ -188,25 +250,29 @@ private func shouldRunTextLikeFallback(query: String, ftsResultCount: Int) -> Bo
 }
 
 private func searchNotesByFilters(
-  tagFilterIds: [String],
+  tagFilterIds: [TagID],
   classFilter: [String],
-  notebookId: String?,
+  scope: NoteSearchScope,
   sort: NoteListSort,
-  createdAfter: String?,
-  createdBefore: String?,
   limit: Int,
   in database: SQLiteDatabase
 ) throws -> [NoteSearchResult] {
-  guard !tagFilterIds.isEmpty || !classFilter.isEmpty || createdAfter != nil || createdBefore != nil
-    || notebookId != nil
+  guard !tagFilterIds.isEmpty || !classFilter.isEmpty || scope.createdAfter != nil || scope.createdBefore != nil
+    || scope.notebookId != nil
   else {
     return []
   }
   var predicates: [String] = []
   var bindings: [SQLiteValue] = []
-  if let notebookId {
+  appendLibraryScopePredicate(
+    alias: "n",
+    reachableLibraryIds: scope.reachableLibraryIds,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  if let notebookId = scope.notebookId {
     predicates.append("n.notebook_id = ?")
-    bindings.append(.text(notebookId))
+    bindings.append(.id(notebookId))
   }
   if !tagFilterIds.isEmpty {
     predicates.append(
@@ -219,7 +285,7 @@ private func searchNotesByFilters(
       )
       """
     )
-    bindings.append(contentsOf: tagFilterIds.map(SQLiteValue.text))
+    bindings.append(contentsOf: tagFilterIds.sqliteBindings)
   }
   if !classFilter.isEmpty {
     predicates.append(
@@ -237,8 +303,8 @@ private func searchNotesByFilters(
   }
   appendCreatedAtPredicates(
     alias: "n",
-    createdAfter: createdAfter,
-    createdBefore: createdBefore,
+    createdAfter: scope.createdAfter,
+    createdBefore: scope.createdBefore,
     predicates: &predicates,
     bindings: &bindings
   )
@@ -253,9 +319,9 @@ private func searchNotesByFilters(
     """,
     bindings: bindings
   )
-  let notesById = try requireNotes(rows.compactMap { $0["note_id"] }, in: database)
+  let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
   return try rows.map { row in
-    guard let noteId = row["note_id"] else {
+    guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("filtered search row is missing note_id")
     }
     guard let note = notesById[noteId] else {
@@ -272,13 +338,11 @@ private func searchNotesByFilters(
 
 private func searchNotesByTextLike(
   query: String,
-  tagFilterIds: [String],
+  tagFilterIds: [TagID],
   classFilter: [String],
-  notebookId: String?,
-  excludedNoteIds: Set<String>,
+  scope: NoteSearchScope,
+  excludedNoteIds: Set<NoteID>,
   sort: NoteListSort,
-  createdAfter: String?,
-  createdBefore: String?,
   limit: Int,
   in database: SQLiteDatabase
 ) throws -> [NoteSearchResult] {
@@ -287,7 +351,7 @@ private func searchNotesByTextLike(
     return []
   }
   let likePattern = "%\(escapedLikePattern(normalizedQuery))%"
-  var predicates = [
+  var predicates: [String] = [
     """
     (
       n.title LIKE ? ESCAPE '\\'
@@ -303,13 +367,19 @@ private func searchNotesByTextLike(
     """
   ]
   var bindings: [SQLiteValue] = [.text(likePattern), .text(likePattern), .text(likePattern)]
-  if let notebookId {
+  appendLibraryScopePredicate(
+    alias: "n",
+    reachableLibraryIds: scope.reachableLibraryIds,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  if let notebookId = scope.notebookId {
     predicates.append("n.notebook_id = ?")
-    bindings.append(.text(notebookId))
+    bindings.append(.id(notebookId))
   }
   if !excludedNoteIds.isEmpty {
     predicates.append("n.note_id NOT IN (\(placeholders(count: excludedNoteIds.count)))")
-    bindings.append(contentsOf: excludedNoteIds.sorted().map(SQLiteValue.text))
+    bindings.append(contentsOf: excludedNoteIds.sorted().sqliteBindings)
   }
   if !tagFilterIds.isEmpty {
     predicates.append(
@@ -322,7 +392,7 @@ private func searchNotesByTextLike(
       )
       """
     )
-    bindings.append(contentsOf: tagFilterIds.map(SQLiteValue.text))
+    bindings.append(contentsOf: tagFilterIds.sqliteBindings)
   }
   if !classFilter.isEmpty {
     predicates.append(
@@ -340,8 +410,8 @@ private func searchNotesByTextLike(
   }
   appendCreatedAtPredicates(
     alias: "n",
-    createdAfter: createdAfter,
-    createdBefore: createdBefore,
+    createdAfter: scope.createdAfter,
+    createdBefore: scope.createdBefore,
     predicates: &predicates,
     bindings: &bindings
   )
@@ -356,9 +426,9 @@ private func searchNotesByTextLike(
     """,
     bindings: bindings
   )
-  let notesById = try requireNotes(rows.compactMap { $0["note_id"] }, in: database)
+  let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
   return try rows.map { row in
-    guard let noteId = row["note_id"] else {
+    guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("fallback search row is missing note_id")
     }
     guard let note = notesById[noteId] else {
@@ -373,16 +443,13 @@ private func searchNotesByTextLike(
   }
 }
 
-// swiftlint:disable:next function_parameter_count
 private func appendLinkedNeighborResults(
   to directResults: [NoteSearchResult],
   query: String,
-  tagFilterIds: [String],
+  tagFilterIds: [TagID],
   classFilter: [String],
-  notebookId: String?,
+  scope: NoteSearchScope,
   sort: NoteListSort,
-  createdAfter: String?,
-  createdBefore: String?,
   depth: Int,
   limit: Int,
   in database: SQLiteDatabase
@@ -414,15 +481,21 @@ private func appendLinkedNeighborResults(
   var predicates: [String] = [
     "n.note_id IN (\(placeholders(count: candidateIds.count)))"
   ]
-  var bindings = candidateIds.map(SQLiteValue.text)
-  if let notebookId {
+  var bindings = candidateIds.sqliteBindings
+  appendLibraryScopePredicate(
+    alias: "n",
+    reachableLibraryIds: scope.reachableLibraryIds,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  if let notebookId = scope.notebookId {
     predicates.append("n.notebook_id = ?")
-    bindings.append(.text(notebookId))
+    bindings.append(.id(notebookId))
   }
   appendCreatedAtPredicates(
     alias: "n",
-    createdAfter: createdAfter,
-    createdBefore: createdBefore,
+    createdAfter: scope.createdAfter,
+    createdBefore: scope.createdBefore,
     predicates: &predicates,
     bindings: &bindings
   )
@@ -441,7 +514,7 @@ private func appendLinkedNeighborResults(
     """,
     bindings: bindings
   )
-  let eligibleIds = Set(eligibleRows.compactMap { $0["note_id"] })
+  let eligibleIds = Set(eligibleRows.compactMap { $0.identifier("note_id", as: NoteID.self) })
   let neighbors = graphResults.compactMap { graphResult -> NoteSearchResult? in
     guard !directNoteIdSet.contains(graphResult.note.noteId),
           eligibleIds.contains(graphResult.note.noteId) else {
@@ -486,7 +559,7 @@ func notebookSortOrderClause(alias: String, sort: NoteListSort) -> String {
 
 private func appendTagPredicates(
   alias: String,
-  tagFilterIds: [String],
+  tagFilterIds: [TagID],
   classFilter: [String],
   predicates: inout [String],
   bindings: inout [SQLiteValue]
@@ -502,7 +575,7 @@ private func appendTagPredicates(
       )
       """
     )
-    bindings.append(contentsOf: tagFilterIds.map(SQLiteValue.text))
+    bindings.append(contentsOf: tagFilterIds.sqliteBindings)
   }
   if !classFilter.isEmpty {
     predicates.append(
@@ -576,7 +649,7 @@ private func appendCreatedAtPredicates(
   }
 }
 
-func refreshFTS(noteId: String, previous: FTSPayload?, in database: SQLiteDatabase) throws {
+func refreshFTS(noteId: NoteID, previous: FTSPayload?, in database: SQLiteDatabase) throws {
   if let previous {
     try database.execute(
       """
@@ -590,7 +663,7 @@ func refreshFTS(noteId: String, previous: FTSPayload?, in database: SQLiteDataba
         .text(previous.tags)
       ]
     )
-    try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.text(noteId)])
+    try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.id(noteId)])
   }
 
   let payload = try currentFTSPayload(noteId: noteId, rowId: previous?.rowId, in: database)
@@ -609,11 +682,11 @@ func refreshFTS(noteId: String, previous: FTSPayload?, in database: SQLiteDataba
     VALUES (?, ?)
     ON CONFLICT(note_id) DO UPDATE SET fts_rowid = excluded.fts_rowid
     """,
-    bindings: [.int(payload.rowId), .text(noteId)]
+    bindings: [.int(payload.rowId), .id(noteId)]
   )
 }
 
-func ftsPayload(noteId: String, in database: SQLiteDatabase) throws -> FTSPayload? {
+func ftsPayload(noteId: NoteID, in database: SQLiteDatabase) throws -> FTSPayload? {
   let rows = try database.query(
     """
     SELECT m.fts_rowid, n.title, n.body_markdown, ifnull((
@@ -631,7 +704,7 @@ func ftsPayload(noteId: String, in database: SQLiteDatabase) throws -> FTSPayloa
     WHERE m.note_id = ?
     LIMIT 1
     """,
-    bindings: [.text(noteId)]
+    bindings: [.id(noteId)]
   )
   guard let row = rows.first, let rowIdText = row["fts_rowid"], let rowId = Int64(rowIdText) else {
     return nil
@@ -644,8 +717,9 @@ func ftsPayload(noteId: String, in database: SQLiteDatabase) throws -> FTSPayloa
   )
 }
 
-private func currentFTSPayload(noteId: String, rowId: Int64?, in database: SQLiteDatabase) throws -> FTSPayload {
-  let note = try requireNote(noteId, in: database)
+private func currentFTSPayload(noteId: NoteID, rowId: Int64?, in database: SQLiteDatabase) throws -> FTSPayload {
+  // Internal FTS bookkeeping for a note the caller just wrote.
+  let note = try loadNote(noteId, in: database)
   let ftsRowId: Int64
   if let rowId {
     ftsRowId = rowId

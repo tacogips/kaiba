@@ -21,9 +21,9 @@ final class NoteServiceNotebookExpansionTests: NoteTestCase {
 
     XCTAssertEqual(updated.updatedAt, before.updatedAt)
     let root = try XCTUnwrap(jsonObject(updated.metaJSON))
-    XCTAssertEqual((root["other"] as? [String: Any])?["keep"] as? Bool, true)
-    XCTAssertEqual((root["kaibaNote"] as? [String: Any])?["existing"] as? String, "value")
-    XCTAssertNotNil((root["kaibaNote"] as? [String: Any])?["notebookCompact"])
+    XCTAssertEqual(root["other"]?["keep"]?.asBool, true)
+    XCTAssertEqual(root["kaibaNote"]?["existing"]?.asString, "value")
+    XCTAssertNotNil(root["kaibaNote"]?["notebookCompact"])
   }
 
   func testCompactMetadataRejectsNonObjectJSONWithoutMutation() throws {
@@ -108,7 +108,7 @@ final class NoteServiceNotebookExpansionTests: NoteTestCase {
     XCTAssertThrowsError(try service.saveConversation(
       title: "Broken",
       transcript: [NoteConversationTurn(userMarkdown: "Q", assistantMarkdown: "A")],
-      sourceLinks: NoteConversationSourceLinks(sourceNoteIds: ["missing-note"])
+      sourceLinks: NoteConversationSourceLinks(sourceNoteIds: [NoteID("missing-note")])
     ))
     XCTAssertEqual(try service.listNotebooks(limit: 100).count, notebookCount)
 
@@ -168,10 +168,9 @@ final class NoteServiceNotebookExpansionTests: NoteTestCase {
     )
     XCTAssertTrue(try service.listLinks(noteId: first.noteId).isEmpty)
     let metadata = try XCTUnwrap(jsonObject(first.metaJSON))
-    let kaibaNote = try XCTUnwrap(metadata["kaibaNote"] as? [String: Any])
-    let turn = try XCTUnwrap(kaibaNote["conversationTurn"] as? [String: Any])
-    XCTAssertEqual(turn["idempotencyKey"] as? String, "expansion-turn-1")
-    XCTAssertEqual(turn["missingSourceNoteIds"] as? [String], [source.noteId])
+    let turn = try XCTUnwrap(metadata["kaibaNote"]?["conversationTurn"])
+    XCTAssertEqual(turn["idempotencyKey"]?.asString, "expansion-turn-1")
+    XCTAssertEqual(turn["missingSourceNoteIds"], .ids([source.noteId]))
   }
 
   private func databaseCounts(_ service: NoteService) throws -> [String: Int] {
@@ -185,10 +184,10 @@ final class NoteServiceNotebookExpansionTests: NoteTestCase {
     }
   }
 
-  private func jsonObject(_ json: String?) -> [String: Any]? {
-    guard let json, let data = json.data(using: .utf8) else {
+  private func jsonObject(_ json: String?) -> JSONValue? {
+    guard let json else {
       return nil
     }
-    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    return try? JSONValue(parsing: json)
   }
 }

@@ -4,7 +4,7 @@ extension NoteService {
     offset: Int = 0,
     tagFilter: [String] = [],
     tagFilterGroups: [[String]] = [],
-    tagFilterIdGroups: [[String]] = [],
+    tagFilterIdGroups: [[TagID]] = [],
     sort: NoteListSort = .createdAtDesc,
     createdAfter: String? = nil,
     createdBefore: String? = nil
@@ -16,37 +16,38 @@ extension NoteService {
       let requestedNameGroups = nameGroups.isEmpty
         ? (tagFilter.isEmpty ? [] : [orderedUnique(tagFilter).sorted()])
         : nameGroups
-      let boundedGroups = usesIdGroups ? normalizedIdGroups : requestedNameGroups
-      let rawBoundedGroups = usesIdGroups
-        ? tagFilterIdGroups.filter { !$0.isEmpty }
-        : tagFilterGroups
-      if !rawBoundedGroups.isEmpty {
+      // Both filter shapes are bounded by the same limits; only the element
+       // type differs, so the check runs over the group sizes alone.
+      let rawBoundedGroupSizes = usesIdGroups
+        ? tagFilterIdGroups.filter { !$0.isEmpty }.map(\.count)
+        : tagFilterGroups.map(\.count)
+      if !rawBoundedGroupSizes.isEmpty {
         let fieldName = usesIdGroups ? "tagFilterIdGroups" : "tagFilterGroups"
-        guard rawBoundedGroups.count <= Self.maximumNotebookTagFilterGroups else {
+        guard rawBoundedGroupSizes.count <= Self.maximumNotebookTagFilterGroups else {
           throw NoteServiceError.invalidInput(
             "\(fieldName) supports at most \(Self.maximumNotebookTagFilterGroups) groups"
           )
         }
         var inputCount = 0
-        for group in rawBoundedGroups {
-          guard group.count <= Self.maximumNotebookTagFilterNames - inputCount else {
+        for groupSize in rawBoundedGroupSizes {
+          guard groupSize <= Self.maximumNotebookTagFilterNames - inputCount else {
             throw NoteServiceError.invalidInput(
               "\(fieldName) supports at most \(Self.maximumNotebookTagFilterNames) " +
                 (usesIdGroups ? "tag IDs" : "tag names")
             )
           }
-          inputCount += group.count
+          inputCount += groupSize
         }
       }
       if !usesIdGroups, !tagFilterGroups.isEmpty, nameGroups.isEmpty {
         return []
       }
-      var expandedGroups: [[String]] = []
+      var expandedGroups: [[TagID]] = []
       var expandedIdentityCount = 0
-      for group in boundedGroups {
-        let expandedGroup = usesIdGroups
-          ? try expandedTagFilterIds(group, in: database)
-          : try expandedLegacyTagFilterIds(group, in: database)
+      let boundedGroupExpansions: [[TagID]] = try usesIdGroups
+        ? normalizedIdGroups.map { try expandedTagFilterIds($0, in: database) }
+        : requestedNameGroups.map { try expandedLegacyTagFilterIds($0, in: database) }
+      for expandedGroup in boundedGroupExpansions {
         guard !expandedGroup.isEmpty else { return [] }
         guard expandedGroup.count
           <= Self.maximumExpandedNotebookTagFilterNames - expandedIdentityCount else {
@@ -72,7 +73,7 @@ extension NoteService {
           )
           """
         )
-        bindings.append(contentsOf: expandedGroup.map(SQLiteValue.text))
+        bindings.append(contentsOf: expandedGroup.sqliteBindings)
       }
       appendCreatedAtPredicates(
         alias: "notebooks",
@@ -81,12 +82,22 @@ extension NoteService {
         predicates: &predicates,
         bindings: &bindings
       )
+      // A scoped service sees one account's catalog; the unscoped value (the
+      // CLI, internal bootstrap paths) still sees the whole store.
+      if let actingUserId {
+        predicates.append("notebooks.owner_user_id = ?")
+        bindings.append(.id(actingUserId))
+      }
+      // A selected library narrows the catalog to it; without one, an unscoped
+      // caller is still held to the libraries that need no authentication
+      // (`design-docs/specs/library.md`).
+      appendLibraryPredicates(alias: "notebooks", predicates: &predicates, bindings: &bindings)
       let whereClause = predicates.isEmpty ? "" : "WHERE \(predicates.joined(separator: " AND "))"
       bindings.append(.int(Int64(limit)))
       bindings.append(.int(Int64(offset)))
       var notebooks = try database.query(
         """
-        SELECT notebook_id, title, read_only, created_at, updated_at,
+        SELECT notebook_id, title, read_only, created_at, updated_at, library_id,
           CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
         FROM notebooks
         \(whereClause)

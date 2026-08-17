@@ -5,6 +5,7 @@ import { RightPane } from '../panes/RightPane'
 import { NoteSearchPopup } from '../components/NoteSearchPopup'
 import { SearchView } from './SearchView'
 import { ConfigView } from './ConfigView'
+import { LoginView } from './LoginView'
 import { useApp } from '../state/appStore'
 import type { SearchMethod, SearchScope } from '../router'
 
@@ -57,7 +58,7 @@ export function ChatbookView(): JSX.Element {
       : {}),
   })
 
-  return (
+  const shell = (): JSX.Element => (
     <div
       class="chatbook"
       style={shellStyle()}
@@ -121,6 +122,15 @@ export function ChatbookView(): JSX.Element {
         />
       </Show>
     </div>
+  )
+
+  // An unauthenticated host renders the login view alone. Mounting the shell
+  // behind an error banner would show an empty tree that reads as an empty
+  // store, and its Retry button would resend the same rejected request.
+  return (
+    <Show when={app.state.auth !== 'unauthenticated'} fallback={<LoginView />}>
+      {shell()}
+    </Show>
   )
 }
 
