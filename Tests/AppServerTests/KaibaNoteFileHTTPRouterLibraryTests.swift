@@ -92,6 +92,28 @@ final class KaibaNoteFileHTTPRouterLibraryTests: XCTestCase {
     XCTAssertEqual(response.body, pngBytes)
   }
 
+  // `serve --allow-unauthenticated --as-admin`: the operator has said this
+  // port acts as the seeded admin, so the bytes follow the queries
+  // (`design-docs/specs/library.md`).
+  func testAsAdminReaderFetchesAFileFromAnAuthenticatedLibrary() async throws {
+    let service = try makeService()
+    let attachment = try attachPNG(to: service, library: "shared", authRequired: true)
+    let router = KaibaNoteFileHTTPRouter(
+      service: LibrarySentinelHandler(),
+      noteService: service,
+      allowUnauthenticated: true,
+      unauthenticatedActsAsAdmin: true
+    )
+
+    let response = await router.response(for: KaibaHTTPRequest(
+      method: "GET",
+      path: "/files/\(attachment.file.fileId)"
+    ))
+
+    XCTAssertEqual(response.status, 200)
+    XCTAssertEqual(response.body, pngBytes)
+  }
+
   private func attachPNG(
     to service: NoteService,
     library: String?,

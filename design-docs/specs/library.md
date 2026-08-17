@@ -99,18 +99,27 @@ The resulting rule, in order:
    narrows reach and never widens it.
 2. A caller with no credential — an `--allow-unauthenticated` note-API
    request — reaches only `auth_required = 0`.
-3. An authenticated account reaches `auth_required = 0` plus the libraries it
-   holds a `library_members` row for.
-4. The unscoped local CLI is the operator view and reaches everything. It
+3. An authenticated **admin** reaches every library, with no grant needed
+   (`design-docs/specs/multi-user.md`).
+4. Any other authenticated account reaches `auth_required = 0` plus the
+   libraries it holds a `library_members` row for.
+5. The unscoped local CLI is the operator view and reaches everything. It
    holds the store file, so hiding rows from it would be theater.
 
-Step 2 is checked **before** step 3, and that ordering is load-bearing: an
-unauthenticated note-API request already resolves to the default user
-(`ServerContracts.swift`, `actingUserId: ... ?? defaultUserId`), so a grant
-held by that account would otherwise become a way in for callers with no
-credential at all. The two cannot be told apart by account, so the transport
-carries the distinction explicitly as `isUnauthenticatedRequest`, which the
-executor turns into `NoteService.isUnauthenticatedPrincipal`.
+Step 2 is checked **before** steps 3 and 4, and that ordering is load-bearing:
+an unauthenticated note-API request already resolves to the default user
+(`ServerContracts.swift`, `actingUserId: ... ?? defaultUserId`), and that user
+is the seeded admin, so its role — like any grant it holds — would otherwise
+become a way in for callers with no credential at all. The two cannot be told
+apart by account, so the transport carries the distinction explicitly as
+`isUnauthenticatedRequest`, which the executor turns into
+`NoteService.isUnauthenticatedPrincipal`.
+
+An operator who *wants* an open port to have the admin's reach says so:
+`kaiba serve --allow-unauthenticated --as-admin` drops the marker, so
+credential-less requests act as the admin account on every route, the
+`/files/<id>` byte route included. Without it, `--allow-unauthenticated` keeps
+answering only from `auth_required = 0`.
 
 An open library needs no membership rows — "open" already means everyone. The
 creator of a library is recorded as its `owner`, or an authenticated caller

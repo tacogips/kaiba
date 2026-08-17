@@ -21,19 +21,23 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
   public var s3Profiles: [S3StorageProfile]
   public var authenticator: (any NoteAPIAuthenticating)?
   public var allowUnauthenticated: Bool
+  /// See `DeterministicServerRouteHandler.unauthenticatedActsAsAdmin`.
+  public var unauthenticatedActsAsAdmin: Bool
 
   public init(
     service: any KaibaHTTPRouteHandling,
     noteService: NoteService,
     s3Profiles: [S3StorageProfile] = [],
     authenticator: (any NoteAPIAuthenticating)? = nil,
-    allowUnauthenticated: Bool = false
+    allowUnauthenticated: Bool = false,
+    unauthenticatedActsAsAdmin: Bool = false
   ) {
     self.service = service
     self.noteService = noteService
     self.s3Profiles = s3Profiles
     self.authenticator = authenticator
     self.allowUnauthenticated = allowUnauthenticated
+    self.unauthenticatedActsAsAdmin = unauthenticatedActsAsAdmin
   }
 
   public func response(for request: KaibaHTTPRequest) async -> KaibaHTTPResponse {
@@ -60,8 +64,12 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     // An `--allow-unauthenticated` reader reaches only the files referenced by
     // libraries that require no authentication. The route serves raw bytes, so
     // it is the one place a library boundary is crossed without going through
-    // the GraphQL executor (`design-docs/specs/library.md`).
-    let reader = noteService.unauthenticated(outcome == .unauthenticated)
+    // the GraphQL executor (`design-docs/specs/library.md`). Under
+    // `--as-admin` the operator has said this port acts as the admin account,
+    // and the bytes follow the same rule as the queries.
+    let reader = noteService.unauthenticated(
+      outcome == .unauthenticated && !unauthenticatedActsAsAdmin
+    )
     let record: FileRecord
     let content: Data
     do {

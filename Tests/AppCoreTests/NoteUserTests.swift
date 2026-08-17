@@ -17,6 +17,79 @@ final class NoteUserTests: NoteTestCase {
     XCTAssertTrue(defaultUser.isDefault)
     XCTAssertTrue(defaultUser.isEnabled)
     XCTAssertNil(defaultUser.email)
+    // A store always has an admin, even with no authentication configured:
+    // the account an unauthenticated host acts as is that admin.
+    XCTAssertTrue(defaultUser.isAdmin)
+    XCTAssertEqual(try service.listAdminUsers().map(\.userId), [NoteStoreSchema.defaultUserId])
+  }
+
+  func testAdminIsGrantedAndRevoked() throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    XCTAssertFalse(alice.isAdmin)
+
+    let promoted = try service.setUserAdmin(userId: alice.userId, isAdmin: true)
+    XCTAssertTrue(promoted.isAdmin)
+    XCTAssertEqual(
+      try service.listAdminUsers().map(\.userId).sorted(),
+      [NoteStoreSchema.defaultUserId, alice.userId].sorted()
+    )
+
+    let demoted = try service.setUserAdmin(userId: alice.userId, isAdmin: false)
+    XCTAssertFalse(demoted.isAdmin)
+    XCTAssertEqual(try service.listAdminUsers().map(\.userId), [NoteStoreSchema.defaultUserId])
+  }
+
+  func testAUserCanBeCreatedAsAnAdmin() throws {
+    let service = try makeService()
+
+    let alice = try service.createUser(
+      email: "alice@example.com",
+      displayName: "Alice",
+      isAdmin: true
+    )
+
+    XCTAssertTrue(alice.isAdmin)
+    XCTAssertTrue(try XCTUnwrap(service.user(id: alice.userId)).isAdmin)
+  }
+
+  // The store would otherwise be left with no principal that reaches an
+  // authenticated library, and no unauthenticated host to act as one.
+  func testTheLastAdminCannotBeDemotedOrDisabled() throws {
+    let service = try makeService()
+
+    XCTAssertThrowsError(
+      try service.setUserAdmin(userId: NoteStoreSchema.defaultUserId, isAdmin: false)
+    ) { error in
+      XCTAssertEqual(
+        error as? NoteServiceError,
+        .invalidInput("the last admin cannot be demoted; promote another user first")
+      )
+    }
+    XCTAssertTrue(try service.defaultUser().isAdmin)
+
+    // With a second admin the first one may step down, and then it is the
+    // second one that is pinned.
+    let alice = try service.createUser(
+      email: "alice@example.com",
+      displayName: "Alice",
+      isAdmin: true
+    )
+    try service.setUserAdmin(userId: NoteStoreSchema.defaultUserId, isAdmin: false)
+    XCTAssertThrowsError(try service.setUserDisabled(userId: alice.userId, disabled: true)) { error in
+      XCTAssertEqual(
+        error as? NoteServiceError,
+        .invalidInput("the last admin cannot be disabled; promote another user first")
+      )
+    }
+  }
+
+  func testADisabledUserCannotBeMadeAnAdmin() throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    try service.setUserDisabled(userId: alice.userId, disabled: true)
+
+    XCTAssertThrowsError(try service.setUserAdmin(userId: alice.userId, isAdmin: true))
   }
 
   func testPreparingAnExistingStoreKeepsOneDefaultUser() throws {

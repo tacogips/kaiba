@@ -16,7 +16,7 @@ public extension NoteService {
   }
 
   @discardableResult
-  func createUser(email: String?, displayName: String) throws -> NoteUser {
+  func createUser(email: String?, displayName: String, isAdmin: Bool = false) throws -> NoteUser {
     let normalizedEmail = try normalizedUserEmail(email)
     let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     let name = trimmedName.isEmpty ? (normalizedEmail ?? "Unnamed user") : trimmedName
@@ -28,13 +28,15 @@ public extension NoteService {
         let userId = UserID.generate()
         try db.execute(
           """
-          INSERT INTO users (user_id, email, display_name, is_default, created_at, disabled_at)
-          VALUES (?, ?, ?, 0, ?, NULL)
+          INSERT INTO users (
+            user_id, email, display_name, is_default, is_admin, created_at, disabled_at
+          ) VALUES (?, ?, ?, 0, ?, ?, NULL)
           """,
           bindings: [
             .id(userId),
             .optionalText(normalizedEmail),
             .text(name),
+            .int(isAdmin ? 1 : 0),
             .text(NoteStoreClock.system.now())
           ]
         )
@@ -48,7 +50,7 @@ public extension NoteService {
       let predicate = includeDisabled ? "" : "WHERE disabled_at IS NULL"
       return try database.query(
         """
-        SELECT user_id, email, display_name, is_default, created_at, disabled_at
+        SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
         FROM users
         \(predicate)
         ORDER BY is_default DESC, created_at, user_id
@@ -82,6 +84,9 @@ public extension NoteService {
         if disabled && user.isDefault {
           throw NoteServiceError.invalidInput("the default user cannot be disabled")
         }
+        if disabled && user.isAdmin {
+          try requireAnotherEnabledAdmin(besides: userId, action: "disabled", in: db)
+        }
         try db.execute(
           "UPDATE users SET disabled_at = ? WHERE user_id = ?",
           bindings: [
@@ -91,6 +96,44 @@ public extension NoteService {
         )
         return try requireUser(userId, in: db)
       }
+    }
+  }
+
+  /// Promotes or demotes an account. A store always keeps at least one
+  /// enabled admin: an unauthenticated host acts as one, and a library that
+  /// requires authentication would otherwise be reachable by nobody
+  /// (`design-docs/specs/multi-user.md`).
+  @discardableResult
+  func setUserAdmin(userId: UserID, isAdmin: Bool) throws -> NoteUser {
+    try driver.withDatabase { database in
+      try database.transaction { db in
+        let user = try requireUser(userId, in: db)
+        if !isAdmin && user.isAdmin {
+          try requireAnotherEnabledAdmin(besides: userId, action: "demoted", in: db)
+        }
+        if isAdmin && user.disabledAt != nil {
+          throw NoteServiceError.invalidInput("a disabled user cannot be made an admin: \(userId)")
+        }
+        try db.execute(
+          "UPDATE users SET is_admin = ? WHERE user_id = ?",
+          bindings: [.int(isAdmin ? 1 : 0), .id(userId)]
+        )
+        return try requireUser(userId, in: db)
+      }
+    }
+  }
+
+  /// The enabled admins, default user first.
+  func listAdminUsers() throws -> [NoteUser] {
+    try driver.withDatabase { database in
+      try database.query(
+        """
+        SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
+        FROM users
+        WHERE is_admin = 1 AND disabled_at IS NULL
+        ORDER BY is_default DESC, created_at, user_id
+        """
+      ).map(noteUser(from:))
     }
   }
 
@@ -152,6 +195,28 @@ func normalizedUserEmail(_ email: String?) throws -> String? {
   return trimmed
 }
 
+/// Fails unless some *other* enabled admin remains, so the last one can be
+/// neither demoted nor disabled.
+func requireAnotherEnabledAdmin(
+  besides userId: UserID,
+  action: String,
+  in database: SQLiteDatabase
+) throws {
+  let remaining = try database.query(
+    """
+    SELECT user_id FROM users
+    WHERE is_admin = 1 AND disabled_at IS NULL AND user_id <> ?
+    LIMIT 1
+    """,
+    bindings: [.id(userId)]
+  )
+  guard !remaining.isEmpty else {
+    throw NoteServiceError.invalidInput(
+      "the last admin cannot be \(action); promote another user first"
+    )
+  }
+}
+
 func requireUser(_ userId: UserID, in database: SQLiteDatabase) throws -> NoteUser {
   guard let row = try userRow(id: userId, in: database) else {
     throw NoteServiceError.notFound("user not found: \(userId)")
@@ -162,7 +227,7 @@ func requireUser(_ userId: UserID, in database: SQLiteDatabase) throws -> NoteUs
 func userRow(id userId: UserID, in database: SQLiteDatabase) throws -> SQLiteRow? {
   try database.query(
     """
-    SELECT user_id, email, display_name, is_default, created_at, disabled_at
+    SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
     FROM users
     WHERE user_id = ?
     LIMIT 1
@@ -174,7 +239,7 @@ func userRow(id userId: UserID, in database: SQLiteDatabase) throws -> SQLiteRow
 func userRow(email: String, in database: SQLiteDatabase) throws -> SQLiteRow? {
   try database.query(
     """
-    SELECT user_id, email, display_name, is_default, created_at, disabled_at
+    SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
     FROM users
     WHERE email = ?
     LIMIT 1
@@ -194,6 +259,7 @@ func noteUser(from row: SQLiteRow) throws -> NoteUser {
     email: row["email"] ?? nil,
     displayName: displayName,
     isDefault: row["is_default"] == "1",
+    isAdmin: row["is_admin"] == "1",
     createdAt: createdAt,
     disabledAt: row["disabled_at"] ?? nil
   )

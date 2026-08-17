@@ -180,4 +180,56 @@ final class NoteLibraryEnforcementTests: NoteTestCase {
     XCTAssertEqual(try alice.getNote(fixture.privateNoteId).noteId, fixture.privateNoteId)
     XCTAssertEqual(try alice.searchNotes(query: "classified").count, 1)
   }
+
+  // An admin reaches every library without a grant: that is the whole point of
+  // the role (`design-docs/specs/multi-user.md`).
+  func testAnAdminReachesALibraryItWasNeverGranted() throws {
+    let fixture = try makeFixture()
+    let user = try fixture.service.createUser(
+      email: "root@example.com",
+      displayName: "Root",
+      isAdmin: true
+    )
+    let admin = fixture.service.scoped(to: user.userId)
+
+    XCTAssertEqual(try admin.getNote(fixture.privateNoteId).noteId, fixture.privateNoteId)
+    XCTAssertEqual(try admin.searchNotes(query: "classified").count, 1)
+    XCTAssertTrue(try admin.listLibraries().contains { $0.libraryId == fixture.privateLibraryId })
+  }
+
+  // Demotion takes effect on the next call, not at the next process start.
+  func testDemotingAnAdminClosesTheLibraryAgain() throws {
+    let fixture = try makeFixture()
+    let user = try fixture.service.createUser(
+      email: "root@example.com",
+      displayName: "Root",
+      isAdmin: true
+    )
+    let admin = fixture.service.scoped(to: user.userId)
+    XCTAssertEqual(try admin.getNote(fixture.privateNoteId).noteId, fixture.privateNoteId)
+
+    try fixture.service.setUserAdmin(userId: user.userId, isAdmin: false)
+
+    XCTAssertThrowsError(try admin.getNote(fixture.privateNoteId))
+    XCTAssertFalse(try admin.listLibraries().contains { $0.libraryId == fixture.privateLibraryId })
+  }
+
+  // The seeded default user is an admin, and an unauthenticated note-API
+  // request resolves to it — so without the marker that request would inherit
+  // every library. The marker is what keeps an open port at the open
+  // libraries (`design-docs/specs/library.md`).
+  func testAnUnauthenticatedRequestIsCappedEvenThoughItActsAsTheAdmin() throws {
+    let fixture = try makeFixture()
+
+    XCTAssertTrue(try fixture.service.defaultUser().isAdmin)
+    XCTAssertThrowsError(try fixture.anonymous.getNote(fixture.privateNoteId))
+    XCTAssertFalse(
+      try fixture.anonymous.listLibraries().contains { $0.libraryId == fixture.privateLibraryId }
+    )
+
+    // `serve --allow-unauthenticated --as-admin` drops the marker, and the
+    // same account then reaches what an admin reaches.
+    let asAdmin = fixture.service.scoped(to: NoteStoreSchema.defaultUserId).unauthenticated(false)
+    XCTAssertEqual(try asAdmin.getNote(fixture.privateNoteId).noteId, fixture.privateNoteId)
+  }
 }

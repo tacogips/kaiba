@@ -443,6 +443,9 @@ public struct NoteUser: Codable, Equatable, Sendable {
   public var email: String?
   public var displayName: String
   public var isDefault: Bool
+  /// Reaches every library, and owns whatever an unauthenticated host writes.
+  /// A store always has at least one (`design-docs/specs/multi-user.md`).
+  public var isAdmin: Bool
   public var createdAt: String
   public var disabledAt: String?
 
@@ -451,6 +454,7 @@ public struct NoteUser: Codable, Equatable, Sendable {
     email: String? = nil,
     displayName: String,
     isDefault: Bool = false,
+    isAdmin: Bool = false,
     createdAt: String,
     disabledAt: String? = nil
   ) {
@@ -458,6 +462,7 @@ public struct NoteUser: Codable, Equatable, Sendable {
     self.email = email
     self.displayName = displayName
     self.isDefault = isDefault
+    self.isAdmin = isAdmin
     self.createdAt = createdAt
     self.disabledAt = disabledAt
   }

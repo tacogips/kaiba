@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 14
+  public static let currentVersion = 15
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -83,8 +83,9 @@ public enum NoteStoreSchema {
   private static func seedDefaultUser(in database: SQLiteDatabase) throws {
     try database.execute(
       """
-      INSERT INTO users (user_id, email, display_name, is_default, created_at, disabled_at)
-      VALUES (?, NULL, ?, 1, ?, NULL)
+      INSERT INTO users (
+        user_id, email, display_name, is_default, is_admin, created_at, disabled_at
+      ) VALUES (?, NULL, ?, 1, 1, ?, NULL)
       ON CONFLICT(user_id) DO NOTHING
       """,
       bindings: [
@@ -450,6 +451,7 @@ private let schemaStatements = [
     email TEXT,
     display_name TEXT NOT NULL,
     is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+    is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0,1)),
     created_at TEXT NOT NULL,
     disabled_at TEXT
   )

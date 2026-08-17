@@ -104,6 +104,12 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
   public var graphQLExecutor: (any GraphQLDocumentExecuting)?
   public var noteAPIAuthenticator: (any NoteAPIAuthenticating)?
   public var allowUnauthenticatedNoteAPI: Bool
+  /// `serve --allow-unauthenticated --as-admin`: a request that presented no
+  /// credential acts as the seeded admin account and reaches every library.
+  /// Off by default, because an open port would otherwise hand out the
+  /// libraries an operator marked `auth_required`
+  /// (`design-docs/specs/library.md`).
+  public var unauthenticatedActsAsAdmin: Bool
   public var noteChangeFeed: NoteChangeFeed?
   public var agentReplyStreamHub: AgentReplyStreamHub?
 
@@ -111,12 +117,14 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
     graphQLExecutor: (any GraphQLDocumentExecuting)? = nil,
     noteAPIAuthenticator: (any NoteAPIAuthenticating)? = nil,
     allowUnauthenticatedNoteAPI: Bool = false,
+    unauthenticatedActsAsAdmin: Bool = false,
     noteChangeFeed: NoteChangeFeed? = nil,
     agentReplyStreamHub: AgentReplyStreamHub? = nil
   ) {
     self.graphQLExecutor = graphQLExecutor
     self.noteAPIAuthenticator = noteAPIAuthenticator
     self.allowUnauthenticatedNoteAPI = allowUnauthenticatedNoteAPI
+    self.unauthenticatedActsAsAdmin = unauthenticatedActsAsAdmin
     self.noteChangeFeed = noteChangeFeed
     self.agentReplyStreamHub = agentReplyStreamHub
   }
@@ -253,8 +261,10 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
           // Only the transport knows the request arrived without a credential:
           // it acts as the default user either way, so libraries that require
           // authentication have to be excluded from this marker, not from the
-          // account (`design-docs/specs/library.md`).
-          isUnauthenticatedRequest: authenticatedNoteAPIClient == nil
+          // account (`design-docs/specs/library.md`). `--as-admin` is the
+          // operator saying this port is theirs: the marker is dropped, so a
+          // credential-less request reaches what the admin account reaches.
+          isUnauthenticatedRequest: authenticatedNoteAPIClient == nil && !unauthenticatedActsAsAdmin
         ))
         if executed.handled {
           return .init(status: executed.status, body: executed.body)

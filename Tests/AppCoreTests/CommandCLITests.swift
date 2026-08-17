@@ -241,6 +241,36 @@ private func noteId(fromJSON output: String) throws -> NoteID {
   #expect((try run(["client", "list", "--all"], root: root)).contains("[revoked"))
 }
 
+@Test func cliUserAdminGrantRevokeRoundTrip() throws {
+  let root = try makeTempRoot()
+
+  // The seeded default user is the admin every store starts with.
+  #expect((try run(["user", "list"], root: root)).contains("[admin]"))
+
+  let added = try run(
+    ["user", "add", "--email", "alice@example.com", "--name", "Alice", "--output", "json"],
+    root: root
+  )
+  let alice = try JSONValue(parsing: added)
+  let aliceId = try #require(alice["userId"]?.asString)
+  #expect(alice["isAdmin"] == .bool(false))
+
+  let granted = try run(["user", "grant-admin", aliceId, "--output", "json"], root: root)
+  #expect(try JSONValue(parsing: granted)["isAdmin"] == .bool(true))
+  #expect((try run(["user", "list"], root: root)).contains("\(aliceId)  Alice"))
+
+  let revoked = try run(["user", "revoke-admin", aliceId, "--output", "json"], root: root)
+  #expect(try JSONValue(parsing: revoked)["isAdmin"] == .bool(false))
+
+  // The store keeps at least one admin: the seeded one cannot step down while
+  // it is the only one left.
+  #expect(throws: NoteServiceError.invalidInput(
+    "the last admin cannot be demoted; promote another user first"
+  )) {
+    _ = try run(["user", "revoke-admin", NoteStoreSchema.defaultUserId.rawValue], root: root)
+  }
+}
+
 @Test func cliRejectsConflictingBodySources() throws {
   let root = try makeTempRoot()
   do {

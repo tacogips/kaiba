@@ -91,7 +91,25 @@ the `default` library.
 
 `--auth required` hides a library from callers that present no credential —
 an `--allow-unauthenticated` note-API request. The local CLI is the operator
-view and always spans every library. `create` defaults to `required`.
+view and always spans every library, and so does any account with the admin
+role. `create` defaults to `required`.
+
+### Accounts
+
+```bash
+kaiba user add          --email <address> [--name <n>] [--admin] [--output json|text]
+kaiba user list         [--all] [--output json|text]
+kaiba user disable      <user-id>
+kaiba user enable       <user-id>
+kaiba user grant-admin  <user-id> [--output json|text]
+kaiba user revoke-admin <user-id> [--output json|text]
+```
+
+A store is created with one default user, seeded as an admin, so an
+unauthenticated host still has a real principal to own its writes
+(`design-docs/specs/multi-user.md`). An admin reaches every library; it does
+not gain access to another account's notebooks. Demoting or disabling the last
+enabled admin is refused, so a store always has one.
 
 `delete` refuses a non-empty library and refuses the default library; it never
 cascades into notebooks. `env` reports the kinko scope and the environment
@@ -125,7 +143,7 @@ effect immediately.
 
 ```bash
 kaiba serve [--note-root <dir>] [--host <h>] [--port <p>]
-            [--web-root <dir>] [--allow-unauthenticated]
+            [--web-root <dir>] [--allow-unauthenticated] [--as-admin]
 ```
 
 Long-running local server (default `127.0.0.1:8787`): `POST /graphql`
@@ -134,7 +152,12 @@ a registration URL and terminal QR code are printed at startup),
 `GET /note/events` (long-poll change feed), and `GET /healthz`.
 `--web-root web/dist` additionally serves the built SolidJS note
 viewer with SPA fallback. `--allow-unauthenticated` disables bearer
-auth for trusted local use.
+auth for trusted local use; on its own it still answers only from
+libraries that require no authentication. `--as-admin` (only with
+`--allow-unauthenticated`) binds credential-less requests to the seeded
+admin account, so an operator's own machine reaches every library —
+including the `/files/<id>` byte route. Serve refuses to start when that
+account is no longer an enabled admin.
 
 ### Import
 

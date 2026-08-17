@@ -32,6 +32,7 @@ CREATE TABLE users (
   email TEXT,
   display_name TEXT NOT NULL,
   is_default INTEGER NOT NULL DEFAULT 0,
+  is_admin INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   disabled_at TEXT
 )
@@ -58,6 +59,34 @@ accidental cross-user reads.
 An unauthenticated request acts as this user. That keeps
 `--allow-unauthenticated` behaving exactly as it does today: one principal, one
 set of notebooks, no login.
+
+### The admin role
+
+The default user is seeded as an **admin**, so a store always has at least one
+even when nothing is authenticated. An admin reaches every library, including
+the ones marked `auth_required` and the ones it holds no `library_members` row
+for (`design-docs/specs/library.md`). It is not a second ownership rule:
+notebook catalogs stay scoped to their owner, so an admin does not read another
+account's notebooks — the role widens *library* reach, nothing else.
+
+```
+kaiba user add --email a@example.com --admin
+kaiba user grant-admin  <user-id>
+kaiba user revoke-admin <user-id>
+```
+
+A store may never end up with no enabled admin: demoting or disabling the last
+one is refused, and the caller is told to promote someone first. The role is
+read per request rather than cached on the service value, so a demotion takes
+effect on the next call instead of at the next process start.
+
+An unauthenticated *served* request acts as this admin account for ownership
+and attribution, but the transport's `isUnauthenticatedRequest` marker still
+caps it at the open libraries. Opening a port and handing that port every
+library are two decisions, and `kaiba serve --allow-unauthenticated --as-admin`
+is the second one, made explicitly. Serve refuses the flag without
+`--allow-unauthenticated`, and refuses to start when the account it would bind
+to is no longer an enabled admin.
 
 ### Ownership
 
@@ -147,7 +176,10 @@ signing key.
 
 - Sharing a notebook between users, and any per-note ACL. Ownership is one
   user per notebook.
-- Roles or administration beyond enable/disable.
+- Roles beyond admin: no per-library operator, no read-only role. `admin`
+  answers one question — may this account reach every library.
+- Admin access to another account's notebooks. Ownership scoping is unchanged
+  by the role.
 - Per-user tag namespaces.
 - Migrating an existing single-user store. The store is recreated, per the
   project's fresh-schema policy.

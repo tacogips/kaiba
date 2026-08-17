@@ -60,8 +60,9 @@ public extension NoteService {
   }
 
   /// The libraries this caller may see: the open ones, plus the ones an
-  /// authenticated account is a member of. A caller must not even learn that
-  /// the others exist (`design-docs/specs/library.md`).
+  /// authenticated account is a member of, and every one for an admin. A
+  /// caller must not even learn that the others exist
+  /// (`design-docs/specs/library.md`).
   func listLibraries() throws -> [NoteLibrary] {
     try driver.withDatabase { database in
       var predicate = ""
@@ -71,6 +72,8 @@ public extension NoteService {
         // request to the default user, and a grant that account holds must not
         // become a way in.
         predicate = "WHERE auth_required = 0"
+      } else if isActingAdmin(in: database) {
+        predicate = ""
       } else if let actingUserId {
         predicate = """
           WHERE auth_required = 0

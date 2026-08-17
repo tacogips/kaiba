@@ -172,13 +172,15 @@ extension AppCommand {
       return try renderJSON([
         "userId": .optionalID(user?.userId),
         "displayName": .optionalString(user?.displayName),
+        "isAdmin": .bool(user?.isAdmin ?? false),
         "scoped": .bool(user != nil)
       ])
     case .text:
       guard let user else {
         return "Unscoped (no --jwt): the whole store is visible."
       }
-      return "Acting as \(user.userId) (\(user.displayName))"
+      let role = user.isAdmin ? " [admin: every library]" : ""
+      return "Acting as \(user.userId) (\(user.displayName))\(role)"
     }
   }
 }

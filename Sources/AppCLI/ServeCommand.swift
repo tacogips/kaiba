@@ -15,16 +15,23 @@ struct ServeCommand {
     var configuration: KaibaConfiguration
     var webRoot: String?
     var allowUnauthenticated = false
+    /// Bind credential-less requests to the seeded admin account instead of
+    /// capping them at the open libraries. Deliberately separate from
+    /// `--allow-unauthenticated`: opening a port and handing that port every
+    /// library are two decisions (`design-docs/specs/library.md`).
+    var unauthenticatedActsAsAdmin = false
   }
 
   enum ServeError: Error, CustomStringConvertible {
     case invalidArgument(String)
     case missingValue(String)
+    case invalidConfiguration(String)
 
     var description: String {
       switch self {
       case .invalidArgument(let argument): return "unknown serve argument: \(argument)"
       case .missingValue(let option): return "missing value for \(option)"
+      case .invalidConfiguration(let message): return message
       }
     }
   }
@@ -51,9 +58,16 @@ struct ServeCommand {
         options.webRoot = (value as NSString).expandingTildeInPath
       case "--allow-unauthenticated":
         options.allowUnauthenticated = true
+      case "--as-admin":
+        options.unauthenticatedActsAsAdmin = true
       default:
         throw ServeError.invalidArgument(argument)
       }
+    }
+    guard !options.unauthenticatedActsAsAdmin || options.allowUnauthenticated else {
+      throw ServeError.invalidConfiguration(
+        "--as-admin only applies with --allow-unauthenticated"
+      )
     }
     return options
   }
@@ -94,6 +108,20 @@ struct ServeCommand {
       autoActionDispatcher: dispatcher,
       changeObserver: NoteChangeFeedObserver(feed: changeFeed)
     )
+    // Fail before the port opens: `--as-admin` is only meaningful while the
+    // account it binds to is still an enabled admin, and an operator can have
+    // demoted it since.
+    if options.unauthenticatedActsAsAdmin {
+      let account = try service.defaultUser()
+      guard account.isAdmin, account.isEnabled else {
+        throw ServeError.invalidConfiguration(
+          """
+          --as-admin requires \(NoteStoreSchema.defaultUserId) to be an enabled admin; \
+          run `kaiba user grant-admin \(NoteStoreSchema.defaultUserId)` first
+          """
+        )
+      }
+    }
     for line in try AIAutoActionReconciliation.reconcile(
       service: service,
       aiConfiguration: aiConfiguration,
@@ -140,6 +168,7 @@ struct ServeCommand {
       graphQLExecutor: executor,
       noteAPIAuthenticator: authenticator,
       allowUnauthenticatedNoteAPI: options.allowUnauthenticated,
+      unauthenticatedActsAsAdmin: options.unauthenticatedActsAsAdmin,
       noteChangeFeed: changeFeed,
       agentReplyStreamHub: agentReplyStreamHub
     )
@@ -163,7 +192,8 @@ struct ServeCommand {
       noteService: service,
       s3Profiles: s3Profiles,
       authenticator: authenticator,
-      allowUnauthenticated: options.allowUnauthenticated
+      allowUnauthenticated: options.allowUnauthenticated,
+      unauthenticatedActsAsAdmin: options.unauthenticatedActsAsAdmin
     )
     let server = KaibaLocalHTTPServer(routeHandler: httpHandler)
     let boundPort = try await server.start(host: options.host, port: options.port)
@@ -177,6 +207,9 @@ struct ServeCommand {
       let challenge = try await authenticator.createRegistrationChallenge(publicBaseURL: endpoint)
       print("registrationURL=\(challenge.registrationURL)")
       print(challenge.qrText)
+    } else if options.unauthenticatedActsAsAdmin {
+      print("auth=disabled (--allow-unauthenticated --as-admin)")
+      print("actingUser=\(NoteStoreSchema.defaultUserId) (admin, every library)")
     } else {
       print("auth=disabled (--allow-unauthenticated)")
     }

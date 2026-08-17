@@ -144,8 +144,9 @@ extension NoteService {
   ///
   /// - A selected library excludes every other one.
   /// - A caller with no credential gets only the open libraries.
-  /// - An authenticated account gets the open libraries plus the ones it is a
-  ///   member of (`library_members`).
+  /// - An admin account reaches every library.
+  /// - Any other authenticated account gets the open libraries plus the ones
+  ///   it is a member of (`library_members`).
   /// - The unscoped local CLI is the operator view and reaches everything; it
   ///   holds the store file, so hiding rows from it would be theater.
   func isReachable(libraryId: LibraryID, in db: SQLiteDatabase) -> Bool {
@@ -153,6 +154,9 @@ extension NoteService {
       return false
     }
     guard isUnauthenticatedPrincipal || actingUserId != nil else {
+      return true
+    }
+    if isActingAdmin(in: db) {
       return true
     }
     let rows = (try? db.query(
@@ -176,6 +180,22 @@ extension NoteService {
     return isLibraryMember(libraryId: libraryId, userId: actingUserId, in: db)
   }
 
+  /// Whether the acting account is an enabled admin. Read per call rather
+  /// than cached on the service value, so revoking admin takes effect on the
+  /// next request instead of at the next process start. A request that
+  /// presented no credential is never treated as one even though it resolves
+  /// to the admin account (`design-docs/specs/library.md`).
+  func isActingAdmin(in db: SQLiteDatabase) -> Bool {
+    guard !isUnauthenticatedPrincipal, let actingUserId else {
+      return false
+    }
+    let rows = (try? db.query(
+      "SELECT is_admin FROM users WHERE user_id = ? AND disabled_at IS NULL LIMIT 1",
+      bindings: [.id(actingUserId)]
+    )) ?? []
+    return rows.first?["is_admin"] == "1"
+  }
+
   /// The libraries a bulk read may draw from, or nil when unrestricted. Used
   /// by search and graph traversal, where a per-row check would mean one query
   /// per hit, and where dropping rows after the fact would silently shrink a
@@ -192,6 +212,9 @@ extension NoteService {
       ).compactMap { $0.identifier("library_id", as: LibraryID.self) }
     }
     guard let actingUserId else {
+      return nil
+    }
+    if isActingAdmin(in: db) {
       return nil
     }
     return try db.query(
