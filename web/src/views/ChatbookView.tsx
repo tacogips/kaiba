@@ -16,6 +16,13 @@ import type { SearchMethod, SearchScope } from '../router'
 
 export function ChatbookView(): JSX.Element {
   const app = useApp()
+  const [mobilePane, setMobilePane] = createSignal<MobilePane>('reader')
+
+  const showMobilePane = (pane: MobilePane) => {
+    if (pane === 'files' && !app.state.pane.leftOpen) app.toggleLeftPane()
+    if (pane === 'details' && !app.state.pane.rightOpen) app.toggleRightPane()
+    setMobilePane(pane)
+  }
 
   onMount(() => {
     const shortcut = (event: KeyboardEvent) => {
@@ -79,7 +86,10 @@ export function ChatbookView(): JSX.Element {
             {app.state.live ? 'Live' : 'Offline'}
           </span>
           <Show when={view() !== 'reader'}>
-            <button type="button" class="secondary" onClick={app.openReader}>Reader</button>
+            <button type="button" class="secondary" onClick={() => {
+              setMobilePane('reader')
+              app.openReader()
+            }}>Reader</button>
           </Show>
           <button type="button" class="secondary" onClick={app.openConfig}>Config</button>
           <button type="button" class="secondary" onClick={() => void app.refreshCatalog()}>Refresh</button>
@@ -98,12 +108,16 @@ export function ChatbookView(): JSX.Element {
       </Show>
 
       <Show when={view() === 'reader'}>
-        <div class="chatbook-grid">
-          <LeftPane />
+        <div class="chatbook-grid" data-mobile-pane={mobilePane()}>
+          <LeftPane
+            onClose={() => setMobilePane('reader')}
+            onNavigate={() => setMobilePane('reader')}
+          />
           <PaneSplitter side="left" />
           <ReaderPane />
           <PaneSplitter side="right" />
-          <RightPane />
+          <RightPane onClose={() => setMobilePane('reader')} />
+          <MobilePaneNav active={mobilePane()} onSelect={showMobilePane} />
         </div>
       </Show>
       <Show when={view() === 'search'}>
@@ -131,6 +145,31 @@ export function ChatbookView(): JSX.Element {
     <Show when={app.state.auth !== 'unauthenticated'} fallback={<LoginView />}>
       {shell()}
     </Show>
+  )
+}
+
+type MobilePane = 'files' | 'reader' | 'details'
+
+function MobilePaneNav(props: {
+  active: MobilePane
+  onSelect: (pane: MobilePane) => void
+}): JSX.Element {
+  const items: readonly { pane: MobilePane; label: string }[] = [
+    { pane: 'files', label: 'Files' },
+    { pane: 'reader', label: 'Reader' },
+    { pane: 'details', label: 'Agent' },
+  ]
+  return (
+    <nav class="mobile-pane-nav" aria-label="Mobile workspace">
+      {items.map((item) => (
+        <button
+          type="button"
+          classList={{ 'mobile-pane-button': true, active: props.active === item.pane }}
+          aria-current={props.active === item.pane ? 'page' : undefined}
+          onClick={() => props.onSelect(item.pane)}
+        >{item.label}</button>
+      ))}
+    </nav>
   )
 }
 

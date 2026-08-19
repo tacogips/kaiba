@@ -10,7 +10,7 @@ import type { NoteId } from '../notes/ids'
 // tree (h1-h6) nests beneath the note. The open note's headings are expanded by
 // default; any note can be expanded or collapsed explicitly.
 
-export function TocTab(props: { app?: AppStore } = {}): JSX.Element {
+export function TocTab(props: { app?: AppStore; onNavigate?: () => void } = {}): JSX.Element {
   const app = props.app ?? useApp()
   const notes = createMemo(() => app.notes())
   const [expanded, setExpanded] = createSignal(new Map<string, boolean>())
@@ -38,7 +38,10 @@ export function TocTab(props: { app?: AppStore } = {}): JSX.Element {
               style={{ '--toc-level': 1 }}
               onClick={() => {
                 const notebookId = app.state.notebookId ?? app.state.note?.notebookId
-                if (notebookId) app.openNotebook(notebookId)
+                if (notebookId) {
+                  app.openNotebook(notebookId)
+                  props.onNavigate?.()
+                }
               }}
             >{app.notebook()?.title ?? 'Notebook'}</button>
             <ul class="toc-list">
@@ -66,11 +69,20 @@ export function TocTab(props: { app?: AppStore } = {}): JSX.Element {
                       type="button"
                       classList={{ 'toc-entry': true, 'toc-note': true, active: open() }}
                       style={{ '--toc-level': 2 }}
-                      onClick={() => app.openNote(note.noteId, note.notebookId)}
+                      onClick={() => {
+                        app.openNote(note.noteId, note.notebookId)
+                        props.onNavigate?.()
+                      }}
                     >{noteDisplayTitle(note)}</button>
                   </div>
                   <Show when={isExpanded(note) && headings().length > 0}>
-                    <HeadingList app={app} noteId={note.noteId} nodes={headings()} level={3} />
+                    <HeadingList
+                      app={app}
+                      noteId={note.noteId}
+                      nodes={headings()}
+                      level={3}
+                      onNavigate={props.onNavigate}
+                    />
                   </Show>
                 </li>
               }}</For>
@@ -90,6 +102,7 @@ function HeadingList(props: {
   noteId: NoteId
   nodes: HeadingNode[]
   level: number
+  onNavigate?: () => void
 }): JSX.Element {
   const app = props.app
   return (
@@ -102,9 +115,18 @@ function HeadingList(props: {
               classList={{ 'toc-entry': true, active: app.state.activeHeadingId === node.id }}
               style={{ '--toc-level': props.level }}
               aria-current={app.state.activeHeadingId === node.id ? 'location' : undefined}
-              onClick={() => jumpToHeading(props.noteId, node.id, app.setActiveHeading)}
+              onClick={() => {
+                jumpToHeading(props.noteId, node.id, app.setActiveHeading)
+                props.onNavigate?.()
+              }}
             >{node.text}</button>
-            <HeadingList app={app} noteId={props.noteId} nodes={node.children} level={props.level + 1} />
+            <HeadingList
+              app={app}
+              noteId={props.noteId}
+              nodes={node.children}
+              level={props.level + 1}
+              onNavigate={props.onNavigate}
+            />
           </li>}
         </For>
       </ul>

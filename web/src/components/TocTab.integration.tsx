@@ -87,4 +87,20 @@ describe('TocTab', () => {
       host.remove()
     }
   })
+
+  test('returns to the reader after choosing a note on mobile', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    let navigated = false
+    const dispose = render(() => (
+      <TocTab app={testStore()} onNavigate={() => { navigated = true }} />
+    ), host)
+    try {
+      host.querySelector<HTMLButtonElement>('.toc-note')?.click()
+      expect(navigated).toBe(true)
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
 })

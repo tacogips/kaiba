@@ -15,7 +15,7 @@ import type { RightTab } from '../state/paneState'
 // all links). Agent chat and plain memos share the Agent tab. A tag selection
 // (`?tag=` on the route) replaces all of it with the cross-notebook tag pane.
 
-export function RightPane(): JSX.Element {
+export function RightPane(props: { onClose?: () => void } = {}): JSX.Element {
   const app = useApp()
   const noteMode = createMemo(() => Boolean(app.state.noteId))
   const tagId = createMemo(() => app.tagPaneTagId())
@@ -54,7 +54,10 @@ export function RightPane(): JSX.Element {
             class="pane-fold"
             aria-label="Collapse the details pane"
             aria-expanded={true}
-            onClick={app.toggleRightPane}
+            onClick={() => {
+              app.toggleRightPane()
+              props.onClose?.()
+            }}
           >›</button>
           <Tabs
             label={noteMode() ? 'Note details' : 'Notebook details'}

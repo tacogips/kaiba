@@ -5,7 +5,7 @@ import { TocTab } from '../components/TocTab'
 import { useApp } from '../state/appStore'
 import type { LeftTab } from '../state/paneState'
 
-export function LeftPane(): JSX.Element {
+export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void } = {}): JSX.Element {
   const app = useApp()
   const hasContents = () => Boolean(app.state.notebookId || app.state.note)
   const tabs = createMemo<readonly TabDescriptor<LeftTab>[]>(() => [
@@ -43,15 +43,18 @@ export function LeftPane(): JSX.Element {
             class="pane-fold"
             aria-label="Collapse the library pane"
             aria-expanded={true}
-            onClick={app.toggleLeftPane}
+            onClick={() => {
+              app.toggleLeftPane()
+              props.onClose?.()
+            }}
           >‹</button>
         </div>
         <div class="pane-body">
           <TabPanel idPrefix="left" value="files" active={activeTab()}>
-            <FileTreeTab />
+            <FileTreeTab onNavigate={props.onNavigate} />
           </TabPanel>
           <TabPanel idPrefix="left" value="contents" active={activeTab()}>
-            <TocTab />
+            <TocTab onNavigate={props.onNavigate} />
           </TabPanel>
         </div>
       </Show>

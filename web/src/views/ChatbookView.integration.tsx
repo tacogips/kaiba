@@ -88,4 +88,37 @@ describe('ChatbookView authentication surface', () => {
       host.remove()
     }
   })
+
+  test('switches the active mobile workspace without stacking panes', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => (
+      <AppStoreProvider options={{ client: open() }}>
+        <ChatbookView />
+      </AppStoreProvider>
+    ), host)
+    try {
+      await settle()
+      const grid = host.querySelector<HTMLElement>('.chatbook-grid')
+      const nav = host.querySelector<HTMLElement>('nav[aria-label="Mobile workspace"]')
+      const buttons = nav?.querySelectorAll<HTMLButtonElement>('button')
+
+      expect(grid?.dataset.mobilePane).toBe('reader')
+      expect(buttons).toHaveLength(3)
+      expect(buttons?.[1]?.getAttribute('aria-current')).toBe('page')
+
+      buttons?.[0]?.click()
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+      expect(grid?.dataset.mobilePane).toBe('files')
+      expect(buttons?.[0]?.getAttribute('aria-current')).toBe('page')
+
+      buttons?.[2]?.click()
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+      expect(grid?.dataset.mobilePane).toBe('details')
+      expect(buttons?.[2]?.getAttribute('aria-current')).toBe('page')
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
 })

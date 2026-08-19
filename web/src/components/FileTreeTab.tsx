@@ -8,7 +8,7 @@ import { noteDisplayTitle } from '../notes/noteText'
 // each folder, and each notebook's notes. Notes load the first time a notebook
 // is expanded so opening the tree never fetches the whole store.
 
-export function FileTreeTab(): JSX.Element {
+export function FileTreeTab(props: { onNavigate?: () => void } = {}): JSX.Element {
   const app = useApp()
   const folders = createMemo(() => buildFolderTree(app.state.tags))
   const unfiled = createMemo(() =>
@@ -19,13 +19,13 @@ export function FileTreeTab(): JSX.Element {
       <Show when={app.state.loading && app.state.notebooks.length === 0}>
         <div class="loading-state"><span class="loader" />Loading library…</div>
       </Show>
-      <For each={folders()}>{(node) => <FolderBranch node={node} level={1} />}</For>
+      <For each={folders()}>{(node) => <FolderBranch node={node} level={1} onNavigate={props.onNavigate} />}</For>
       <Show when={unfiled().length > 0}>
         <div class="tree-group" role="treeitem" aria-level={1} aria-expanded={true}>
           <span class="tree-label tree-static">Unfiled</span>
         </div>
         <div role="group">
-          <For each={unfiled()}>{(notebook) => <NotebookBranch notebook={notebook} level={2} />}</For>
+          <For each={unfiled()}>{(notebook) => <NotebookBranch notebook={notebook} level={2} onNavigate={props.onNavigate} />}</For>
         </div>
       </Show>
       <Show when={!app.state.loading && app.state.notebooks.length === 0}>
@@ -35,7 +35,7 @@ export function FileTreeTab(): JSX.Element {
   )
 }
 
-function FolderBranch(props: { node: TagTreeNode; level: number }): JSX.Element {
+function FolderBranch(props: { node: TagTreeNode; level: number; onNavigate?: () => void }): JSX.Element {
   const app = useApp()
   const expanded = () => app.state.expandedFolders.includes(props.node.tag.tagId)
   const notebooks = createMemo(() => app.state.notebooks.filter((notebook) =>
@@ -65,10 +65,10 @@ function FolderBranch(props: { node: TagTreeNode; level: number }): JSX.Element 
       <Show when={expanded()}>
         <div role="group">
           <For each={props.node.children}>{(child) =>
-            <FolderBranch node={child} level={props.level + 1} />}
+            <FolderBranch node={child} level={props.level + 1} onNavigate={props.onNavigate} />}
           </For>
           <For each={notebooks()}>{(notebook) =>
-            <NotebookBranch notebook={notebook} level={props.level + 1} />}
+            <NotebookBranch notebook={notebook} level={props.level + 1} onNavigate={props.onNavigate} />}
           </For>
           <Show when={props.node.children.length === 0 && notebooks().length === 0}>
             <p class="pane-empty" style={{ '--tree-level': props.level + 1 }}>Empty folder.</p>
@@ -79,7 +79,7 @@ function FolderBranch(props: { node: TagTreeNode; level: number }): JSX.Element 
   )
 }
 
-function NotebookBranch(props: { notebook: Notebook; level: number }): JSX.Element {
+function NotebookBranch(props: { notebook: Notebook; level: number; onNavigate?: () => void }): JSX.Element {
   const app = useApp()
   const expanded = () => app.state.expandedNotebooks.includes(props.notebook.notebookId)
   const notes = (): Note[] => app.state.notesByNotebook[props.notebook.notebookId] ?? []
@@ -101,7 +101,10 @@ function NotebookBranch(props: { notebook: Notebook; level: number }): JSX.Eleme
         <button
           type="button"
           class="tree-label"
-          onClick={() => app.openNotebook(props.notebook.notebookId)}
+          onClick={() => {
+            app.openNotebook(props.notebook.notebookId)
+            props.onNavigate?.()
+          }}
         ><span class="tree-icon" aria-hidden="true">▤</span>{props.notebook.title}</button>
         <Show when={props.notebook.readOnly}><span class="tree-count" title="Read-only">L</span></Show>
       </div>
@@ -119,7 +122,10 @@ function NotebookBranch(props: { notebook: Notebook; level: number }): JSX.Eleme
               <button
                 type="button"
                 class="tree-label"
-                onClick={() => app.openNote(note.noteId, note.notebookId)}
+                onClick={() => {
+                  app.openNote(note.noteId, note.notebookId)
+                  props.onNavigate?.()
+                }}
               ><span class="tree-icon" aria-hidden="true">·</span>{noteDisplayTitle(note)}</button>
             </div>}
           </For>

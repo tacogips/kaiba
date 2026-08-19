@@ -65,6 +65,7 @@
   display: grid;
   grid-template-columns: var(--pane-left) auto minmax(0, 1fr) auto var(--pane-right);
 }
+.mobile-pane-nav { display: none; }
 
 /* Drag handles on the pane borders. They sit over the border line (negative
    margins) so the divider itself is what the user grabs. */
@@ -527,11 +528,75 @@
   .chatbook { --pane-left: 232px; --pane-right: minmax(260px, .8fr); }
 }
 @media (max-width: 900px) {
-  .chatbook-grid { grid-template-columns: minmax(0, 1fr); grid-auto-rows: min-content; overflow: auto; }
+  .chatbook-head {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px;
+    padding: 8px 12px;
+  }
+  .brand-button { align-self: start; padding-left: 0 !important; }
+  .chatbook-head-actions { justify-content: flex-end; gap: 6px; }
+  .header-search {
+    grid-column: 1 / -1; display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr) auto;
+    width: 100%; max-width: none; gap: 6px;
+  }
+  .header-search label:first-child { grid-column: 1 / -1; min-width: 0; }
+  .header-search input[type="search"], .header-search select {
+    width: 100%; height: 44px; font-size: 16px;
+  }
+
+  .chatbook-grid {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+  .chatbook-grid > .pane, .chatbook-grid > .reader { display: none; grid-area: 1 / 1; }
+  .chatbook-grid[data-mobile-pane="files"] > .pane-left,
+  .chatbook-grid[data-mobile-pane="reader"] > .reader,
+  .chatbook-grid[data-mobile-pane="details"] > .pane-right { display: flex; }
   .pane-splitter { display: none; }
-  .pane { max-height: 42vh; }
-  .pane-left, .pane-right { border: 0; border-bottom: 1px solid var(--chatbook-border); }
-  .pane-rail { flex-direction: row; }
+  .pane { max-height: none; }
+  .pane-left, .pane-right { border: 0; }
+  .pane-rail { flex-direction: row; justify-content: center; }
   .rail-label { writing-mode: horizontal-tb; }
-  .reader-body { padding-bottom: 40px; }
+  .mobile-pane-nav {
+    grid-area: 2 / 1; z-index: 10;
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 5px 8px calc(5px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--chatbook-border); background: #0b131c;
+  }
+  .mobile-pane-button {
+    min-height: 44px; padding: 6px 8px !important;
+    border: 0 !important; border-radius: 7px !important;
+    color: #71879a !important; background: transparent !important;
+    font-size: calc(11px * var(--fs, 1));
+  }
+  .mobile-pane-button.active { color: #dffbfb !important; background: #142832 !important; }
+  .pane-tab, .pane-fold, .rail-button { min-height: 44px; }
+  .pane-fold, .rail-button { width: 44px; height: 44px; }
+  .tree-row, .tree-group { min-height: 44px; }
+  .tree-twisty { width: 40px; height: 40px; }
+  .tree-label, .toc-entry { min-height: 44px; }
+  .toc-disclosure { width: 40px; min-height: 44px; }
+  .toc-disclosure-spacer { width: 40px; }
+  .center-tabs-head { padding: 0 12px; }
+  .reader-head { padding: 12px; gap: 8px; }
+  .reader-title { width: 100%; }
+  .reader-title h1 { overflow-wrap: anywhere; }
+  .reader-actions {
+    width: 100%; flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+    padding: 2px 3px 5px;
+  }
+  .reader-actions > * { flex: none; }
+  .reader-actions button, .reader-goto input { min-height: 44px; }
+  .reader-body, .notebook-list-view { padding: 14px 12px 32px; }
+  .reader-note { padding-right: 12px; padding-left: 12px; }
+  .reader-note.has-images { padding-left: 36px; }
+  .note-images-arrow { width: 30px; height: 64px; }
+}
+
+@media (max-width: 520px) {
+  .brand-copy span { display: none; }
+  .chatbook-head-actions .server-status { width: 16px; overflow: hidden; white-space: nowrap; }
+  .reader-actions { margin-inline: -3px; }
+  .notebook-list-head { align-items: start; flex-direction: column; gap: 6px; }
+  .config-section { padding: 14px; }
 }
