@@ -799,7 +799,9 @@ final class NoteGraphQLTests: XCTestCase {
       "tagComments",
       "agentModels",
       "agenticSearch",
-      "appSetting"
+      "appSetting",
+      "actionHistory",
+      "undoState"
     ]
     let mutationFields: Set<String> = [
       "createNote",
@@ -831,7 +833,9 @@ final class NoteGraphQLTests: XCTestCase {
       "requestNotebookTranslation",
       "migrateNoteFileStorage",
       "migrateAllNoteFiles",
-      "reclaimNoteFileStorage"
+      "reclaimNoteFileStorage",
+      "undoAction",
+      "redoAction"
     ]
 
     XCTAssertEqual(supportedNoteGraphQLFields, queryFields.union(mutationFields))

@@ -284,6 +284,27 @@ memory as consolidated notes in a canonical notebook, linked into the
   variable multiplies every font size, pane widths are drag-resizable
   (persisted per browser with the fold state, not in sqlite).
 
+## Action history and undo/redo (2026-08-21)
+
+- No schema version change: `note_action_log` (append-only, JSONB
+  `display_json`/`delta_json`, link columns `undo_of_seq`/
+  `undone_by_seq`, `AUTOINCREMENT` seq) is created by the idempotent
+  base statement list, so fresh and existing v15 stores both gain it at
+  `prepare` — the same additive path `app_settings` took
+  (`design-docs/specs/action-history-undo.md`, U1).
+- Every in-scope `NoteService` mutation records a delta-only entry in
+  the same transaction (body edits as splice patches, creations with no
+  payload, deletions with a restore snapshot). Undo/redo state is
+  derived from the log per actor; retention is capped by the `history`
+  app setting (`{"maxEntries": 1000}` default).
+- New GraphQL fields: `actionHistory`, `undoState`, `undoAction`,
+  `redoAction`. New CLI commands: `kaiba history`, `kaiba undo`,
+  `kaiba redo`. `NoteServiceError` gained a `conflict` case surfaced as
+  GraphQL status "conflict".
+- `updateNoteBody` gained a `provenance:` parameter; the agent edit
+  path records provenance `ai`, so AI edits are undoable like any
+  other.
+
 ## Board removal and no-backcompat schema (2026-08-15)
 
 - The kanban board ported from riela (status sets, board queries,

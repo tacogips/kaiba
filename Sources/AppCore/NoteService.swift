@@ -6,6 +6,10 @@ public enum NoteServiceError: Error, Equatable, Sendable {
   case protectedTag(String)
   case invalidInput(String)
   case invalidRow(String)
+  /// An undo/redo target no longer matches the store — the entity changed,
+  /// moved, or vanished since the entry was recorded
+  /// (`design-docs/specs/action-history-undo.md`, U6).
+  case conflict(String)
 }
 
 public struct NoteService: Sendable {
@@ -140,6 +144,18 @@ public struct NoteService: Sendable {
       )
     }
     let notebook = try requireNotebook(notebookId, in: db)
+    try recordAction(
+      NoteActionRecord(
+        kind: .notebookCreated,
+        provenance: originatingActionId == nil ? .human : .system,
+        entityType: .notebook,
+        entityId: notebookId.rawValue,
+        notebookId: notebookId,
+        display: ["title": .string(title)],
+        undoable: true
+      ),
+      in: db
+    )
     let dispatches = try enqueueAutoActions(
       for: NoteAutoActionEvent(
         trigger: .notebookCreated,
@@ -295,6 +311,32 @@ public struct NoteService: Sendable {
         }
         try refreshFTS(noteId: noteId, previous: nil, in: db)
         let note = try requireNote(noteId, in: db)
+        if let createdNotebookId {
+          try recordAction(
+            NoteActionRecord(
+              kind: .notebookCreated,
+              provenance: provenance,
+              entityType: .notebook,
+              entityId: createdNotebookId.rawValue,
+              notebookId: createdNotebookId,
+              display: ["title": .optionalString(try requireNotebook(createdNotebookId, in: db).title)],
+              undoable: true
+            ),
+            in: db
+          )
+        }
+        try recordAction(
+          NoteActionRecord(
+            kind: .noteCreated,
+            provenance: provenance,
+            entityType: .note,
+            entityId: noteId.rawValue,
+            notebookId: note.notebookId,
+            display: ["title": .optionalString(note.title)],
+            undoable: true
+          ),
+          in: db
+        )
         var dispatches: [QueuedAutoActionDispatch] = []
         if let createdNotebookId {
           dispatches.append(contentsOf: try enqueueAutoActions(
@@ -470,6 +512,23 @@ public struct NoteService: Sendable {
       notes.append(try requireNote(noteId, in: db))
     }
     let ingestResult = NotebookIngestResult(notebook: try requireNotebook(notebookId, in: db), notes: notes)
+    // Recorded but not undoable (U10): a bulk ingest's cascade snapshot would
+    // embed every page body.
+    try recordAction(
+      NoteActionRecord(
+        kind: .notebookIngested,
+        provenance: provenance,
+        entityType: .notebook,
+        entityId: notebookId.rawValue,
+        notebookId: notebookId,
+        display: [
+          "title": .string(title),
+          "noteCount": .integer(Int64(notes.count))
+        ],
+        undoable: false
+      ),
+      in: db
+    )
     var dispatches = try enqueueAutoActions(
       for: NoteAutoActionEvent(
         trigger: .notebookCreated,
@@ -679,6 +738,7 @@ public struct NoteService: Sendable {
   public func updateNoteBody(
     noteId: NoteID,
     bodyMarkdown: String,
+    provenance: NoteProvenance = .human,
     originatingActionId: AutoActionID? = nil
   ) throws -> Note {
     let result = try driver.withDatabase { database in
@@ -712,6 +772,32 @@ public struct NoteService: Sendable {
         )
         try refreshFTS(noteId: noteId, previous: previous, in: db)
         let note = try requireNote(noteId, in: db)
+        let bodyPatch = makeNoteBodyPatch(from: existing.bodyMarkdown, to: bodyMarkdown)
+        if bodyPatch != nil || updatedTitle != existing.title {
+          var delta: JSONObject = [:]
+          if let bodyPatch {
+            delta["body"] = bodyPatch.jsonValue
+          }
+          if updatedTitle != existing.title {
+            delta["title"] = .object([
+              "before": .optionalString(existing.title),
+              "after": .optionalString(updatedTitle)
+            ])
+          }
+          try recordAction(
+            NoteActionRecord(
+              kind: .noteBodyUpdated,
+              provenance: provenance,
+              entityType: .note,
+              entityId: noteId.rawValue,
+              notebookId: note.notebookId,
+              display: ["title": .optionalString(note.title)],
+              delta: .object(delta),
+              undoable: true
+            ),
+            in: db
+          )
+        }
         let dispatches = try enqueueAutoActions(
           for: NoteAutoActionEvent(
             trigger: .noteUpdated,
@@ -730,75 +816,6 @@ public struct NoteService: Sendable {
       kind: NoteChangeEventKind.noteUpdated,
       notebookId: result.note.notebookId
     ))
-    return result.note
-  }
-
-  @discardableResult
-  public func applyTags(
-    noteId: NoteID,
-    tags: [NoteTagInput],
-    provenance: NoteProvenance,
-    assignedBy: String? = nil
-  ) throws -> Note {
-    let note = try driver.withDatabase { database in
-      try database.transaction { db in
-        _ = try requireNote(noteId, in: db)
-        let previous = try ftsPayload(noteId: noteId, in: db)
-        for tag in tags {
-          try applyTag(
-            noteId: noteId,
-            tag: tag,
-            provenance: provenance,
-            assignedBy: assignedBy,
-            deletable: true,
-            in: db
-          )
-        }
-        try refreshFTS(noteId: noteId, previous: previous, in: db)
-        return try requireNote(noteId, in: db)
-      }
-    }
-    // Tag assignments drive inline tag underlining, the tag detail pane, and
-    // the tag catalog, so other clients need waking just like notebook tags.
-    publishChange(NoteChangeEvent(
-      kind: NoteChangeEventKind.noteTags,
-      notebookId: note.notebookId
-    ))
-    return note
-  }
-
-  @discardableResult
-  public func removeTag(noteId: NoteID, tagName: String, removedBy provenance: NoteProvenance) throws -> Note {
-    let result = try driver.withDatabase { database in
-      try database.transaction { db -> (note: Note, removed: Bool) in
-        let existing = try tagAssignment(noteId: noteId, tagName: tagName, in: db)
-        guard let existing else {
-          return (try requireNote(noteId, in: db), false)
-        }
-        guard existing.deletable else {
-          throw NoteServiceError.protectedTag(tagName)
-        }
-        if provenance == .ai, existing.provenance == .human {
-          throw NoteServiceError.protectedTag(tagName)
-        }
-        let previous = try ftsPayload(noteId: noteId, in: db)
-        try db.execute(
-          """
-          DELETE FROM note_tags
-          WHERE note_id = ? AND tag_id = ?
-          """,
-          bindings: [.id(noteId), .id(existing.tag.tagId)]
-        )
-        try refreshFTS(noteId: noteId, previous: previous, in: db)
-        return (try requireNote(noteId, in: db), true)
-      }
-    }
-    if result.removed {
-      publishChange(NoteChangeEvent(
-        kind: NoteChangeEventKind.noteTags,
-        notebookId: result.note.notebookId
-      ))
-    }
     return result.note
   }
 

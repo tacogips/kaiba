@@ -677,6 +677,9 @@ private let schemaStatements = [
   """,
   autoActionDispatchesTableStatement,
   autoActionDispatchesStatusIndexStatement,
+  noteActionLogTableStatement,
+  noteActionLogActorIndexStatement,
+  noteActionLogEntityIndexStatement,
   """
   CREATE TABLE IF NOT EXISTS api_clients (
     client_id TEXT PRIMARY KEY,
@@ -747,6 +750,36 @@ private let autoActionDispatchesTableStatement = """
 
 private let autoActionDispatchesStatusIndexStatement =
   "CREATE INDEX IF NOT EXISTS idx_auto_action_dispatches_status ON auto_action_dispatches(status, created_at)"
+
+/// Append-only per-actor action history behind undo/redo
+/// (`design-docs/specs/action-history-undo.md`). Added through this idempotent
+/// list on purpose (U1): existing stores gain it at `prepare` without a
+/// version bump, the same way `app_settings` arrived. `AUTOINCREMENT` keeps
+/// `seq` monotonic across retention pruning, and `action` carries no CHECK so
+/// an older build can still read rows written by a newer one.
+private let noteActionLogTableStatement = """
+  CREATE TABLE IF NOT EXISTS note_action_log (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    occurred_at TEXT NOT NULL,
+    actor_user_id TEXT NOT NULL REFERENCES users(user_id),
+    provenance TEXT NOT NULL CHECK (provenance IN ('human','ai','system')),
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('note','notebook','comment')),
+    entity_id TEXT NOT NULL,
+    notebook_id TEXT,
+    action TEXT NOT NULL,
+    display_json BLOB NOT NULL CHECK (json_valid(display_json, 8)),
+    delta_json BLOB CHECK (delta_json IS NULL OR json_valid(delta_json, 8)),
+    undoable INTEGER NOT NULL CHECK (undoable IN (0,1)),
+    undo_of_seq INTEGER,
+    undone_by_seq INTEGER
+  )
+  """
+
+private let noteActionLogActorIndexStatement =
+  "CREATE INDEX IF NOT EXISTS idx_note_action_log_actor ON note_action_log(actor_user_id, seq DESC)"
+
+private let noteActionLogEntityIndexStatement =
+  "CREATE INDEX IF NOT EXISTS idx_note_action_log_entity ON note_action_log(entity_type, entity_id, seq DESC)"
 
 struct NoteStoreClock: Sendable {
   var now: @Sendable () -> String

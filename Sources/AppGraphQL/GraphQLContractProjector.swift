@@ -46,6 +46,8 @@ public enum GraphQLContractProjector {
     agentModels: AgentModelsPayload!
     agenticSearch(query: String!, notebookId: String, limit: Int): AgenticSearchPayload!
     appSetting(key: String!): AppSettingPayload!
+    actionHistory(limit: Int, beforeSeq: Int): ActionHistoryPayload!
+    undoState: UndoStatePayload!
   }
   type Mutation {
     createNote(input: CreateNoteInput!): NoteMutationPayload!
@@ -77,6 +79,8 @@ public enum GraphQLContractProjector {
     requestNotebookTranslation(input: RequestNotebookTranslationInput!): NotebookTranslationRequestPayload!
     migrateNoteFileStorage(input: MigrateNoteFileStorageInput!): NoteFileMigrationPayload!
     migrateAllNoteFiles(input: MigrateAllNoteFilesInput!): NoteFileMigrationPayload!
+    undoAction: UndoRedoPayload!
+    redoAction: UndoRedoPayload!
   }
   """
 }

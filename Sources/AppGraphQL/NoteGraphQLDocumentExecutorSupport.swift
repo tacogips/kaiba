@@ -130,6 +130,10 @@ let supportedNoteGraphQLFields: Set<String> = [
   "ensureTagMemoNotebook",
   "agenticSearch",
   "appSetting",
+  "actionHistory",
+  "undoState",
+  "undoAction",
+  "redoAction",
   "migrateNoteFileStorage",
   "migrateAllNoteFiles",
   "reclaimNoteFileStorage"
@@ -157,7 +161,9 @@ let noteGraphQLQueryFields: Set<String> = [
   "tagComments",
   "agentModels",
   "agenticSearch",
-  "appSetting"
+  "appSetting",
+  "actionHistory",
+  "undoState"
 ]
 
 let noteGraphQLMutationFields = supportedNoteGraphQLFields.subtracting(noteGraphQLQueryFields)
@@ -298,6 +304,10 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "agenticSearch": "AgenticSearchPayload",
   "appSetting": "AppSettingPayload",
   "setAppSetting": "AppSettingPayload",
+  "actionHistory": "ActionHistoryPayload",
+  "undoState": "UndoStatePayload",
+  "undoAction": "UndoRedoPayload",
+  "redoAction": "UndoRedoPayload",
   "sendAgentChatMessage": "AgentChatMessagePayload",
   "requestTagExtraction": "TagExtractionRequestPayload",
   "requestNotebookTranslation": "NotebookTranslationRequestPayload",
@@ -378,6 +388,35 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "result": "ControlPlaneResult",
     "key": nil,
     "valueJSON": nil
+  ],
+  "ActionHistoryPayload": [
+    "result": "ControlPlaneResult",
+    "entries": "NoteActionLogEntry"
+  ],
+  "UndoStatePayload": [
+    "result": "ControlPlaneResult",
+    "undo": "NoteActionLogEntry",
+    "redo": "NoteActionLogEntry"
+  ],
+  "UndoRedoPayload": [
+    "result": "ControlPlaneResult",
+    "status": nil,
+    "applied": "NoteActionLogEntry",
+    "target": "NoteActionLogEntry"
+  ],
+  "NoteActionLogEntry": [
+    "seq": nil,
+    "occurredAt": nil,
+    "actorUserId": nil,
+    "provenance": nil,
+    "entityType": nil,
+    "entityId": nil,
+    "notebookId": nil,
+    "action": nil,
+    "title": nil,
+    "undoable": nil,
+    "undoOfSeq": nil,
+    "undoneBySeq": nil
   ],
   "TagExtractionRequestPayload": [
     "result": "ControlPlaneResult",

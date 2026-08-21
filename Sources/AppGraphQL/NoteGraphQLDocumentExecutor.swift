@@ -327,6 +327,13 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.appSetting(
         key: requiredString("key", variables: variables)
       ))
+    case "actionHistory":
+      return try await encodedJSONValue(service.actionHistory(
+        limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
+        beforeSeq: try optionalInt("beforeSeq", variables: variables).map(Int64.init)
+      ))
+    case "undoState":
+      return try await encodedJSONValue(service.undoState())
     case "setNotebookReadOnly":
       return try await encodedJSONValue(service.setNotebookReadOnly(
         notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
@@ -426,6 +433,10 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         key: input.key,
         valueJSON: input.valueJSON
       ))
+    case "undoAction":
+      return try await encodedJSONValue(service.undoAction())
+    case "redoAction":
+      return try await encodedJSONValue(service.redoAction())
     case "linkNotes":
       let input: GraphQLLinkNotesInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.linkNotes(

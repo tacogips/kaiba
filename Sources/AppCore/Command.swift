@@ -19,6 +19,7 @@ public struct AppCommand: Sendable {
     self.environment = environment
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   public func run() throws -> String {
     if arguments.contains("--version") {
       return Version.current
@@ -75,6 +76,9 @@ public struct AppCommand: Sendable {
     case "link": return try runLink(context)
     case "readonly": return try runReadOnly(context)
     case "delete": return try runDelete(context)
+    case "history": return try runHistory(context)
+    case "undo": return try runUndo(context)
+    case "redo": return try runRedo(context)
     case "notebook": return try runNotebook(context)
     case "import": return try runImport(context)
     case "storage": return try runStorage(context)
@@ -168,6 +172,11 @@ public struct AppCommand: Sendable {
                  # notebook, --memos also greps memo text
       readonly   <note-id> (--on|--off)
       delete     <note-id>
+
+    History (per acting user; logs store deltas only):
+      history    [--limit N] [--before-seq N] [--output json|text]
+      undo       [--output json|text]   # revert the latest undoable action
+      redo       [--output json|text]   # re-apply the latest undone action
 
     Tags and ontology:
       tag        <note-id> (--add <name>... | --remove <name>...)

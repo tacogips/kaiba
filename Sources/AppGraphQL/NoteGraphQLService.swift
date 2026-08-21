@@ -737,6 +737,8 @@ func graphQLNoteResult(for error: Error) -> GraphQLControlPlaneResult {
     return .init(accepted: false, status: "not_found", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
   case NoteServiceError.readOnly, NoteServiceError.protectedTag:
     return .init(accepted: false, status: "rejected", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
+  case NoteServiceError.conflict:
+    return .init(accepted: false, status: "conflict", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
   case NoteServiceError.invalidInput:
     return .init(accepted: false, status: "invalid_request", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
   case GraphQLNoteServiceError.invalidRequest:
@@ -756,6 +758,8 @@ func graphQLNotePublicDiagnostic(for error: Error) -> String {
     return "tag is protected"
   case let NoteServiceError.invalidInput(message):
     return "invalid note request: \(message)"
+  case let NoteServiceError.conflict(message):
+    return "undo/redo conflict: \(message)"
   case let NoteServiceError.invalidRow(message):
     return "invalid note store row: \(message)"
   case let GraphQLNoteServiceError.invalidRequest(message):

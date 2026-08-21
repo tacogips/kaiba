@@ -5,12 +5,31 @@ public extension NoteService {
   func setNotebookReadOnly(notebookId: NotebookID, readOnly: Bool) throws -> Notebook {
     let notebook = try driver.withDatabase { database in
       try database.transaction { db in
-        _ = try requireNotebook(notebookId, in: db)
+        let existing = try requireNotebook(notebookId, in: db)
         try db.execute(
           "UPDATE notebooks SET read_only = ?, updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
           bindings: [.int(readOnly ? 1 : 0), .text(NoteStoreClock.system.now()), .id(notebookId)]
         )
-        return try requireNotebook(notebookId, in: db)
+        let updated = try requireNotebook(notebookId, in: db)
+        if existing.readOnly != readOnly {
+          try recordAction(
+            NoteActionRecord(
+              kind: .notebookReadOnlySet,
+              provenance: .human,
+              entityType: .notebook,
+              entityId: notebookId.rawValue,
+              notebookId: notebookId,
+              display: ["title": .string(updated.title)],
+              delta: .object(["readOnly": .object([
+                "before": .bool(existing.readOnly),
+                "after": .bool(readOnly)
+              ])]),
+              undoable: true
+            ),
+            in: db
+          )
+        }
+        return updated
       }
     }
     publishChange(NoteChangeEvent(
@@ -25,12 +44,31 @@ public extension NoteService {
   func setReadOnly(noteId: NoteID, readOnly: Bool) throws -> Note {
     try driver.withDatabase { database in
       try database.transaction { db in
-        _ = try requireNote(noteId, in: db)
+        let existing = try requireNote(noteId, in: db)
         try db.execute(
           "UPDATE notes SET read_only = ?, updated_at = ?, updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id) WHERE note_id = ?",
           bindings: [.int(readOnly ? 1 : 0), .text(NoteStoreClock.system.now()), .id(noteId)]
         )
-        return try requireNote(noteId, in: db)
+        let updated = try requireNote(noteId, in: db)
+        if existing.readOnly != readOnly {
+          try recordAction(
+            NoteActionRecord(
+              kind: .noteReadOnlySet,
+              provenance: .human,
+              entityType: .note,
+              entityId: noteId.rawValue,
+              notebookId: updated.notebookId,
+              display: ["title": .optionalString(updated.title)],
+              delta: .object(["readOnly": .object([
+                "before": .bool(existing.readOnly),
+                "after": .bool(readOnly)
+              ])]),
+              undoable: true
+            ),
+            in: db
+          )
+        }
+        return updated
       }
     }
   }
@@ -43,10 +81,26 @@ public extension NoteService {
         guard !note.readOnly, !notebook.readOnly else {
           throw NoteServiceError.readOnly(noteId.rawValue)
         }
+        // Deletion is the one moment content must enter the log: the snapshot
+        // is what undo restores (U4).
+        let snapshot = try captureNoteSnapshot(noteId: noteId, in: db)
         try deleteNoteRows(noteId: noteId, in: db)
         try db.execute(
           "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
           bindings: [.text(NoteStoreClock.system.now()), .id(note.notebookId)]
+        )
+        try recordAction(
+          NoteActionRecord(
+            kind: .noteDeleted,
+            provenance: .human,
+            entityType: .note,
+            entityId: noteId.rawValue,
+            notebookId: note.notebookId,
+            display: ["title": .optionalString(note.title)],
+            delta: snapshot,
+            undoable: true
+          ),
+          in: db
         )
       }
     }
@@ -75,6 +129,23 @@ public extension NoteService {
         try db.execute("DELETE FROM notebook_tags WHERE notebook_id = ?", bindings: [.id(notebookId)])
         try db.execute("DELETE FROM notebook_files WHERE notebook_id = ?", bindings: [.id(notebookId)])
         try db.execute("DELETE FROM notebooks WHERE notebook_id = ?", bindings: [.id(notebookId)])
+        // Recorded for the history view but not undoable (U10): a cascade
+        // snapshot would embed every note body.
+        try recordAction(
+          NoteActionRecord(
+            kind: .notebookDeleted,
+            provenance: .human,
+            entityType: .notebook,
+            entityId: notebookId.rawValue,
+            notebookId: notebookId,
+            display: [
+              "title": .string(notebook.title),
+              "noteCount": .integer(Int64(notes.count))
+            ],
+            undoable: false
+          ),
+          in: db
+        )
         return folderTagNames(of: notebook)
       }
     }

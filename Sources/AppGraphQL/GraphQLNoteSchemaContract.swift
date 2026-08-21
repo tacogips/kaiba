@@ -97,6 +97,29 @@ type AgentConversation { notebookId: String!, title: String!, updatedAt: String!
 # note store's sqlite so preferences follow the store across clients.
 type AppSettingPayload { result: ControlPlaneResult!, key: String!, valueJSON: String }
 input SetAppSettingInput { key: String!, valueJSON: String! }
+# Per-actor action history and undo/redo
+# (design-docs/specs/action-history-undo.md). Entries are delta-only on the
+# server; clients see the recorded display title, never the payload.
+type NoteActionLogEntry {
+  seq: Int!
+  occurredAt: String!
+  actorUserId: String!
+  provenance: String!
+  entityType: String!
+  entityId: String!
+  notebookId: String
+  action: String!
+  title: String
+  undoable: Boolean!
+  undoOfSeq: Int
+  undoneBySeq: Int
+}
+type ActionHistoryPayload { result: ControlPlaneResult!, entries: [NoteActionLogEntry!]! }
+type UndoStatePayload { result: ControlPlaneResult!, undo: NoteActionLogEntry, redo: NoteActionLogEntry }
+# status: "ok", "nothing-to-undo" / "nothing-to-redo" (empty answer, not an
+# error); a "conflict" result means the store changed since the entry was
+# recorded and nothing was applied.
+type UndoRedoPayload { result: ControlPlaneResult!, status: String!, applied: NoteActionLogEntry, target: NoteActionLogEntry }
 # agenticSearch answers a search question with the configured agent runtime;
 # the agent receives the kaiba CLI search usage plus a grep pass as context.
 # status "agent-unavailable" means no runtime is configured.

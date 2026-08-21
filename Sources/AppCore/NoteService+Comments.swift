@@ -26,6 +26,18 @@ public extension NoteService {
           author: author,
           createdAt: now
         )
+        try recordAction(
+          NoteActionRecord(
+            kind: .commentAdded,
+            provenance: .human,
+            entityType: .comment,
+            entityId: commentId.rawValue,
+            notebookId: note.notebookId,
+            display: ["title": .optionalString(note.title)],
+            undoable: true
+          ),
+          in: db
+        )
         return (comment, note.notebookId)
       }
     }

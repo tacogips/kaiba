@@ -63,6 +63,7 @@ public extension NoteService {
     _ = try updateNoteBody(
       noteId: subjectNoteId,
       bodyMarkdown: bodyMarkdown,
+      provenance: .ai,
       originatingActionId: originatingActionId
     )
     return (parsed.commentary.isEmpty ? "Updated the note." : parsed.commentary, true)
