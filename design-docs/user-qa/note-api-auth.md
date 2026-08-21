@@ -98,6 +98,29 @@ domain, so it is in test mode and can only send to its own address; sending
 anywhere else fails with a 403 naming the permitted address. Real use needs a
 verified domain at resend.com/domains and a `from` on it.
 
+### P7: How does `kaiba auth login` reach a browser?
+
+The CLI opens a browser and the login runs there; passwordless throughout, by
+email link or one-time code. Chosen handoff: a server-side pending-login row
+that the CLI polls, not a loopback redirect.
+
+A loopback redirect needs the browser and the CLI on one machine. That excludes
+`ssh` into the host that holds the store — the normal case here — and leaves the
+email link with no way to reach a listener on another host. Polling gives one
+approval path that both the link and the code feed into.
+
+The CLI therefore becomes a client of a running server: `kaiba auth login
+--endpoint <url>`. The existing `auth login request|verify` stay as the
+browserless form and as the only form that works with no server running.
+
+### P8: Can the email link log in on click?
+
+Not on a bare `GET`. Mail scanners and corporate link rewriters fetch every URL
+in a message, which would consume the token before the person clicks it. The
+link renders a confirmation page on `GET` and approves on `POST`. That page also
+shows the `userCode` printed in the terminal, so a person cannot be walked into
+approving a login request someone else started.
+
 ## Pending
 
 ### P6: Session TTL and idle expiry
