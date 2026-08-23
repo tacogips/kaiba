@@ -29,17 +29,19 @@ rather than upgraded — the project's established policy.
 ```sql
 CREATE TABLE users (
   user_id TEXT PRIMARY KEY,
-  email TEXT,
+  email TEXT UNIQUE,
   display_name TEXT NOT NULL,
-  is_default INTEGER NOT NULL DEFAULT 0,
-  is_admin INTEGER NOT NULL DEFAULT 0,
+  is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
+  is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0,1)),
   created_at TEXT NOT NULL,
   disabled_at TEXT
-)
+) STRICT
 ```
 
 - `email` is optional, because the default user has no address, and unique on a
-  normalized (lowercased, trimmed) form when present.
+  normalized (lowercased, trimmed) form when present. SQLite treats NULLs as
+  distinct in UNIQUE constraints, so a plain UNIQUE already allows any number
+  of email-less accounts.
 - At most one row may carry `is_default = 1`, enforced by a partial unique
   index rather than by convention.
 - A user is never deleted, only disabled. Notebooks outlive the account that

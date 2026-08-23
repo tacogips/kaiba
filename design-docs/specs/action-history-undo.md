@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS note_action_log (
   undoable INTEGER NOT NULL CHECK (undoable IN (0,1)),
   undo_of_seq INTEGER,
   undone_by_seq INTEGER
-)
+) STRICT
 ```
 
 - `AUTOINCREMENT` keeps `seq` monotonic across pruning, so a pruned seq

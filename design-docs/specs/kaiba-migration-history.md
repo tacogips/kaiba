@@ -321,3 +321,26 @@ memory as consolidated notes in a canonical notebook, linked into the
   mode, CSRF bootstrap client (`api.ts`/`contracts.ts`), polling
   controller, created-range filter, QR registration component, and the
   legacy `memos`/`chat` pane-tab normalization.
+
+## Schema hardening pass (2026-08-23)
+
+- Schema v16 (`currentVersion` 15 -> 16), DDL-only; no data shape or
+  API change. Under the no-migration policy, v15 stores are rejected at
+  `prepare` and must be recreated.
+- Every regular table is now `STRICT`; all JSON writes already went
+  through `jsonb()`, so only the DDL moved. Boolean columns gained
+  `CHECK (x IN (0,1))` uniformly, plus `attempts >= 0` and
+  `byte_size >= 0` range checks.
+- Junction tables with composite text keys (`note_tags`,
+  `notebook_tags`, `note_files`, `notebook_files`, `note_links`,
+  `library_members`, `app_settings`) became `WITHOUT ROWID`.
+- Index changes: dropped `idx_notes_notebook` (duplicated the
+  `UNIQUE (notebook_id, note_number)` index); `users.email` and
+  `libraries.name` moved from partial unique indexes to inline
+  `UNIQUE`; added reverse-lookup indexes on `note_tags(tag_id)`,
+  `notebook_tags(tag_id)`, `note_files(file_id)`,
+  `notebook_files(file_id)`, `note_links(to_note_id)`,
+  `note_comments(note_id)`/`(notebook_id)`, `api_clients(user_id)`,
+  and `tags(parent_tag_id)`/`(class_id)`.
+- The `files` locator CHECK is now mutually exclusive: a `local` row
+  carries no S3 coordinates and an `s3` row no local path.

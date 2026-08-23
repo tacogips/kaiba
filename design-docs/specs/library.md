@@ -42,13 +42,13 @@ State before this work, kept for the reasoning it explains.
 ```sql
 CREATE TABLE libraries (
   library_id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
+  name TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
   auth_required INTEGER NOT NULL DEFAULT 1 CHECK (auth_required IN (0,1)),
   is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
   created_at TEXT NOT NULL,
   created_by TEXT REFERENCES users(user_id)
-)
+) STRICT
 ```
 
 - `name` is the handle a command types, unique on a normalized (lowercased,
@@ -90,7 +90,7 @@ CREATE TABLE library_members (
   granted_at TEXT NOT NULL,
   granted_by TEXT REFERENCES users(user_id),
   PRIMARY KEY (library_id, user_id)
-)
+) STRICT, WITHOUT ROWID
 ```
 
 The resulting rule, in order:
