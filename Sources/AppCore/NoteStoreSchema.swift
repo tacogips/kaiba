@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 15
+  public static let currentVersion = 16
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -439,26 +439,24 @@ private let noteSchemaVersionTableStatement = """
   CREATE TABLE IF NOT EXISTS note_schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
-  )
+  ) STRICT
   """
 
 private let schemaStatements = [
   // Users precede notebooks: the ownership foreign key needs the table to
   // exist, and every notebook has a real owner rather than a null "everyone".
+  // SQLite treats NULLs as distinct in UNIQUE constraints, so a plain UNIQUE
+  // on email already allows any number of email-less accounts.
   """
   CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
-    email TEXT,
+    email TEXT UNIQUE,
     display_name TEXT NOT NULL,
     is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
     is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0,1)),
     created_at TEXT NOT NULL,
     disabled_at TEXT
-  )
-  """,
-  """
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
-  ON users (email) WHERE email IS NOT NULL
+  ) STRICT
   """,
   """
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_default
@@ -471,11 +469,11 @@ private let schemaStatements = [
     code_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(user_id),
     code_hash TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     consumed_at TEXT
-  )
+  ) STRICT
   """,
   """
   CREATE INDEX IF NOT EXISTS idx_auth_login_codes_user
@@ -487,17 +485,13 @@ private let schemaStatements = [
   """
   CREATE TABLE IF NOT EXISTS libraries (
     library_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     auth_required INTEGER NOT NULL DEFAULT 1 CHECK (auth_required IN (0,1)),
     is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
     created_at TEXT NOT NULL,
     created_by TEXT REFERENCES users(user_id)
-  )
-  """,
-  """
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_libraries_name_unique
-  ON libraries (name)
+  ) STRICT
   """,
   """
   CREATE UNIQUE INDEX IF NOT EXISTS idx_libraries_single_default
@@ -515,7 +509,7 @@ private let schemaStatements = [
     granted_at TEXT NOT NULL,
     granted_by TEXT REFERENCES users(user_id),
     PRIMARY KEY (library_id, user_id)
-  )
+  ) STRICT, WITHOUT ROWID
   """,
   """
   CREATE INDEX IF NOT EXISTS idx_library_members_user
@@ -525,7 +519,7 @@ private let schemaStatements = [
   CREATE TABLE IF NOT EXISTS notebooks (
     notebook_id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
-    read_only INTEGER NOT NULL DEFAULT 0,
+    read_only INTEGER NOT NULL DEFAULT 0 CHECK (read_only IN (0,1)),
     owner_user_id TEXT NOT NULL REFERENCES users(user_id),
     library_id TEXT NOT NULL REFERENCES libraries(library_id) DEFAULT 'library-default',
     created_by TEXT REFERENCES users(user_id),
@@ -533,7 +527,7 @@ private let schemaStatements = [
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     meta_json BLOB CHECK (meta_json IS NULL OR json_valid(meta_json, 8))
-  )
+  ) STRICT
   """,
   """
   CREATE INDEX IF NOT EXISTS idx_notebooks_owner
@@ -551,25 +545,24 @@ private let schemaStatements = [
     title TEXT,
     title_source TEXT NOT NULL DEFAULT 'derived' CHECK (title_source IN ('derived','explicit')),
     body_markdown TEXT NOT NULL,
-    read_only INTEGER NOT NULL DEFAULT 0,
+    read_only INTEGER NOT NULL DEFAULT 0 CHECK (read_only IN (0,1)),
     created_by TEXT REFERENCES users(user_id),
     updated_by TEXT REFERENCES users(user_id),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     meta_json BLOB CHECK (meta_json IS NULL OR json_valid(meta_json, 8)),
     UNIQUE (notebook_id, note_number)
-  )
+  ) STRICT
   """,
-  "CREATE INDEX IF NOT EXISTS idx_notes_notebook ON notes(notebook_id, note_number)",
   "CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at DESC)",
   """
   CREATE TABLE IF NOT EXISTS tag_classes (
     class_id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     description TEXT,
-    is_system INTEGER NOT NULL DEFAULT 0,
+    is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0,1)),
     created_at TEXT NOT NULL
-  )
+  ) STRICT
   """,
   """
   CREATE TABLE IF NOT EXISTS tags (
@@ -577,9 +570,17 @@ private let schemaStatements = [
     name TEXT NOT NULL,
     class_id TEXT REFERENCES tag_classes(class_id),
     parent_tag_id TEXT REFERENCES tags(tag_id),
-    is_system INTEGER NOT NULL DEFAULT 0,
+    is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0,1)),
     created_at TEXT NOT NULL
-  )
+  ) STRICT
+  """,
+  """
+  CREATE INDEX IF NOT EXISTS idx_tags_parent
+  ON tags (parent_tag_id) WHERE parent_tag_id IS NOT NULL
+  """,
+  """
+  CREATE INDEX IF NOT EXISTS idx_tags_class
+  ON tags (class_id) WHERE class_id IS NOT NULL
   """,
   """
   CREATE TABLE IF NOT EXISTS note_tags (
@@ -587,22 +588,26 @@ private let schemaStatements = [
     tag_id TEXT NOT NULL REFERENCES tags(tag_id),
     provenance TEXT NOT NULL CHECK (provenance IN ('human','ai','system')),
     assigned_by TEXT,
-    deletable INTEGER NOT NULL DEFAULT 1,
+    deletable INTEGER NOT NULL DEFAULT 1 CHECK (deletable IN (0,1)),
     created_at TEXT NOT NULL,
     PRIMARY KEY (note_id, tag_id)
-  )
+  ) STRICT, WITHOUT ROWID
   """,
+  "CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id, note_id)",
   """
   CREATE TABLE IF NOT EXISTS notebook_tags (
     notebook_id TEXT NOT NULL REFERENCES notebooks(notebook_id),
     tag_id TEXT NOT NULL REFERENCES tags(tag_id),
     provenance TEXT NOT NULL CHECK (provenance IN ('human','ai','system')),
     assigned_by TEXT,
-    deletable INTEGER NOT NULL DEFAULT 1,
+    deletable INTEGER NOT NULL DEFAULT 1 CHECK (deletable IN (0,1)),
     created_at TEXT NOT NULL,
     PRIMARY KEY (notebook_id, tag_id)
-  )
+  ) STRICT, WITHOUT ROWID
   """,
+  "CREATE INDEX IF NOT EXISTS idx_notebook_tags_tag ON notebook_tags(tag_id, notebook_id)",
+  // Exactly one locator per storage kind: a migrated row must drop its stale
+  // local path, and a local row must not carry half-filled S3 coordinates.
   """
   CREATE TABLE IF NOT EXISTS files (
     file_id TEXT PRIMARY KEY,
@@ -612,21 +617,28 @@ private let schemaStatements = [
     s3_bucket TEXT,
     s3_key TEXT,
     media_type TEXT NOT NULL,
-    byte_size INTEGER NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
     sha256 TEXT NOT NULL,
     original_filename TEXT,
     created_at TEXT NOT NULL,
     migrated_at TEXT,
     CHECK (
-      (storage_kind = 'local' AND local_path IS NOT NULL)
+      (
+        storage_kind = 'local'
+        AND local_path IS NOT NULL
+        AND s3_profile IS NULL
+        AND s3_bucket IS NULL
+        AND s3_key IS NULL
+      )
       OR (
         storage_kind = 's3'
+        AND local_path IS NULL
         AND s3_profile IS NOT NULL
         AND s3_bucket IS NOT NULL
         AND s3_key IS NOT NULL
       )
     )
-  )
+  ) STRICT
   """,
   "CREATE INDEX IF NOT EXISTS idx_files_sha ON files(sha256)",
   """
@@ -636,16 +648,18 @@ private let schemaStatements = [
     role TEXT NOT NULL CHECK (role IN ('embedded','related','source-page-image')),
     position INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (note_id, file_id, role)
-  )
+  ) STRICT, WITHOUT ROWID
   """,
+  "CREATE INDEX IF NOT EXISTS idx_note_files_file ON note_files(file_id)",
   """
   CREATE TABLE IF NOT EXISTS notebook_files (
     notebook_id TEXT NOT NULL REFERENCES notebooks(notebook_id),
     file_id TEXT NOT NULL REFERENCES files(file_id),
     role TEXT NOT NULL CHECK (role IN ('source-document','related')),
     PRIMARY KEY (notebook_id, file_id, role)
-  )
+  ) STRICT, WITHOUT ROWID
   """,
+  "CREATE INDEX IF NOT EXISTS idx_notebook_files_file ON notebook_files(file_id)",
   """
   CREATE TABLE IF NOT EXISTS note_links (
     from_note_id TEXT NOT NULL REFERENCES notes(note_id),
@@ -654,15 +668,18 @@ private let schemaStatements = [
     provenance TEXT NOT NULL CHECK (provenance IN ('human','ai','system')),
     created_at TEXT NOT NULL,
     PRIMARY KEY (from_note_id, to_note_id, link_kind)
-  )
+  ) STRICT, WITHOUT ROWID
   """,
+  "CREATE INDEX IF NOT EXISTS idx_note_links_to ON note_links(to_note_id)",
   noteCommentsTableStatement,
+  "CREATE INDEX IF NOT EXISTS idx_note_comments_note ON note_comments(note_id) WHERE note_id IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS idx_note_comments_notebook ON note_comments(notebook_id) WHERE notebook_id IS NOT NULL",
   """
   CREATE TABLE IF NOT EXISTS app_settings (
     setting_key TEXT PRIMARY KEY,
     value_json BLOB NOT NULL CHECK (json_valid(value_json, 8)),
     updated_at TEXT NOT NULL
-  )
+  ) STRICT, WITHOUT ROWID
   """,
   """
   CREATE TABLE IF NOT EXISTS auto_actions (
@@ -670,10 +687,10 @@ private let schemaStatements = [
     trigger TEXT NOT NULL CHECK (trigger IN ('note-created','note-updated','notebook-created')),
     workflow_id TEXT NOT NULL,
     filter_json BLOB CHECK (filter_json IS NULL OR json_valid(filter_json, 8)),
-    enabled INTEGER NOT NULL DEFAULT 1,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
-  )
+  ) STRICT
   """,
   autoActionDispatchesTableStatement,
   autoActionDispatchesStatusIndexStatement,
@@ -689,8 +706,9 @@ private let schemaStatements = [
     created_at TEXT NOT NULL,
     last_seen_at TEXT,
     revoked_at TEXT
-  )
+  ) STRICT
   """,
+  "CREATE INDEX IF NOT EXISTS idx_api_clients_user ON api_clients(user_id)",
   """
   CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
     title, body, tags,
@@ -702,7 +720,7 @@ private let schemaStatements = [
   CREATE TABLE IF NOT EXISTS note_fts_map (
     fts_rowid INTEGER PRIMARY KEY,
     note_id TEXT NOT NULL UNIQUE
-  )
+  ) STRICT
   """
 ]
 
@@ -724,7 +742,7 @@ let noteCommentsTableStatement = """
     author TEXT NOT NULL,
     created_at TEXT NOT NULL,
     CHECK (note_id IS NOT NULL OR notebook_id IS NOT NULL)
-  )
+  ) STRICT
   """
 
 private let autoActionDispatchesTableStatement = """
@@ -734,7 +752,7 @@ private let autoActionDispatchesTableStatement = """
     action_trigger TEXT NOT NULL CHECK (action_trigger IN ('note-created','note-updated','notebook-created')),
     workflow_id TEXT NOT NULL,
     filter_json BLOB CHECK (filter_json IS NULL OR json_valid(filter_json, 8)),
-    action_enabled INTEGER NOT NULL,
+    action_enabled INTEGER NOT NULL CHECK (action_enabled IN (0,1)),
     action_position INTEGER NOT NULL,
     action_created_at TEXT NOT NULL,
     event_json BLOB NOT NULL CHECK (json_valid(event_json, 8)),
@@ -745,7 +763,7 @@ private let autoActionDispatchesTableStatement = """
     last_error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
-  )
+  ) STRICT
   """
 
 private let autoActionDispatchesStatusIndexStatement =
@@ -772,7 +790,7 @@ private let noteActionLogTableStatement = """
     undoable INTEGER NOT NULL CHECK (undoable IN (0,1)),
     undo_of_seq INTEGER,
     undone_by_seq INTEGER
-  )
+  ) STRICT
   """
 
 private let noteActionLogActorIndexStatement =
