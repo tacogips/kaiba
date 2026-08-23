@@ -422,6 +422,15 @@ extension NoteService {
     ).isEmpty else {
       throw NoteServiceError.conflict("notebook already exists: \(notebookId)")
     }
+    // The snapshot names the library it came from; re-creating the notebook
+    // there is a write into that library and needs the same reach check any
+    // other mutation gets (U6) — access may have been revoked since.
+    try requireLibraryReach(
+      libraryId: libraryId,
+      subject: notebookId.rawValue,
+      kind: .notebook,
+      in: db
+    )
     try db.execute(
       """
       INSERT INTO notebooks (

@@ -46,10 +46,12 @@ value as a terminal QR code (`ServeCommand.swift:176-179`).
   (`:55`, `:76`).
 - It is issued **once, at startup**. There is no way to mint another while the
   server runs.
-- Opening the URL serves the SPA (`GET /note/register` falls through to
-  index.html, `ServerContracts.swift:142`). The SPA reads `?code=`, POSTs
-  `{code, displayName}` to `/note/register`, receives a bearer token `rn_...`,
-  and stores it (`web/src/notes/client.ts:55-72`).
+- Opening the URL serves the SPA only under `--web-root`: `GET /note/register`
+  is routed to `routeNoteRegistrationChallenge`, which answers 403
+  (`ServerContracts.swift:150-151`), and the index.html rewrite that lets the
+  SPA load is a special case in `KaibaStaticAssetResolver.swift:104-110`. The
+  SPA reads `?code=`, POSTs `{code, displayName}` to `/note/register`, receives
+  a bearer token `rn_...`, and stores it (`web/src/notes/client.ts:55-72`).
 
 So the registration URL is a **one-time invite link that provisions an API
 client**, not a login page. Nothing in the product can re-issue it, and there
@@ -90,25 +92,43 @@ anything, and a browser cannot log in at all.
 
 ## Problems
 
-1. **No unauthenticated state in the SPA.** A 401 is funnelled into the generic
-   `error` string (`web/src/state/appStore.tsx:299-301`) and rendered as a
-   banner while the entire reader shell still mounts
-   (`web/src/views/ChatbookView.tsx:88-92`), showing `No notebooks yet.`
-   (`web/src/components/FileTreeTab.tsx:32`). "Not logged in" is
-   indistinguishable from "empty store", and `Retry` re-sends the same
-   unauthenticated request forever.
-2. **The token is per-tab.** It is written to `sessionStorage`
-   (`web/src/notes/client.ts:703-705`), so a new tab or a browser restart drops
-   it, and the only recovery path (the startup code) has usually expired.
+1. ~~**No unauthenticated state in the SPA.**~~ Fixed since the first draft:
+   `appStore` now carries an explicit `AuthState`
+   (`web/src/state/appStore.tsx:56`, set on any 401), and `ChatbookView`
+   renders `<LoginView>` instead of the reader shell when unauthenticated
+   (`web/src/views/ChatbookView.tsx:145`), so "not logged in" is no longer
+   indistinguishable from "empty store". See "What has shipped since".
+2. ~~**The token is per-tab.**~~ Fixed since the first draft: the credential
+   now lives in `localStorage` keyed `kaiba-note-bearer`
+   (`web/src/notes/client.ts:720-728`), so it survives new tabs and browser
+   restarts, and a 401 clears the key.
 3. **No account model.** There is no user, no email, no session — only opaque
    API clients. Nothing to attach an external identity to.
-4. **`--allow-unauthenticated` is unguarded.** No check ties it to a loopback
-   bind, so `--host 0.0.0.0 --allow-unauthenticated` exposes the whole note
-   store to the network with no warning.
+4. ~~**`--allow-unauthenticated` is unguarded.**~~ Fixed: `ServeCommand.parse`
+   refuses `--allow-unauthenticated` unless the bind host is loopback
+   (`127.0.0.0/8`, `::1`, or `localhost`), so serving the store unauthenticated
+   on a routable address is a hard startup failure.
 5. **Login is a terminal transcription exercise.** The only working method is
    reading a six-digit code out of a mail client and retyping it into a shell.
    There is no browser path, so the SPA cannot log anyone in, and the CLI cannot
    log in to a server it does not share a filesystem with.
+6. **`GET /note/events` and `/note/agent-stream` are not scoped to the caller
+   (open).** The change feed returns every mutation's `notebookId` and
+   `tagNames` regardless of what the poller may reach, and the agent stream
+   serves any turn note by id with no ownership check. A low-privilege or
+   unauthenticated (`--allow-unauthenticated`) poller learns the notebook ids
+   and tag vocabulary of libraries it cannot read, and can stream another
+   user's in-progress reply. Fix: filter the feed through `reachableLibraryIds`
+   for the polling account, and resolve the turn note via `requireNote` on a
+   service scoped to the authenticated user before streaming. Needs the routes
+   to carry the authenticated `userId`, which they currently discard.
+7. **No CSRF or `Host`/`Content-Type` guard on `POST /graphql` (open).** The
+   body is decoded as JSON without checking `Content-Type`, and no route reads
+   `Origin` or `Host`. Under `--allow-unauthenticated` a cross-site
+   `text/plain` form post can drive mutations against a local store, and an
+   unchecked `Host` leaves DNS-rebinding open. Fix: require
+   `Content-Type: application/json` on `/graphql` and reject non-loopback,
+   non-configured `Host` values.
 
 ## Design
 
@@ -122,6 +142,7 @@ for a hosted provider without touching routing or the note store.
 | Mode | Provider | Selection |
 | --- | --- | --- |
 | `none` | no authenticator | `--allow-unauthenticated`, loopback only |
+| `none` (as-admin) | no authenticator, requests act as the seeded admin | `--allow-unauthenticated --as-admin`, loopback only |
 | `apiKey` | `QRClientRegistrationAuthenticator` (current) | default until `builtin` ships |
 | `builtin` | kaiba's own auth server: email login, optional IdP federation | config |
 | `oidc` | tokens minted by an external issuer (Auth0), kaiba only validates | config |
@@ -173,9 +194,9 @@ Network.framework. Vapor would replace that entire layer and pull SwiftNIO into
 a Homebrew-distributed CLI, and none of the above needs it: CryptoKit is
 already linked and the sessions are opaque.
 
-**Fail closed on accounts.** An address can log in only if an enabled
-`auth_users` row exists for it. There is no self-signup and no first-visitor
-claim. Accounts are created out of band with `kaiba auth user add --email`.
+**Fail closed on accounts.** An address can log in only if an enabled `users`
+row exists for it. There is no self-signup and no first-visitor claim. Accounts
+are created out of band with `kaiba auth user add --email`.
 
 ### Storage
 
@@ -188,9 +209,13 @@ already has `email` with a unique partial index, `display_name`, `created_at`,
   `consumed_at`. Single use, capped at five attempts, at most three live per
   account.
 - `auth_login_requests` — new, and the whole of the browser handoff:
-  `request_id`, `user_code`, `approval_token_hash`, `user_id` (null until
-  approved), `client_description`, `created_at`, `expires_at`, `approved_at`,
-  `consumed_at`, `poll_count`, `last_polled_at`.
+  `request_id`, `user_code`, `poll_secret_hash`, `approval_token_hash`,
+  `user_id` (null until approved), `client_description`, `created_at`,
+  `expires_at`, `approved_at`, `consumed_at`, `poll_count`, `last_polled_at`.
+  `request_id` is the public name of the row — it may appear in the
+  verification URL and on screen. `poll_secret` is the credential the CLI
+  polls with; it is returned once by `/note/login/start`, stored only as a
+  hash, and never appears in any URL (see "Handoff" below).
 - `auth_sessions` — still unbuilt, and needed only when the SPA holds a
   credential of its own rather than a JWT: `session_id`, `user_id`,
   `token_hash`, `created_at`, `expires_at`, `revoked_at`, `last_seen_at`. The
@@ -202,6 +227,13 @@ already has `email` with a unique partial index, `display_name`, `created_at`,
 Raw codes, raw approval tokens, and raw session tokens are never stored, never
 logged, and never returned except in the single response or mail that mints
 them.
+
+The JWT signing key (`auth.jwt.secret`) shares the `app_settings` table but is
+**not reachable through the `appSetting`/`setAppSetting` GraphQL surface**: keys
+under the reserved `auth.` prefix are refused there (only internal token code
+reaches them), so a bearer-token holder can neither read the key to forge an
+admin JWT nor overwrite it. This closed a privilege-escalation hole where any
+authenticated client could sign a token for any account.
 
 ### Login flow (`builtin`, email)
 
@@ -230,15 +262,24 @@ listener on some other host. Polling costs a little traffic against a server
 that is already long-running and already serves a long-poll change feed.
 
 1. `POST /note/login/start` with an optional `{email}` answers
-   `{requestId, verificationURL, userCode, expiresIn, interval}` and writes a
-   pending `auth_login_requests` row bound to no account yet.
+   `{requestId, pollSecret, verificationURL, userCode, expiresIn, interval}`
+   and writes a pending `auth_login_requests` row bound to no account yet.
 2. The CLI prints `userCode` and opens `verificationURL`. With no browser
    available — headless, `ssh`, `--no-browser` — it prints the URL instead, to
    be opened anywhere, including on a phone.
 3. The browser approves the pending row by one of the two methods below.
-4. The CLI polls `POST /note/login/poll` with `{requestId}` every `interval`
-   seconds, receiving `authorization_pending` until approval and a JWT once
-   approved. The row is consumed on the first successful poll.
+4. The CLI polls `POST /note/login/poll` with `{requestId, pollSecret}` every
+   `interval` seconds, receiving `authorization_pending` until approval and a
+   JWT once approved. The row is consumed on the first successful poll.
+
+`pollSecret` exists because the poll is what a JWT is handed to, and
+`requestId` cannot be that credential: the verification URL carries
+`?request=<requestId>`, so the id lands in browser history, on a phone screen,
+and in anything that logs URLs. This is RFC 8628's split between the
+`device_code` (secret, held only by the polling client) and the `user_code`
+(public, shown to the person); kaiba keeps `requestId` public and moves the
+polling right into a separate secret that exists only in the CLI's memory and
+as a hash in the row.
 
 `userCode` is not a credential; it is the check that the browser and the
 terminal are talking about the same request. The verification page displays it
@@ -261,11 +302,27 @@ rewriters fetch every URL in a message, so a `GET` that approves is consumed
 before the person ever clicks it. Render on `GET`, approve on `POST`; the cost
 is one click.
 
-**Six-digit code.** The shipped `auth_login_codes` path, unchanged, entered on
-the verification page or — with `--no-browser` — in the terminal. This is the
-fallback for a host with no mail sender configured, where `LogMailSender`
-writes the code to the server's stderr and a machine-local install can still
-complete a login with no mail account at all.
+**Six-digit code.** The shipped `auth_login_codes` path, extended to approve a
+pending row: entered on the verification page or — with `--no-browser` — in the
+terminal. `verifyEmailLoginCode` today mints a JWT directly and knows nothing
+about `auth_login_requests`; the browser flow needs it to take an optional
+`requestId` and, when present, mark that pending row approved instead of
+returning a token to the verifier. This is the fallback for a host with no mail
+sender configured, where `LogMailSender` writes the code to the server's stderr
+and a machine-local install can still complete a login with no mail account at
+all.
+
+**Approval endpoints.** The routes the two methods above need, none of which
+exist yet (`ServerContracts.swift` routes only `/graphql`, `/note/register`,
+`/note/events`, `/note/agent-stream`, and the SPA fallbacks):
+
+- `POST /note/login/email` — from the verification page, request the mailed
+  approval link/code for a pending `requestId`.
+- `GET /note/login/approve` renders the confirmation page (showing `userCode`
+  and the requesting client); `POST /note/login/approve` approves the row.
+  Split so a mail scanner's `GET` prefetch cannot consume the link.
+- `POST /note/login/code` — submit a six-digit code against a pending
+  `requestId`.
 
 Delivery is unchanged: `LogMailSender` by default, or
 `ResendGatewayCLIMailSender` spawning `resend-gateway-writer emails send`.
@@ -316,7 +373,7 @@ The same account table, a different way of proving the address. The SPA runs
 Authorization Code + PKCE against the configured issuer as a public client with
 no client secret; the callback lands on an SPA route. kaiba verifies the
 resulting ID token against the issuer's JWKS, extracts the verified email, and
-issues **its own** session for the matching `auth_users` row. An address with
+issues **its own** session for the matching `users` row. An address with
 no enabled row is refused, exactly as with email login.
 
 This is what makes the IdP optional rather than load-bearing: sessions,
@@ -381,6 +438,13 @@ Rules:
   `--access-key-env` convention. No secret values in `config.json`.
 - Startup keeps printing the effective mode; the existing
   `auth=disabled (--allow-unauthenticated)` line generalizes to `auth=<mode>`.
+- `sessionTTLHours` sets the JWT `exp` until `auth_sessions` exists (it is the
+  only credential today). The 720h/30-day default is long for a token handed to
+  agents via `kaiba --jwt` and, with revocation-by-expiry as the only lever
+  until sessions ship (see "CLI surface"), should be shortened before `builtin`
+  mode lands.
+- The pending-login TTL is fixed at ten minutes (Safety rules) and is not yet a
+  config key; add `pendingLoginTTLMinutes` to `builtin` when it needs tuning.
 
 ### Discovery endpoint
 
@@ -424,19 +488,41 @@ Login view by mode:
 
 ### Token storage
 
-`sessionStorage` moves to `localStorage` so a session survives a new tab and a
-browser restart, keyed as today (`kaiba-note-bearer`). A 401 clears the key, so
-a revoked or expired credential cannot wedge the app in a loop.
+Shipped: the credential lives in `localStorage` keyed `kaiba-note-bearer`
+(`web/src/notes/client.ts:720-728`), so a session survives a new tab and a
+browser restart. A 401 clears the key, so a revoked or expired credential
+cannot wedge the app in a loop.
 
 ### Safety rules
 
 - `mode: none` is refused unless the bind host is loopback. Serving the note
   store unauthenticated on a routable address must be impossible by accident.
   This is a hard failure, not a warning: the friendly path for LAN use is to
-  run an authenticated mode.
+  run an authenticated mode. Implemented for the current `--allow-unauthenticated`
+  flag in `ServeCommand.parse`.
+- Stored attachments served at `GET /files/<id>` are inert downloads: an
+  author-supplied media type is honored only for a small allowlist of
+  render-safe types, everything else (notably `text/html` and
+  `image/svg+xml`) is forced to `application/octet-stream`, and every response
+  carries `Content-Disposition: attachment` (or `inline` for the allowlist),
+  `Content-Security-Policy: default-src 'none'; sandbox`, and `nosniff` — so a
+  malicious attachment cannot run script on kaiba's origin and steal the SPA's
+  bearer token.
+- `GET /files/<id>` scopes its reader to the authenticated account, so per-account
+  library membership is enforced on raw bytes exactly as the GraphQL executor
+  enforces it; the route no longer crosses a library boundary for an
+  authenticated non-member.
+- Store-wide file maintenance (`migrateAllNoteFiles`, `reclaimNoteFileStorage`)
+  is refused to non-admin clients: only the unscoped local operator or an acting
+  admin may sweep or migrate blobs across every library.
 - Login endpoints answer identically for known and unknown addresses.
-- Login code requests and verification attempts are rate limited, and codes
-  carry an attempt cap.
+- Login code verification attempts carry an attempt cap (`auth_login_codes.attempts`,
+  capped at five across all live codes), and an account may hold at most three
+  live codes at once. **Open item:** there is no per-source (IP) rate limit on
+  `/note/login/start` yet — no column, bucket table, or counter keyed by source
+  exists — so once that unauthenticated, mail-triggering route ships it must
+  gain one, or an attacker who knows one enrolled address can mail-bomb it. The
+  identical-answer property does not mitigate this.
 - The email approval link renders on `GET` and approves on `POST`, so a link
   prefetch by a mail scanner cannot consume it.
 - `userCode` is shown in both the terminal and the browser, so a person cannot
@@ -444,9 +530,11 @@ a revoked or expired credential cannot wedge the app in a loop.
 - Pending logins expire in ten minutes, are single use, and are rate limited per
   source. Polling faster than `interval` answers `slow_down` rather than
   serving the request.
-- `POST /note/login/poll` answers identically for an unknown, an expired, and an
-  already-consumed `requestId`, so the endpoint reveals nothing about requests
-  that are not the caller's.
+- `POST /note/login/poll` answers identically for an unknown, an expired, an
+  already-consumed `requestId`, and a wrong `pollSecret`, so the endpoint
+  reveals nothing about requests that are not the caller's. A token is
+  released only to the holder of `pollSecret`, never to a caller who merely
+  knows `requestId`.
 - 401 bodies keep their current shape (`error` plus a GraphQL `errors` array)
   so existing clients are unaffected.
 - Provider errors are logged server-side only, never returned in a response

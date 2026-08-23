@@ -33,7 +33,7 @@ Accepted (2026-08-21). Initial implementation.
   (`design-docs/specs/design-event-log.md` there). Kaiba adopts its
   log-derived undo state and link columns, and deliberately diverges
   where noted in U2, U4, U7, U9.
-- Implementation plan: `impl-plans/active/action-history-undo.md`.
+- Implementation plan: `impl-plans/completed/action-history-undo.md`.
 - User decisions: `design-docs/user-qa/action-history-undo.md`.
 
 ## Design Decisions
@@ -55,10 +55,11 @@ Accepted (2026-08-21). Initial implementation.
   constraint go unnoticed for several commits.
 
 - **U3 — The undo/redo "stacks" are derived by indexed query.** The undo
-  target is the newest row per actor with `undoable = 1`,
-  `undone_by_seq IS NULL`, and `action <> 'undone'` (so a `redone` entry
-  is itself undoable, keeping undo pointed at the most recently applied
-  change). Undoing appends an `undone` row and links the target's
+  target is the newest row per actor with `undoable = 1` and
+  `undone_by_seq IS NULL`. `undone` entries are never recorded as undoable so
+  they need no explicit exclusion, while a `redone` entry is recorded
+  undoable, keeping undo pointed at the most recently applied change. Undoing
+  appends an `undone` row and links the target's
   `undone_by_seq`; redoing appends a `redone` row and links the `undone`
   row. Nothing is ever popped, so state survives restarts and concurrent
   clients for free.
@@ -110,11 +111,17 @@ Accepted (2026-08-21). Initial implementation.
 - **U9 — Bounded growth.** On every insert the recorder prunes: entries
   beyond the newest `history.maxEntries` (app setting key `history`,
   `{"maxEntries": 1000}` default, clamped to ≥ 10) are deleted oldest
-  first, except entries still referenced by a survivor's `undo_of_seq`.
-  A creation snapshot consumed by redo is cleared from its `undone` row
-  (the re-inserted live row owns the data again). Pruned undo targets
-  simply stop being offered; resolving a link to a pruned row reports a
-  conflict rather than corrupting state.
+  first, except entries still referenced by an entry newer than the cutoff
+  through `undo_of_seq`. The cap is **store-wide, not per actor**: the cutoff
+  is a single `ORDER BY seq DESC LIMIT 1 OFFSET maxEntries` with no
+  `actor_user_id` filter, so a very active actor can prune a quiet actor's
+  older entries even though history and undo/redo are otherwise per-actor
+  (U11). This is accepted for v1 — the default cap is generous and undo is a
+  recency feature — and is the place to revisit if multi-actor stores grow
+  busy (partition the cutoff on `actor_user_id`). A creation snapshot consumed
+  by redo is cleared from its `undone` row (the re-inserted live row owns the
+  data again). Pruned undo targets simply stop being offered; resolving a link
+  to a pruned row reports a conflict rather than corrupting state.
 
 - **U10 — Recorded scope (v1).** Undoable: note create / body update /
   tag apply / tag remove / read-only set / delete; notebook create

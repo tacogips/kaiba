@@ -20,12 +20,12 @@ server transport).
 Kaiba ships as:
 
 - `AppCore` — the note domain library (vendored and adapted from
-  `Sources/RielaNote/` and `Sources/RielaSQLite/`).
+  `riela/Sources/RielaNote/` and `riela/Sources/RielaSQLite/`).
 - `AppGraphQL` — the note GraphQL executor (vendored from
-  `Sources/RielaGraphQL/` note modules; the workflow-scaffold mutation
+  `riela/Sources/RielaGraphQL/` note modules; the workflow-scaffold mutation
   and all riela control-plane surface removed).
 - `AppServer` — local HTTP server (vendored from
-  `Sources/RielaServer/`): `POST /graphql`, QR client registration
+  `riela/Sources/RielaServer/`): `POST /graphql`, QR client registration
   (`/note/register`), long-poll change feed (`GET /note/events`), and
   static SPA serving.
 - `kaiba` (`AppCLI`) — a command line note app over `AppCore`, plus

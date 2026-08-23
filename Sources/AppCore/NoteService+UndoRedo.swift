@@ -488,6 +488,13 @@ extension NoteService {
     let snapshot: JSONValue
     do {
       snapshot = try captureCommentSnapshot(commentId: commentId, in: db)
+      // The same reach check `addComment` performs (U6): removing the comment
+      // must not outlive this actor's access to its note or notebook.
+      if let noteId = snapshot.identifier("noteId", as: NoteID.self) {
+        _ = try requireNote(noteId, in: db)
+      } else if let notebookId = snapshot.identifier("notebookId", as: NotebookID.self) {
+        _ = try requireNotebook(notebookId, in: db)
+      }
     } catch NoteServiceError.notFound {
       throw NoteServiceError.conflict("comment no longer exists: \(commentId)")
     }
@@ -511,12 +518,19 @@ extension NoteService {
     guard let snapshot else {
       throw NoteServiceError.conflict("comment snapshot is no longer available")
     }
+    // `requireNote` both proves the note still exists and re-runs the reach
+    // check `addComment` would (U6); an unreachable note answers notFound.
     if let noteId = snapshot.identifier("noteId", as: NoteID.self) {
-      guard try !db.query(
-        "SELECT 1 AS present FROM notes WHERE note_id = ? LIMIT 1",
-        bindings: [.id(noteId)]
-      ).isEmpty else {
+      do {
+        _ = try requireNote(noteId, in: db)
+      } catch NoteServiceError.notFound {
         throw NoteServiceError.conflict("the comment's note no longer exists: \(noteId)")
+      }
+    } else if let notebookId = snapshot.identifier("notebookId", as: NotebookID.self) {
+      do {
+        _ = try requireNotebook(notebookId, in: db)
+      } catch NoteServiceError.notFound {
+        throw NoteServiceError.conflict("the comment's notebook no longer exists: \(notebookId)")
       }
     }
     try restoreCommentSnapshot(snapshot, in: db)

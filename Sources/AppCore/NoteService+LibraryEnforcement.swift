@@ -180,6 +180,25 @@ extension NoteService {
     return isLibraryMember(libraryId: libraryId, userId: actingUserId, in: db)
   }
 
+  /// Refuses a store-wide privileged operation to anyone but the unscoped
+  /// local operator or an acting admin account. The cross-library file
+  /// maintenance passes (`migrateAllLocalFiles`, `reclaimUnreferencedFiles`)
+  /// carry no library predicate, so without this any authenticated client
+  /// could migrate or sweep blobs belonging to libraries it cannot read.
+  func requireStoreAdministrator() throws {
+    try driver.withDatabase { db in
+      // The unscoped local CLI is the operator view (see `isReachable`): no
+      // acting user and no unauthenticated marker means the process opened the
+      // store directly and already holds the file.
+      if actingUserId == nil, !isUnauthenticatedPrincipal {
+        return
+      }
+      guard isActingAdmin(in: db) else {
+        throw NoteServiceError.invalidInput("this operation requires an administrator account")
+      }
+    }
+  }
+
   /// Whether the acting account is an enabled admin. Read per call rather
   /// than cached on the service value, so revoking admin takes effect on the
   /// next request instead of at the next process start. A request that

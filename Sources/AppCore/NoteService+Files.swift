@@ -397,6 +397,8 @@ public extension NoteService {
     httpClient: S3HTTPClient = URLSessionS3HTTPClient(),
     now: Date = Date()
   ) throws -> NoteFileReclamationResult {
+    // Store-wide and library-blind: only the operator or an admin may run it.
+    try requireStoreAdministrator()
     var result = NoteFileReclamationResult()
     let localStore = LocalNoteFileStore(noteRoot: noteRootPath())
 

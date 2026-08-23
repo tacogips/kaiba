@@ -17,6 +17,7 @@ private struct LibrarySentinelHandler: KaibaHTTPRouteHandling {
 
 private struct LibraryStubAuthenticator: NoteAPIAuthenticating {
   var acceptedToken: String
+  var userId: UserID = NoteStoreSchema.defaultUserId
 
   func authenticate(
     request: ServerRequestEnvelope,
@@ -28,7 +29,7 @@ private struct LibraryStubAuthenticator: NoteAPIAuthenticating {
     return .accepted(NoteAPIAuthenticatedClient(
       clientId: APIClientID("client-1"),
       displayName: "tester",
-      userId: NoteStoreSchema.defaultUserId
+      userId: userId
     ))
   }
 }
@@ -112,6 +113,101 @@ final class KaibaNoteFileHTTPRouterLibraryTests: XCTestCase {
 
     XCTAssertEqual(response.status, 200)
     XCTAssertEqual(response.body, pngBytes)
+  }
+
+  // Finding 3: an authenticated but non-admin client that is a member of no
+  // library must not read a file in an `auth_required` library through the raw
+  // bytes route, even though its token authenticates — the route used to skip
+  // the per-account membership check the GraphQL executor applies.
+  func testAuthenticatedNonMemberCannotFetchAFileFromAnAuthenticatedLibrary() async throws {
+    let service = try makeService()
+    let attachment = try attachPNG(to: service, library: "shared", authRequired: true)
+    let outsider = try service.createUser(email: "outsider@example.com", displayName: "Outsider")
+    let router = KaibaNoteFileHTTPRouter(
+      service: LibrarySentinelHandler(),
+      noteService: service,
+      authenticator: LibraryStubAuthenticator(acceptedToken: "token-1", userId: outsider.userId)
+    )
+
+    let response = await router.response(for: KaibaHTTPRequest(
+      method: "GET",
+      path: "/files/\(attachment.file.fileId)",
+      headers: ["Authorization": "Bearer token-1"]
+    ))
+
+    XCTAssertEqual(response.status, 404)
+    XCTAssertFalse(response.body.contains(pngBytes))
+  }
+
+  // A member of the library still gets the bytes: scoping must not lock out a
+  // legitimate reader.
+  func testAuthenticatedMemberFetchesAFileFromAnAuthenticatedLibrary() async throws {
+    let service = try makeService()
+    let created = try service.createLibrary(name: "shared", authRequired: true)
+    let member = try service.createUser(email: "member@example.com", displayName: "Member")
+    _ = try service.grantLibraryAccess(libraryName: "shared", userId: member.userId)
+    let writer = service.scoped(toLibrary: created.libraryId)
+    let note = try writer.createNote(bodyMarkdown: "# Illustrated\nBody.")
+    let attachment = try writer.attachFile(
+      noteId: note.noteId,
+      data: pngBytes,
+      role: .sourcePageImage,
+      mediaType: "image/png",
+      originalFilename: "page.png"
+    )
+    let router = KaibaNoteFileHTTPRouter(
+      service: LibrarySentinelHandler(),
+      noteService: service,
+      authenticator: LibraryStubAuthenticator(acceptedToken: "token-1", userId: member.userId)
+    )
+
+    let response = await router.response(for: KaibaHTTPRequest(
+      method: "GET",
+      path: "/files/\(attachment.file.fileId)",
+      headers: ["Authorization": "Bearer token-1"]
+    ))
+
+    XCTAssertEqual(response.status, 200)
+    XCTAssertEqual(response.body, pngBytes)
+  }
+
+  // Finding 4: an attacker-chosen active media type is served as an inert
+  // download, never as an HTML document on kaiba's origin.
+  func testHTMLAttachmentIsServedAsInertDownload() async throws {
+    let service = try makeService()
+    let note = try service.createNote(bodyMarkdown: "# Page\nBody.")
+    let html = Data("<script>alert(document.cookie)</script>".utf8)
+    let attachment = try service.attachFile(
+      noteId: note.noteId,
+      data: html,
+      role: .related,
+      mediaType: "text/html",
+      originalFilename: "x.html"
+    )
+    let router = KaibaNoteFileHTTPRouter(
+      service: LibrarySentinelHandler(),
+      noteService: service,
+      allowUnauthenticated: true
+    )
+
+    let response = await router.response(for: KaibaHTTPRequest(
+      method: "GET",
+      path: "/files/\(attachment.file.fileId)"
+    ))
+
+    XCTAssertEqual(response.status, 200)
+    XCTAssertEqual(response.headers["Content-Type"], "application/octet-stream")
+    XCTAssertEqual(response.headers["Content-Disposition"], "attachment")
+    XCTAssertEqual(response.headers["Content-Security-Policy"], "default-src 'none'; sandbox")
+  }
+
+  func testKnownImageTypeRendersInline() {
+    let (contentType, disposition) = KaibaNoteFileHTTPRouter.responseContentType(for: "image/png")
+    XCTAssertEqual(contentType, "image/png")
+    XCTAssertEqual(disposition, "inline")
+    let svg = KaibaNoteFileHTTPRouter.responseContentType(for: "image/svg+xml")
+    XCTAssertEqual(svg.contentType, "application/octet-stream")
+    XCTAssertEqual(svg.disposition, "attachment")
   }
 
   private func attachPNG(

@@ -15,7 +15,7 @@ public extension NoteService {
 
   /// The store's signing key, generated on first use.
   func authTokenSigningSecret() throws -> Data {
-    if let stored = try appSetting(key: Self.jwtSigningSecretSettingKey),
+    if let stored = try appSetting(key: Self.jwtSigningSecretSettingKey, allowReserved: true),
        let value = try? JSONDecoder().decode(String.self, from: Data(stored.utf8)),
        let secret = KaibaJWT.base64URLDecode(value), secret.count >= 32 {
       return secret
@@ -28,7 +28,7 @@ public extension NoteService {
     guard let encoded else {
       throw NoteServiceError.invalidInput("could not encode the signing secret")
     }
-    try setAppSetting(key: Self.jwtSigningSecretSettingKey, valueJSON: encoded)
+    try setAppSetting(key: Self.jwtSigningSecretSettingKey, valueJSON: encoded, allowReserved: true)
     return secret
   }
 

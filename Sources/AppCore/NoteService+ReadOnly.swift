@@ -42,8 +42,8 @@ public extension NoteService {
 
   @discardableResult
   func setReadOnly(noteId: NoteID, readOnly: Bool) throws -> Note {
-    try driver.withDatabase { database in
-      try database.transaction { db in
+    let result = try driver.withDatabase { database in
+      try database.transaction { db -> (note: Note, changed: Bool) in
         let existing = try requireNote(noteId, in: db)
         try db.execute(
           "UPDATE notes SET read_only = ?, updated_at = ?, updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id) WHERE note_id = ?",
@@ -68,14 +68,23 @@ public extension NoteService {
             in: db
           )
         }
-        return updated
+        return (updated, existing.readOnly != readOnly)
       }
     }
+    // Undo of this change publishes noteUpdated (U13); the forward mutation must
+    // too, or a live client sees the lock flip only when it is undone.
+    if result.changed {
+      publishChange(NoteChangeEvent(
+        kind: NoteChangeEventKind.noteUpdated,
+        notebookId: result.note.notebookId
+      ))
+    }
+    return result.note
   }
 
   func deleteNote(noteId: NoteID) throws {
-    try driver.withDatabase { database in
-      try database.transaction { db in
+    let notebookId = try driver.withDatabase { database in
+      try database.transaction { db -> NotebookID in
         let note = try requireNote(noteId, in: db)
         let notebook = try requireNotebook(note.notebookId, in: db)
         guard !note.readOnly, !notebook.readOnly else {
@@ -102,8 +111,15 @@ public extension NoteService {
           ),
           in: db
         )
+        return note.notebookId
       }
     }
+    // The same wake-up undoing the deletion publishes (U13); without it, live
+    // clients keep showing a note that no longer exists.
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteUpdated,
+      notebookId: notebookId
+    ))
   }
 
   func deleteNotebook(notebookId: NotebookID) throws {

@@ -52,24 +52,28 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
       ]))
     }
     let outcome = await authenticationOutcome(for: request)
+    let authenticatedClient: NoteAPIAuthenticatedClient?
     switch outcome {
     case let .rejected(rejection):
       return rejection
-    case .authenticated, .unauthenticated:
-      break
+    case let .authenticated(client):
+      authenticatedClient = client
+    case .unauthenticated:
+      authenticatedClient = nil
     }
     guard !fileId.isEmpty else {
       return Self.notFoundResponse(fileId: fileId)
     }
-    // An `--allow-unauthenticated` reader reaches only the files referenced by
-    // libraries that require no authentication. The route serves raw bytes, so
-    // it is the one place a library boundary is crossed without going through
-    // the GraphQL executor (`design-docs/specs/library.md`). Under
-    // `--as-admin` the operator has said this port acts as the admin account,
-    // and the bytes follow the same rule as the queries.
-    let reader = noteService.unauthenticated(
-      outcome == .unauthenticated && !unauthenticatedActsAsAdmin
-    )
+    // Scope the reader to the authenticated account so `requireReachableFile`
+    // applies the same per-account library membership the GraphQL executor does
+    // (`NoteGraphQLDocumentExecutor` scopes to `actingUserId`); serving raw
+    // bytes must not be the one route that skips it (`design-docs/specs/library.md`).
+    // An `--allow-unauthenticated` reader reaches only files in open libraries,
+    // unless `--as-admin` says this port acts as the admin account.
+    let isUnauthenticated = authenticatedClient == nil && !unauthenticatedActsAsAdmin
+    let reader = noteService
+      .scoped(to: authenticatedClient?.userId)
+      .unauthenticated(isUnauthenticated)
     let record: FileRecord
     let content: Data
     do {
@@ -84,12 +88,23 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
         "fileId": .string(fileId.rawValue)
       ]))
     }
+    // A stored blob is content the note author supplied, so it is served as an
+    // inert download, never as an active document on kaiba's own origin: an
+    // attacker-chosen `text/html`/`image/svg+xml` attachment would otherwise
+    // run script that can read the SPA's bearer token. Only known-inert types
+    // keep their declared value; everything else is forced to a generic binary
+    // download, and a strict CSP plus `Content-Disposition: attachment` back
+    // that up even for the allowlisted types.
+    let (contentType, disposition) = Self.responseContentType(for: record.mediaType)
     return KaibaHTTPResponse(
       status: 200,
       headers: [
-        "Content-Type": Self.headerSafeMediaType(record.mediaType),
+        "Content-Type": contentType,
         "Content-Length": String(content.count),
-        "Cache-Control": "private, max-age=3600"
+        "Cache-Control": "private, max-age=3600",
+        "Content-Disposition": disposition,
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "X-Content-Type-Options": "nosniff"
       ],
       body: content
     )
@@ -99,7 +114,7 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
   /// and "authenticated" are different answers: only the second one may reach
   /// a library that requires authentication.
   enum AuthenticationOutcome: Equatable {
-    case authenticated
+    case authenticated(NoteAPIAuthenticatedClient)
     case unauthenticated
     case rejected(KaibaHTTPResponse)
   }
@@ -122,8 +137,8 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     )
     let context = ServerRequestContext(serviceName: "kaiba").withHeaders(from: request.headers)
     switch await authenticator.authenticate(request: envelope, context: context) {
-    case .accepted:
-      return .authenticated
+    case let .accepted(client):
+      return .authenticated(client)
     case let .rejected(rejection):
       return .rejected(.json(status: rejection.status, .object(rejection.body)))
     }
@@ -142,14 +157,29 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     return FileID(validating: String(remainder))
   }
 
-  /// Stored media types are caller-supplied at attach time, so control
-  /// characters are dropped before the value reaches a response header.
-  private static func headerSafeMediaType(_ mediaType: String) -> String {
+  /// Media types the viewer renders inline and that cannot carry active
+  /// content. Notably excludes `text/html`, `application/xhtml+xml`, and
+  /// `image/svg+xml`, all of which can execute script on kaiba's origin.
+  static let inlineRenderableMediaTypes: Set<String> = [
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif",
+    "image/bmp", "image/x-icon", "image/tiff", "application/pdf",
+    "text/plain", "audio/mpeg", "audio/ogg", "audio/wav", "video/mp4", "video/webm"
+  ]
+
+  /// Resolves the response content type and disposition for a stored blob. A
+  /// media type is caller-supplied at attach time, so an unrecognized or
+  /// non-inert one is forced to a generic binary download; recognized inert
+  /// types render inline but still download rather than navigate.
+  static func responseContentType(for mediaType: String) -> (contentType: String, disposition: String) {
     let sanitized = mediaType.filter { character in
       character.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
     }
-    let trimmed = sanitized.trimmingCharacters(in: .whitespaces)
-    return trimmed.isEmpty ? "application/octet-stream" : trimmed
+    let base = sanitized.split(separator: ";", maxSplits: 1).first.map(String.init) ?? sanitized
+    let normalized = base.trimmingCharacters(in: .whitespaces).lowercased()
+    guard inlineRenderableMediaTypes.contains(normalized) else {
+      return ("application/octet-stream", "attachment")
+    }
+    return (normalized, "inline")
   }
 
   private static func notFoundResponse(fileId: FileID) -> KaibaHTTPResponse {

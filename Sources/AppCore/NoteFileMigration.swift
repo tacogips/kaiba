@@ -57,6 +57,8 @@ public extension NoteService {
     httpClient: S3HTTPClient = URLSessionS3HTTPClient(),
     verifyRemoteRead: Bool = false
   ) throws -> NoteFileMigrationResult {
+    // Store-wide and library-blind: only the operator or an admin may run it.
+    try requireStoreAdministrator()
     let localFileIds = try driver.withDatabase { database in
       try database.query(
         """

@@ -38,6 +38,19 @@ final class NoteActionHistoryTests: NoteTestCase {
     XCTAssertEqual(applyNoteBodyPatch(fromEmpty, to: "hello", direction: .undo), "")
   }
 
+  func testBodyPatchIsByteExactAcrossNormalizationForms() throws {
+    // "é" precomposed (U+00E9) vs decomposed (e + U+0301): equal as
+    // Characters, different bytes. The patch must capture the byte change so
+    // undo of the edit that re-encoded the shared text still applies.
+    let old = "caf\u{E9} menu"
+    let new = "cafe\u{301} menu, updated"
+    let patch = try XCTUnwrap(makeNoteBodyPatch(from: old, to: new))
+    XCTAssertEqual(applyNoteBodyPatch(patch, to: new, direction: .undo), old)
+    XCTAssertEqual(applyNoteBodyPatch(patch, to: old, direction: .redo), new)
+    // Canonically equal but byte-different strings are still a change.
+    XCTAssertNotNil(makeNoteBodyPatch(from: "caf\u{E9}", to: "cafe\u{301}"))
+  }
+
   func testBodyPatchRefusesMismatchedText() throws {
     let patch = try XCTUnwrap(makeNoteBodyPatch(from: "aaa bbb ccc", to: "aaa xxx ccc"))
     XCTAssertNil(applyNoteBodyPatch(patch, to: "aaa yyy ccc", direction: .undo))

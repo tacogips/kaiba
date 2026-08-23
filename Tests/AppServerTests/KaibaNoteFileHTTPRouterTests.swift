@@ -189,7 +189,10 @@ final class KaibaNoteFileHTTPRouterTests: XCTestCase {
       path: "/files/\(attachment.file.fileId)"
     ))
 
-    XCTAssertEqual(response.headers["Content-Type"], "image/pngX-Injected: yes")
+    // The tampered type is neither a control-char header-injection vector nor
+    // in the render-safe allowlist, so it collapses to a generic download.
+    XCTAssertEqual(response.headers["Content-Type"], "application/octet-stream")
+    XCTAssertEqual(response.headers["Content-Disposition"], "attachment")
     let headerBlock = text(response.serialized(forMethod: "HEAD"))
     XCTAssertFalse(headerBlock.isEmpty)
     XCTAssertFalse(headerBlock.contains("\r\nX-Injected:"))

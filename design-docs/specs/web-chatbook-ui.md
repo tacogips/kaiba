@@ -61,12 +61,13 @@ original per-note reader + separate Memos/Chat tabs described below.)
 
 ## Design Decisions
 
-- **W1 — Replace `NotesView`, do not patch it.** The 1376-line
-  `views/NotesView.tsx` god component is left untouched while the new
-  shell is built next to it; `App.tsx` switches once a parity checklist
-  passes, then `NotesView` and its `:has()`-based grid CSS are deleted
-  along with riela-era dead code (the single-shot assistant in
-  `NoteDetailPane` and the workspace REST client `notes/workspace.ts`).
+- **W1 — Replace `NotesView`, do not patch it.** (Shipped, commit `c4de25e`.)
+  The 1376-line `views/NotesView.tsx` god component was built alongside a new
+  shell rather than patched; once parity passed it was deleted with its
+  `:has()`-based grid CSS and the riela-era dead code (the single-shot
+  assistant in `NoteDetailPane` and the workspace REST client
+  `notes/workspace.ts`). The shell today is `web/src/views/ChatbookView.tsx`
+  plus `web/src/panes/{LeftPane,ReaderPane,RightPane}.tsx`.
 - **W2 — Hash routing.** `#/`, `#/notebook/<id>`, `#/note/<id>`
   (optionally `?conv=<id>` for the open conversation). First routing in
   the app; hash-based needs no dependency and no server rewrite

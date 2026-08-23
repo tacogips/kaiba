@@ -297,7 +297,7 @@ account; it is not per notebook.
   refuses a non-empty and the default library and removes an empty one;
   `move` re-parents a notebook and leaves its notes and tags intact, and
   rejects an unknown library or notebook.
-- `Tests/AppGraphQLTests/NoteGraphQLLibraryTests.swift` (4 tests): the
+- `Tests/AppGraphQLTests/NoteGraphQLLibraryTests.swift` (6 tests): the
   `libraries` query and `Notebook.libraryId` over the note API, an
   unauthenticated request restricted to open libraries, and the regression
   that the local `kaiba graphql` operator path is **not** unauthenticated —

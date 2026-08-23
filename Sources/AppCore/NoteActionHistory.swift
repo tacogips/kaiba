@@ -125,7 +125,7 @@ public struct NoteActionUndoResult: Equatable, Sendable {
 /// A note-body edit as the changed span only (U4): the common prefix and
 /// suffix of the two versions are dropped, and just the differing middle is
 /// kept, in both directions. `p`/`s` are UTF-8 byte counts of the shared
-/// prefix/suffix; both boundaries fall on character boundaries of *both*
+/// prefix/suffix; both boundaries fall on unicode-scalar boundaries of *both*
 /// versions, so splicing bytes always reassembles valid UTF-8.
 public struct NoteBodyPatch: Equatable, Sendable {
   public var prefixByteCount: Int
@@ -174,29 +174,32 @@ public enum NoteBodyPatchDirection: Sendable {
 }
 
 /// The changed span between two body versions, or nil when they are equal.
-/// Comparison walks extended grapheme clusters so both cut points are
-/// character boundaries in both strings.
+/// Comparison walks unicode scalars, not `Character`s: `Character` equality is
+/// canonical equivalence, so NFC/NFD-mixed text could put byte offsets taken
+/// from one version at a place where the other version's bytes differ, and the
+/// apply guard would then refuse a legitimate undo. Scalar equality is
+/// byte-exact, and scalar boundaries still reassemble to valid UTF-8.
 public func makeNoteBodyPatch(from old: String, to new: String) -> NoteBodyPatch? {
-  guard old != new else {
+  let oldScalars = Array(old.unicodeScalars)
+  let newScalars = Array(new.unicodeScalars)
+  guard oldScalars != newScalars else {
     return nil
   }
-  let oldChars = Array(old)
-  let newChars = Array(new)
   var prefix = 0
-  while prefix < oldChars.count, prefix < newChars.count, oldChars[prefix] == newChars[prefix] {
+  while prefix < oldScalars.count, prefix < newScalars.count, oldScalars[prefix] == newScalars[prefix] {
     prefix += 1
   }
   var suffix = 0
-  while suffix < oldChars.count - prefix,
-        suffix < newChars.count - prefix,
-        oldChars[oldChars.count - 1 - suffix] == newChars[newChars.count - 1 - suffix] {
+  while suffix < oldScalars.count - prefix,
+        suffix < newScalars.count - prefix,
+        oldScalars[oldScalars.count - 1 - suffix] == newScalars[newScalars.count - 1 - suffix] {
     suffix += 1
   }
-  let removed = String(oldChars[prefix..<(oldChars.count - suffix)])
-  let inserted = String(newChars[prefix..<(newChars.count - suffix)])
+  let removed = String(String.UnicodeScalarView(oldScalars[prefix..<(oldScalars.count - suffix)]))
+  let inserted = String(String.UnicodeScalarView(newScalars[prefix..<(newScalars.count - suffix)]))
   return NoteBodyPatch(
-    prefixByteCount: String(oldChars[0..<prefix]).utf8.count,
-    suffixByteCount: String(oldChars[(oldChars.count - suffix)...]).utf8.count,
+    prefixByteCount: String(String.UnicodeScalarView(oldScalars[0..<prefix])).utf8.count,
+    suffixByteCount: String(String.UnicodeScalarView(oldScalars[(oldScalars.count - suffix)...])).utf8.count,
     removed: removed,
     inserted: inserted
   )
@@ -231,7 +234,7 @@ public func applyNoteBodyPatch(
   var resultBytes = Array(currentBytes[0..<prefix])
   resultBytes.append(contentsOf: Array(replacement.utf8))
   resultBytes.append(contentsOf: currentBytes[(currentBytes.count - suffix)...])
-  // The cut points are character boundaries of both versions (see
+  // The cut points are unicode-scalar boundaries of both versions (see
   // `makeNoteBodyPatch`), so this reassembly cannot fail on well-formed
   // patches; a corrupted patch answers nil like any other guard failure.
   return String(bytes: resultBytes, encoding: .utf8)

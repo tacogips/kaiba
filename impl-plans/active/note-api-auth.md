@@ -1,6 +1,22 @@
 # Note API Authentication
 
-**Status**: In Progress
+**Status**: PARTIALLY SUPERSEDED — this plan predates the browser-driven login
+revision of the spec (commit `3712644`) and was not updated with it. Phase 1
+(SPA unauthenticated state, localStorage token) has shipped. The account/session
+tasks below still describe the abandoned shape and must be reconciled with the
+current spec before use:
+
+- Accounts reuse the existing `users` table, not a new `auth_users` (TASK-401).
+- The process credential is an HS256 JWT; `auth_sessions` and `ks_` tokens were
+  never built (TASK-402, TASK-404 deferred).
+- The browser handoff is `POST /note/login/start` + `/note/login/poll` with a
+  secret `pollSecret`/`deviceCode`, an `auth_login_requests` pending row, and
+  the `GET`/`POST` approval pair — none of which is planned below (supersedes
+  TASK-403's `/note/login/email` + `/note/login/verify`).
+- Still open per the spec's Safety rules: per-source rate limiting on
+  `/note/login/start`, and the `--allow-unauthenticated` loopback guard is now
+  implemented in `ServeCommand.parse`.
+
 **Design Reference**: `design-docs/specs/note-api-auth.md`
 **Decisions**: `design-docs/user-qa/note-api-auth.md`
 
