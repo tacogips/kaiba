@@ -280,3 +280,29 @@ private func noteId(fromJSON output: String) throws -> NoteID {
     #expect(message.contains("only one of"))
   }
 }
+
+@Test func cliDbCheckAndOptimizeRoundTrip() throws {
+  let root = try makeTempRoot()
+  _ = try run(["add", "--body", "# Maintained\nchecked body"], root: root)
+
+  let checked = try run(["db", "check"], root: root)
+  #expect(checked.contains("integrity ok"))
+  #expect(checked.contains("foreign-keys ok"))
+  #expect(checked.contains("search-index ok"))
+  #expect(checked.contains("store is healthy"))
+
+  let checkedJSON = try JSONValue(parsing: try run(["db", "check", "--output", "json"], root: root))
+  #expect(checkedJSON["healthy"] == .bool(true))
+  #expect(checkedJSON["schemaVersion"] == .integer(Int64(NoteStoreSchema.currentVersion)))
+
+  let optimized = try run(["db", "optimize", "--vacuum"], root: root)
+  #expect(optimized.contains("size "))
+  #expect(!optimized.contains("run with --vacuum"))
+
+  do {
+    _ = try run(["db", "shrink"], root: root)
+    Issue.record("Expected an invalid usage error")
+  } catch AppCommand.Error.invalidUsage(let message) {
+    #expect(message.contains("unknown db subcommand"))
+  }
+}

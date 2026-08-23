@@ -82,6 +82,7 @@ public struct AppCommand: Sendable {
     case "notebook": return try runNotebook(context)
     case "import": return try runImport(context)
     case "storage": return try runStorage(context)
+    case "db": return try runDb(context)
     case "client": return try runClient(context)
     case "user": return try runUser(context)
     case "auth": return try runAuth(context)
@@ -279,6 +280,13 @@ public struct AppCommand: Sendable {
                  --secret-key-env <VAR> [--key-prefix <prefix>]
                  # endpoint/credential options may come from a named config profile
       storage    gc [--grace-hours N]   # reclaim unreferenced file content
+
+    Maintenance:
+      db         check [--repair] [--output json|text]
+                 # sqlite quick_check + foreign_key_check + search-index
+                 # audit; --repair rebuilds a drifted search index
+      db         optimize [--vacuum] [--output json|text]
+                 # ANALYZE + PRAGMA optimize; --vacuum compacts the file
 
     Global:
       --jwt <token>       Act as the token's user; writes are attributed to it

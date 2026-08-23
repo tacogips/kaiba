@@ -344,3 +344,25 @@ memory as consolidated notes in a canonical notebook, linked into the
   and `tags(parent_tag_id)`/`(class_id)`.
 - The `files` locator CHECK is now mutually exclusive: a `local` row
   carries no S3 coordinates and an `s3` row no local path.
+
+## Store maintenance surface and schema v17 (2026-08-23)
+
+- Schema v17 (`currentVersion` 16 -> 17): `note_fts_map.note_id` gained
+  the missing `REFERENCES notes(note_id)`, closing the last integrity
+  hole around the contentless search index. v16 stores are rejected at
+  `prepare` under the no-migration policy.
+- New operator surface, gated by `requireStoreAdministrator` like
+  storage GC:
+  - `kaiba db check [--repair]` / GraphQL `checkNoteStore(repair)` —
+    sqlite `quick_check`, `foreign_key_check`, FTS5 'integrity-check',
+    notes missing from the search index, orphaned index rows, and an
+    informational unreferenced-file count. The LIKE fallback masks
+    index drift from ordinary searches, so this check is the only way
+    to see it. `--repair` rebuilds the index from `notes` via the
+    shared `NoteStoreSchema.rebuildNoteFTS` (contentless FTS cannot be
+    patched row by row), which the trigram-upgrade path now also uses.
+  - `kaiba db optimize [--vacuum]` / GraphQL `optimizeNoteStore(vacuum)`
+    — `ANALYZE` + `PRAGMA optimize`, with `--vacuum` compacting the
+    file; reports byte and freelist sizes before/after.
+- Contract drift fix: `reclaimNoteFileStorage` was executable but
+  missing from the projected `type Mutation` SDL; it is now listed.

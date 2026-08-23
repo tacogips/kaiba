@@ -567,6 +567,25 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         deletedFileIds: reclaimed.deletedFileIds,
         sweptPaths: reclaimed.sweptPaths
       ))
+    case "checkNoteStore":
+      let report = try service.service.checkStore(
+        repair: optionalBool("repair", variables: variables) ?? false
+      )
+      return try encodedJSONValue(GraphQLNoteStoreCheckResult(
+        result: GraphQLControlPlaneResult(
+          accepted: true,
+          status: report.isHealthy ? "ok" : "problems-found"
+        ),
+        report: report
+      ))
+    case "optimizeNoteStore":
+      let report = try service.service.optimizeStore(
+        vacuum: optionalBool("vacuum", variables: variables) ?? false
+      )
+      return try encodedJSONValue(GraphQLNoteStoreOptimizationResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        report: report
+      ))
     default:
       return .null
     }

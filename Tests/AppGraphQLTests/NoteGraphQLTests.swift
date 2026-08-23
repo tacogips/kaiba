@@ -834,6 +834,8 @@ final class NoteGraphQLTests: XCTestCase {
       "migrateNoteFileStorage",
       "migrateAllNoteFiles",
       "reclaimNoteFileStorage",
+      "checkNoteStore",
+      "optimizeNoteStore",
       "undoAction",
       "redoAction"
     ]

@@ -136,7 +136,9 @@ let supportedNoteGraphQLFields: Set<String> = [
   "redoAction",
   "migrateNoteFileStorage",
   "migrateAllNoteFiles",
-  "reclaimNoteFileStorage"
+  "reclaimNoteFileStorage",
+  "checkNoteStore",
+  "optimizeNoteStore"
 ]
 
 let noteGraphQLQueryFields: Set<String> = [
@@ -316,7 +318,9 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "deleteNoteAutoAction": "ControlPlaneResult",
   "migrateNoteFileStorage": "NoteFileMigrationPayload",
   "migrateAllNoteFiles": "NoteFileMigrationPayload",
-  "reclaimNoteFileStorage": "NoteFileReclamationPayload"
+  "reclaimNoteFileStorage": "NoteFileReclamationPayload",
+  "checkNoteStore": "NoteStoreCheckPayload",
+  "optimizeNoteStore": "NoteStoreOptimizationPayload"
 ]
 
 let noteGraphQLSelectionFields: [String: [String: String?]] = [
@@ -449,6 +453,26 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "result": "ControlPlaneResult",
     "deletedFileIds": nil,
     "sweptPaths": nil
+  ],
+  "NoteStoreCheckPayload": [
+    "result": "ControlPlaneResult",
+    "schemaVersion": nil,
+    "healthy": nil,
+    "integrityMessages": nil,
+    "foreignKeyViolations": nil,
+    "searchIndexHealthy": nil,
+    "notesMissingFromSearchIndex": nil,
+    "orphanedSearchIndexRows": nil,
+    "unreferencedFiles": nil,
+    "searchIndexRepaired": nil
+  ],
+  "NoteStoreOptimizationPayload": [
+    "result": "ControlPlaneResult",
+    "vacuumed": nil,
+    "bytesBefore": nil,
+    "bytesAfter": nil,
+    "freelistPagesBefore": nil,
+    "freelistPagesAfter": nil
   ],
   "Note": [
     "noteId": nil,

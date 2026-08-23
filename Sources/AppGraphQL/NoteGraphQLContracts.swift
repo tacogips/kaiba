@@ -641,3 +641,47 @@ public struct GraphQLNoteFileReclamationResult: Codable, Equatable, Sendable {
     self.sweptPaths = sweptPaths
   }
 }
+
+public struct GraphQLNoteStoreCheckResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var schemaVersion: Int
+  public var healthy: Bool
+  public var integrityMessages: [String]
+  public var foreignKeyViolations: [String]
+  public var searchIndexHealthy: Bool
+  public var notesMissingFromSearchIndex: [NoteID]
+  public var orphanedSearchIndexRows: Int
+  public var unreferencedFiles: Int
+  public var searchIndexRepaired: Bool
+
+  public init(result: GraphQLControlPlaneResult, report: NoteStoreCheckReport) {
+    self.result = result
+    self.schemaVersion = report.schemaVersion
+    self.healthy = report.isHealthy
+    self.integrityMessages = report.integrityMessages
+    self.foreignKeyViolations = report.foreignKeyViolations
+    self.searchIndexHealthy = report.searchIndexHealthy
+    self.notesMissingFromSearchIndex = report.notesMissingFromSearchIndex
+    self.orphanedSearchIndexRows = report.orphanedSearchIndexRows
+    self.unreferencedFiles = report.unreferencedFiles
+    self.searchIndexRepaired = report.searchIndexRepaired
+  }
+}
+
+public struct GraphQLNoteStoreOptimizationResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var vacuumed: Bool
+  public var bytesBefore: Int64
+  public var bytesAfter: Int64
+  public var freelistPagesBefore: Int64
+  public var freelistPagesAfter: Int64
+
+  public init(result: GraphQLControlPlaneResult, report: NoteStoreOptimizationReport) {
+    self.result = result
+    self.vacuumed = report.vacuumed
+    self.bytesBefore = report.bytesBefore
+    self.bytesAfter = report.bytesAfter
+    self.freelistPagesBefore = report.freelistPagesBefore
+    self.freelistPagesAfter = report.freelistPagesAfter
+  }
+}

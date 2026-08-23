@@ -165,6 +165,29 @@ type NoteFileMigrationPayload { result: ControlPlaneResult!, migrated: [NoteFile
 # names an allowlisted profile so orphaned S3 objects can be deleted (optional).
 input ReclaimNoteFileStorageInput { graceHours: Int, s3ProfileName: String }
 type NoteFileReclamationPayload { result: ControlPlaneResult!, deletedFileIds: [String!]!, sweptPaths: [String!]! }
+# checkNoteStore audits store integrity (sqlite quick_check, foreign keys, search
+# index); repair rebuilds a drifted search index. optimizeNoteStore refreshes
+# planner statistics; vacuum compacts the database file. Operator/admin only.
+type NoteStoreCheckPayload {
+  result: ControlPlaneResult!
+  schemaVersion: Int!
+  healthy: Boolean!
+  integrityMessages: [String!]!
+  foreignKeyViolations: [String!]!
+  searchIndexHealthy: Boolean!
+  notesMissingFromSearchIndex: [String!]!
+  orphanedSearchIndexRows: Int!
+  unreferencedFiles: Int!
+  searchIndexRepaired: Boolean!
+}
+type NoteStoreOptimizationPayload {
+  result: ControlPlaneResult!
+  vacuumed: Boolean!
+  bytesBefore: Int!
+  bytesAfter: Int!
+  freelistPagesBefore: Int!
+  freelistPagesAfter: Int!
+}
 type NoteMutationPayload {
   result: ControlPlaneResult!
   note: Note

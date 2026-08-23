@@ -79,6 +79,9 @@ public enum GraphQLContractProjector {
     requestNotebookTranslation(input: RequestNotebookTranslationInput!): NotebookTranslationRequestPayload!
     migrateNoteFileStorage(input: MigrateNoteFileStorageInput!): NoteFileMigrationPayload!
     migrateAllNoteFiles(input: MigrateAllNoteFilesInput!): NoteFileMigrationPayload!
+    reclaimNoteFileStorage(input: ReclaimNoteFileStorageInput!): NoteFileReclamationPayload!
+    checkNoteStore(repair: Boolean): NoteStoreCheckPayload!
+    optimizeNoteStore(vacuum: Boolean): NoteStoreOptimizationPayload!
     undoAction: UndoRedoPayload!
     redoAction: UndoRedoPayload!
   }

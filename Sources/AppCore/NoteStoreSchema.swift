@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 16
+  public static let currentVersion = 17
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -250,6 +250,15 @@ public enum NoteStoreSchema {
     guard !createSQL.lowercased().contains("tokenize='trigram'") else {
       return
     }
+    try rebuildNoteFTS(in: database)
+  }
+
+  /// Drops and re-derives the whole search index from `notes`. The FTS table
+  /// is contentless, so a drifted index cannot be patched row by row — the
+  /// stale entries carry no recoverable payload for the 'delete' command —
+  /// and a full rebuild is the one repair that is always correct. Shared by
+  /// the tokenizer upgrade above and `NoteService.checkStore(repair:)`.
+  static func rebuildNoteFTS(in database: SQLiteDatabase) throws {
     try database.execute("DROP TABLE IF EXISTS note_fts")
     try database.execute("""
       CREATE VIRTUAL TABLE note_fts USING fts5(
@@ -719,7 +728,7 @@ private let schemaStatements = [
   """
   CREATE TABLE IF NOT EXISTS note_fts_map (
     fts_rowid INTEGER PRIMARY KEY,
-    note_id TEXT NOT NULL UNIQUE
+    note_id TEXT NOT NULL UNIQUE REFERENCES notes(note_id)
   ) STRICT
   """
 ]
