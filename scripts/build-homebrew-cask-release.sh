@@ -4,6 +4,8 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 product="kaiba"
+product_app="KaibaApp"
+app_bundle_name="Kaiba.app"
 artifact_name="kaiba"
 
 usage() {
@@ -202,6 +204,23 @@ swift_release_bin_path() {
   )
 }
 
+swift_build_product() {
+  local target product_name swift_exe developer_dir sdkroot triple
+  target="$1"
+  product_name="$2"
+  swift_exe="$(swift_bin)"
+  developer_dir="${SWIFT_DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+  sdkroot="${SWIFT_SDKROOT:-/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk}"
+  triple="$(swift_triple_for_target "$target")"
+
+  (
+    cd "$repo_root"
+    env -u PKG_CONFIG_PATH \
+      DEVELOPER_DIR="$developer_dir" SDKROOT="$sdkroot" ANYDOC_FORCE_SYSTEM_FFI=0 \
+      "$swift_exe" build -c release --product "$product_name" --triple "$triple" >/dev/null
+  )
+}
+
 assert_codesigning_identity() {
   local identity
   identity="$1"
@@ -228,6 +247,7 @@ print_plan() {
   printf '  swift triple: %s\n' "$triple"
   printf '  cask install prefix: %s\n' "$install_prefix"
   printf '  staged signed binary: %s\n' "$staged_binary"
+  printf '  staged signed app bundle: %s/%s\n' "$work_dir" "$app_bundle_name"
   printf '  notarized DMG: %s\n' "$dmg_path"
   printf '  checksum: %s.sha256\n' "$dmg_path"
   printf '  required Apple env: APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID\n'
@@ -269,6 +289,18 @@ build_target() {
 
   codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$staged_binary"
   codesign --verify --strict --verbose=2 "$staged_binary"
+
+  # Build and stage the resident menu-bar app bundle next to the CLI so one DMG
+  # provides both (`design-docs/specs/macos-menu-bar-app.md`).
+  swift_build_product "$target" "$product_app"
+  local app_dir
+  app_dir="$work_dir/$app_bundle_name"
+  "$script_dir/assemble-macos-app-bundle.sh" "$bin_path/$product_app" "$version" "$work_dir" >/dev/null
+  # Sign the nested executable first, then the bundle, under the hardened runtime.
+  codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" \
+    "$app_dir/Contents/MacOS/$product_app"
+  codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$app_dir"
+  codesign --verify --strict --verbose=2 "$app_dir"
 
   hdiutil create -quiet -fs HFS+ -format UDZO -volname "$product" -srcfolder "$work_dir" "$dmg_path"
   codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$dmg_path"

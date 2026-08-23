@@ -69,148 +69,86 @@ struct ServeCommand {
         "--as-admin only applies with --allow-unauthenticated"
       )
     }
+    // Serving the store with no authenticator on a routable address exposes
+    // every library, the change feed, and `/files` to the network. The spec's
+    // Safety rules (design-docs/specs/note-api-auth.md) make this a hard
+    // failure, not a warning: the supported way to reach a LAN is an
+    // authenticated mode.
+    guard !options.allowUnauthenticated || isLoopbackBindHost(options.host) else {
+      throw ServeError.invalidConfiguration(
+        """
+        --allow-unauthenticated requires a loopback --host (127.0.0.0/8, ::1, or \
+        localhost); refusing to serve the note store unauthenticated on \(options.host)
+        """
+      )
+    }
     return options
   }
 
+  /// Whether a bind host keeps the server off routable networks. Accepts the
+  /// loopback names and the whole IPv4 loopback block, matching what
+  /// `--allow-unauthenticated` is allowed to bind.
+  static func isLoopbackBindHost(_ host: String) -> Bool {
+    let normalized = host.trimmingCharacters(in: .whitespaces).lowercased()
+    if normalized == "localhost" || normalized == "::1" || normalized == "[::1]" {
+      return true
+    }
+    let octets = normalized.split(separator: ".", omittingEmptySubsequences: false)
+    guard octets.count == 4, octets.allSatisfy({ UInt8($0) != nil }) else {
+      return false
+    }
+    return octets[0] == "127"
+  }
+
   static func run(_ options: Options) async throws {
-    try FileManager.default.createDirectory(
-      atPath: options.noteRoot,
-      withIntermediateDirectories: true
-    )
-    let changeFeed = NoteChangeFeed()
+    // AI reconciliation prints operator-facing lines and must run before the
+    // port opens; the runtime performs the rest of the bootstrap
+    // (design-docs/specs/ai-agent-integration.md,
+    // design-docs/specs/macos-menu-bar-app.md).
     let driver = try KaibaConfigurationLoader.makeDriver(
       configuration: options.configuration.database,
       noteRoot: options.noteRoot,
       environment: ProcessInfo.processInfo.environment
     )
-    // AI wiring (design-docs/specs/ai-agent-integration.md): the invoker is
-    // nil until the agent-gateway adapter lands, so no dispatcher installs and
-    // the AI auto-actions stay force-disabled (no outbox buildup). The
-    // dispatcher gets its own service value over the same driver; its
-    // completion writes carry originatingActionId, so loops are impossible.
-    let aiConfiguration = options.configuration.ai
-    let invoker = AgentInvokerFactory.makeInvoker(configuration: aiConfiguration)
-    let agentReplyStreamHub = AgentReplyStreamHub()
-    var dispatcher: KaibaAutoActionDispatcher?
-    if let invoker {
-      dispatcher = KaibaAutoActionDispatcher(
-        service: try NoteService(driver: driver),
-        invoker: invoker,
-        provider: aiConfiguration?.agent?.provider,
-        model: aiConfiguration?.agent?.model,
-        translateProvider: aiConfiguration?.translate?.provider,
-        translateModel: aiConfiguration?.translate?.model,
-        streamPublisher: AgentReplyStreamHubPublisher(hub: agentReplyStreamHub)
-      )
-    }
-    let service = try NoteService(
-      driver: driver,
-      autoActionDispatcher: dispatcher,
-      changeObserver: NoteChangeFeedObserver(feed: changeFeed)
-    )
-    // Fail before the port opens: `--as-admin` is only meaningful while the
-    // account it binds to is still an enabled admin, and an operator can have
-    // demoted it since.
-    if options.unauthenticatedActsAsAdmin {
-      let account = try service.defaultUser()
-      guard account.isAdmin, account.isEnabled else {
-        throw ServeError.invalidConfiguration(
-          """
-          --as-admin requires \(NoteStoreSchema.defaultUserId) to be an enabled admin; \
-          run `kaiba user grant-admin \(NoteStoreSchema.defaultUserId)` first
-          """
-        )
-      }
-    }
+    let reconciliationService = try NoteService(driver: driver)
     for line in try AIAutoActionReconciliation.reconcile(
-      service: service,
-      aiConfiguration: aiConfiguration,
-      invokerAvailable: invoker != nil
+      service: reconciliationService,
+      aiConfiguration: options.configuration.ai,
+      invokerAvailable: AgentInvokerFactory.makeInvoker(configuration: options.configuration.ai) != nil
     ) {
       print("ai: \(line)")
     }
-    // Startup recovery plus a periodic tick: rows enqueued by other processes
-    // (e.g. `kaiba import` while serve is running) stay pending until a
-    // retry entry point runs, so the serving process drains them regularly.
-    var maintenance: Task<Void, Never>?
-    if dispatcher != nil {
-      _ = try await service.recoverAndRetryAutoActionDispatches()
-      let maintenanceService = service
-      maintenance = Task {
-        while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 30 * 1_000_000_000)
-          if Task.isCancelled {
-            return
-          }
-          _ = try? await maintenanceService.recoverAndRetryAutoActionDispatches()
-        }
-      }
-    }
-    defer { maintenance?.cancel() }
-    let s3Profiles = try KaibaConfigurationLoader.makeS3Profiles(
+
+    let runtime = KaibaServerRuntime(KaibaServeConfiguration(
+      host: options.host,
+      port: options.port,
+      noteRoot: options.noteRoot,
       configuration: options.configuration,
-      environment: ProcessInfo.processInfo.environment
-    )
-    let executor = NoteGraphQLDocumentExecutor(
-      service: GraphQLNoteGraphQLService(
-        service: service,
-        agentInvoker: invoker,
-        agentProvider: aiConfiguration?.agent?.provider,
-        agentModel: aiConfiguration?.agent?.model,
-        agentModelCatalog: agentModelCatalog(configuration: aiConfiguration)
-      ),
-      s3Profiles: s3Profiles
-    )
-    let authenticator: QRClientRegistrationAuthenticator? = options.allowUnauthenticated
-      ? nil
-      : QRClientRegistrationAuthenticator(service: service, registrationScope: "kaiba-serve")
-    let routeHandler = DeterministicServerRouteHandler(
-      graphQLExecutor: executor,
-      noteAPIAuthenticator: authenticator,
-      allowUnauthenticatedNoteAPI: options.allowUnauthenticated,
-      unauthenticatedActsAsAdmin: options.unauthenticatedActsAsAdmin,
-      noteChangeFeed: changeFeed,
-      agentReplyStreamHub: agentReplyStreamHub
-    )
-    let adapter = DeterministicServerHTTPAdapter(
-      routeHandler: routeHandler,
-      context: ServerRequestContext(serviceName: "kaiba")
-    )
-    let downstream: any KaibaHTTPRouteHandling
-    if let webRoot = options.webRoot {
-      downstream = KaibaStaticSPAHTTPRouter(
-        service: adapter,
-        webRoot: URL(fileURLWithPath: webRoot, isDirectory: true)
-      )
-    } else {
-      downstream = adapter
-    }
-    // Raw attachment bytes are served ahead of the SPA/static resolution so
-    // `/files/<fileId>` never falls through to the index.html rewrite.
-    let httpHandler = KaibaNoteFileHTTPRouter(
-      service: downstream,
-      noteService: service,
-      s3Profiles: s3Profiles,
-      authenticator: authenticator,
+      webRoot: options.webRoot,
       allowUnauthenticated: options.allowUnauthenticated,
-      unauthenticatedActsAsAdmin: options.unauthenticatedActsAsAdmin
-    )
-    let server = KaibaLocalHTTPServer(routeHandler: httpHandler)
-    let boundPort = try await server.start(host: options.host, port: options.port)
-    let endpoint = "http://\(options.host):\(boundPort)"
-    print("endpoint=\(endpoint)")
-    print("noteRoot=\(options.noteRoot)")
-    if let webRoot = options.webRoot {
+      unauthenticatedActsAsAdmin: options.unauthenticatedActsAsAdmin,
+      environment: ProcessInfo.processInfo.environment
+    ))
+    let info: KaibaServerStartInfo
+    do {
+      info = try await runtime.start()
+    } catch let error as KaibaServerRuntime.RuntimeError {
+      // Preserve the CLI's error surface for the one operator-facing case.
+      throw ServeError.invalidConfiguration(error.description)
+    }
+    print("endpoint=\(info.endpoint)")
+    print("noteRoot=\(info.noteRoot)")
+    if let webRoot = info.webRoot {
       print("webRoot=\(webRoot)")
     }
-    if let authenticator {
-      let challenge = try await authenticator.createRegistrationChallenge(publicBaseURL: endpoint)
-      print("registrationURL=\(challenge.registrationURL)")
-      print(challenge.qrText)
-    } else if options.unauthenticatedActsAsAdmin {
+    switch info.authMode {
+    case let .authenticated(registrationURL, qrText):
+      print("registrationURL=\(registrationURL)")
+      print(qrText)
+    case .unauthenticatedAsAdmin:
       print("auth=disabled (--allow-unauthenticated --as-admin)")
       print("actingUser=\(NoteStoreSchema.defaultUserId) (admin, every library)")
-    } else {
+    case .unauthenticated:
       print("auth=disabled (--allow-unauthenticated)")
     }
     // The ready lines must reach pipes/log files before the long sleep.
@@ -220,19 +158,6 @@ struct ServeCommand {
     } catch is CancellationError {
       // SIGINT/SIGTERM cancel the entry-point task.
     }
-    await server.stop()
-  }
-}
-
-private func agentModelCatalog(
-  configuration: KaibaAIConfiguration?
-) -> (@Sendable () async throws -> AgentGatewayModelCatalogResult)? {
-  guard let agent = configuration?.agent, let provider = agent.provider, !provider.isEmpty else { return nil }
-  return {
-    try await AgentGatewayCLIModelCatalog(
-      commandPath: agent.commandPath,
-      vendor: provider,
-      apiKeyEnvironment: agent.apiKeyEnvironmentVariable
-    ).models()
+    await runtime.stop()
   }
 }

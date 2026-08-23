@@ -81,12 +81,16 @@ cask "kaiba" do
     strategy :github_latest
   end
 
+  app "Kaiba.app"
   binary "$product"
 
   caveats do
     <<~EOS
-      This cask installs the signed and notarized macOS command line tool.
-      Homebrew links $product into the native Homebrew prefix for this Mac.
+      This cask installs the signed and notarized Kaiba.app (a resident menu-bar
+      app that runs the note server) and the $product command line tool.
+      Launch Kaiba from Applications to keep the server running in the menu bar,
+      or run '$product serve' from the CLI. Homebrew links $product into the
+      native Homebrew prefix for this Mac.
     EOS
   end
 end

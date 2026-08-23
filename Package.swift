@@ -10,7 +10,8 @@ let package = Package(
   products: [
     .library(name: "AppCore", targets: ["AppCore"]),
     .library(name: "AppGraphQL", targets: ["AppGraphQL"]),
-    .executable(name: "kaiba", targets: ["AppCLI"])
+    .executable(name: "kaiba", targets: ["AppCLI"]),
+    .executable(name: "KaibaApp", targets: ["KaibaApp"])
   ],
   dependencies: [
     .package(
@@ -38,6 +39,10 @@ let package = Package(
     .executableTarget(
       name: "AppCLI",
       dependencies: ["AppCore", "AppGraphQL", "AppServer"]
+    ),
+    .executableTarget(
+      name: "KaibaApp",
+      dependencies: ["AppCore", "AppServer"]
     ),
     .testTarget(
       name: "AppCoreTests",
