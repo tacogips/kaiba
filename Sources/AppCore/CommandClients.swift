@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(Security)
+import Security
+#endif
+
 extension AppCommand {
   func runClient(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
@@ -109,10 +113,16 @@ extension AppCommand {
   /// 32 bytes of secure randomness, URL-safe base64 without padding.
   func makeAPIKeyToken() throws -> String {
     var bytes = [UInt8](repeating: 0, count: 32)
+    #if canImport(Security)
     let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
     guard status == errSecSuccess else {
       throw Error.invalidUsage("secure random generation failed (\(status))")
     }
+    #else
+    for index in bytes.indices {
+      bytes[index] = UInt8.random(in: UInt8.min...UInt8.max)
+    }
+    #endif
     return Data(bytes)
       .base64EncodedString()
       .replacingOccurrences(of: "+", with: "-")

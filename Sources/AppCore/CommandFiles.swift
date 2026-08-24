@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 extension AppCommand {
   func runAttach(_ context: CommandContext) throws -> String {
@@ -160,11 +162,27 @@ extension AppCommand {
 
   func inferredMediaType(for url: URL) -> String {
     let ext = url.pathExtension
+    #if canImport(UniformTypeIdentifiers)
     guard !ext.isEmpty, let type = UTType(filenameExtension: ext),
       let mimeType = type.preferredMIMEType
     else {
       return "application/octet-stream"
     }
     return mimeType
+    #else
+    return Self.fallbackMediaTypes[ext.lowercased()] ?? "application/octet-stream"
+    #endif
   }
+
+  #if !canImport(UniformTypeIdentifiers)
+  private static let fallbackMediaTypes: [String: String] = [
+    "css": "text/css", "csv": "text/csv", "gif": "image/gif",
+    "htm": "text/html", "html": "text/html", "jpeg": "image/jpeg",
+    "jpg": "image/jpeg", "js": "text/javascript", "json": "application/json",
+    "md": "text/markdown", "mp3": "audio/mpeg", "mp4": "video/mp4",
+    "pdf": "application/pdf", "png": "image/png", "svg": "image/svg+xml",
+    "txt": "text/plain", "wav": "audio/wav", "webp": "image/webp",
+    "xml": "application/xml", "zip": "application/zip"
+  ]
+  #endif
 }

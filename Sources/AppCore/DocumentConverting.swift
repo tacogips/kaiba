@@ -1,4 +1,6 @@
+#if canImport(AnydocKit)
 import AnydocKit
+#endif
 import Foundation
 
 /// Seam over document-to-markdown conversion so import service tests can use
@@ -34,12 +36,15 @@ public enum DocumentConversionError: Error, Equatable, Sendable {
 }
 
 /// Direct Swift-library adapter over AnydocKit. No executable lookup or
-/// runtime path configuration is involved.
+/// runtime path configuration is involved. AnydocKit's Rust FFI ships only
+/// for Apple platforms, so the Linux build keeps the type (call sites and
+/// default arguments stay portable) but every conversion fails cleanly.
 public struct AnydocKitDocumentConverter: DocumentConverting {
   public static let toolName = "AnydocKit"
 
   public init() {}
 
+  #if canImport(AnydocKit)
   public func convert(inputPath: String) throws -> DocumentConversionResult {
     do {
       let conversion = try Anydoc.convert(contentsOf: URL(fileURLWithPath: inputPath))
@@ -63,4 +68,11 @@ public struct AnydocKitDocumentConverter: DocumentConverting {
       throw DocumentConversionError.failed(String(describing: error))
     }
   }
+  #else
+  public func convert(inputPath: String) throws -> DocumentConversionResult {
+    throw DocumentConversionError.failed(
+      "AnydocKit document conversion is unavailable on this platform"
+    )
+  }
+  #endif
 }
