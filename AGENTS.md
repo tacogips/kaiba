@@ -1,75 +1,76 @@
 # AGENTS.md
 
-This file provides guidance to coding agents when working with this repository.
+This file provides guidance to coding agents working in this repository.
 
-## Rule of the Responses
+## Response Rules
 
-You (the LLM model) must always begin your first response in a conversation with "I will continue thinking and providing output in English."
-
-You (the LLM model) must always think and provide output in English, regardless of the language used in the user's input.
-
-You (the LLM model) must acknowledge that you have read AGENTS.md and will comply with its contents in your first response.
-
-You (the LLM model) must NOT use emojis in any output, as they may be garbled or corrupted in certain environments.
-
-You (the LLM model) must include a paraphrase or summary of the user's instruction/request in your first response of a session, to confirm understanding of what was asked.
+- Begin the first response in a conversation with: "I will continue thinking
+  and providing output in English."
+- Think and respond in English regardless of the user's language.
+- Acknowledge this file and summarize the request in the first response.
+- Do not use emojis.
 
 ## Project Overview
 
-This is `kaiba`, a Swift Package Manager project with a mise-managed development environment and task automation, Homebrew formula packaging, and optional signed Homebrew Cask packaging.
+Kaiba is a Bun/TypeScript monorepo. Its GraphQL API runs on Cloudflare Workers,
+uses D1 persistence, and serves a SolidJS web client. AI work is isolated in
+`@kaiba/ai`, uses end-user API keys, and calls Kaiba through GraphQL tools.
+
+The Cloudflare Worker must remain AI-vendor neutral. Do not add AI SDK imports,
+vendor keys, or model calls to `apps/api`, `packages/domain`,
+`packages/application`, or `packages/adapter`.
 
 ## Development Environment
 
-- Language: Swift
-- Package manager: Swift Package Manager
-- Build automation: mise
-- Environment manager: mise
-- Tool setup: `mise install`
+- Language: TypeScript with maximum strictness.
+- Runtime and package manager: Bun.
+- Environment and task runner: mise.
+- API runtime: Cloudflare Workers.
+- Data: Cloudflare D1.
 
 ## Common Commands
 
 ```bash
-mise run build
-mise run test
+mise install
+mise run install
 mise run lint
-swift run kaiba --help
+mise run test
+mise run build
+mise run db-migrate-local
 ```
 
-## Swift Code Development
+## Riela Workflow Fallback
 
-When implementing, refactoring, reviewing, or maintaining Swift code, use the Swift coding skill at `.codex/skills/swift-coding-agent/SKILL.md`.
+Use `mise run workflow -- <riela-run-options>` for repository work that should
+use the Fable/Codex improvement workflow. The launcher prefers
+`fable-and-improve-codex` and automatically continues with the Codex-only
+`codex-goal` workflow when Claude/Fable is missing, cannot validate, or reports
+an availability, authentication, quota, capacity, or model-access failure.
 
-Important defaults:
+Do not use the fallback for unrelated implementation, verification, or workflow
+logic failures; surface those failures instead. Set `KAIBA_FORCE_CODEX_RIELA=1`
+to select the Codex-only workflow explicitly.
 
-- Inspect `Package.swift`, nearby source, tests, and existing conventions before editing.
-- Prefer the current SwiftPM target boundaries over adding new modules.
-- Keep Swift files under 1000 lines. Split long files by meaningful responsibility.
-- Run `swiftlint` after Swift edits when available.
-- Run the narrowest relevant `swift test` or `swift build` command, then broaden when shared behavior changed.
+## Code Rules
 
-## Release Workflows
-
-Use `.agents/skills/homebrew-release/SKILL.md` for Homebrew formula archives and tap formula rendering.
-
-Use `.agents/skills/macos-cask-release/SKILL.md` for signed and notarized Cask DMGs, GitHub release upload, and tap Cask rendering.
-
-Use `.agents/skills/apple-notarization-setup/SKILL.md` when setting up or checking Apple Developer ID credentials. Never print, commit, or summarize secret values.
+- Preserve inward dependencies: domain <- application <- adapter <- app.
+- Keep each TypeScript source file below 1000 lines and split by responsibility.
+- Use Web Platform APIs in Worker-reachable code; do not assume Node filesystem
+  or process APIs.
+- Keep GraphQL deterministic. OCR, tagging, translation, title generation,
+  agent search, and tool loops belong in `packages/ai` or a trusted caller.
+- Never persist, log, place in GraphQL, or return AI vendor API keys.
+- Use per-action routing; do not introduce a global fallback vendor key.
+- Validate with the narrowest relevant test, then run lint, all tests, and the
+  Wrangler dry-run when shared behavior changes.
 
 ## Git Commit Policy
 
-When a user asks to commit changes, automatically stage and commit the changes without requiring confirmation.
+When asked to commit, stage and commit automatically without confirmation. Do
+not add AI attribution or co-authorship. Keep commits focused and describe the
+primary change, technical concepts, files, problem solving, impact, and TODOs.
 
-Do not add AI tool attribution or co-authorship information to commit messages.
+## Documentation
 
-Keep commits focused and describe:
-
-1. Primary changes and intent
-2. Key technical concepts
-3. Files and code sections
-4. Problem solving
-5. Impact
-6. Unresolved TODOs
-
-## Design Documentation
-
-Place design documents under `design-docs/`, implementation plans under `impl-plans/`, and user decisions/questions under `design-docs/user-qa/`.
+Place design documents under `design-docs/`, implementation plans under
+`impl-plans/`, and user decisions under `design-docs/user-qa/`.

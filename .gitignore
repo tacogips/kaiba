@@ -1,7 +1,7 @@
 # This .gitignore file is expanded to the directory where `ign checkout` is executed.
 # It is NOT for the ign-template repository itself.
 
-# Swift build artifacts
+# Legacy Swift build artifacts
 .build/
 .swiftpm/
 dist/
@@ -28,8 +28,20 @@ temp/
 logs/
 *.log
 
+# JavaScript workspace artifacts
+node_modules/
+apps/*/node_modules/
+apps/*/dist/
+packages/*/node_modules/
+packages/*/dist/
+*.tsbuildinfo
+
 # Web viewer build artifacts
 web/node_modules/
 web/dist/
+
+# Wrangler local state and secrets
+.wrangler/
+.dev.vars
 
 mise.local.toml
