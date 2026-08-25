@@ -298,7 +298,7 @@ openrouter.
 
 ## Chat Composer Security and Validation Boundary
 
-- Authentication, subject/conversation ownership, read-only enforcement,
+- Authentication, subject/conversation ownership, read-only enforcement, <!-- gitleaks:allow -->
   idempotency, and file validation are server-authoritative; client checks
   exist only for immediate feedback.
 - A supplied `conversationNotebookId` must be an agent conversation for the

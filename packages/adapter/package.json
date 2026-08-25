@@ -1,0 +1,13 @@
+{
+  "name": "@kaiba/adapter",
+  "version": "0.2.0",
+  "type": "module",
+  "private": true,
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@kaiba/application": "workspace:*",
+    "@kaiba/domain": "workspace:*"
+  },
+  "devDependencies": { "@cloudflare/workers-types": "latest" }
+}

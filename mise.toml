@@ -17,153 +17,68 @@ fi
 '''
 
 [tools]
-swift = "6.3.3"
-swiftlint = "latest"
-rust = "1.97.1"
+bun = "latest"
+biome = "latest"
 gitleaks = "latest"
-github-cli = "latest"
-awscli = "latest"
-jq = "latest"
 pre-commit = "latest"
 
-[tasks."default"]
+[tasks.default]
 description = "Show available tasks"
+run = "mise tasks ls"
+
+[tasks.install]
+description = "Install workspace dependencies"
+run = "bun install"
+
+[tasks.dev]
+description = "Run the Cloudflare Worker locally"
+run = "bun run dev"
+
+[tasks.build]
+description = "Build the Worker and web client"
+run = "bun run build"
+
+[tasks.test]
+description = "Run unit and integration tests"
+run = "bun run test"
+
+[tasks.test-web]
+description = "Run the web client tests"
+run = "bun run test:web"
+
+[tasks.typecheck]
+description = "Type-check all TypeScript workspaces"
+run = "bun run typecheck"
+
+[tasks.lint]
+description = "Run Biome and TypeScript checks"
+run = "bun run lint"
+
+[tasks.fmt]
+description = "Format TypeScript and JSON"
+run = "bun run format"
+
+[tasks.fmt-check]
+description = "Check formatting"
+run = "bun run format:check"
+
+[tasks.db-migrate-local]
+description = "Apply D1 migrations to the local Worker database"
+run = "bun run db:migrate:local"
+
+[tasks.workflow]
+description = "Run Fable/Codex Riela workflow with a Codex-only fallback"
 run = '''
-mise tasks ls
+bun run workflow:run -- "$@"
 '''
 
-[tasks."build"]
-description = "Build the Swift package"
-depends = ["anydoc:native"]
-run = '''
-swift build
-'''
-
-[tasks."run"]
-description = "Run the executable"
-depends = ["anydoc:native"]
-run = '''
-swift run kaiba "$@"
-'''
-
-[tasks."test"]
-description = "Run Swift tests"
-depends = ["anydoc:native"]
-run = '''
-swift test
-'''
-
-[tasks."anydoc:native"]
-description = "Resolve the Apple XCFramework or build anydoc-swift's native Linux FFI"
-run = '''
-scripts/build-anydoc-native.sh
-'''
-
-[tasks."anydoc:native".env]
-PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
-
-[tasks."build".env]
-PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
-
-[tasks."run".env]
-PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
-
-[tasks."test".env]
-PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
-
-[tasks."test:s3-gateway"]
-description = "Run Kaiba file round trips through s3-gateway POSIX and MinIO backends"
-run = '''
-scripts/test-s3-gateway-integration.sh
-'''
-
-[tasks."test:turso"]
-description = "Run Kaiba persistence and FTS against a local libSQL HTTP server"
-run = '''
-scripts/test-turso-http-integration.sh
-'''
-
-[tasks."clean"]
-description = "Clean SwiftPM and release artifacts"
-run = '''
-rm -rf .build dist release
-'''
-
-[tasks."lint"]
-description = "Run SwiftLint when available"
-run = '''
-swiftlint
-'''
-
-[tasks."build:homebrew"]
-description = "Build standalone Homebrew formula archives for the current platform, or pass targets after --"
-run = '''
-scripts/build-homebrew-release.sh "$@"
-'''
-
-[tasks."homebrew:formula"]
-description = "Render Formula/kaiba.rb from dist/homebrew checksums"
-run = '''
-scripts/render-homebrew-formula.sh "$@"
-'''
-
-[tasks."homebrew:tap-formula"]
-description = "Render the formula into the default sibling Homebrew tap checkout"
-run = '''
-set -euo pipefail
-if [ -z "$*" ]; then
-  echo "usage: mise run homebrew:tap-formula -- <version>" >&2
-  exit 2
-fi
-scripts/render-homebrew-formula.sh "$*" "../homebrew-tap/Formula/kaiba.rb"
-
-'''
-
-[tasks."build:homebrew-cask"]
-description = "Build signed and notarized Homebrew Cask DMGs, or pass targets after --"
-run = '''
-scripts/build-homebrew-cask-release.sh "$@"
-'''
-
-[tasks."homebrew:cask"]
-description = "Render Casks/kaiba.rb from dist/homebrew-cask checksums"
-run = '''
-scripts/render-homebrew-cask.sh "$@"
-'''
-
-[tasks."homebrew:tap-cask"]
-description = "Render the cask into the default sibling Homebrew tap checkout"
-run = '''
-set -euo pipefail
-if [ -z "$*" ]; then
-  echo "usage: mise run homebrew:tap-cask -- <version>" >&2
-  exit 2
-fi
-scripts/render-homebrew-cask.sh "$*" "../homebrew-tap/Casks/kaiba.rb"
-
-'''
-
-[tasks."release:homebrew-cask-local"]
-description = "Build, notarize, upload, and render the sibling tap cask for a v<version> tag"
-run = '''
-scripts/release-homebrew-cask-local.sh "$@"
-'''
+[tasks.ci]
+description = "Run all verification gates"
+run = "mise run lint && mise run test && mise run build"
 
 [tasks.install-git-hooks]
 description = "Install mise tools and the repository pre-commit hook"
 run = '''
 mise install
-
-hooks_path=$(git config --local --get core.hooksPath || true)
-if [ "$hooks_path" = ".git/hooks" ]; then
-  git config --local --unset-all core.hooksPath
-  hooks_path=""
-fi
-
-if [ -z "$hooks_path" ]; then
-  mise exec -- pre-commit install
-else
-  mise exec -- pre-commit validate-config .pre-commit-config.yaml
-  echo "Using existing custom Git hooks path: $hooks_path"
-fi
+mise exec -- pre-commit install
 '''

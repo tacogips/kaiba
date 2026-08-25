@@ -1,255 +1,192 @@
 # kaiba
 
-A local-first, ontology-oriented note app for the command line, extracted
-from the Riela Note subsystem. Notes live in notebooks, carry markdown
-bodies (the first `# ` heading is the title), and are organized through
-tags with world-model classes (`person`, `year`, `event`, `topic`, ...),
-tag hierarchies, and provenance tracking (human vs AI vs system). Notes
-can be linked to each other, commented on, marked read-only, and carry
-content-addressed file attachments (local by default, migratable to
-S3-compatible storage). Search is SQLite FTS5 with tag/class filters.
+Kaiba is an ontology-oriented note application built as a Bun/TypeScript
+monorepo. Its deterministic data API runs on Cloudflare Workers with GraphQL
+Yoga and D1. AI features run outside the Kaiba Worker through `@kaiba/ai`, use
+end-user vendor keys, and access notes only through GraphQL tools.
 
-## Quick Start
+There is no `kaiba` AI subcommand and no server-side AI mutation.
 
-```bash
-kaiba add --body '# My first note
-Anything markdown.' --tag idea
+## Architecture
 
-kaiba list                      # newest first
-kaiba search idea               # FTS + snippet
-kaiba show <note-id>            # body, tags, links, files, comments
-kaiba notebook list
-kaiba --help                    # full command surface
+```text
+web or trusted JS automation
+  |-- GraphQL ----------------------> Cloudflare Worker --> D1
+  `-- @kaiba/ai --> selected vendor --^ typed GraphQL tools
 ```
 
-The local note store lives at `~/.kaiba/note-store.sqlite`, with attachments
-under `~/.kaiba/files/` (override the root with `--note-root` or
-`KAIBA_NOTE_ROOT`). Kaiba configuration lives at
-`~/.config/kaiba/config.json` (override with `--config` or
-`KAIBA_CONFIG_PATH`). No Riela path or environment variable is consulted.
-See `design-docs/specs/command.md` for the full CLI
-and `design-docs/specs/kaiba-note.md` for the design.
+- `apps/api`: Worker, GraphQL schema, D1 adapter composition, static assets.
+- `packages/domain`: note, notebook, tag, and provenance types.
+- `packages/application`: deterministic use cases and repository ports.
+- `packages/adapter`: D1 and in-memory repositories.
+- `packages/ai`: user-key provider routing, OCR/tag/translation actions, and <!-- gitleaks:allow -->
+  Kaiba GraphQL tools.
+- `web`: SolidJS app served by the Worker.
 
-## Libraries
-
-Notebooks are grouped into named libraries, and each library decides whether a
-caller that presented no credential may see it at all:
-
-```bash
-kaiba library create shared --title "Shared" --auth required
-kaiba library list
-kaiba --library shared add --body '# Only for signed-in callers'
-kaiba library move <notebook-id> --to shared
-```
-
-`--library <name>` (or `KAIBA_LIBRARY`) selects the library a command reads
-and writes; without a selection writes land in the `default` library, which is
-seeded open so a store behaves exactly as it did before libraries existed.
-
-Access to a library that requires authentication is granted per account:
-
-```bash
-kaiba library grant shared --user <user-id>
-kaiba library members shared
-kaiba library revoke shared --user <user-id>
-```
-
-An `--allow-unauthenticated` note-API request reaches only the open libraries,
-whatever grants exist. An authenticated account reaches the open libraries plus
-the ones it was granted. The local CLI is the operator view and spans every
-library. Holding a note, notebook, or file id does not get past this: fetch by
-id, search, graph traversal, and `GET /files/<id>` all answer "not found" for a
-library the caller cannot reach.
-
-A library can name its own credential scope. Policy stays in the store and the
-config holds only names, never values:
-
-```json
-{
-  "libraries": [
-    { "name": "shared", "kinkoPath": "logical:kaiba/shared", "storageProfile": "gateway" }
-  ]
-}
-```
-
-`kaiba library env shared` prints that scope and the environment variables it
-supplies, so the invocation is ready to paste:
-
-```bash
-kinko --path logical:kaiba/shared exec -- kaiba --library shared serve
-```
-
-See `design-docs/specs/library.md` for the design.
-
-## External database and file storage
-
-The default configuration is local SQLite. A Turso or libSQL SQL-over-HTTP
-database can be selected without putting its token in the configuration file:
-
-```json
-{
-  "database": {
-    "kind": "turso",
-    "url": "libsql://my-kaiba-database.turso.io",
-    "authTokenEnvironmentVariable": "KAIBA_TURSO_TOKEN",
-    "allowInsecureLoopbackHTTP": false
-  },
-  "storageProfiles": []
-}
-```
-
-The remote database must provide the SQLite features Kaiba uses: JSONB, FTS5,
-and the FTS5 trigram tokenizer. `libsql://` and `turso://` URLs are sent over
-HTTPS. Plain HTTP is accepted only when explicitly enabled for a loopback test
-server.
-
-Named S3-compatible profiles let all CLI, GraphQL, and server paths use the
-same external file storage. Credentials remain in environment variables:
-
-```json
-{
-  "database": { "kind": "sqlite" },
-  "storageProfiles": [{
-    "name": "gateway",
-    "endpoint": "http://127.0.0.1:8443",
-    "region": "us-east-1",
-    "bucket": "kaiba-files",
-    "accessKeyIdEnvironmentVariable": "KAIBA_S3_ACCESS_KEY",
-    "secretAccessKeyEnvironmentVariable": "KAIBA_S3_SECRET_KEY",
-    "keyPrefix": "attachments"
-  }]
-}
-```
-
-`s3-gateway` can expose either a local filesystem or an upstream S3
-service through that profile. The integration gates exercise Kaiba upload and
-download through its POSIX backend and through its MinIO-backed S3 backend:
-
-```bash
-mise run test:turso
-mise run test:s3-gateway
-```
-
-The S3 gateway test expects a sibling checkout at `../s3-gateway` by
-default and uses Docker (Colima is supported) for MinIO. Override the checkout
-with `S3_GATEWAY_REPOSITORY`.
-
-## Web Viewer
-
-Kaiba includes the SolidJS note viewer ported from riela and a local
-HTTP note API (GraphQL):
-
-```bash
-cd web && bun install && bun run build && cd ..
-kaiba serve --web-root web/dist
-```
-
-`kaiba serve` prints the endpoint plus a registration URL / terminal QR
-code; open the URL to register the browser (bearer token, stored
-hashed). Use `--allow-unauthenticated` to skip auth on a trusted
-machine. The server exposes `POST /graphql`, `GET /note/events`
-(long-poll live updates), `GET|POST /note/register`, and serves the
-viewer SPA.
-
-The viewer treats attached tags as navigation subjects. Click an underlined
-tag term or tag chip to open its Memo, History, and Links tabs across every
-notebook. Tag memo creation is safe under concurrent submissions, agent context
-respects its UTF-8 byte budget, and Links loads the complete paginated occurrence
-set while clearing results immediately when the selected tag changes.
-
-## API Access
-
-```bash
-# machine access: issue an API key (printed once), use it as a bearer
-kaiba client issue --name my-tool
-curl -X POST http://127.0.0.1:8787/graphql \
-  -H "Authorization: Bearer <api-key>" \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"query Tags { tags { result { accepted } value { name } } }"}'
-
-# or execute GraphQL locally without a server
-kaiba graphql 'query Tags { tags { result { accepted } value { name } } }'
-```
+See [the architecture design](design-docs/specs/node-cloudflare-architecture.md)
+and [migration plan](impl-plans/active/node-cloudflare-migration.md).
 
 ## Development
 
 ```bash
 mise install
-mise run build
+mise run install
+mise run db-migrate-local
+mise run dev
+```
+
+The local Worker is available at `http://localhost:8787`; GraphQL is at
+`http://localhost:8787/graphql`. D1 migration `0001_init.sql` creates a
+`default` notebook.
+
+Verification:
+
+```bash
+mise run lint
 mise run test
-swift run kaiba --help
+mise run build
 ```
 
-The package uses Swift Package Manager with:
+## Riela work orchestration
 
-- System library target: `CKaibaSQLite3` (sqlite3)
-- Library targets: `AppCore` (note domain + command logic),
-  `AppGraphQL` (note GraphQL executor), `AppServer` (local HTTP server)
-- Executable target: `AppCLI`
-- Installed executable: `kaiba`
-- Web viewer: `web/` (SolidJS + vite; `bun run build`)
-
-Document conversion is consumed exclusively through `anydoc-swift`'s
-`AnydocKit` product. macOS development and release builds use its published
-XCFramework automatically and do not require a local Cargo build or
-`PKG_CONFIG_PATH`.
-
-## Homebrew Formula
-
-Build local formula archives:
+Run repository work through the preferred Fable/Codex workflow with automatic
+Codex-only fallback:
 
 ```bash
-mise run build:homebrew -- darwin-arm64 darwin-x64
+mise run workflow -- \
+  --variables-file request.json \
+  --output jsonl
 ```
 
-Render a formula after both platform archives exist:
+The launcher validates `codex-goal`, then prefers
+`fable-and-improve-codex`. It switches to `codex-goal` only when the Claude
+executable or Fable workflow is unavailable, or when execution reports a
+Fable/Claude authentication, quota, capacity, model-access, or backend
+availability failure. Other workflow failures remain visible and do not trigger
+a second run.
+
+To select the Codex-only Riela flow explicitly:
 
 ```bash
-mise run homebrew:formula -- 0.1.0
+KAIBA_FORCE_CODEX_RIELA=1 mise run workflow -- \
+  --variables-file request.json \
+  --output jsonl
 ```
 
-Render directly into the default sibling tap checkout:
+## GraphQL
+
+The Worker exposes deterministic note operations even when no AI vendor is
+configured:
 
 ```bash
-mise run homebrew:tap-formula -- 0.1.0
+curl http://localhost:8787/graphql \
+  -H 'content-type: application/json' \
+  -d '{"query":"query { notes { id title tags { name provenance } } }"}'
 ```
 
-Install from the tap after the formula is published:
+Create and tag a note:
+
+```graphql
+mutation {
+  createNote(
+    input: {
+      notebookId: "default"
+      bodyMarkdown: "# My note\nMarkdown body"
+      tags: ["idea"]
+      provenance: human
+    }
+  ) {
+    id
+    title
+  }
+}
+```
+
+Set the optional Kaiba data API bearer token as a Worker secret:
 
 ```bash
-brew tap tacogips/tap
-brew install kaiba
+cd apps/api
+mise exec -- bunx wrangler secret put KAIBA_API_TOKEN
 ```
 
-## Homebrew Cask
+This bearer token is unrelated to AI vendor keys.
 
-The Cask workflow builds signed, notarized, and stapled macOS DMG artifacts.
-Apple signing credentials must stay local and must not be committed.
+## User-key AI SDK
 
-Check the build plan:
+Each action has an independent vendor, model, and user key. Keys are runtime
+values; the SDK's redacted routing view never returns them.
+
+```typescript
+import { KaibaAi } from "@kaiba/ai";
+
+const kaiba = new KaibaAi({
+  kaiba: {
+    endpoint: "https://kaiba.example.com/graphql",
+    token: process.env.KAIBA_API_TOKEN,
+  },
+  routes: {
+    ocr: {
+      vendor: "google",
+      model: "your-image-capable-model",
+      apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
+    },
+    tagging: {
+      vendor: "anthropic",
+      model: "your-structured-output-model",
+      apiKey: process.env.ANTHROPIC_API_KEY!,
+    },
+    translation: {
+      vendor: "openai",
+      model: "your-translation-model",
+      apiKey: process.env.OPENAI_API_KEY!,
+    },
+  },
+});
+
+await kaiba.tagNote({ noteId: "note-id" });
+await kaiba.translateNote({
+  noteId: "note-id",
+  targetLanguage: "Japanese",
+  writeBack: true,
+});
+```
+
+`createKaibaTools()` supplies `searchNotes`, `getNote`, `createNote`,
+`updateNote`, `applyNoteTags`, and `linkNotes`. Every write goes through the
+ordinary GraphQL API with the caller's Kaiba bearer token. No tool shells out to
+a CLI.
+
+The web app holds vendor keys in page memory only. A trusted local/server
+JavaScript runtime is recommended because some vendors reject browser-origin
+requests.
+
+## Cloudflare deployment
+
+1. Create a D1 database and replace the placeholder `database_id` in
+   `apps/api/wrangler.toml`.
+2. Apply remote migrations.
+3. Set `KAIBA_API_TOKEN` if the API must require a bearer token.
+4. Build and deploy.
 
 ```bash
-mise run build:homebrew-cask -- --dry-run darwin-arm64 darwin-x64
+cd apps/api
+mise exec -- bunx wrangler d1 create kaiba
+mise exec -- bunx wrangler d1 migrations apply kaiba --remote
+cd ../..
+mise run build
+cd apps/api
+mise exec -- bunx wrangler deploy
 ```
 
-Build with local signing credentials:
+The Worker serves `web/dist`, routes `/graphql` to GraphQL Yoga, and exposes a
+public `/health` endpoint. AI vendor keys are not Wrangler secrets or Worker
+bindings.
 
-```bash
-kinko exec --env APPLE_SIGNING_IDENTITY,APPLE_ID,APPLE_PASSWORD,APPLE_TEAM_ID -- \
-  mise run build:homebrew-cask -- darwin-arm64 darwin-x64
-```
+## Migration note
 
-Render a Cask:
-
-```bash
-mise run homebrew:cask -- 0.1.0
-```
-
-For a tagged release, build, upload, and render the tap Cask:
-
-```bash
-kinko exec --env APPLE_SIGNING_IDENTITY,APPLE_ID,APPLE_PASSWORD,APPLE_TEAM_ID -- \
-  mise run release:homebrew-cask-local -- v0.1.0
-```
-
-See `packaging/homebrew/README.md` and `.agents/skills/` for release workflows.
+The Swift CLI, local server, macOS menu-bar wrapper, and Homebrew release flows
+were removed on the Node migration branch. Historical designs remain under
+`design-docs/`; the current runtime contract is
+`design-docs/specs/node-cloudflare-architecture.md`. Existing Swift SQLite data
+requires an explicit export/import tool before production cutover; the new D1
+schema intentionally does not read local filesystem state.
