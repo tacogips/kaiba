@@ -364,13 +364,23 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // edit request as a plain memo — the masquerade web-chatbook-ui.md:254-257
     // forbids — or drop a file the user can still see staged. Refuse instead,
     // which preserves both the toggle and the chips for when the catalog returns.
+    // Read availability ONCE and reuse that single value for both the guards
+    // and the builder below. The builder runs after two awaits, and discovery
+    // (which re-runs on every `catalogRevision` bump and is not gated on
+    // `busy()`) can flip availability true -> false inside that window. Re-reading
+    // it there would let a request the guard already admitted go out with its
+    // extension fields quietly withheld — the same masquerade the guard exists to
+    // prevent. Captured, the request is atomically either fully extended or
+    // refused; if the server does turn out to be old mid-send it rejects the
+    // extension field loudly, which is the intended failure mode.
+    const extensionsAvailable = catalogAvailable()
     const effectiveNoteEdit = retry ? retry.noteEdit : noteEdit()
     const effectiveAttachments = retry ? 0 : attachments().length
-    if (!catalogAvailable() && effectiveNoteEdit) {
+    if (!extensionsAvailable && effectiveNoteEdit) {
       setError('Note edit mode is unavailable until the agent model catalog loads, so this note edit was not sent.')
       return
     }
-    if (!catalogAvailable() && effectiveAttachments > 0) {
+    if (!extensionsAvailable && effectiveAttachments > 0) {
       setError('Attachments are unavailable until the agent model catalog loads, so this message was not sent. The staged files were kept.')
       return
     }
@@ -390,8 +400,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         userMarkdown: body,
         idempotencyKey: newIdempotencyKey(),
         selectedModel: app.state.settings.agentModel,
-        noteEdit: retry ? retry.noteEdit : noteEdit(),
-        extensionsAvailable: catalogAvailable(),
+        // Both reuse the values the guard admitted. `noteEdit()` can be cleared
+        // by the read-only effect above during the same await window.
+        noteEdit: effectiveNoteEdit,
+        extensionsAvailable,
         attachments: attachmentInputs,
       }))
       if (!retry) {

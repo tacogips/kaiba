@@ -718,6 +718,86 @@ describe('MemoTab integration', () => {
     }
   })
 
+  // Step 7 MID: TOCTOU. The refusal guards read availability synchronously, but
+  // the request builder ran after the send's awaits. Discovery re-runs on every
+  // `catalogRevision` bump and is not gated on `busy()`, so a mid-session server
+  // downgrade could flip availability false while a send was parked — and the
+  // builder would then withhold `mode`/`attachments` on a request the guard had
+  // already admitted. That is the silent edit-as-memo masquerade again, arriving
+  // through the await window instead of through the guard. Availability is now
+  // captured ONCE at the top of send(), so the request is atomically either
+  // fully extended or refused; an actually-old server rejects it loudly.
+  test('a mid-send catalog flip cannot strip extensions from an already-admitted request', async () => {
+    let releaseFirst!: () => void
+    let releaseSecond!: () => void
+    let releaseAttachmentRead!: () => void
+    const first = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const second = new Promise<void>((resolve) => { releaseSecond = resolve })
+    const attachmentRead = new Promise<void>((resolve) => { releaseAttachmentRead = resolve })
+    let bumpCatalog!: () => void
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(
+      () => <MemoTab app={testStore(requests, [], {
+        agentModelsGates: [{ wait: first, outcome: 'ok' }, { wait: second, outcome: 'graphql' }],
+        bindBumpCatalog: (bump) => { bumpCatalog = bump },
+      })} />, host,
+    )
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+      releaseFirst()
+      const model = () => host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
+      await waitFor(() => expect(model().disabled).toBe(false))
+
+      // Both extensions are engaged against a healthy catalog. The staged file's
+      // read is the hold: it parks the send between the guard and the builder,
+      // which is exactly the window the flip has to lose.
+      const noteEdit = host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!
+      noteEdit.click()
+      await waitFor(() => expect(noteEdit.getAttribute('aria-pressed')).toBe('true'))
+
+      const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      const staged = new File(['context'], 'context.txt', { type: 'text/plain' })
+      Object.defineProperty(picker, 'files', { configurable: true, value: [staged] })
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(host.textContent).toContain('context.txt'))
+      // Gate the read only AFTER staging: `validateComposerFiles` reads the file
+      // too, and parking that would block the chip instead of the send.
+      Object.defineProperty(staged, 'arrayBuffer', {
+        configurable: true,
+        value: async () => {
+          await attachmentRead
+          return new TextEncoder().encode('context').buffer
+        },
+      })
+
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Apply what we discussed to the note'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await settle()
+      expect(requests).toHaveLength(0)
+
+      // Server is rolled back WHILE the send is parked on the attachment read.
+      bumpCatalog()
+      await settle()
+      releaseSecond()
+      await waitFor(() => expect(model().disabled).toBe(true))
+      expect(requests).toHaveLength(0)
+
+      releaseAttachmentRead()
+      await waitFor(() => expect(requests).toHaveLength(1))
+      // The guard admitted a fully-extended request, so a fully-extended request
+      // is what goes out. Neither field may be silently dropped.
+      expect(requests[0]).toMatchObject({ mode: 'edit', model: 'configured' })
+      expect(requests[0]?.attachments).toHaveLength(1)
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
   // Step 7 MID, same root cause. The transport branch deliberately KEEPS the
   // staged files, so the chips still render while the catalog is unavailable.
   // A direct send withheld `attachments` entirely, and send()'s own setError('')

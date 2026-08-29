@@ -1,7 +1,10 @@
 # Right-Pane Agent Memo/Chat Composer
 
 **Status**: Implementation and the older-server capability gate are complete
-and verified (TASK-010 through TASK-012, TASK-014 executed 2026-08-29).
+and verified (TASK-010 through TASK-012, TASK-014 executed 2026-08-29; the whole
+gate RE-EXECUTED 2026-08-30 against the current tree, which turned `tsc --noEmit`
+red on a test-only `noUncheckedIndexedAccess` violation that was then fixed —
+`mise run check` now `EXIT=0` unpiped).
 TASK-008's three browser-runtime criteria remain openly environment-blocked: no
 browser runtime is installed and adding a headless one is an unauthorized open
 user decision. That single unmet deliverable keeps this plan in
@@ -870,8 +873,27 @@ that failing check requires. Nothing beyond the capability gate may change.
       before enabling note edit mode." explanation is still reachable, and
       `aria-disabled` still does not reflect `busy`. Pinned by the rendered
       positive test's memo-only assertions.
-- [x] `MemoTab.tsx:584`'s title expression is unchanged (now `:600` after the
-      insertions; the expression itself is byte-identical in the diff).
+- [x] The note-edit toggle's title expression is unchanged. Cited by token, not
+      by coordinate: the expression ending
+      `: 'Note edit mode requires a writable note'` is byte-identical in
+      `git diff -- web/src/components/MemoTab.tsx`. (Its planning-frame
+      coordinate was `MemoTab.tsx:584`. The "now `:600` after the insertions"
+      form this criterion carried until 2026-08-30 was itself a rotted pointer,
+      which is why the current-state half is now a token; the 2026-08-30 progress
+      entry records where it had actually drifted to.)
+- [x] **The tooltip consequence of the binding above is stated here, beside the
+      binding, not only in the analysis section.** The toggle gains
+      `!props.catalogAvailable` in `disabled`/`aria-disabled` while the title
+      expression stays untouched, so with a WRITABLE note (`canNoteEdit` true)
+      and the catalog unavailable the toggle renders disabled and its tooltip
+      still reads "Edit note mode". That is accepted, not overlooked: the
+      disabled state is what `web-chatbook-ui.md:254-257` requires, and a third
+      tooltip branch is presentation work under the same no-styling cap that
+      excluded the "Attachments require a newer server" tooltip. The two
+      exclusions are therefore symmetric and both are named at their own
+      control's criterion — the asymmetry three review rounds kept re-finding
+      was that only the attachment half was named where the change was
+      enumerated.
 - [x] The availability signal is driven by whether the `agentModels` query
       resolved, NOT by `AgentModelsResult.discoveryAvailable`.
       Evidence: `grep -n discoveryAvailable web/src/components/MemoTab.tsx`
@@ -992,9 +1014,13 @@ failing check now exists for each, written before the fix.
          searchable token (a test name, a distinctive expression), never
          `File.ts:NNN`. Planning-era text inside the TASK write-scope blocks
          keeps its PRE-FIX coordinates deliberately: those describe the tree the
-         plan was written against, which the criterion recording that the
-         note-edit title expression is unchanged states explicitly by carrying
-         both frames ("now `:600` after the insertions").
+         plan was written against. The criterion recording that the note-edit
+         title expression is unchanged used to carry BOTH frames ("now `:600`
+         after the insertions"); that exemplar was withdrawn on 2026-08-30 after
+         the current-state half rotted to a wrong line. A planning-frame
+         coordinate may be kept and labelled as such, but the current-state half
+         must be a token, never a second coordinate — a second coordinate is
+         just another pointer and rots the same way.
       **SCOPE, stated so the rule does not outrun its check.** Rule 3's sweep is
       `grep -noE '(MemoTab\.tsx|MemoTab\.integration\.tsx|appStore\.tsx):[0-9]+'`
       restricted to the current-state regions — i.e. exactly the CODE files this
@@ -1330,8 +1356,10 @@ Manual smoke with `kaiba serve --web-root web/dist`:
 - [x] Codex/Cursor remain behind `AgentGatewayCLIInvoker`; no vendor-specific divergence leaks into UI/core.
 - [x] Focused and full verification pass with exact commands recorded, or each
       unavailable command is recorded as environment-blocked with its reason.
-      Every gate command executed green on 2026-08-29; only the manual browser
-      smoke list is recorded as environment-blocked.
+      Every gate command executed green on 2026-08-29 and was RE-EXECUTED green
+      on 2026-08-30 against the current tree (`mise run check` `EXIT=0`
+      unpiped, after fixing the one typecheck failure the re-run exposed); only
+      the manual browser smoke list is recorded as environment-blocked.
 - [x] The plan stays in `impl-plans/active/` while any deliverable is unmet and
       moves to `impl-plans/completed/` only when all are satisfied. It stays
       active: TASK-008's three browser-runtime criteria are unmet and blocked. A RETRACTED
@@ -2315,6 +2343,18 @@ the more reachable of the two — stayed open. Reproduced before fixing.
   an explanation. Refusal, not silent clearing, was chosen for attachments: it
   preserves the staged files so the user can send unchanged once the catalog
   returns, and it is symmetric with the note-edit refusal.
+- **The guard and the builder now read ONE captured availability value.**
+  `const extensionsAvailable = catalogAvailable()` is taken once at the top of
+  `send()` and used by both the refusal guards and
+  `buildAgentChatComposerRequest`, which also reuses `effectiveNoteEdit` rather
+  than re-reading `noteEdit()`. Without that capture the invariant held only at
+  the send's ENTRY: the builder runs after two awaits, and discovery (which
+  re-runs on every `catalogRevision` bump and is not gated on `busy()`) could
+  flip availability false inside that window, silently stripping `mode` and
+  `attachments` from a request the guard had already admitted. Captured, "guard
+  the EFFECTIVE request" holds across the whole await window — the request is
+  atomically either fully extended or refused, and an actually-old server
+  rejects the extension field loudly rather than answering an edit as a memo.
 - **A retry arm prevents a FALSE refusal, and is pinned.** A retry never carries
   attachments, and the Retry button is disabled only for EDIT turns — so a failed
   MEMO turn stays retryable during an outage. Reading `attachments().length`
@@ -2335,6 +2375,19 @@ because conflating them is how a verification claim goes false:
   `retry ? 0 : attachments().length` with `attachments().length` breaks it
   (1 failed / 26 passed). Mutation-only evidence is weaker than failing-first
   and is recorded as such rather than folded into the same sentence.
+
+A FOURTH test was added for the await-window hole, and WAS recorded failing
+first: "a mid-send catalog flip cannot strip extensions from an already-admitted
+request" latches note edit and stages a file against a healthy catalog, parks the
+send inside `fileToAttachment` by gating the staged `File`'s `arrayBuffer` (gated
+only AFTER staging, since `validateComposerFiles` reads the file too and gating
+it earlier would block the chip instead of the send), flips the catalog to
+unavailable via `bumpCatalog()` + a `graphql` discovery rejection while the send
+is parked, then asserts the released request still carries `mode: 'edit'`,
+`attachments`, and `model`. Against the pre-capture tree it failed with
+"expected undefined to be 'edit'" — the request was sent with `mode` stripped,
+which is the masquerade itself rather than a proxy for it. After the capture:
+17 passed in `MemoTab.integration.tsx`.
 
 **Two findings the fix surfaced that were not in the review:**
 1. The refusal's `setError` was first written as a ternary with retry-specific
@@ -2533,3 +2586,121 @@ constraint): `setCatalogAttempt(0)` on the success path costs one redundant
 VERIFICATION: `mise run web:check` green — `tsc --noEmit`; `bun test src` 155
 pass / 0 fail across 21 files; `vitest run` 28 passed across 5 files (+1);
 `eslint .`; `vite build`. No Swift path is in the commit.
+
+### 2026-08-30 — TASK-009/010/011/012 re-executed against the working tree; the gate went red and was fixed
+
+**Why this round exists at all.** Every gate leg had been recorded green on
+2026-08-29, but those runs predated the uncommitted composer work still in the
+tree (`web/src/components/MemoTab.tsx`, `web/src/components/MemoTab.integration.tsx`,
+`README.md`, this plan). A green recorded against a different tree is exactly the
+"evidence as pointer" failure this plan already names: it stays valid-looking
+while the thing it points at moves. So the whole sweep was re-run against the
+tree as it actually stands.
+
+**It went red.** `mise run web:check` failed its FIRST leg, `tsc --noEmit`:
+
+```
+src/components/MemoTab.integration.tsx(793,14): error TS2532: Object is possibly 'undefined'.
+src/components/MemoTab.integration.tsx(794,14): error TS2532: Object is possibly 'undefined'.
+src/components/MemoTab.integration.tsx(795,14): error TS2532: Object is possibly 'undefined'.
+```
+
+The mid-send-flip test added last round asserted through bare `requests[0].mode`
+/ `.attachments` / `.model`, and `web/tsconfig.json` sets
+`noUncheckedIndexedAccess: true`. The failure is in the TEST, not in production
+code, so the fix stayed inside the test and inside the file's own existing idiom
+(`:257-259`):
+
+```ts
+expect(requests[0]).toMatchObject({ mode: 'edit', model: 'configured' })
+expect(requests[0]?.attachments).toHaveLength(1)
+```
+
+**No assertion was weakened.** `toMatchObject` fails when an expected key is
+ABSENT, which is precisely the masquerade the test exists to catch — a request
+that went out with `mode` stripped. `?.attachments` resolving to `undefined`
+fails `toHaveLength(1)` for the same reason. Three assertions became two only
+because `mode` and `model` merged into one object match; the third, the
+attachment count, is unchanged. Nothing was skipped, deleted, or relaxed.
+
+**Why the first sweep looked like it passed.** The first `mise run check` was
+piped (`mise run check 2>&1 | tail -80`), so the shell reported `tail`'s status,
+not mise's. The failure was visible in the text (`[web:check] ERROR task failed`)
+while the exit code read 0. Re-run unpiped, `mise run check` reported `EXIT=0`
+honestly once the typecheck was fixed. Recorded because "exit code 0" is another
+pointer that can be read off the wrong process; this is not a mise defect.
+
+**EXECUTED EVIDENCE, 2026-08-30, after `mise run anydoc:native`:**
+
+- Focused Swift, `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter 'AgentChatTests|AgentGatewayCLIInvokerTests|AgentChatGraphQLTests'`:
+  `AgentChatTests` 24 / 0 failures, `AgentChatGraphQLTests` 19 / 0,
+  `AgentGatewayCLIInvokerTests` 11 / 0; suite rollup 54 executed, 0 failures.
+- Focused web, `vitest run src/components/MemoTab.integration.tsx`: 17 passed / 17.
+- `mise run test` (full Swift): `Test Suite 'All tests' passed` — 523 executed,
+  0 failures (0 unexpected); swift-testing leg 34 tests, 0 failures.
+- `mise run lint` (SwiftLint): `Found 2 violations, 0 serious in 181 files` —
+  `NoteService.swift:572:40` and `ResendGatewayCLIMailSender.swift:75:73`, both
+  `large_tuple` warnings. Both are PRE-EXISTING at HEAD in files this feature
+  never touched (no Swift file is in this commit), and `0 serious` is why
+  SwiftLint exits 0. Named rather than folded into "lint green".
+- `mise run web:check`: `tsc --noEmit` clean; `bun test src` 155 pass / 0 fail
+  across 21 files; `vitest run` 29 passed across 5 files; `eslint .` clean;
+  `vite build` ✓ 57 modules.
+- `mise run tauri:check`: exit 0. Re-run component-by-component for real
+  evidence, since `CARGO_TERM_QUIET` suppresses the per-command output:
+  `cargo fmt --check` clean, `cargo check` `Finished dev profile`,
+  `cargo clippy -- -D warnings` `Finished dev profile`.
+- `mise run check` (the whole gate, unpiped): `EXIT=0`.
+
+**STILL ENVIRONMENT-BLOCKED, and this is the only thing holding the plan open:**
+TASK-008's three browser-runtime criteria — controls not overflowing at pane
+breakpoints, selected/disabled/hover/focus states distinguishable in both
+themes, and a keyboard-only responsive/light/dark smoke. No browser runtime is
+installed on this machine, and installing a headless one is an open user
+decision recorded in `design-docs/user-qa/web-chatbook-ui.md`, not something this
+task may decide. `web-chatbook-ui.md`'s evidence rule is explicit that reading
+CSS, compiling, or static review never satisfies them, so they stay UNCHECKED
+rather than argued closed. Everything else the gate covers is unaffected: no
+Swift, GraphQL, core, typecheck, unit, lint, or build result depends on a
+browser.
+
+**PLAN LOCATION: stays in `impl-plans/active/`.** The move to
+`impl-plans/completed/` is conditioned on every deliverable being satisfied, and
+one is not. The box arithmetic is unchanged by this round — 7 unchecked = 2
+RETRACTED + 3 TASK-008 criteria + 1 TASK-009 rollup (open only because of those
+three) + 1 DISCLOSURE; UNMET DELIVERABLES = 1.
+
+**REVIEW FEEDBACK ADDRESSED (mid, carried from the previous round).** The finding
+was that the note-edit toggle's tooltip consequence was left unlabelled where the
+`disabled`/`aria-disabled` change is enumerated, while the exactly-analogous
+attachment tooltip WAS named as a deliberate exclusion. Two things were wrong,
+and both are fixed above the Progress Log:
+
+1. The consequence is now stated as its own criterion sitting directly beside the
+   binding criterion, not only in the far-away analysis section. Both exclusions
+   are now named at their own control.
+2. **The criterion that was supposed to pin the untouched title expression was
+   itself citing a rotted line number.** It read "`MemoTab.tsx:584`'s title
+   expression is unchanged (now `:600` after the insertions)". The expression is
+   at `:674` at HEAD and `:686` in this tree; `:600` had not resolved to it for
+   several rounds. The current-state half is now a searchable token
+   (`: 'Note edit mode requires a writable note'`) verified against
+   `git diff -- web/src/components/MemoTab.tsx`, and the planning-frame
+   coordinate is kept and labelled as such.
+
+   The coordinate rule's own text has been corrected too, because it cited this
+   exact criterion — "carrying both frames (`now :600 after the insertions`)" —
+   as the EXEMPLAR of the convention. The exemplar was false. The rule now says
+   what it should have said: a planning-frame coordinate may be kept and
+   labelled, but the current-state half must be a token, never a second
+   coordinate, since a second coordinate is just another pointer and rots
+   identically. This is the fourth round to close one shape of "evidence recorded
+   as a pointer", and the first where the rot was inside the rule that forbids it.
+
+Historical progress entries that quote the old `:600` form are left as written;
+they are a record of what was believed at the time, and this entry is the
+correction.
+
+VERIFICATION FOR THIS ROUND: the executed evidence block above. One code file
+changed (`web/src/components/MemoTab.integration.tsx`, test-only assertion
+reshaping to satisfy `noUncheckedIndexedAccess`); no production behavior changed.
