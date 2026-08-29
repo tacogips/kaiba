@@ -379,7 +379,21 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   caveat is a documentation mitigation, not a fix; distribution stays blocked
   on the Pending user decision.
 - **Plaintext bearer.** A non-loopback `http` endpoint sends the bearer in the
-  clear. Accepted residual risk for this release; recorded as Pending.
+  clear. Accepted residual risk for this release; recorded as Pending. Requests
+  leave through the Rust shell rather than `URLSession`, so iOS App Transport
+  Security never applies and the OS raises no warning.
+- **Credential bound to its issuing origin (closed).** Step 7's adversarial
+  review found that `saveServerEndpoint` persisted a new origin without
+  clearing the bearer the previous server issued, so repointing the client sent
+  server A's credential to server B. The client's only clear-on-failure path is
+  a 401 from the GraphQL route (`client.ts:705`), which does not cover the
+  long poll, attachment fetches or the agent-stream poll, and a
+  `kaiba serve --allow-unauthenticated` host never emits 401 at all
+  (`Sources/AppServer/ServerContracts.swift:245`, `:343`, `:382`), so the
+  disclosure was persistent rather than one-time. `saveServerEndpoint` now
+  drops the credential when the normalized origin changes and keeps it on a
+  same-origin re-save. The 401 path must not be described as a general
+  backstop.
 
 ## Progress Log
 
@@ -517,3 +531,30 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   `origin/main` (`08c4843..1d93eba`). This progress-log line recording the SHA
   necessarily lands in a follow-up commit, since the SHA does not exist until
   the change-set commit is written.
+- 2026-08-29: Step 7 adversarial review returned `needs_revision` with one mid
+  finding and no high finding: `web/src/notes/serverEndpoint.ts:49`
+  `saveServerEndpoint` persisted a new origin without clearing the bearer at
+  `kaiba-note-bearer`, so a user repointing the client from server A to server B
+  leaked A's credential to B on every request, persistently for an
+  `--allow-unauthenticated` host. Fixed inside TASK-003's write scope plus the
+  two modules the fix requires:
+  `web/src/notes/serverEndpoint.ts` now exports `serverCredentialStorageKey`,
+  requires `removeItem` on `EndpointStorage` (with `availableEndpointStorage`
+  checking for it), and clears the credential in `saveServerEndpoint` when
+  `readServerEndpoint(storage)` differs from the newly normalized origin --
+  which also covers moving off the default `http://127.0.0.1:8787` with no
+  stored value. `web/src/notes/client.ts` now imports that key instead of
+  redeclaring the `'kaiba-note-bearer'` literal; the dependency runs
+  client -> serverEndpoint, so no import cycle is introduced.
+  `web/src/notes/serverEndpoint.test.ts` gains three cases (drop on origin
+  change, drop when moving off the default, keep on same-origin re-save) and
+  its `memoryStorage` helper gains `removeItem` and an optional seeded
+  credential. Mutation-checked: reverting only the clear makes 2 of the 3 new
+  tests fail, so they are load-bearing rather than tautological.
+  `design-docs/specs/tauri-client-apps.md` records the credential-bound-to-
+  origin invariant and drops the "self-heals on 401" framing the review
+  rejected, and adds the ATS note. The two Step 7 lows (untested `serverRequest`
+  branch selection, untested `ServerConnectionSettings.tsx`) are confirmed
+  scoped plan decisions and were not changed. Gates after the fix:
+  `mise run web:check` exit 0 (`bun test src` 148 pass / 0 fail, up from 145),
+  `mise run tauri:check` exit 0.

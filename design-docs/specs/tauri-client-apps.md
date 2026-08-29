@@ -20,7 +20,9 @@ without creating a second note domain, database, or API implementation.
   paths are resolved against a locally stored server endpoint and sent through
   Tauri's HTTP plugin, avoiding WebView cross-origin restrictions.
 - The API bearer and native endpoint are stored in the app WebView's local
-  storage. They are never compiled into the application.
+  storage. They are never compiled into the application. The bearer is bound to
+  the endpoint that issued it: changing the configured origin drops the stored
+  credential, so a key issued by one server is never presented to another.
 
 ## Transport boundary
 
@@ -98,9 +100,21 @@ today, and a policy tight enough for the Vite dev server and the packaged
 `tauri://` origin would have to be maintained by hand for both. A CSP must be
 defined before the client renders any HTML it did not author.
 
+`saveServerEndpoint` clears the stored bearer whenever the normalized origin
+differs from the one currently in effect, and keeps it when the same origin is
+re-saved. This is a client-side invariant, not a consequence of server
+behavior: the only clear-on-failure path in the client is a 401 from the
+GraphQL route, so it does not cover the note-events long poll, attachment
+fetches or the agent-stream poll, and a server started with
+`kaiba serve --allow-unauthenticated` never emits 401 at all. Without the
+clear, repointing the client would send the previous server's credential to the
+new host on every request for the life of the install.
+
 Residual risk accepted for this release: the bearer lives in WebView local
 storage and travels in plaintext when a user configures a non-loopback `http`
 endpoint. The app does not downgrade or upgrade schemes on the user's behalf.
+Requests leave through the Rust shell rather than `URLSession`, so iOS App
+Transport Security does not apply and no OS-level warning is raised.
 
 ## Build surfaces
 

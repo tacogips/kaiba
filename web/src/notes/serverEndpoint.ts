@@ -1,9 +1,15 @@
 export const serverEndpointStorageKey = 'kaiba-server-endpoint'
 export const defaultServerEndpoint = 'http://127.0.0.1:8787'
+/** The bearer issued by one server is meaningless to another and must never
+ * travel to a host that did not issue it, so the endpoint module owns the key
+ * and `client.ts` imports it. Declaring it here keeps the credential and the
+ * origin it belongs to in one place, without a cycle back through the client. */
+export const serverCredentialStorageKey = 'kaiba-note-bearer'
 
 export interface EndpointStorage {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
+  removeItem(key: string): void
 }
 
 interface TauriGlobal {
@@ -46,10 +52,20 @@ export function readServerEndpoint(storage?: EndpointStorage): string {
   }
 }
 
+/** Repointing the client at a different origin invalidates the stored bearer:
+ * it was issued by the previous server and would otherwise be sent to the new
+ * host on every request. Nothing downstream revokes it -- the only
+ * clear-on-failure path is a 401 from the GraphQL route, and a server started
+ * with `kaiba serve --allow-unauthenticated` answers 200 without ever reading
+ * the Authorization header -- so the credential is dropped here, before the
+ * new endpoint is persisted. Re-saving the same origin keeps it. */
 export function saveServerEndpoint(value: string, storage?: EndpointStorage): string {
   const normalized = normalizeServerEndpoint(value)
   const resolvedStorage = storage ?? availableEndpointStorage()
   if (!resolvedStorage) throw new Error('Server settings are unavailable in this environment.')
+  if (readServerEndpoint(resolvedStorage) !== normalized) {
+    resolvedStorage.removeItem(serverCredentialStorageKey)
+  }
   resolvedStorage.setItem(serverEndpointStorageKey, normalized)
   return normalized
 }
@@ -75,7 +91,11 @@ export async function serverRequest(input: RequestInfo | URL, init?: RequestInit
 function availableEndpointStorage(): EndpointStorage | undefined {
   try {
     const storage = (globalThis as { localStorage?: EndpointStorage }).localStorage
-    return storage && typeof storage.getItem === 'function' ? storage : undefined
+    if (!storage) return undefined
+    const usable = typeof storage.getItem === 'function'
+      && typeof storage.setItem === 'function'
+      && typeof storage.removeItem === 'function'
+    return usable ? storage : undefined
   } catch {
     return undefined
   }

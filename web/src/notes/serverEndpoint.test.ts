@@ -6,15 +6,18 @@ import {
   readServerEndpoint,
   resolveServerRequest,
   saveServerEndpoint,
+  serverCredentialStorageKey,
   serverEndpointStorageKey,
 } from './serverEndpoint'
 
-function memoryStorage(initial?: string) {
+function memoryStorage(initial?: string, credential?: string) {
   const values = new Map<string, string>()
   if (initial) values.set(serverEndpointStorageKey, initial)
+  if (credential) values.set(serverCredentialStorageKey, credential)
   return {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => { values.set(key, value) },
+    removeItem: (key: string) => { values.delete(key) },
     values,
   }
 }
@@ -59,6 +62,25 @@ describe('native server endpoint', () => {
   test('passes a non-string request target through untouched', () => {
     const target = new URL('https://other.test/graphql')
     expect(resolveServerRequest(target, 'https://notes.example.test')).toBe(target)
+  })
+
+  test('drops the stored credential when the endpoint origin changes', () => {
+    const storage = memoryStorage('https://a.example.test', 'bearer-issued-by-a')
+    saveServerEndpoint('https://b.example.test', storage)
+    expect(storage.values.get(serverCredentialStorageKey)).toBeUndefined()
+  })
+
+  test('drops the stored credential when moving off the default endpoint', () => {
+    const storage = memoryStorage(undefined, 'bearer-issued-by-the-default-host')
+    saveServerEndpoint('http://192.168.1.10:8787', storage)
+    expect(storage.values.get(serverCredentialStorageKey)).toBeUndefined()
+  })
+
+  test('keeps the stored credential when the same origin is re-saved', () => {
+    const storage = memoryStorage('https://a.example.test', 'bearer-issued-by-a')
+    saveServerEndpoint('https://a.example.test/', storage)
+    expect(storage.values.get(serverCredentialStorageKey)).toBe('bearer-issued-by-a')
+    expect(storage.values.get(serverEndpointStorageKey)).toBe('https://a.example.test')
   })
 
   test('detects only globals carrying Tauri internals', () => {

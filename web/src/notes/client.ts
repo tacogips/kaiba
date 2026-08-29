@@ -22,9 +22,9 @@ import type {
   TagComment,
   TagDetail,
 } from './types'
-import { isTauriRuntime, serverRequest } from './serverEndpoint'
+import { isTauriRuntime, serverCredentialStorageKey, serverRequest } from './serverEndpoint'
 
-const bearerKey = 'kaiba-note-bearer'
+const bearerKey = serverCredentialStorageKey
 export const notebookPageLimit = 200
 
 export interface NoteClientEnvironment {
