@@ -566,7 +566,8 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   `1d93eba` the Tauri client change set (110 files);
   `53be83c` the plan progress log recording `1d93eba`;
   `5ed5090` the first credential fix (cleared the bearer on origin change);
-  plus the credential-scoping revision below, which is the tail of the range.
+  `0c52dbf` the credential-scoping revision, the tail of the range.
+  The full close-out is therefore `08c4843..0c52dbf`.
   `5ed5090` and the revision changed a security-relevant behavior contract, so
   reverting `08c4843..1d93eba` alone would leave credential handling for a
   transport that no longer exists.
