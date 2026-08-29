@@ -3773,7 +3773,21 @@ existing catalog-flip test could not see it: its fixture selects nothing, so
 `agentModel` and `configuredModel` are both the same string and the assertion
 held either way. FIXED by capturing `effectiveModel` beside the others.
 
-**MID 2 — New chat mid-send rerouted an admitted message.** `startNewChat` has no
+**MID 2 — New chat mid-send rerouted an admitted message.**
+
+> CORRECTED 2026-08-30, beside the historical text per this plan's convention for
+> dated entries. TWO claims in the paragraph below have since changed. (1) "the
+> New chat button has no `disabled` binding" is FALSE as of a101bbb —
+> MemoTab.tsx:594 now binds `disabled={busy()}`. (2) "unlike every other composer
+> extension control" was never true: the attachment controls (:699, :707-708) and
+> the agent-model select (:744) are gated on extension availability only. STILL
+> TRUE: `startNewChat` itself has no `busy()` guard (MemoTab.tsx:482-491) — only
+> the button's DOM binding changed. And "FIXED by capturing both" was HALF the
+> fix: the capture stopped the reroute but the post-send reset then discarded the
+> click outright. See the 2026-08-30 entry "MID 2 was half-closed" at the end of
+> this log.
+
+`startNewChat` has no
 `busy()` guard and the New chat button has no `disabled` binding, unlike every
 other composer extension control. `newConversation()` and `activeConversationId()`
 were read at the builder, so one click during the await window sent a message the
@@ -3907,10 +3921,47 @@ introduced, and the plan's MID 2 entry called it "FIXED by capturing both" with
 no residual named — the silence rule :1242 forbids.
 
 **Fixed with the primary settlement Step 7 named: `disabled={busy()}` on the New
-chat button.** Every other composer extension control is already busy-gated; New
-chat was the one that was not. Gating it means no click is ACCEPTED during the
-await window, so none can be discarded — the defect is removed by preventing
-acceptance rather than by making the discard smarter.
+chat button.** Gating it means no click is ACCEPTED during the await window, so
+none can be discarded — the defect is removed by preventing acceptance rather
+than by making the discard smarter.
+
+**The consistency argument for choosing that settlement, stated at the width it
+actually holds.** The first draft of this entry said "every other composer
+extension control is already busy-gated". That is FALSE, and it is the seventh
+instance of this round's signature defect — a claim stated wider than the code —
+committed inside the entry written to close the sixth. Measured against the
+render rather than recalled:
+
+    BUSY-GATED (6, including New chat as of this commit)
+      Retry              MemoTab.tsx:576  disabled={busy() || …}
+      New chat           MemoTab.tsx:594  disabled={busy()}          <- this fix
+      memo-only toggle   MemoTab.tsx:711  disabled={props.busy}
+      note-edit toggle   MemoTab.tsx:719  disabled={props.busy || …}
+      composer textarea  MemoTab.tsx:732  disabled={props.busy}
+      submit             MemoTab.tsx:747  disabled={props.busy || !draft}
+
+    NOT BUSY-GATED (extension-availability only, `busy` appears nowhere)
+      attachment input   MemoTab.tsx:699  disabled={!props.extensionsEnabled}
+      attachment button  MemoTab.tsx:707-708
+      agent-model select MemoTab.tsx:744  disabled={!props.extensionsEnabled}
+
+So the honest form is: FIVE sibling controls were already busy-gated and New chat
+now joins them, while the attachment controls and the model select are gated on
+extension availability alone. That is still a real consistency argument — New
+chat was the only control that both mutates send-relevant state and was reachable
+mid-send — but it is narrower than "every other control", and one of the two
+exceptions is the very model select MID 1 was about. Recorded at this width
+because a settlement defended by a false premise is a bare preference wearing an
+argument's clothes.
+
+**What the gate does and does not enforce, named in the plan's own category
+vocabulary.** `startNewChat` remains a plain closure with no `busy()` check; only
+the DOM path is gated. So a mid-send New chat is UNREACHABLE-BY-EVERY-ENTRY-POINT
+rather than impossible — the same category this plan already uses for the `busy()`
+term in `send()`'s re-entry guard, and named the same way so the two stay
+consistent. There is exactly one entry point (the button's `onClick`), it is
+disabled while `busy()`, and a future non-DOM caller would make the hazard live
+again with nothing mechanical to flag it.
 
 **A DISAGREEMENT WITH THE REVIEW, resolved by measurement rather than argument.**
 Step 7 wrote that its suggested assertion "passes with either fix". It does not
@@ -3956,6 +4007,17 @@ initial load can settle, so sending during that microtask-sized window routes to
 new conversation rather than the latest existing one; already covered by the
 `?? latestConversationId(...)` reasoning in the survivor register. Both are named
 here rather than left silent, which is what :1242 requires.
+
+**A VERIFICATION-COMMAND LABEL WAS WRONG IN THE REPORT, though the figure was
+right.** The Step 6 payload recorded the focused run as
+`bun test src/components/MemoTab.integration.tsx`. That command matches NOTHING —
+`bun test` filters on `.test`/`.spec` in the filename and prints "16527 files were
+searched", exit 0 with zero tests. The real runner for this file is
+`npx vitest run src/components/MemoTab.integration.tsx`, which is what produced
+the 21/21. Recorded because a green figure attached to a command that never ran
+those tests is the pointer-not-content defect one level out: the count was true,
+its stated evidence was not, and only re-executing the printed text caught it —
+the same standard the rule-2 sweep failure established for sweeps.
 
 VERIFICATION, full gate re-run because production TypeScript changed:
 `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise run check` →
