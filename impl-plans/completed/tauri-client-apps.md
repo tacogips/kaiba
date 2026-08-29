@@ -569,9 +569,10 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   `0c52dbf` the credential-scoping revision;
   `1c80dd6` and `21cf582`, documentation only (plan progress log, then the
   design spec's Architecture bullet plus the plan);
-  and `91dd88c`, the gate-wiring revision, which is the tail.
-  The full close-out is therefore `08c4843..91dd88c`; `1c80dd6` and `21cf582`
-  contain no code.
+  and `91dd88c`, the gate-wiring revision, which is the last commit carrying
+  code. `08c4843..91dd88c` is therefore the range an audit or revert must cover.
+  `1c80dd6`, `21cf582` and any later commit in this close-out touch only this
+  plan and `design-docs/`, so they carry no code and need no SHA recorded here.
   `5ed5090` and the revision changed a security-relevant behavior contract, so
   reverting `08c4843..1d93eba` alone would leave credential handling for a
   transport that no longer exists.

@@ -34,7 +34,7 @@ mise run test
 mise run lint
 mise run web:check
 mise run tauri:check
-mise run check          # all four gates above, in order
+mise run check          # test + lint + web:check + tauri:check
 swift run kaiba --help
 ```
 
