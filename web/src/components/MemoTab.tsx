@@ -373,14 +373,20 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // prevent. Captured, the request is atomically either fully extended or
     // refused; if the server does turn out to be old mid-send it rejects the
     // extension field loudly, which is the intended failure mode.
-    // WIDENED 2026-08-30 from three captures to every value the builder reads.
-    // The earlier set was drawn around the three fields the capability gate
-    // refuses on; Step 7 then reproduced two more post-await reads that the
+    // WIDENED 2026-08-30 from three captures to every REACTIVE value the builder
+    // reads. The earlier set was drawn around the three fields the capability
+    // gate refuses on; Step 7 then reproduced two more post-await reads the
     // narrower set left exposed — the selected model, and the conversation
     // routing. The property being defended is not "the gated fields are stable"
-    // but "the request the guard admits is the request that goes out", so every
-    // argument of `buildAgentChatComposerRequest` below is read HERE, before the
-    // guard, and nothing in the builder re-reads a signal.
+    // but "the request the guard admits is the request that goes out".
+    // Stated exactly, because the looser form is false one line below:
+    // THE BUILDER READS NO SIGNAL AND NO STORE FIELD. Every argument that CAN be
+    // captured pre-guard is captured here. TWO cannot, and both are named rather
+    // than papered over: `idempotencyKey` is deliberately minted fresh at the
+    // call, and `subject` may not exist until `ensureSubject` resolves inside the
+    // await window. Neither reads reactive state, so neither can change the
+    // request between admission and the wire — which is the property that
+    // matters.
     const extensionsAvailable = catalogAvailable()
     const effectiveNoteEdit = retry ? retry.noteEdit : noteEdit()
     const stagedAttachments = retry ? [] : attachments()
@@ -414,9 +420,11 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
       current = current ?? await props.ensureSubject?.()
       if (!current) return
       const attachmentInputs = await Promise.all(stagedAttachments.map(fileToAttachment))
-      // Every field below is a value captured before the guard. Nothing here
-      // reads a signal, which is what makes "admitted" and "sent" the same
-      // request rather than two requests separated by two awaits.
+      // Nothing below reads a signal or a store field, which is what makes
+      // "admitted" and "sent" the same request rather than two requests
+      // separated by two awaits. Every reactive value is a pre-guard capture;
+      // the two non-captures are `idempotencyKey` (minted fresh here on purpose)
+      // and `subject` (resolved by `ensureSubject` above when the note had none).
       const result = await app.client.sendAgentChatMessage(buildAgentChatComposerRequest({
         subject: current,
         conversations: effectiveConversations,

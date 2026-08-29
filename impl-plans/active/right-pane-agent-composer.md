@@ -889,13 +889,26 @@ that failing check requires. Nothing beyond the capability gate may change.
       now serves both paths.
       **THE SURFACE IS NOW A PROPERTY, NOT A LIST — widened 2026-08-30 after Step 7
       reproduced two post-await reads that sat outside the ten-site
-      enumeration.** The property: EVERY ARGUMENT of the
-      `buildAgentChatComposerRequest` object literal must be a value captured
-      BEFORE the guard; the builder may not read a signal or a store field. Plus
-      `send()`'s three guards and its capture definitions, which is what the
-      ten-site list already covered. It is checkable by reading the builder call
-      rather than by trusting a list: every field there is an `effective*` or
-      `staged*` local.
+      enumeration.** The property, stated exactly: **the
+      `buildAgentChatComposerRequest` call READS NO SIGNAL AND NO STORE FIELD.**
+      Every argument that CAN be captured before the guard is. Plus `send()`'s
+      three guards and its capture definitions, which is what the ten-site list
+      already covered. Checkable by reading the builder call rather than by
+      trusting a list: every reactive field there is an `effective*` or `staged*`
+      local.
+      **TWO arguments are not pre-guard captures, and are named here rather than
+      swept under the quantifier.** `idempotencyKey: newIdempotencyKey()` is
+      minted fresh at the call by design — capturing it earlier would change
+      nothing, since it is generated once either way. `subject: current` may be
+      resolved by `await props.ensureSubject?.()` INSIDE the await window, on the
+      path where the note has no subject yet; it cannot be captured before the
+      guard because it does not exist before the guard. Neither reads reactive
+      state, so neither can differ between admission and the wire — which is why
+      the property is stated as "reads no signal", not as "every argument is
+      captured". **The first draft used the wider quantifier and was false one
+      line above `idempotencyKey: newIdempotencyKey()`;** that is the same
+      claim-wider-than-the-code class this criterion exists to police, caught in
+      its own replacement text.
       **Why the list had to go.** It was drawn around the SHAPE of the four
       falsifications that produced it — guards, captures, retry arms — rather
       than around the hazard they share. `selectedModel` was none of those shapes
@@ -1768,8 +1781,10 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   capture definitions, and the builder's four retry arms: ten sites.
   **WIDENED 2026-08-30 to a property, after Step 7 reproduced two post-await
   reads outside that list — `selectedModel`, and the non-retry conversation
-  reads. The surface is now: every argument of the builder object literal must be
-  captured before the guard.** The ten-site list was not wrong, it was
+  reads. The surface is now: the builder call reads no signal and no store field,
+  and every argument that CAN be captured pre-guard is — the exceptions,
+  `idempotencyKey` and `subject`, are named at the criterion because neither
+  reads reactive state.** The ten-site list was not wrong, it was
   under-drawn for the fifth time, because it enumerated the shapes that had
   already failed instead of the hazard they share. (The
   re-entry guard was added 2026-08-30; the first draft named only the two refusal
@@ -3796,8 +3811,10 @@ construction, and the closure is unpinned.
 correct and is the reason for the criterion change: the ten-site list could not
 contain either mid, because `selectedModel` is not a guard, a capture or a retry
 arm, and the non-retry conversation reads sat in arms whose probes only ever
-mutated the retry branch. The surface is now the PROPERTY — every argument of the
-builder object literal is captured before the guard — at all three copies. Five
+mutated the retry branch. The surface is now the PROPERTY — the builder call
+reads no signal and no store field, with `idempotencyKey` and `subject` named as
+the two arguments that are not pre-guard captures and cannot be — at all three
+copies. Five
 rounds of widening a list by one shape each time is what a wrong abstraction looks
 like; quantifying over the object literal ends it.
 
@@ -3808,6 +3825,67 @@ FINAL_EXIT=0, captured unpiped. Swift XCTest "Test Suite 'All tests' passed",
 violations 0 serious in 181 files (both pre-existing); web 155 pass / 0 fail;
 vitest 33 passed (was 31 — the two new tests are the delta); eslint clean; vite
 built. Unchecked boxes: 6.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — The property was over-drawn, and the conversation pin is narrower than reported
+
+**MID, self-review: the property that replaced the ten-site list was itself
+stated wider than the code — and this time in PRODUCTION comments.** It read
+"EVERY ARGUMENT of the `buildAgentChatComposerRequest` object literal must be a
+value captured BEFORE the guard", echoed twice in `send()`. Two of the ten
+arguments are not, and one of them sits one line under the comment asserting it:
+
+```
+idempotencyKey: newIdempotencyKey(),   // minted fresh AT the call, by design
+subject: current,                      // may be resolved by ensureSubject INSIDE the await
+```
+
+Neither is a defect. A fresh idempotency key is the point of an idempotency key,
+and a subject that does not exist yet cannot be captured before the guard.
+**Corrected to what actually holds: the builder READS NO SIGNAL AND NO STORE
+FIELD, every argument that CAN be captured pre-guard is, and the two that cannot
+are named.** That is the property the two mids required; the quantifier was doing
+no work except being false. Applied at both production comments and all three
+plan copies.
+
+**The direction flipped, which is worth recording.** Five earlier instances of
+this class were UNDER-drawn — a list that kept missing a shape. Replacing the
+list with a quantifier fixed that and immediately produced the first OVER-drawn
+instance. Neither an enumeration nor a bare quantifier is safe by itself; what
+makes this version checkable is that the exceptions are named, so a reader can
+verify the claim against the ten lines it describes.
+
+**MEASURED THIS ROUND, and it narrows a claim the previous payload made.** The
+previous report said mid 2 was pinned by reverting "both conversation arms". That
+is true of the PAIR and I re-confirmed it. Probing each arm SEPARATELY shows the
+pin is narrower:
+
+- `newConversation: effectiveNewConversation` → reverted alone: **KILLED**, fails
+  "a mid-send New chat cannot reroute an already-admitted message or half-apply
+  its reset".
+- `activeConversationId: effectiveConversationId` → reverted alone: **SURVIVES.**
+- `conversations: effectiveConversations` → reverted alone: **SURVIVES.**
+
+Both survivors have the same cause, and it is the mutation-19 argument one step
+over: `buildAgentChatComposerRequest` computes
+`newConversation ? undefined : activeConversationId ?? latestConversationId(conversations)`.
+With `newConversation` captured false and `activeConversationId` re-read as
+undefined, the fallback returns the fixture's only conversation — the same
+`'conversation-old'` the assertion expects — so the wire is unchanged. With
+`activeConversationId` captured and defined, the `??` right operand is never
+evaluated, so re-reading `conversations` cannot matter. **Recorded as survivors
+with their reasoning rather than left inside a pair-level claim that reads as
+three pins.** The captures are still correct — they are what makes the property
+true — but only one of the three is independently pinned by this fixture.
+
+VERIFICATION: comments and plan prose only. `git diff -- MemoTab.tsx | grep -vE
+'^[+-]\s*//'` over changed lines returns ZERO non-comment lines, so no executable
+line moved. `mise run web:check` GREEN: tsc clean; `bun test src` 155 pass / 0
+fail; `vitest run` 33 passed; eslint clean; vite build. Both pins re-confirmed
+after the comment edit: the model mutation and the newConversation mutation each
+still fail exactly their own test. Unchecked boxes: 6.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
