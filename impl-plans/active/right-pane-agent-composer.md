@@ -3945,14 +3945,62 @@ render rather than recalled:
       attachment button  MemoTab.tsx:707-708
       agent-model select MemoTab.tsx:744  disabled={!props.extensionsEnabled}
 
-So the honest form is: FIVE sibling controls were already busy-gated and New chat
-now joins them, while the attachment controls and the model select are gated on
-extension availability alone. That is still a real consistency argument — New
-chat was the only control that both mutates send-relevant state and was reachable
-mid-send — but it is narrower than "every other control", and one of the two
-exceptions is the very model select MID 1 was about. Recorded at this width
-because a settlement defended by a false premise is a bare preference wearing an
-argument's clothes.
+So the honest form of the table is: FIVE sibling controls were already busy-gated
+and New chat now joins them, while the attachment controls and the model select
+are gated on extension availability alone.
+
+**THE COMPARATIVE ARGUMENT IS WITHDRAWN, not narrowed a second time.** The first
+draft asserted that every OTHER composer extension control was already busy-gated.
+The correction replaced it with a uniqueness claim: that New chat was the ONLY
+control both mutating send-relevant state and reachable mid-send. Both are
+DESCRIBED rather than reproduced here, per this plan's own discipline — quoting a
+withdrawn wording makes the document match the grep that catches it, which this
+round already walked into three times. BOTH WERE FALSE, and both are falsified by
+controls printed in the table three lines above:
+
+  - the agent-model select (:744, availability-gated only, so reachable mid-send)
+    mutates `agentModel` via `onModelChange` at :651 — that is the builder's
+    `selectedModel`, i.e. MID 1 itself;
+  - the attachment input/button (:699, :707-708, likewise availability-gated only)
+    mutate staged files via `onStageFiles` at :635 — the builder's
+    `stagedAttachments`.
+
+At least three controls satisfy the predicate, not one. A narrower reading —
+"whose mid-send change is destroyed by the send's own completion path" — is false
+too: the reset at :440-445 runs `setAttachments([])` beside
+`setNewConversation(false)`, so a chip staged mid-send is discarded exactly as the
+New chat click was. The model select is the only one of the three that survives
+the reset; no model line appears in it.
+
+**So the gate is defended on the ground it actually stands on, with no comparison
+at all.** Step 7 named `disabled={busy()}` as the PRIMARY settlement. It removes
+the defect by preventing acceptance rather than by making the discard smarter. It
+is pinned failing-first in both halves (remove the binding → the disabled
+assertion fails; over-gate to `disabled={true}` → the re-enable assertion fails).
+None of that depends on what the other controls do, which is why dropping the
+comparison costs nothing.
+
+**Why this is written out rather than quietly edited.** This claim family is now
+at EIGHT falsifications, and the last two landed inside the paragraph written to
+close the previous one — first an over-wide "every", then an over-wide "only".
+The lesson recorded for the next round is narrower than a rule about lists: **do
+not assert a comparative premise this round has not measured.** Both drafts here
+were refuted by a table the same paragraph had already printed correctly, so the
+failure was not missing data — it was asserting a relation over data that was
+sitting right there.
+
+**AN UNFIXED ANALOGUE, named because rule :1242 forbids the silence.** The
+attachment control has the SAME accept-then-discard shape Step 7 raised for New
+chat: it is availability-gated only (MemoTab.tsx:699, :707-708), so files can be
+staged inside the await window, and the post-send reset at :442 then runs
+`setAttachments([])` and throws the staging away. NOT FIXED this round and NOT
+pinned — no failing check compels it and the round's constraint forbids widening
+the composer change — and REASONED FROM THE SOURCE rather than reproduced by a
+test, which is the weaker evidence class and is labelled as such. It is recorded
+here so the set has both its members, the way the ensureSubject-window attachment
+drop and the note-edit tooltip are recorded. Closing it would be a separate
+decision with the same two settlements: gate the control, or make the reset
+conditional.
 
 **What the gate does and does not enforce, named in the plan's own category
 vocabulary.** `startNewChat` remains a plain closure with no `busy()` check; only
