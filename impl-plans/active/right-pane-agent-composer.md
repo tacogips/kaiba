@@ -851,9 +851,16 @@ that failing check requires. Nothing beyond the capability gate may change.
          second equivalent mutant is recorded for the same reason:** re-reading
          `!catalogAvailable()` in place of `!extensionsAvailable` at the
          attachments guard survives, because the capture is assigned three lines
-         above with no await between. **Surviving ≠ unpinned.** Both were
-         measured and then RULED OUT by reading, so a later round does not
-         re-find them and "fix" a non-problem.
+         above with no await between.
+         **A THIRD SURVIVOR, in a DIFFERENT category:** dropping `busy()` from
+         `send()`'s re-entry guard survives. It is NOT equivalent — a programmatic
+         call while busy would differ — but it is unreachable through all three
+         entry points, each busy-gated at the DOM. Its full derivation is at the
+         pinning criterion above.
+         **Surviving ≠ unpinned, and the two reasons are not the same reason.**
+         All three were measured and then RULED OUT by reading — two as provably
+         equivalent, one as unreachable — so a later round does not re-find them
+         and "fix" a non-problem.
       15. **Added 2026-08-30 after the enumeration was found INCOMPLETE.**
          Revert the BUILDER ARGUMENT `noteEdit: effectiveNoteEdit` to its
          pre-`b05ebcc` form `noteEdit: retry ? retry.noteEdit : noteEdit()` →
@@ -880,10 +887,18 @@ that failing check requires. Nothing beyond the capability gate may change.
       retry-specific wording; collapsing it to the single message left the suite
       green, so the untested branch was removed instead of shipped. One message
       now serves both paths.
-      NO sub-expression remains unpinned — **true only since 2026-08-30, and it
-      was asserted for one round while FALSE.** Two separate corrections stand
-      behind this sentence and both are named, because the second was found by
-      measurement after the first had already "closed" it:
+      **EVERY SUB-EXPRESSION ON THE PROBED SURFACE IS PINNED, and the surface is
+      named rather than left implicit: `send()`'s two refusal guards, its three
+      capture definitions, and the builder's four `retry ? … : …` arms.** Three
+      survivors on that surface are recorded with their ruling-out reasoning;
+      nothing else on it survives.
+      **This sentence read "NO sub-expression remains unpinned", unscoped, and
+      was falsified SEVEN times — three of them after being "corrected".** The
+      unscoped form is retired for the reason the falsifications share: a claim
+      whose scope is not stated cannot be checked, only disproved. A scoped claim
+      can be re-measured, and that is the whole difference. Its three corrections
+      are named because each was found by measurement after the previous had
+      already "closed" it:
       (i) It said "EXACTLY ONE remains unpinned … the RETRY ARM of
       `effectiveNoteEdit` (mutation 12)" until mutation 12 was re-executed
       against HEAD and came back CAUGHT — it breaks "retrying a failed note-edit
@@ -897,6 +912,19 @@ that failing check requires. Nothing beyond the capability gate may change.
       under a sentence claiming none was. Closed by measurement, not by wording:
       mutation 15 and the new test "a mid-send read-only lock cannot downgrade an
       already-admitted note edit" kill it.
+      (iv) It was then false a THIRD time, on a site outside the builder
+      entirely: dropping the `busy()` term from `send()`'s re-entry guard
+      (`if (!body || busy()) return` → `if (!body) return`) SURVIVES the whole
+      web leg. That is the THIRD survivor, and it is **not** an equivalent mutant
+      — it is UNREACHABLE-BY-EVERY-ENTRY-POINT, a weaker and separately stated
+      category. Verified by reading all three call paths into `send()`, each
+      busy-gated at the DOM before the guard is reached: the submit button
+      (`disabled={props.busy || !props.draft.trim()}`), the textarea keydown
+      (`handleComposerKeyDown` via `composerKeyDownAction`, which returns `'none'`
+      when busy), and the Retry button (`disabled={busy() || …}`). A programmatic
+      call while busy WOULD differ, so the term is real defense-in-depth rather
+      than dead code — which is why it is written down here instead of being
+      called equivalent and forgotten.
       (iii) And the sentence was STILL false after (ii), because fixing the arm a
       reviewer named is not the same as applying the rule the fix stated. The
       first exhaustive probe of the builder's four retry arms found THREE more
@@ -1672,9 +1700,20 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   sibling `setAttachments([])` by the mutation-verified deferred-rejection test.
   **CORRECTED A FOURTH TIME, making this the sixth stale copy of a pinning claim
   and the third time this entry went stale.** Its previous form said no unpinned
-  sub-expression remained while three builder arms were open. The claim now
-  rests on an exhaustive probe of all four arms, with mutation 19 recorded as a
-  measured equivalent mutant rather than a gap.
+  sub-expression remained while three builder arms were open.
+  **CORRECTED A FIFTH TIME, SEVENTH stale copy, FOURTH time for this entry.**
+  Even after the arms were closed, the claim was still stated UNSCOPED, and a
+  survivor was found outside the builder entirely — the `busy()` term in
+  `send()`'s re-entry guard. The scope is now stated where the claim is made:
+  `send()`'s two refusal guards, its three capture definitions, and the builder's
+  four retry arms. THREE survivors on that surface are recorded with their
+  reasons — mutations 19 and the attachments-guard re-read as provably EQUIVALENT,
+  and the `busy()` term as UNREACHABLE through all three busy-gated entry points,
+  which is a weaker claim and is labelled as one.
+  **What finally worked was narrowing, not re-asserting.** Seven falsifications
+  of one sentence, three of them after a "correction", all shared a cause: an
+  unscoped claim cannot be checked, only disproved. A scoped claim can be
+  re-measured, which is what makes it worth writing down.
   **The generalized mitigation:** a superseded claim must be REWRITTEN where it
   lives, not merely contradicted by a newer entry elsewhere. FOUR copies of this
   plan's disclosures have now gone stale independently — TASK-011b's criterion,
@@ -3362,6 +3401,63 @@ VERIFICATION: `mise run web:check` GREEN — `tsc --noEmit`; `bun test src` 155 
 test is the +1); `eslint .`; `vite build` 57 modules. All four mutations reverted
 from a pristine copy; `git diff --stat -- web/src/components/MemoTab.tsx` empty —
 no production line changed this round either.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — Narrowing the sentence that had been falsified seven times
+
+Test-integrity ran one command this round and it settled a question eight rounds
+had not: `if (!body || busy()) return` → `if (!body) return` SURVIVES the whole
+web leg. Reproduced here before editing anything — `vitest run` 31 passed.
+
+**Two defects, and the second is the one that mattered.**
+
+1. A third survivor existed in `send()` and was recorded nowhere — neither pinned
+   nor listed with a ruling-out argument, which is this plan's own stated
+   convention for survivors.
+2. **The previous round's payload told Step 7 the plan's claim was "correctly
+   scoped to the four builder retry arms".** No such wording existed in the file.
+   `grep -c 'builder retry arms'` over the plan returned 0. The scope lived only
+   in the report, and the file said, unscoped, "NO sub-expression remains
+   unpinned". An assurance about a document that the document does not contain is
+   worse than the overclaim it was describing.
+
+**The fix is narrowing, not another correction.** The claim now states its
+surface where the claim is made: `send()`'s two refusal guards, its three capture
+definitions, and the builder's four `retry ? … : …` arms. Both live copies say
+the same thing.
+
+**Why narrowing rather than a ninth re-assertion.** That sentence has now been
+falsified SEVEN times, three of them after being "corrected" — by mutation 12, by
+the builder's `noteEdit` argument, by three more builder arms, and now by
+`busy()`. The falsifications share one cause: **an unscoped claim cannot be
+checked, only disproved.** Nobody can run "no sub-expression is unpinned"; anyone
+can run the nine-site surface and disagree with the result. That is the whole
+difference, and it is why this round retires the form instead of repairing it
+again.
+
+**The third survivor, categorized precisely rather than lumped in.** It is NOT an
+equivalent mutant. Mutation 19 and the attachments-guard re-read are provably
+equivalent — an operand never evaluated, and a capture assigned three lines above
+with no await between. `busy()` is different: a programmatic call while busy WOULD
+behave differently, so the term is real defense-in-depth. It is unreachable only
+because every entry point gates on busy first, verified by reading all three:
+
+- submit button — `disabled={props.busy || !props.draft.trim()}`
+- textarea keydown — `handleComposerKeyDown` → `composerKeyDownAction` returns
+  `'none'` when busy
+- Retry button — `disabled={busy() || (turn.mode === 'edit' && !catalogAvailable())}`
+
+UNREACHABLE-BY-EVERY-ENTRY-POINT is a weaker claim than EQUIVALENT and is
+labelled as one. Collapsing the two would be the same overclaiming, one level
+down.
+
+VERIFICATION: `mise run web:check` GREEN — `tsc --noEmit`; `bun test src` 155 pass
+/ 0 fail across 21 files; `vitest run` 31 passed across 5 files; `eslint .`;
+`vite build` 57 modules. The `busy()` mutation was reverted from a pristine copy;
+`git diff --stat -- web/src/components/MemoTab.tsx` empty. No production or test
+file changed this round — the entire fix is the plan's wording.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
