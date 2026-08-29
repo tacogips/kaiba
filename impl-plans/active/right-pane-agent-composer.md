@@ -913,11 +913,15 @@ that failing check requires. Nothing beyond the capability gate may change.
       after the previous had already "closed" it:
       **Two different counters run through this document and they are not the
       same number.** FOUR is how many times THIS SENTENCE was falsified — the
-      list (i)-(iv) below. SEVEN is how many stale COPIES of a pinning claim have
-      been corrected across the whole plan, counted in the risk register, and it
-      is larger because one falsification can leave several copies stale at once.
-      Neither number is the other, and the earlier wording "falsified SEVEN times
-      — three of them after being corrected" conflated them.
+      list (i)-(iv) below. The other counter is how many stale COPIES of a pinning
+      claim have been corrected across the whole plan; it is larger, because one
+      falsification can leave several copies stale at once. **Its running value is
+      deliberately NOT repeated here.** It is maintained in exactly one place —
+      the risk-register entry that increments it — because a counter written down
+      twice is a counter that goes stale in one of them, which is what happened
+      the first time these two were separated: the figure was copied to this
+      criterion and the register kept the merged wording. Cite the register; do
+      not mirror its number.
       (i) It said "EXACTLY ONE remains unpinned … the RETRY ARM of
       `effectiveNoteEdit` (mutation 12)" until mutation 12 was re-executed
       against HEAD and came back CAUGHT — it breaks "retrying a failed note-edit
@@ -1753,16 +1757,35 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   surface are recorded with their reasons — mutations 19 and the attachments-guard re-read as provably EQUIVALENT,
   and the `busy()` term as UNREACHABLE through all three busy-gated entry points,
   which is a weaker claim and is labelled as one.
-  **What finally worked was narrowing, not re-asserting.** Seven falsifications
-  of one sentence, three of them after a "correction", all shared a cause: an
+  **What finally worked was narrowing, not re-asserting.** FOUR falsifications of
+  one sentence, three of them after a "correction", all shared a cause: an
   unscoped claim cannot be checked, only disproved. A scoped claim can be
   re-measured, which is what makes it worth writing down.
+  **CORRECTED A SIXTH TIME, 2026-08-30 — this entry is the EIGHTH stale copy and
+  the FIFTH time this particular entry went stale.** The sentence above opened
+  with the stale-copy figure where the falsification figure belonged, merging two
+  counters that are not the same number. The withdrawn wording is described here
+  rather than reproduced, per rule 1: quoting it would make this document match
+  the sweep that catches it. FOUR is how many times the claim itself was
+  falsified — the clause list (i)-(iv) at the pinning criterion. The stale-COPY
+  count is larger, because one falsification can strand several copies at once,
+  and it is maintained by this entry's chain of CORRECTED-A-Nth-TIME headers, of
+  which this correction's own header is the latest increment.
+  The criterion separated the two counters earlier the same day and this copy was
+  not updated with it — which is the mechanism the next paragraph describes,
+  happening to the paragraph that describes it. Neither counter is the
+  independently-stale-disclosure count in that next paragraph, which is a THIRD
+  number and is unaffected by this correction.
   **The generalized mitigation:** a superseded claim must be REWRITTEN where it
   lives, not merely contradicted by a newer entry elsewhere. FOUR copies of this
   plan's disclosures have now gone stale independently — TASK-011b's criterion,
   TASK-011c's criterion, this register entry (twice, on 2026-08-29 and again on
   2026-08-30) — each because a correction was applied at one site while the
-  others kept asserting the old fact.
+  others kept asserting the old fact. **This number counts DISCLOSURE copies that
+  rotted independently and is deliberately not reconciled with either counter
+  above; it was true when written and this round's correction does not change
+  it, because the sentence corrected above is a counter claim rather than one of
+  the disclosures enumerated here.**
   **The fourth is the instructive one: it was missed by the same round that
   wrote rule 5's corollary saying correcting one copy does not correct the
   others.** Stating the rule is not running it. So the rule now carries a
@@ -3638,6 +3661,59 @@ production or test file touched. `mise run web:check` GREEN: `tsc --noEmit`;
 files; `eslint .`; `vite build`. Clause sweep over the live region: exactly 4
 hits, ascending. Rule 1 over the live region: clean. Rule-2 sweep extracted and executed: 17. All three
 copies of the ten-site surface agree. Unchecked boxes: 6.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — The counter separation reached two of its three copies
+
+Self-review found the register still asserting the merged count. The criterion
+had been rewritten to say the two numbers are different, and the Progress Log
+entry carried a dated inline correction, but the register paragraph — live text,
+above the Progress Log — still opened with the stale-copy figure standing where
+the falsification figure belonged. Two live copies of one claim, disagreeing.
+
+The missed copy is the register entry whose very next paragraph states the rule
+it broke: *a superseded claim must be REWRITTEN where it lives, not merely
+contradicted by a newer entry elsewhere.* That is the eighth time a correction to
+this claim family has landed at one site and not all of them, and the mechanism
+has been identical every time: **the author corrects where they are reading.**
+
+**Fixed, and then fixed a second way when the first fix reproduced the trap.**
+The first draft of the correction QUOTED the withdrawn wording so a reader could
+see what changed. That made the file match the very grep that catches this
+defect, exactly as rule 1 predicts for withdrawn figures and as this round's
+clause sweep already demonstrated twice. The withdrawn wording is now DESCRIBED,
+not reproduced, and the check comes back clean instead of coming back with two
+hits a reviewer has to adjudicate.
+
+**The structural fix, which matters more than either instance.** The running
+stale-copy count was being maintained in TWO places — the register's
+CORRECTED-A-Nth-TIME chain, which increments it, and the criterion, which had
+copied its value. A counter written down twice is a counter that goes stale in
+one of them, and that is precisely how this finding arose: the separation copied
+the number to the criterion while the register kept the merged wording. The
+criterion now cites the register rather than mirroring its number, and says why.
+One counter, one home.
+
+**The third counter is fenced off rather than reconciled.** The next paragraph's
+"FOUR copies of this plan's disclosures have gone stale independently" counts
+DISCLOSURE copies, not falsifications and not stale copies of this claim. It was
+true when written and this correction does not move it, because the sentence
+corrected here is a counter claim rather than one of the disclosures it
+enumerates. That is now stated in the paragraph itself, so the next reader does
+not try to reconcile three numbers that were never the same measurement.
+
+VERIFICATION: plan wording only. `git diff --stat -- web/ Sources/` empty — no
+production or test file touched. `mise run web:check` GREEN: `tsc --noEmit`;
+`bun test src` 155 pass / 0 fail across 21 files; `vitest run` 31 passed across 5
+files; `eslint .`; `vite build`. The conflated-wording sweep over the live region
+now returns ZERO — better than the reported requirement, which would have allowed
+one labelled quotation to remain. Clause sweep, extracted from the file and
+executed verbatim: 4, exit 0. Rule 1 over the live region: clean. Rule-2 sweep
+extracted and executed: 17. One ```sh fence. Unchecked boxes: 6. The register's
+tally chain is internally consistent — THIRD/FIFTH, FOURTH/sixth, FIFTH/SEVENTH,
+SIXTH/EIGHTH, each header incrementing both counts by one.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
