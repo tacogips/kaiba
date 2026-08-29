@@ -999,11 +999,15 @@ failing check now exists for each, written before the fix.
       GRAPHQL rejection; assert the banner's absence) until each discriminates.
       Recorded because a test that looks load-bearing and is not is exactly what
       the mutation discipline exists to catch.
-- [x] **Evidence is recorded as CONTENT, never as a pointer** — the rule three
-      separate rounds each learned the hard way, in three shapes. A pointer
-      (a count, a line number) is valid-looking after it rots and nothing goes
-      red; content can be re-derived from the tree. Concretely, and each half
-      checkable:
+- [x] **Evidence is recorded as CONTENT, never as a pointer** — the rule four
+      separate rounds each learned the hard way, in four shapes (a fourth was
+      added 2026-08-30; the Progress Log sentence beginning "The generalization,
+      now stated once for all three shapes" was true when written and is left as
+      that round's record — cited by its own words, not by a line number, since a
+      plan-internal coordinate shifts on any plan edit). A
+      pointer (a count, a line number, a partial list) is valid-looking after it
+      rots and nothing goes red; content can be re-derived from the tree.
+      Concretely, and each half checkable:
       1. **Counts** — no live criterion carries a suite-relative count.
          `grep -nE '[0-9]+ failed / [0-9]+ passed'` above the Progress Log
          returns nothing.
@@ -1021,6 +1025,19 @@ failing check now exists for each, written before the fix.
          coordinate may be kept and labelled as such, but the current-state half
          must be a token, never a second coordinate — a second coordinate is
          just another pointer and rots the same way.
+      4. **Enumerations** — added 2026-08-30, after this same shape recurred
+         three rounds running, each time one level further down: a list of what a
+         commit contains is GENERATED from `git show --numstat <sha>` and
+         `git show <sha> -- <file> | grep '^@@'`, never written from memory. An
+         enumeration fails the way a count and a coordinate fail — it stays
+         readable while going incomplete, and an incomplete enumeration reads as
+         "that is all of it". The corollary that actually caught the recurrences:
+         **when a fact is stated for one member of a set, state it for every
+         member or say why it does not apply.** Three rounds each flagged one
+         silent member — the note-edit tooltip beside the named attachment
+         tooltip, `MemoTab.integration.tsx`'s carry-forward beside
+         `MemoTab.tsx`'s, and the plan file's carry-forward beside both. Silence
+         about the third case is what the rule now forbids.
       **SCOPE, stated so the rule does not outrun its check.** Rule 3's sweep is
       `grep -noE '(MemoTab\.tsx|MemoTab\.integration\.tsx|appStore\.tsx):[0-9]+'`
       restricted to the current-state regions — i.e. exactly the CODE files this
@@ -2704,14 +2721,32 @@ correction.
 VERIFICATION FOR THIS ROUND: the executed evidence block above.
 
 **WHAT THE COMMIT ACTUALLY CONTAINS, corrected.** The first version of this line
-read "One code file changed (`MemoTab.integration.tsx`, test-only assertion
-reshaping); no production behavior changed." Every clause of that was wrong about
-the commit, and it was wrong in this plan's own forbidden way — a sentence that
-stays readable while going false. `git show --numstat b05ebcc` reports THREE
-files:
+read, verbatim from `git show c7b4fb0`'s removed side:
 
-- `impl-plans/active/right-pane-agent-composer.md` (+179/-8) — this entry and the
-  two criteria above it.
+> VERIFICATION FOR THIS ROUND: the executed evidence block above. One code file
+> changed (`web/src/components/MemoTab.integration.tsx`, test-only assertion
+> reshaping to satisfy `noUncheckedIndexedAccess`); no production behavior changed.
+
+Two of its three clauses were wrong about the commit, and they were wrong in this
+plan's own forbidden way — a sentence that stays readable while going false. The
+count "one code file" was wrong, and "no production behavior changed" was wrong.
+Naming `MemoTab.integration.tsx` as test-only was NOT wrong: it is a test file,
+and the reshaping is what this round authored. Stating that precisely matters,
+because an overstated self-correction is still an inaccurate claim in a document
+that polices claims. `git show --numstat b05ebcc` reports THREE files:
+
+- `impl-plans/active/right-pane-agent-composer.md` (+179/-8) — SEVEN changed
+  regions, enumerated from `git show b05ebcc -- <this file> | grep '^@@'` rather
+  than from memory: (1) `@@ -1,7` the Status line; (2) `@@ -870` the note-edit
+  title criterion and the new tooltip criterion; (3) `@@ -992` the coordinate
+  rule; (4) `@@ -1330` the root "Focused and full verification pass" completion
+  criterion; (5) `@@ -2315` the "guard and the builder now read ONE captured
+  availability value" analysis paragraph; (6) `@@ -2336` the "A FOURTH test was
+  added" paragraph; (7) `@@ -2533` this progress entry. **Regions 5 and 6 were
+  themselves uncommitted prior-round plan text carried into b05ebcc** — the same
+  carry-forward disclosure the two code-file bullets below make, which the first
+  version of this bullet made for the code files and silently dropped for the
+  plan file. Only regions 1-4 and 7 were authored this round.
 - `web/src/components/MemoTab.integration.tsx` (+80/-0) — NOT a three-assertion
   reshaping. The whole mid-send-flip test (`a mid-send catalog flip cannot strip
   extensions from an already-admitted request`) was still UNCOMMITTED from the
