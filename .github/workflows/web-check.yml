@@ -39,11 +39,8 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
+      # Same script mise's web:check task runs, so CI cannot drift from the
+      # locally documented gate.
       - name: Run Web Client Gate
         working-directory: web
-        run: |
-          set -euo pipefail
-          bun run typecheck
-          bun run test
-          bun run lint
-          bun run build
+        run: bun run check

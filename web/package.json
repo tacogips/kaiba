@@ -10,6 +10,7 @@
     "test": "bun test src && vitest run",
     "test:integration": "vitest run",
     "build": "vite build",
+    "check": "bun run typecheck && bun run test && bun run lint && bun run build",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",

@@ -105,10 +105,7 @@ depends = ["test", "lint", "web:check", "tauri:check"]
 description = "Typecheck, test, lint, and build the shared web/native client"
 run = '''
 cd web
-bun run typecheck
-bun run test
-bun run lint
-bun run build
+bun run check
 '''
 
 [tasks."tauri:check"]
