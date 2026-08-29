@@ -414,3 +414,24 @@ the same change).
     poller becomes eligible at the deadline, temporary excess retention is allowed
     while obligations or grace remain, and cleanup converges to the target by
     removing only the oldest eligible terminal streams.
+11. Executable verification gate for composer work: the focused runs
+    `swift test --filter AgentChatTests`,
+    `swift test --filter AgentGatewayCLIInvokerTests`, and
+    `swift test --filter AgentChatGraphQLTests`, then the full `mise run lint`,
+    `mise run test`, and `mise run build`. The mise tasks are the gate rather
+    than bare `swift` invocations because `build`/`test`/`run` depend on
+    `anydoc:native` and set `PKG_CONFIG_PATH` to
+    `.build/anydoc-native/host/pkgconfig`; a focused filter run outside mise
+    must inherit the same prerequisite and variable or its result is not
+    evidence. Because that variable is task-scoped in `mise.toml` rather than a
+    global `[env]` entry, `mise exec` alone supplies the toolchain but not the
+    variable, so the runnable focused form is `mise run anydoc:native` once,
+    then
+    `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter <Suite>`.
+    Web-side gating is defined once in `web-chatbook-ui.md`.
+12. Evidence and blocker recording: every item above is satisfied only by
+    executed command output. Native-link, toolchain, or runtime unavailability
+    is recorded with the exact command, an output summary, the reason, and the
+    checks the blocker leaves unaffected. Compilation or static review never
+    satisfies a checklist item, and a command-wrapper timeout is a tooling
+    limitation to report, not a pass.

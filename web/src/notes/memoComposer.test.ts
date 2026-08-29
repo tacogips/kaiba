@@ -65,11 +65,36 @@ describe('memo composer state', () => {
   })
 
   test('rests model and attachment controls during memo-only and while busy', () => {
-    expect(agentComposerExtensionsEnabled(true, false)).toBe(false)
-    expect(agentComposerExtensionsEnabled(false, true)).toBe(false)
-    expect(agentComposerExtensionsEnabled(false, false)).toBe(true)
+    expect(agentComposerExtensionsEnabled(true, true, false)).toBe(false)
+    expect(agentComposerExtensionsEnabled(true, false, true)).toBe(false)
+    expect(agentComposerExtensionsEnabled(true, false, false)).toBe(true)
     expect(canEnableMemoOnly(0)).toBe(true)
     expect(canEnableMemoOnly(1)).toBe(false)
+  })
+
+  test('an unavailable composer-extension catalog rests the controls and withholds every extension field', () => {
+    // web-chatbook-ui.md:245 and :254-257: an older server that cannot answer
+    // `agentModels` must leave model/attachment controls disabled and must never
+    // receive `model`, `attachments`, or `mode: "edit"` — a memo answer must not
+    // masquerade as an applied edit.
+    expect(agentComposerExtensionsEnabled(false, false, false)).toBe(false)
+    const request = buildAgentChatComposerRequest({
+      subject: { kind: 'note' as const, id: asNoteId('note-1') },
+      conversations: [],
+      newConversation: false,
+      userMarkdown: 'Ask this',
+      idempotencyKey: 'turn-4',
+      selectedModel: 'openai/gpt-5-mini',
+      noteEdit: true,
+      extensionsAvailable: false,
+      attachments: [{ contentBase64: 'eA==', mediaType: 'text/plain', originalFilename: 'x.txt' }],
+    })
+    expect(request).toEqual({
+      subjectNoteId: asNoteId('note-1'), userMarkdown: 'Ask this', idempotencyKey: 'turn-4',
+    })
+    expect(request.model).toBeUndefined()
+    expect(request.attachments).toBeUndefined()
+    expect(request.mode).toBeUndefined()
   })
 
   test('new chat clears transient composer state and attachment removal is deterministic', () => {
@@ -89,6 +114,7 @@ describe('memo composer state', () => {
       userMarkdown: '  Ask this  ',
       idempotencyKey: 'turn-1',
       selectedModel: 'openai/gpt-5-mini',
+      extensionsAvailable: true,
       attachments: [{ contentBase64: 'eA==', mediaType: 'text/plain', originalFilename: 'x.txt' }],
     }
     expect(buildAgentChatComposerRequest({ ...options, newConversation: true })).toEqual({
@@ -107,7 +133,7 @@ describe('memo composer state', () => {
     expect(composerSubmitKind(false)).toBe('agent')
     const request = buildAgentChatComposerRequest({
       subject: { kind: 'notebook' as const, id: asNotebookId('notebook-1') }, conversations: [], newConversation: false,
-      userMarkdown: 'Message', idempotencyKey: 'turn-2', attachments: [],
+      userMarkdown: 'Message', idempotencyKey: 'turn-2', extensionsAvailable: true, attachments: [],
     })
     expect(request).toEqual({ subjectNotebookId: asNotebookId('notebook-1'), userMarkdown: 'Message', idempotencyKey: 'turn-2' })
   })
@@ -164,6 +190,7 @@ describe('memo composer state', () => {
       newConversation: false,
       userMarkdown: 'Reword the intro',
       idempotencyKey: 'turn-3',
+      extensionsAvailable: true,
       attachments: [],
     }
     expect(buildAgentChatComposerRequest({ ...options, noteEdit: true }).mode).toBe('edit')

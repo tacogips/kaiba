@@ -10,6 +10,9 @@ Accepted
 - Composition reference: the user's desktop screenshot
   `Screenshot 2026-08-12 at 21.13.56.png` (kept outside the repository)
 - Repository guidance: `AGENTS.md`
+- Verification-gate definition: `design-docs/specs/tauri-client-apps.md`
+- Open user decision: `design-docs/user-qa/web-chatbook-ui.md`
+  (automating the browser-runtime composer checks)
 
 ## Issue Scope: `direct-workflow:comm-002100`
 
@@ -295,16 +298,33 @@ web/src/
 
 ## Verification
 
-- `cd web && bun run typecheck && bun run test && bun run lint &&
-  bun run build` per task.
-- DOM-free logic tests per repo convention: `router.test.ts`,
-  `toc.test.ts` (heading tree, slug dedupe), `chatState.test.ts`
-  (turn-status reducer including unavailable/pending/failed),
-  `paneState.test.ts` (fold/tab persistence), plus focused composer tests
-  for Enter/Shift+Enter/IME handling, memo-only accessibility and blocking,
-  model fallback/persistence, new-chat conversation intent, and attachment
-  validation/removal.
-- Smoke: `kaiba serve --web-root web/dist`, deep-link `#/note/<id>`,
-  fold both panes, TOC scroll-sync, memo add reflected via the events
-  feed, unified Memo pane in agent-unavailable state, and composer contrast,
-  focus, selected state, and responsive placement in light and dark themes.
+The web client has one gate definition rather than a per-feature command list:
+`web/package.json`'s `check` script (typecheck, test, lint, build). Run it as
+`mise run web:check`; `.github/workflows/web-check.yml` runs the same script on
+Linux, and `tauri-client-apps.md` holds the authoritative gate description.
+Plans and progress logs cite that gate instead of enumerating a subset that can
+drift from it. `bun` is supplied by mise (`[tools] bun`), so resolve it through
+mise rather than assuming an ambient install.
+
+Gate-enforced, as DOM-free logic tests per repo convention: `router.test.ts`,
+`toc.test.ts` (heading tree, slug dedupe), `chatState.test.ts` (turn-status
+reducer including unavailable/pending/failed), `paneState.test.ts` (fold/tab
+persistence), plus focused composer tests for Enter/Shift+Enter/IME handling,
+memo-only accessibility and blocking, model fallback/persistence, new-chat
+conversation intent, attachment validation/removal, and older-server capability
+fallback. Composer behavior expressible as pure state or encoding logic belongs
+here, not in manual smoke.
+
+Browser-runtime checks, manual and outside the gate: `kaiba serve --web-root
+web/dist`, deep-link `#/note/<id>`, fold both panes, TOC scroll-sync, memo add
+reflected via the events feed, unified Memo pane in agent-unavailable state,
+keyboard-only composer operation, and composer contrast, focus, selected state,
+and responsive placement at the existing pane breakpoints in light and dark
+themes.
+
+Evidence rule: a checklist item is satisfied only by executed output. Reading
+CSS, compiling, or static review never satisfies a browser-runtime check. When
+no browser runtime is available, record the item as environment-blocked with the
+exact command, an output summary, and the reason, and state which checks the
+blocker leaves unaffected. The same rule applies to any gate command that cannot
+run in the environment at hand.

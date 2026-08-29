@@ -39,9 +39,15 @@ export function handleComposerKeyDown(
 }
 
 /** Attachment, model, and note-edit controls apply to agent sends only, so
- * they rest while memo-only is on or a submit is in flight. */
-export function agentComposerExtensionsEnabled(memoOnly: boolean, busy: boolean): boolean {
-  return !memoOnly && !busy
+ * they rest while memo-only is on or a submit is in flight. They also rest
+ * entirely against an older server: it does not understand any extension
+ * field, so offering the controls would only produce a rejected send. */
+export function agentComposerExtensionsEnabled(
+  catalogAvailable: boolean,
+  memoOnly: boolean,
+  busy: boolean,
+): boolean {
+  return catalogAvailable && !memoOnly && !busy
 }
 
 export function canEnableMemoOnly(stagedAttachmentCount: number): boolean {
@@ -116,6 +122,11 @@ export interface AgentChatComposerRequestOptions {
   /** True sends mode "edit": the agent rewrites the subject note instead of
    * answering in the conversation. */
   noteEdit?: boolean
+  /** Whether the server answered the `agentModels` catalog query. Required
+   * rather than optional so every call site states its answer: an older server
+   * understands none of `model`, `attachments`, or `mode`, and a compatibility
+   * gate that defaults to true fails open. */
+  extensionsAvailable: boolean
   attachments: readonly AgentChatAttachmentInput[]
 }
 
@@ -143,9 +154,13 @@ export function buildAgentChatComposerRequest(options: AgentChatComposerRequestO
     ...(conversationId ? { conversationNotebookId: conversationId } : {}),
     userMarkdown: options.userMarkdown.trim(),
     idempotencyKey: options.idempotencyKey,
-    ...(options.selectedModel ? { model: options.selectedModel } : {}),
-    ...(options.noteEdit ? { mode: 'edit' as const } : {}),
-    ...(options.attachments.length > 0 ? { attachments: [...options.attachments] } : {}),
+    ...(options.extensionsAvailable && options.selectedModel ? { model: options.selectedModel } : {}),
+    // An older server would silently answer as a memo, so a withheld `mode`
+    // must never let that answer masquerade as an applied edit.
+    ...(options.extensionsAvailable && options.noteEdit ? { mode: 'edit' as const } : {}),
+    ...(options.extensionsAvailable && options.attachments.length > 0
+      ? { attachments: [...options.attachments] }
+      : {}),
   }
 }
 
