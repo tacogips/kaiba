@@ -888,10 +888,22 @@ that failing check requires. Nothing beyond the capability gate may change.
       green, so the untested branch was removed instead of shipped. One message
       now serves both paths.
       **EVERY SUB-EXPRESSION ON THE PROBED SURFACE IS PINNED, and the surface is
-      named rather than left implicit: `send()`'s two refusal guards, its three
-      capture definitions, and the builder's four `retry ? … : …` arms.** Three
-      survivors on that surface are recorded with their ruling-out reasoning;
-      nothing else on it survives.
+      named rather than left implicit: `send()`'s THREE guards — its re-entry
+      guard `if (!body || busy()) return` plus its two refusal guards — its three
+      capture definitions, and the builder's four `retry ? … : …` arms. TEN
+      sites.** All three survivors are on it and are recorded with their
+      ruling-out reasoning; nothing else on it survives.
+      **The re-entry guard was added to this list on 2026-08-30, after the first
+      draft said "two refusal guards" and then claimed three survivors on that
+      nine-site surface.** Only two were: the `busy()` survivor lives in the
+      re-entry guard, which the list did not name. It had been PROBED, so it
+      belonged on the surface — the list was under-drawn, not the survivor
+      misplaced. Membership is now checkable against the code: `grep -n 'if
+      (!extensionsAvailable' web/src/components/MemoTab.tsx` gives the two refusal
+      guards, and `grep -n 'if (!body'` gives the re-entry guard.
+      **`send()`'s is meant literally.** That same `grep -n 'if (!body'` returns a
+      SECOND hit, in `addMemoOnly()`. That guard was never probed, is not on this
+      surface, and this wording must not be read as covering it.
       **This sentence read "NO sub-expression remains unpinned", unscoped, and
       was falsified SEVEN times — three of them after being "corrected".** The
       unscoped form is retired for the reason the falsifications share: a claim
@@ -1705,9 +1717,13 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   Even after the arms were closed, the claim was still stated UNSCOPED, and a
   survivor was found outside the builder entirely — the `busy()` term in
   `send()`'s re-entry guard. The scope is now stated where the claim is made:
-  `send()`'s two refusal guards, its three capture definitions, and the builder's
-  four retry arms. THREE survivors on that surface are recorded with their
-  reasons — mutations 19 and the attachments-guard re-read as provably EQUIVALENT,
+  `send()`'s three guards — re-entry plus the two refusal guards — its three
+  capture definitions, and the builder's four retry arms: ten sites. (The
+  re-entry guard was added 2026-08-30; the first draft named only the two refusal
+  guards and then counted three survivors on that nine-site list, when the
+  `busy()` one sat in the guard the list omitted. `addMemoOnly()`'s identical
+  guard is NOT on this surface and was never probed.) THREE survivors on that
+  surface are recorded with their reasons — mutations 19 and the attachments-guard re-read as provably EQUIVALENT,
   and the `busy()` term as UNREACHABLE through all three busy-gated entry points,
   which is a weaker claim and is labelled as one.
   **What finally worked was narrowing, not re-asserting.** Seven falsifications
@@ -3424,9 +3440,15 @@ web leg. Reproduced here before editing anything — `vitest run` 31 passed.
    worse than the overclaim it was describing.
 
 **The fix is narrowing, not another correction.** The claim now states its
-surface where the claim is made: `send()`'s two refusal guards, its three capture
-definitions, and the builder's four `retry ? … : …` arms. Both live copies say
-the same thing.
+surface where the claim is made: `send()`'s three guards — its re-entry guard
+plus its two refusal guards — its three capture definitions, and the builder's
+four `retry ? … : …` arms. Ten sites. Both live copies say the same thing.
+**Corrected the same day:** this list first read "two refusal guards", which
+made its own next sentence — "three survivors on that surface" — false by one,
+since the `busy()` survivor lives in the re-entry guard. The guard had been
+probed, so the list was under-drawn. `addMemoOnly()`'s identical
+`if (!body || busy()) return` is deliberately NOT on the surface: it was never
+probed, and "`send()`'s" is meant literally.
 
 **Why narrowing rather than a ninth re-assertion.** That sentence has now been
 falsified SEVEN times, three of them after being "corrected" — by mutation 12, by
@@ -3458,6 +3480,53 @@ VERIFICATION: `mise run web:check` GREEN — `tsc --noEmit`; `bun test src` 155 
 `vite build` 57 modules. The `busy()` mutation was reverted from a pristine copy;
 `git diff --stat -- web/src/components/MemoTab.tsx` empty. No production or test
 file changed this round — the entire fix is the plan's wording.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — The surface list was under-drawn by one guard
+
+Self-review checked membership rather than wording and found the replacement
+sentence miscounting. The surface read "`send()`'s two refusal guards, its three
+capture definitions, and the builder's four retry arms" — nine sites — and the
+next sentence claimed "three survivors on that surface". Only two were.
+
+Checked against the code, not from memory:
+
+```
+grep -n 'if (!extensionsAvailable' web/src/components/MemoTab.tsx  → :379, :383
+grep -n 'if (!body'               web/src/components/MemoTab.tsx  → :357, :427
+```
+
+The two refusal guards are :379 and :383. The `busy()` survivor is at :357 — the
+RE-ENTRY guard, which the list did not name.
+
+**Fixed by widening the list, not by re-counting the survivors.** The re-entry
+guard had been PROBED, so it belonged on the surface all along; the defect was an
+under-drawn list, not a misplaced survivor. The surface is now `send()`'s THREE
+guards plus three capture definitions plus four builder retry arms — ten sites —
+and all three survivors are genuinely on it.
+
+**`send()`'s is meant literally, and that is now said out loud.** The same grep
+returns a SECOND `if (!body || busy()) return`, in `addMemoOnly()` at :427. It has
+never been probed by any step, it is not on this surface, and the wording must not
+be read as covering it. Naming the near-identical site that is EXCLUDED is the
+same discipline as naming the ones included.
+
+**Why this is a small instance of the round's own recurring defect, stated
+plainly.** Narrowing the claim was right, but a hand-drawn surface is only as
+accurate as the hand. The first draft of the narrowed sentence was wrong about
+its own membership within hours of being written. What makes this version better
+is not that more care went into it — it is that membership is now checkable by
+two greps a reviewer can run, which the nine-site version also permitted and
+which is exactly how the error was caught. The check working on its first outing
+is the point.
+
+VERIFICATION: plan wording only. `git diff --stat -- web/ Sources/` empty — no
+production or test file touched this round. `mise run web:check` GREEN: `tsc
+--noEmit`; `bun test src` 155 pass / 0 fail across 21 files; `vitest run` 31
+passed across 5 files; `eslint .`; `vite build` 57 modules. Rule 1's sweep over
+the live region: clean. Unchecked boxes: 6.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
