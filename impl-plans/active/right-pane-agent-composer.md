@@ -3969,9 +3969,31 @@ button, the model select, the submit button — and Retry (:576) and New chat
 missing one is :740, exactly the element with no `disabled=` on it.
 
 SCOPE OF THIS ENUMERATION, stated because the last defect was an unstated scope:
-it covers `MemoComposerControls`' render (MemoTab.tsx:686-750) plus the two
-composer controls in `MemoTab`'s own render. It is not an enumeration of every
-interactive element in the pane.
+it covers `MemoComposerControls`' render (MemoTab.tsx:686-750) plus the COMPOSER
+controls in `MemoTab`'s own render. It is not an enumeration of every interactive
+element in the pane.
+
+**AND THE "+2" GETS ITS OWN DERIVATION, because a count without one is what the
+method note above exists to stop.** The same command over MemoTab's own render:
+
+    awk 'NR>=500 && NR<=685' web/src/components/MemoTab.tsx \
+      | grep -nE '<button|<select|<input|<textarea'
+
+returns THREE, not two — :518, :573 (the Retry button, whose `disabled` sits at
+:576), and :594. The third is `<button class="memo-note-ref"
+disabled={!entry.memo.noteId}>`, rendered once per memo entry inside the
+attribution line; its `onClick` calls `app.openNote(entry.memo.noteId)`. It is
+EXCLUDED from the composer-control scope for a reason rather than by omission: it
+is a memo-entry navigation action, it touches no builder argument and no signal
+the post-send reset writes, and it is gated on whether the memo has a note to
+open. So the ten-row table is 8 + Retry + New chat, and :518 is the third button
+the command returns and the one deliberately left out.
+
+**THE BOUNDARY THIS DRAWS, said plainly.** "Composer control" here means a control
+rendered by the composer subtree or, in MemoTab's own render, one that writes a
+signal the builder reads or the post-send reset clears. Retry and New chat both
+qualify — Retry calls `send()` and New chat writes four of them. :518 qualifies on
+neither count.
 
 So the honest form of the table is: FIVE sibling controls were already busy-gated
 and New chat now joins them; the attachment input/button and the model select are
