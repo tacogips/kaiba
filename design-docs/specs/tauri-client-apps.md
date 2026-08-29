@@ -100,15 +100,28 @@ today, and a policy tight enough for the Vite dev server and the packaged
 `tauri://` origin would have to be maintained by hand for both. A CSP must be
 defined before the client renders any HTML it did not author.
 
-`saveServerEndpoint` clears the stored bearer whenever the normalized origin
-differs from the one currently in effect, and keeps it when the same origin is
-re-saved. This is a client-side invariant, not a consequence of server
+The credential is stored per origin, under
+`kaiba-note-bearer:<normalized endpoint>`, and the client reads the key
+belonging to the endpoint currently in effect. A bearer is therefore only ever
+readable for the host that issued it, and repointing the client cannot present
+it anywhere else. This is a client-side invariant, not a consequence of server
 behavior: the only clear-on-failure path in the client is a 401 from the
 GraphQL route, so it does not cover the note-events long poll, attachment
 fetches or the agent-stream poll, and a server started with
 `kaiba serve --allow-unauthenticated` never emits 401 at all. Without the
-clear, repointing the client would send the previous server's credential to the
-new host on every request for the life of the install.
+scoping, repointing the client would send the previous server's credential to
+the new host on every request for the life of the install.
+
+Scoping rather than deleting is deliberate. An endpoint is free text, a typo
+passes validation, and the only in-app recovery is pasting a key issued on the
+server host, so destroying the credential on every origin change would make one
+mistyped character an unrecoverable state on a phone away from that host. With
+per-origin keys, correcting the endpoint makes the original credential readable
+again, and no confirmation prompt is needed because nothing was lost. An
+install created before scoping holds one unscoped `kaiba-note-bearer` value; it
+belongs to the endpoint in effect, so it is filed under that origin on first
+read, and `saveServerEndpoint` files it under the outgoing origin if the
+endpoint changes first.
 
 Residual risk accepted for this release: the bearer lives in WebView local
 storage and travels in plaintext when a user configures a non-loopback `http`

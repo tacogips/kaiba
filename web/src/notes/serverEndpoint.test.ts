@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  currentServerCredentialKey,
   defaultServerEndpoint,
   isTauriRuntime,
   normalizeServerEndpoint,
   readServerEndpoint,
   resolveServerRequest,
   saveServerEndpoint,
+  serverCredentialKey,
   serverCredentialStorageKey,
   serverEndpointStorageKey,
 } from './serverEndpoint'
@@ -64,23 +66,44 @@ describe('native server endpoint', () => {
     expect(resolveServerRequest(target, 'https://notes.example.test')).toBe(target)
   })
 
-  test('drops the stored credential when the endpoint origin changes', () => {
+  test('scopes a credential to the origin that issued it', () => {
+    expect(serverCredentialKey('https://a.example.test'))
+      .toBe(`${serverCredentialStorageKey}:https://a.example.test`)
+    expect(serverCredentialKey('https://b.example.test'))
+      .not.toBe(serverCredentialKey('https://a.example.test'))
+  })
+
+  test('does not expose one origin credential to another after a switch', () => {
+    const storage = memoryStorage('https://a.example.test')
+    storage.values.set(serverCredentialKey('https://a.example.test'), 'bearer-issued-by-a')
+    saveServerEndpoint('https://b.example.test', storage)
+    expect(currentServerCredentialKey(storage)).toBe(serverCredentialKey('https://b.example.test'))
+    expect(storage.values.get(currentServerCredentialKey(storage))).toBeUndefined()
+  })
+
+  test('restores the original credential when a mistyped endpoint is corrected', () => {
+    const storage = memoryStorage('https://notes.example.com')
+    storage.values.set(serverCredentialKey('https://notes.example.com'), 'bearer-issued-by-notes')
+    saveServerEndpoint('https://notes.exmaple.com', storage)
+    expect(storage.values.get(currentServerCredentialKey(storage))).toBeUndefined()
+    saveServerEndpoint('https://notes.example.com', storage)
+    expect(storage.values.get(currentServerCredentialKey(storage))).toBe('bearer-issued-by-notes')
+  })
+
+  test('keeps the credential readable when the same origin is re-saved', () => {
+    const storage = memoryStorage('https://a.example.test')
+    storage.values.set(serverCredentialKey('https://a.example.test'), 'bearer-issued-by-a')
+    saveServerEndpoint('https://a.example.test/', storage)
+    expect(storage.values.get(currentServerCredentialKey(storage))).toBe('bearer-issued-by-a')
+    expect(storage.values.get(serverEndpointStorageKey)).toBe('https://a.example.test')
+  })
+
+  test('files a pre-scoping credential under the outgoing origin instead of deleting it', () => {
     const storage = memoryStorage('https://a.example.test', 'bearer-issued-by-a')
     saveServerEndpoint('https://b.example.test', storage)
     expect(storage.values.get(serverCredentialStorageKey)).toBeUndefined()
-  })
-
-  test('drops the stored credential when moving off the default endpoint', () => {
-    const storage = memoryStorage(undefined, 'bearer-issued-by-the-default-host')
-    saveServerEndpoint('http://192.168.1.10:8787', storage)
-    expect(storage.values.get(serverCredentialStorageKey)).toBeUndefined()
-  })
-
-  test('keeps the stored credential when the same origin is re-saved', () => {
-    const storage = memoryStorage('https://a.example.test', 'bearer-issued-by-a')
-    saveServerEndpoint('https://a.example.test/', storage)
-    expect(storage.values.get(serverCredentialStorageKey)).toBe('bearer-issued-by-a')
-    expect(storage.values.get(serverEndpointStorageKey)).toBe('https://a.example.test')
+    expect(storage.values.get(serverCredentialKey('https://a.example.test'))).toBe('bearer-issued-by-a')
+    expect(storage.values.get(currentServerCredentialKey(storage))).toBeUndefined()
   })
 
   test('detects only globals carrying Tauri internals', () => {

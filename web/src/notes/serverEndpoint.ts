@@ -3,8 +3,25 @@ export const defaultServerEndpoint = 'http://127.0.0.1:8787'
 /** The bearer issued by one server is meaningless to another and must never
  * travel to a host that did not issue it, so the endpoint module owns the key
  * and `client.ts` imports it. Declaring it here keeps the credential and the
- * origin it belongs to in one place, without a cycle back through the client. */
+ * origin it belongs to in one place, without a cycle back through the client.
+ *
+ * This bare key is the pre-scoping storage location. Credentials are now held
+ * per origin under `serverCredentialKey`; the bare key survives only so an
+ * install created before scoping keeps its session (see `client.ts`). */
 export const serverCredentialStorageKey = 'kaiba-note-bearer'
+
+/** Storage key for the credential belonging to one origin. Scoping rather
+ * than deleting is what keeps a bearer from reaching a host that did not
+ * issue it: a mistyped endpoint reads an absent key instead of destroying the
+ * working server's credential, so correcting the typo restores the session. */
+export function serverCredentialKey(endpoint: string): string {
+  return `${serverCredentialStorageKey}:${endpoint}`
+}
+
+/** The credential key for the endpoint currently in effect. */
+export function currentServerCredentialKey(storage?: EndpointStorage): string {
+  return serverCredentialKey(readServerEndpoint(storage))
+}
 
 export interface EndpointStorage {
   getItem(key: string): string | null
@@ -52,19 +69,28 @@ export function readServerEndpoint(storage?: EndpointStorage): string {
   }
 }
 
-/** Repointing the client at a different origin invalidates the stored bearer:
- * it was issued by the previous server and would otherwise be sent to the new
- * host on every request. Nothing downstream revokes it -- the only
+/** Repointing the client at a different origin must not carry the previous
+ * server's bearer to the new host: nothing downstream revokes it -- the only
  * clear-on-failure path is a 401 from the GraphQL route, and a server started
  * with `kaiba serve --allow-unauthenticated` answers 200 without ever reading
- * the Authorization header -- so the credential is dropped here, before the
- * new endpoint is persisted. Re-saving the same origin keeps it. */
+ * the Authorization header. Because credentials are stored per origin, the
+ * switch is already safe without destroying anything, and a mistyped endpoint
+ * costs nothing: correcting it reads the original origin's key again.
+ *
+ * The one value that would otherwise follow the user across the switch is a
+ * pre-scoping bare credential, so it is filed under the outgoing origin here
+ * rather than deleted. */
 export function saveServerEndpoint(value: string, storage?: EndpointStorage): string {
   const normalized = normalizeServerEndpoint(value)
   const resolvedStorage = storage ?? availableEndpointStorage()
   if (!resolvedStorage) throw new Error('Server settings are unavailable in this environment.')
-  if (readServerEndpoint(resolvedStorage) !== normalized) {
-    resolvedStorage.removeItem(serverCredentialStorageKey)
+  const current = readServerEndpoint(resolvedStorage)
+  if (current !== normalized) {
+    const unscoped = resolvedStorage.getItem(serverCredentialStorageKey)
+    if (unscoped) {
+      resolvedStorage.setItem(serverCredentialKey(current), unscoped)
+      resolvedStorage.removeItem(serverCredentialStorageKey)
+    }
   }
   resolvedStorage.setItem(serverEndpointStorageKey, normalized)
   return normalized

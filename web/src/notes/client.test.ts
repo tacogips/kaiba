@@ -6,6 +6,7 @@ import {
   notebookPageLimit,
   type NoteClientEnvironment,
 } from './client'
+import { currentServerCredentialKey } from './serverEndpoint'
 
 function environment(
   responses: unknown[],
@@ -130,7 +131,7 @@ describe('Note GraphQL transport', () => {
     await client.initialize()
     await client.tags()
     expect(harness.replacements).toEqual(['/note/register'])
-    expect(harness.storage.get('kaiba-note-bearer')).toBe('rn_session')
+    expect(harness.storage.get(currentServerCredentialKey())).toBe('rn_session')
     expect(new Headers(harness.requests[1]?.init?.headers).get('Authorization')).toBe('Bearer rn_session')
     expect(JSON.parse(String(harness.requests[0]?.init?.body))).toEqual({ code: 'once', displayName: 'Kaiba Web' })
   })
@@ -214,7 +215,7 @@ describe('Note GraphQL transport', () => {
 
   test('distinguishes HTTP failures and clears only the CLI session bearer on 401', async () => {
     const harness = environment([])
-    harness.storage.set('kaiba-note-bearer', 'rn_expired')
+    harness.storage.set(currentServerCredentialKey(), 'rn_expired')
     const client = new NoteGraphQLClient({
       ...harness.value,
       request: async () => new Response(JSON.stringify({ error: 'expired' }), {
@@ -224,7 +225,7 @@ describe('Note GraphQL transport', () => {
     })
 
     await expectErrorKind(client.tags(), 'http', 401)
-    expect(harness.storage.has('kaiba-note-bearer')).toBe(false)
+    expect(harness.storage.has(currentServerCredentialKey())).toBe(false)
   })
 })
 

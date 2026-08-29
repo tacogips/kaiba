@@ -22,9 +22,12 @@ import type {
   TagComment,
   TagDetail,
 } from './types'
-import { isTauriRuntime, serverCredentialStorageKey, serverRequest } from './serverEndpoint'
-
-const bearerKey = serverCredentialStorageKey
+import {
+  currentServerCredentialKey,
+  isTauriRuntime,
+  serverCredentialStorageKey,
+  serverRequest,
+} from './serverEndpoint'
 export const notebookPageLimit = 200
 
 export interface NoteClientEnvironment {
@@ -70,13 +73,39 @@ export class NoteGraphQLClient {
     if (!response.ok || !bearer) {
       throw new NoteTransportError(value.error ?? 'Registration failed.', 'registration', response.status)
     }
-    this.environment.setStoredItem(bearerKey, bearer)
+    this.storeBearer(bearer)
+  }
+
+  /** Credentials are stored per server origin, so a bearer is only ever
+   * readable for the host that issued it and repointing the client at another
+   * origin cannot present it there. An install created before scoping holds
+   * one unscoped value; it belongs to the endpoint in effect, so it is filed
+   * under that origin on first read rather than discarded. */
+  private readBearer(): string | null {
+    const key = currentServerCredentialKey()
+    const scoped = this.environment.getStoredItem(key)
+    if (scoped) return scoped
+    const unscoped = this.environment.getStoredItem(serverCredentialStorageKey)
+    if (!unscoped) return null
+    this.environment.setStoredItem(key, unscoped)
+    this.environment.removeStoredItem(serverCredentialStorageKey)
+    return unscoped
+  }
+
+  private storeBearer(value: string): void {
+    this.environment.setStoredItem(currentServerCredentialKey(), value)
+    this.environment.removeStoredItem(serverCredentialStorageKey)
+  }
+
+  private dropBearer(): void {
+    this.environment.removeStoredItem(currentServerCredentialKey())
+    this.environment.removeStoredItem(serverCredentialStorageKey)
   }
 
   /** True once a credential is held, whether it came from a registration code
    * or was pasted into the login view. */
   hasCredential(): boolean {
-    return Boolean(this.environment.getStoredItem(bearerKey))
+    return Boolean(this.readBearer())
   }
 
   /** Adopts a key issued by `kaiba client issue`. The server is the only
@@ -85,18 +114,18 @@ export class NoteGraphQLClient {
   useCredential(token: string): void {
     const trimmed = token.trim()
     if (!trimmed) throw new NoteTransportError('An API key is required.', 'registration')
-    this.environment.setStoredItem(bearerKey, trimmed)
+    this.storeBearer(trimmed)
   }
 
   clearCredential(): void {
-    this.environment.removeStoredItem(bearerKey)
+    this.dropBearer()
   }
 
   /** Headers for the streaming note-events request (EventSource cannot send
    * an Authorization header, so the stream uses fetch with these). */
   streamHeaders(): Record<string, string> {
     const headers: Record<string, string> = {}
-    const bearer = this.environment.getStoredItem(bearerKey)
+    const bearer = this.readBearer()
     if (bearer) headers.Authorization = `Bearer ${bearer}`
     return headers
   }
@@ -688,7 +717,7 @@ export class NoteGraphQLClient {
     // Send the bearer when registered; without one the request still goes
     // out so a `kaiba serve --allow-unauthenticated` host works, and an
     // auth-required host answers 401 with a registration hint.
-    const bearer = this.environment.getStoredItem(bearerKey)
+    const bearer = this.readBearer()
     if (bearer) headers.Authorization = `Bearer ${bearer}`
     let response: Response
     try {
@@ -702,7 +731,7 @@ export class NoteGraphQLClient {
       throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
     }
     const envelope = await parseJSON<GraphQLEnvelope<T>>(response)
-    if (response.status === 401) this.environment.removeStoredItem(bearerKey)
+    if (response.status === 401) this.dropBearer()
     if (!response.ok) {
       throw new NoteTransportError(envelope.error ?? `Request failed (${response.status}).`, 'http', response.status)
     }

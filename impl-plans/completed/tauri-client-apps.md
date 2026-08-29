@@ -382,18 +382,21 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   clear. Accepted residual risk for this release; recorded as Pending. Requests
   leave through the Rust shell rather than `URLSession`, so iOS App Transport
   Security never applies and the OS raises no warning.
-- **Credential bound to its issuing origin (closed).** Step 7's adversarial
-  review found that `saveServerEndpoint` persisted a new origin without
-  clearing the bearer the previous server issued, so repointing the client sent
-  server A's credential to server B. The client's only clear-on-failure path is
+- **Credential bound to its issuing origin (closed, post-close-out).** Step 7's
+  adversarial review found that `saveServerEndpoint` persisted a new origin
+  without clearing the bearer the previous server issued, so repointing the
+  client sent server A's credential to server B. The client's only clear-on-failure path is
   a 401 from the GraphQL route (`client.ts:705`), which does not cover the
   long poll, attachment fetches or the agent-stream poll, and a
   `kaiba serve --allow-unauthenticated` host never emits 401 at all
   (`Sources/AppServer/ServerContracts.swift:245`, `:343`, `:382`), so the
-  disclosure was persistent rather than one-time. `saveServerEndpoint` now
-  drops the credential when the normalized origin changes and keeps it on a
-  same-origin re-save. The 401 path must not be described as a general
-  backstop.
+  disclosure was persistent rather than one-time. The first fix (`5ed5090`)
+  deleted the bearer on origin change, which satisfied the invariant but made a
+  mistyped endpoint an unrecoverable logout; the shipped behavior instead
+  scopes the credential per origin under
+  `kaiba-note-bearer:<normalized endpoint>`, so a bearer is unreadable for any
+  host that did not issue it and correcting a typo restores the session. The
+  401 path must not be described as a general backstop.
 
 ## Progress Log
 
@@ -557,4 +560,43 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   branch selection, untested `ServerConnectionSettings.tsx`) are confirmed
   scoped plan decisions and were not changed. Gates after the fix:
   `mise run web:check` exit 0 (`bun test src` 148 pass / 0 fail, up from 145),
+  `mise run tauri:check` exit 0.
+- 2026-08-29: Commit range for this close-out, recorded so an audit or revert
+  covers the whole change set rather than the first commit only:
+  `1d93eba` the Tauri client change set (110 files);
+  `53be83c` the plan progress log recording `1d93eba`;
+  `5ed5090` the first credential fix (cleared the bearer on origin change);
+  plus the credential-scoping revision below, which is the tail of the range.
+  `5ed5090` and the revision changed a security-relevant behavior contract, so
+  reverting `08c4843..1d93eba` alone would leave credential handling for a
+  transport that no longer exists.
+- 2026-08-29: Step 7 adversarial review of `1d93eba`/`53be83c`/`5ed5090`
+  returned one mid finding and no high finding: `5ed5090` satisfied the
+  credential invariant destructively. `saveServerEndpoint` deleted the only
+  bearer the app held on any syntactically valid origin change, so one mistyped
+  character (`notes.exmaple.com` passes `normalizeServerEndpoint` and
+  `input type="url"`) logged the user out with no confirmation, no reachability
+  check and no undo, recoverable only by pasting a key issued on the server
+  host. Fixed by taking the non-destructive option the review preferred:
+  credentials are now scoped per origin. `serverEndpoint.ts` adds
+  `serverCredentialKey(endpoint)` (`kaiba-note-bearer:<normalized endpoint>`)
+  and `currentServerCredentialKey(storage?)`; `saveServerEndpoint` no longer
+  deletes anything and instead files a pre-scoping unscoped value under the
+  outgoing origin when the endpoint changes. `client.ts` reads, writes and
+  clears through `readBearer`/`storeBearer`/`dropBearer`, which use the key for
+  the endpoint in effect and migrate a pre-scoping value on first read so an
+  existing install keeps its session. `serverEndpoint.test.ts` replaces the
+  three destruction cases with five scoping cases, including typo-then-correct
+  recovery; `client.test.ts` derives its two credential-key literals from
+  `currentServerCredentialKey`; new
+  `web/src/components/ServerConnectionSettings.integration.tsx` covers the
+  submit handler end to end (native-only rendering, per-origin credential
+  survival across a switch and back, invalid-URL failure message, reload called
+  exactly once per successful save and never on failure). The design doc now
+  states the scoping behavior and why destruction was rejected. Two Step 7 lows
+  are deliberately not taken and remain open: resolving `URL`/`Request` inputs
+  in `resolveServerRequest` (latent, every caller passes a string) and an
+  eslint `no-restricted-syntax` guard on `innerHTML`/`iframe` to mechanically
+  enforce the `"csp": null` precondition. Gates: `mise run web:check` exit 0
+  (`bun test src` 150 pass / 0 fail, vitest 11 pass / 5 files),
   `mise run tauri:check` exit 0.
