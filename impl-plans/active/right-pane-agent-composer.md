@@ -1608,11 +1608,29 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   wrote rule 5's corollary saying correcting one copy does not correct the
   others.** Stating the rule is not running it. So the rule now carries a
   SWEEP rather than an intention, the way rules 1 and 3 do:
-  `awk 'NR<$(grep -n "^## Progress Log" <plan> | head -1 | cut -d: -f1)' <plan>
-  | grep -nE 'unpinned|no test reaches|breaks NOTHING|defense-in-depth'`
-  — run over the live region before recording any disclosure as corrected, and
+
+```sh
+PL=$(grep -n '^## Progress Log$' impl-plans/active/right-pane-agent-composer.md | head -1 | cut -d: -f1)
+awk -v n="$PL" 'NR<n' impl-plans/active/right-pane-agent-composer.md \
+  | grep -nE 'unpinned|no test reaches|breaks NOTHING|defense-in-depth'
+```
+
+  Run it over the live region before recording any disclosure as corrected, and
   read every hit, not just the one the reviewer named. That sweep is what found
   this copy.
+  **This command is written to be COPY-PASTE RUNNABLE, and that is a
+  requirement, not a nicety.** Its first draft — added 2026-08-30 and caught the
+  same day — put the `$(...)` inside a single-quoted `awk` program, so the shell
+  never expanded it: run verbatim, the pipeline emitted nothing and exited 1. It
+  reported CLEAN UNCONDITIONALLY. That is worse than the narrow rule-1 spelling
+  it was meant to improve on, because a false all-clear does not depend on the
+  region happening to be clean. It is also the exact failure this rule names,
+  committed by the rule itself: a check that is STATED rather than RUN.
+  **So the standard, stated once for every sweep this plan prints:** a sweep is
+  verified by executing the DOCUMENTED TEXT VERBATIM and recording its hit
+  count — never by executing an equivalent and documenting a variant. Executed
+  verbatim on 2026-08-30, the block above returns 12 hits, and every one was
+  read.
 
 ## Progress Log Expectations
 
@@ -3082,4 +3100,61 @@ Tauri legs recorded above still describe HEAD.
 
 Unchanged and still true: TASK-008's three browser-runtime criteria are
 environment-blocked, they are the single unmet deliverable, and the plan stays in
+`impl-plans/active/`.
+
+### 2026-08-30 — The sweep that proved the rule did not run
+
+Self-review executed the rule-2 sweep this plan printed one round earlier —
+verbatim, rather than an equivalent — and it returned nothing.
+
+The command had been written as `awk 'NR<$(grep -n "^## Progress Log" <plan> |
+head -1 | cut -d: -f1)' <plan> | grep -nE '...'`. The `$(...)` sits inside a
+SINGLE-quoted awk program, so the shell never expands it; awk gets the literal
+text, the line-number comparison is not the one intended, and the pipeline emits
+nothing and exits 1.
+
+**It reported CLEAN UNCONDITIONALLY.** That is strictly worse than the rule-1
+defect it was written to improve on. Rule 1's narrow spelling reported clean only
+when the region happened to contain no slash-separated pair; this one reports
+clean whatever the document says. A future round copy-pasting it would have got a
+false all-clear on the very check introduced to stop stale claims.
+
+**And it is the failure the rule itself names, committed by the rule.** The
+paragraph's own heading is "Stating the rule is not running it." The command
+under that heading had never been run. Every 12-hit figure the previous round
+recorded came from a working variant typed at the shell, while a broken variant
+was what got written down — authored-versus-executed, the same split rule 5
+exists to close for mutation results.
+
+**The fix, and the standard it generalizes.** The sweep is now a fenced,
+copy-paste-runnable two-line block using a `PL` variable and `awk -v n="$PL"`,
+with the plan path literal so there is no placeholder to substitute. The plan now
+states, once and for every sweep it prints: **a sweep is verified by executing
+the DOCUMENTED TEXT VERBATIM and recording its hit count — never by executing an
+equivalent and documenting a variant.**
+
+**Verified the only way this finding permits.** The block was EXTRACTED FROM THE
+FILE and executed, not retyped:
+
+```
+awk '/^```sh$/{f=1;next} /^```$/{f=0} f' <plan> > /tmp/documented-sweep.sh
+bash /tmp/documented-sweep.sh | wc -l   →  12
+```
+
+Twelve hits, each read: past-tense history of the withdrawn signal-write
+disclosure, quotations of withdrawn text explicitly marked as withdrawn, the
+corrected risk-register entry, and the sweep's own pattern inside the fenced
+block. No live false assertion remains.
+
+Rule 1's sweep re-run over the live region after this edit: CLEAN. Unchecked
+boxes: 6, unchanged. `git diff --stat -- web/ Sources/` empty — this round
+changed no TypeScript, Swift or Rust, so the Swift, SwiftLint and Tauri legs
+recorded above still describe HEAD.
+
+VERIFICATION: `mise run web:check` green — `tsc --noEmit`; `bun test src`
+155 pass / 0 fail across 21 files; `vitest run` 29 passed across 5 files;
+`eslint .`; `vite build` 57 modules.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked,
+they are the single unmet deliverable, and the plan stays in
 `impl-plans/active/`.
