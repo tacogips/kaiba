@@ -512,3 +512,8 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   commit message records all six unresolved items (three Pending user-qa
   decisions plus the three accepted design deferrals). The commit SHA and the
   push confirmation are appended below.
+- 2026-08-29: Close-out commit is `1d93eba` ("Add Tauri macOS and iPhone
+  clients for the existing SolidJS note client"), 110 files changed, pushed to
+  `origin/main` (`08c4843..1d93eba`). This progress-log line recording the SHA
+  necessarily lands in a follow-up commit, since the SHA does not exist until
+  the change-set commit is written.
