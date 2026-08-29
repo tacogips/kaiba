@@ -111,7 +111,33 @@ export function resolveServerRequest(input: RequestInfo | URL, endpoint: string)
 export async function serverRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (!isTauriRuntime()) return fetch(input, init)
   const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
-  return tauriFetch(resolveServerRequest(input, readServerEndpoint()), init)
+  const endpoint = readServerEndpoint()
+  const target = resolveServerRequest(input, endpoint)
+  assertServerOrigin(target, endpoint)
+  return tauriFetch(target, init)
+}
+
+/** The caller has already attached the configured server's bearer by the time a
+ * request reaches here, so the target must belong to that server. Path
+ * resolution alone does not guarantee it: a protocol-relative string such as
+ * `//other.test/x` fails `new URL(input)` and is then resolved against the
+ * endpoint base into a cross-origin URL, and a `URL` or `Request` input is
+ * passed through untouched. No caller does either today; this makes the origin
+ * contract mechanical instead of a property of every future caller's URL
+ * hygiene. */
+export function assertServerOrigin(target: RequestInfo | URL, endpoint: string): void {
+  const resolved = typeof target === 'string' ? target
+    : target instanceof URL ? target.href
+      : target.url
+  let origin: string
+  try {
+    origin = new URL(resolved).origin
+  } catch {
+    throw new Error('The request target could not be resolved against the Kaiba server URL.')
+  }
+  if (origin !== new URL(normalizeServerEndpoint(endpoint)).origin) {
+    throw new Error('Refusing to send a Kaiba server request to a different origin.')
+  }
 }
 
 function availableEndpointStorage(): EndpointStorage | undefined {

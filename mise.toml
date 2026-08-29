@@ -97,6 +97,10 @@ run = '''
 swiftlint
 '''
 
+[tasks."check"]
+description = "Run every verification gate: Swift tests, SwiftLint, the web client, the Tauri shell"
+depends = ["test", "lint", "web:check", "tauri:check"]
+
 [tasks."web:check"]
 description = "Typecheck, test, lint, and build the shared web/native client"
 run = '''

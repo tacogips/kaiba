@@ -566,8 +566,12 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   `1d93eba` the Tauri client change set (110 files);
   `53be83c` the plan progress log recording `1d93eba`;
   `5ed5090` the first credential fix (cleared the bearer on origin change);
-  `0c52dbf` the credential-scoping revision, the tail of the range.
-  The full close-out is therefore `08c4843..0c52dbf`.
+  `0c52dbf` the credential-scoping revision;
+  `1c80dd6` and `21cf582`, documentation only (plan progress log, then the
+  design spec's Architecture bullet plus the plan);
+  and the gate-wiring revision below, which is the tail.
+  The full close-out is therefore `08c4843..HEAD` through that commit; the two
+  documentation commits contain no code.
   `5ed5090` and the revision changed a security-relevant behavior contract, so
   reverting `08c4843..1d93eba` alone would leave credential handling for a
   transport that no longer exists.
@@ -627,3 +631,42 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   of a predicate; and nothing prunes per-origin credential keys, so one entry
   accumulates per server ever configured. Each would change shipped credential
   code to fix, which is not warranted by a documentation-only revision.
+- 2026-08-29: Step 7 adversarial review of `08c4843..21cf582` returned one mid
+  finding and three lows, all addressed in one commit.
+  Mid - the gates this change set authored had no reachable entry point: the
+  credential-scoping tests are the only mechanical guard on "the bearer never
+  travels to a host that did not issue it", but `web:check` and `tauri:check`
+  were referenced nowhere outside `mise.toml` and this feature's own docs, while
+  AGENTS.md "Common Commands" listed only the three Swift-only tasks, pre-commit
+  runs gitleaks only, and CI is a Linux `swift build` plus gitleaks. A
+  contributor following the repository's documented path would never execute
+  them. Fixed: AGENTS.md now lists `mise run web:check`, `mise run tauri:check`
+  and a new `mise run check`, with a sentence saying why; `mise.toml` gains
+  `[tasks."check"]` depending on `test`, `lint`, `web:check`, `tauri:check`. No
+  macOS CI job was added - the Tauri half needs a macOS toolchain - so the design
+  spec now states plainly that CI does not run the web gates and that the
+  enforcement point is the command list plus local `mise run check`, rather than
+  presenting the gates unqualified.
+  Low - `web/vite.config.ts` `envPrefix` narrowed from `['VITE_', 'TAURI_']` to
+  `['VITE_', 'TAURI_ENV_']`. `vite build` runs inside `tauri build` through
+  `beforeBuildCommand`, so the bare prefix would have exposed
+  `TAURI_SIGNING_PRIVATE_KEY` on `import.meta.env` once any source file
+  referenced it. Recorded in the spec rather than left as an undocumented
+  precondition.
+  Low - `serverRequest` now calls `assertServerOrigin` before dispatching, so
+  the origin contract is checked at the transport instead of resting on every
+  caller passing a root-relative string. This closes the protocol-relative
+  string case the review found (`//other.test/x` fails `new URL()`, so it was
+  resolved against the endpoint base into a cross-origin target) and the
+  absolute-URL and `URL`/`Request` passthrough cases in one check, which retires
+  the `resolveServerRequest` identity-passthrough deferral carried since
+  `0c52dbf`. Three tests added; mutation-checked (removing the comparison fails
+  2 of them).
+  Low - the plan's commit range now names `1c80dd6` and `21cf582` as
+  documentation-only and extends through this commit.
+  Not taken, unchanged and still open: `currentServerCredentialKey()` resolving
+  the endpoint from ambient `globalThis.localStorage` rather than the injected
+  `NoteClientEnvironment`; the migration write inside `hasCredential()`; and no
+  pruning of per-origin credential keys. Gates after the change:
+  `mise run web:check` exit 0 (`bun test src` 153 pass / 0 fail, up from 150),
+  `mise run tauri:check` exit 0, `mise run test` exit 0.

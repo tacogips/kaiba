@@ -10,7 +10,10 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
   },
-  envPrefix: ['VITE_', 'TAURI_'],
+  // TAURI_ENV_* only: `vite build` runs inside `tauri build`, whose environment
+  // carries TAURI_SIGNING_PRIVATE_KEY when updater signing is configured, and a
+  // bare `TAURI_` prefix would expose it on import.meta.env.
+  envPrefix: ['VITE_', 'TAURI_ENV_'],
   build: {
     target: 'es2022',
     sourcemap: true,

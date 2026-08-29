@@ -146,7 +146,21 @@ physical iPhone reach a development build.
 
 Validation gates are `mise run web:check` (typecheck, test, lint, build),
 `mise run tauri:check` (`cargo fmt --check`, `cargo check`, `clippy -D
-warnings`), and `mise run test` for the Swift suites.
+warnings`), and `mise run test` for the Swift suites. `mise run check` runs all
+of them. The client's tests are the only mechanical guard on the credential
+rules below, so `web:check` and `tauri:check` are named in the AGENTS.md command
+list rather than left to whoever remembers them. CI still runs only the Linux
+Swift build and gitleaks: neither web gate executes there, because the client
+needs a macOS toolchain for the Tauri half. Until a macOS CI job exists, the
+enforcement point is the AGENTS.md command list and local `mise run check`.
+
+Build-time environment exposure: `web/vite.config.ts` sets
+`envPrefix: ['VITE_', 'TAURI_ENV_']`. The prefix is deliberately not the bare
+`TAURI_` the Tauri scaffold uses, because `vite build` runs inside `tauri build`
+through `beforeBuildCommand`, and that process environment carries
+`TAURI_SIGNING_PRIVATE_KEY` when updater signing is configured; a bare prefix
+would expose it on `import.meta.env` and inline it into the shipped bundle
+wherever source referenced it.
 
 ## Rollout constraints
 

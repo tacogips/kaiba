@@ -32,8 +32,16 @@ This is `kaiba`, a Swift Package Manager project with a mise-managed development
 mise run build
 mise run test
 mise run lint
+mise run web:check
+mise run tauri:check
+mise run check          # all four gates above, in order
 swift run kaiba --help
 ```
+
+`build`, `test` and `lint` cover the Swift package only. The macOS/iPhone client
+lives in `web/` and `web/src-tauri/`, and its tests are the only mechanical
+guard on the client's server-credential rules, so run `web:check` and
+`tauri:check` (or `check`, which runs everything) whenever you touch `web/`.
 
 ## Swift Code Development
 

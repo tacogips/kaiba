@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  assertServerOrigin,
   currentServerCredentialKey,
   defaultServerEndpoint,
   isTauriRuntime,
@@ -104,6 +105,31 @@ describe('native server endpoint', () => {
     expect(storage.values.get(serverCredentialStorageKey)).toBeUndefined()
     expect(storage.values.get(serverCredentialKey('https://a.example.test'))).toBe('bearer-issued-by-a')
     expect(storage.values.get(currentServerCredentialKey(storage))).toBeUndefined()
+  })
+
+  test('accepts a target that resolves to the configured server origin', () => {
+    const endpoint = 'https://notes.example.test'
+    expect(() => assertServerOrigin(resolveServerRequest('/graphql', endpoint), endpoint)).not.toThrow()
+    expect(() => assertServerOrigin(resolveServerRequest('/note/events?since=1', endpoint), endpoint))
+      .not.toThrow()
+  })
+
+  test('refuses a protocol-relative path that resolves off the configured origin', () => {
+    const endpoint = 'https://notes.example.test'
+    // `new URL('//other.test/x')` throws, so resolveServerRequest resolves it
+    // against the endpoint base and yields a cross-origin target.
+    expect(resolveServerRequest('//other.test/x', endpoint)).toBe('https://other.test/x')
+    expect(() => assertServerOrigin(resolveServerRequest('//other.test/x', endpoint), endpoint))
+      .toThrow('different origin')
+  })
+
+  test('refuses an absolute URL and a non-string target aimed at another host', () => {
+    const endpoint = 'https://notes.example.test'
+    expect(() => assertServerOrigin('https://other.test/graphql', endpoint)).toThrow('different origin')
+    expect(() => assertServerOrigin(new URL('https://other.test/graphql'), endpoint))
+      .toThrow('different origin')
+    expect(() => assertServerOrigin(new Request('https://other.test/graphql'), endpoint))
+      .toThrow('different origin')
   })
 
   test('detects only globals carrying Tauri internals', () => {
