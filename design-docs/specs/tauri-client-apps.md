@@ -79,7 +79,10 @@ Mac. Production use over an untrusted network requires HTTPS.
 The endpoint control is rendered only in a native runtime, in two places: the
 Config screen's server connection section, and a compact form on the login
 screen so an unauthenticated user can correct an unreachable server before
-authenticating. Saving a new endpoint reloads the WebView so every cached
+authenticating. The component owns the Config section's `<section>` and heading
+rather than receiving them from the caller, so "rendered only in a native
+runtime" covers the surrounding chrome: a caller cannot leave an empty card on
+the Config screen in the browser build. Saving a new endpoint reloads the WebView so every cached
 client and subscription re-resolves against the new origin.
 
 iPhone layout uses `viewport-fit=cover` with `env(safe-area-inset-*)` padding

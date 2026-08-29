@@ -60,10 +60,7 @@ export function ConfigView(): JSX.Element {
         </p>
       </section>
 
-      <section class="config-section">
-        <h2>Server connection</h2>
-        <ServerConnectionSettings />
-      </section>
+      <ServerConnectionSettings />
 
       <section class="config-section">
         <h2>Layout</h2>

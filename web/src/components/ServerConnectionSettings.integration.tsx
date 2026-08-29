@@ -73,11 +73,36 @@ describe('ServerConnectionSettings', () => {
 
   afterEach(() => { dropTauri() })
 
-  test('renders nothing outside a native runtime', () => {
+  test('renders nothing at all outside a native runtime, chrome included', () => {
     dropTauri()
     const container = mount()
     const dispose = render(() => createComponent(ServerConnectionSettings, {}), container)
+    // Not just the form: the Config screen's section and heading must be absent
+    // too, or the browser client shows an empty bordered card.
     expect(container.querySelector('form')).toBeNull()
+    expect(container.querySelector('section.config-section')).toBeNull()
+    expect(container.textContent).not.toContain('Server connection')
+    expect(container.innerHTML).toBe('')
+    dispose()
+    container.remove()
+  })
+
+  test('supplies its own Config section chrome in a native runtime', () => {
+    const container = mount()
+    const dispose = render(() => createComponent(ServerConnectionSettings, {}), container)
+    const section = container.querySelector('section.config-section')
+    expect(section).not.toBeNull()
+    expect(section?.querySelector('h2')?.textContent).toBe('Server connection')
+    expect(section?.querySelector('form')).not.toBeNull()
+    dispose()
+    container.remove()
+  })
+
+  test('renders the compact login variant without the section chrome', () => {
+    const container = mount()
+    const dispose = render(() => createComponent(ServerConnectionSettings, { compact: true }), container)
+    expect(container.querySelector('section.config-section')).toBeNull()
+    expect(container.querySelector('form.compact')).not.toBeNull()
     dispose()
     container.remove()
   })

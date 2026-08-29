@@ -713,3 +713,35 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   default-endpoint key, the TOCTOU around the dynamic import, `readBearer()`
   bypassing the injected `NoteClientEnvironment` and migrating from a predicate,
   and no pruning of per-origin keys.
+- 2026-08-29: Step 7 review of `08c4843..4ec6f1f` returned one mid finding and
+  three carried-forward lows. Mid, and a real user-visible regression on the
+  browser build: `ConfigView.tsx` wrapped `ServerConnectionSettings` in its own
+  `<section class="config-section"><h2>Server connection</h2>`, but the
+  component gates itself on `isTauriRuntime()`, so the served web client
+  rendered an empty bordered card - heading, padding, border, no content. It
+  contradicted this spec's "rendered only in a native runtime" and slipped past
+  `web:check` because the existing non-native test mounted the component alone
+  and could not see the caller's chrome.
+  Fixed by moving the chrome inside the gate rather than adding a second gate at
+  the call site: `ServerConnectionSettings` now renders its own
+  `<section>`/`<h2>` for the Config variant, inside the same
+  `<Show when={isTauriRuntime()}>`, and the compact login variant stays bare;
+  `ConfigView` renders the component with no wrapper. A caller can no longer
+  reintroduce the empty card. Three integration cases added: nothing at all
+  outside a native runtime (`innerHTML === ''`, section and heading both
+  absent), the section chrome present with its heading and form in a native
+  runtime, and the compact variant rendering the form without a section.
+  Mutation-checked: restoring the chrome outside the gate fails the first case.
+  The spec now states that the component owns the chrome, so the native-only
+  claim covers it.
+  Gates after the fix: `mise run web:check` exit 0 (`bun test src` 154 pass,
+  vitest 13 pass / 5 files, up from 11).
+  The three lows are unchanged and remain open: `currentServerCredentialKey()`
+  resolving the endpoint from ambient `globalThis.localStorage` rather than the
+  injected `NoteClientEnvironment`, the migration write inside
+  `hasCredential()`, and no pruning of per-origin credential keys.
+  Recorded, not fixed here: the "Linux amd64 build" workflow fails on this range
+  with `Sources/CKaibaSQLite3/shim.h:1:10: error: 'sqlite3.h' file not found`.
+  Step 7 confirmed the identical failure on the base commit `08c4843` and an
+  empty `git diff 08c4843..HEAD -- Sources Tests Package.swift Package.resolved`,
+  so it predates this work and belongs to a separate issue.
