@@ -4,7 +4,11 @@
 and verified (TASK-010 through TASK-012, TASK-014 executed 2026-08-29; the whole
 gate RE-EXECUTED 2026-08-30 against the current tree, which turned `tsc --noEmit`
 red on a test-only `noUncheckedIndexedAccess` violation that was then fixed —
-`mise run check` now `EXIT=0` unpiped).
+`mise run check` now `EXIT=0` unpiped). All four mutations this plan cites by
+number were RE-EXECUTED against HEAD 2026-08-30: 4, 8 and 11 held; 12 was
+CAUGHT, falsifying the DISCLOSURE that called the retry arm of
+`effectiveNoteEdit` unreached. That box is now a checked, pinned criterion and
+NO DISCLOSURE remains, so the unchecked count is 6, not 7.
 TASK-008's three browser-runtime criteria remain openly environment-blocked: no
 browser runtime is installed and adding a headless one is an unauthorized open
 user decision. That single unmet deliverable keeps this plan in
@@ -814,7 +818,11 @@ that failing check requires. Nothing beyond the capability gate may change.
          → breaks "a memo retry during an outage is not refused for chips it
          would never send".
       12. Replace `retry ? retry.noteEdit : noteEdit()` with `noteEdit()` →
-         breaks NOTHING. This is the DISCLOSURE below.
+         breaks "retrying a failed note-edit turn never silently downgrades it
+         to a memo", at the assertion that the retried REQUEST carries
+         `mode: 'edit'`. **RE-DERIVED 2026-08-30; this entry read "breaks
+         NOTHING" for one round after it stopped being true.** See the pinning
+         record that replaced the former DISCLOSURE below for the cause.
       13. Restore the note-edit toggle's bare `!props.catalogAvailable` (drop the
          `&& !props.noteEdit` escape) → breaks "a latched note-edit toggle can
          still be released while the catalog is unavailable".
@@ -828,19 +836,34 @@ that failing check requires. Nothing beyond the capability gate may change.
       retry-specific wording; collapsing it to the single message left the suite
       green, so the untested branch was removed instead of shipped. One message
       now serves both paths.
-      EXACTLY ONE sub-expression remains unpinned, and it carries its own
-      DISCLOSURE: the RETRY ARM of `effectiveNoteEdit` (mutation 12). Its
-      rationale is DERIVED, not assumed: for that arm to change the outcome a
-      user would have to retry an EDIT turn while `catalogAvailable()` is false
-      and the toggle is off — and the Retry button for edit turns is disabled on
-      exactly `!catalogAvailable()` (mutation 4 shows that binding is itself
-      pinned). The arm is therefore redundant defence-in-depth behind a pinned
-      outer guard, not unreached live code. **This is the same disclosure the
-      HIGH finding of 2026-08-29 punctured, and the puncture is instructive:**
-      the old derivation stopped at the retry call site and concluded the whole
-      refusal was unreachable, never continuing to the DIRECT call site, which
-      was both reachable and unguarded. A derivation must enumerate every call
-      site, not the first one that explains the measurement.
+      NO sub-expression remains unpinned. **This paragraph said "EXACTLY ONE
+      remains unpinned, and it carries its own DISCLOSURE: the RETRY ARM of
+      `effectiveNoteEdit` (mutation 12)" until 2026-08-30, when mutation 12 was
+      re-executed against HEAD and came back CAUGHT** — it breaks "retrying a
+      failed note-edit turn never silently downgrades it to a memo" at the
+      assertion on the retried request's `mode`. The retry arm is pinned, so the
+      DISCLOSURE it carried is withdrawn, not reworded.
+      **The cause, recorded so this does not rot a third time.** `b05ebcc` is
+      what pinned it, and pinned it as a side effect nobody re-derived: that
+      commit changed the builder from re-reading `retry ? retry.noteEdit :
+      noteEdit()` to consuming the guard local `effectiveNoteEdit`. That made
+      the local OBSERVABLE in the outgoing request, so a mutation to it now
+      changes a request the suite already asserts on. The disclosure was
+      measured before that commit and carried forward through it unre-derived.
+      **This is the third failure of one kind and the rule that follows from it
+      is stated at the evidence criterion as rule 5:** a mutation RESULT is a
+      measurement of a tree, exactly like a line number is a pointer into one.
+      It must be re-executed against HEAD, not recalled — and re-executing one
+      copy of a mutation claim does not re-execute the others, which is why all
+      four live mutation citations were re-run this round, not just the flagged
+      one.
+      **Retained because it is still instructive:** the derivation that used to
+      justify this arm as unreachable stopped at the retry call site and never
+      continued to the DIRECT call site, which was both reachable and unguarded
+      — the HIGH finding of 2026-08-29. A derivation must enumerate every call
+      site, not the first one that explains the measurement. The lesson now has a
+      companion: a derivation, however complete, expires when the code it
+      describes changes.
       9. Delete `setCatalogAvailable(false)` from the `.catch` → breaks "a
          server that stops understanding agentModels mid-session rests the
          controls again". **This line was DISCLOSED as an unpinned no-op for
@@ -960,8 +983,12 @@ failing check now exists for each, written before the fix.
   hit inside `load()`), which re-runs on the same
   `catalogRevision` bump that re-runs discovery. A dedicated clear was written,
   measured as UNPINNED (deleting it left the suite fully green because `load()`
-  had already cleared the banner), and REMOVED rather than shipped with a third
-  DISCLOSURE.
+  had already cleared the banner), and REMOVED rather than shipped with a
+  DISCLOSURE. (At the time that decision was made two DISCLOSURE boxes stood and
+  this would have been a third; both have since been falsified by re-measurement
+  and converted to pinned criteria, so the plan now carries none. The decision to
+  remove the line rather than disclose it is unaffected — it stands on the line
+  being a no-op, which was and remains true.)
 
 **Deliverables (added 2026-08-29, Step 7 regression round)**:
 
@@ -999,15 +1026,18 @@ failing check now exists for each, written before the fix.
       GRAPHQL rejection; assert the banner's absence) until each discriminates.
       Recorded because a test that looks load-bearing and is not is exactly what
       the mutation discipline exists to catch.
-- [x] **Evidence is recorded as CONTENT, never as a pointer** — the rule four
-      separate rounds each learned the hard way, in four shapes (a fourth was
-      added 2026-08-30; the Progress Log sentence beginning "The generalization,
-      now stated once for all three shapes" was true when written and is left as
-      that round's record — cited by its own words, not by a line number, since a
-      plan-internal coordinate shifts on any plan edit). A
-      pointer (a count, a line number, a partial list) is valid-looking after it
-      rots and nothing goes red; content can be re-derived from the tree.
-      Concretely, and each half checkable:
+- [x] **Evidence is recorded as CONTENT, never as a pointer** — the rule five
+      separate rounds each learned the hard way, in five shapes. Shapes 4 and 5
+      were both added 2026-08-30; the Progress Log sentence beginning "The
+      generalization, now stated once for all three shapes" was true when
+      written and is left as that round's record, cited by its own words rather
+      than a line number since a plan-internal coordinate shifts on any plan
+      edit. A pointer is valid-looking after it rots and nothing goes red;
+      content can be re-derived from the tree. The five pointer forms are a
+      count, a line number, an unrewritten claim, a partial list, and a recorded
+      mutation result — every one of them a fact ABOUT a tree, stored outside
+      that tree, where nothing re-checks it. Concretely, and each half
+      checkable:
       1. **Counts** — no live criterion carries a suite-relative count.
          `grep -nE '[0-9]+ failed / [0-9]+ passed'` above the Progress Log
          returns nothing.
@@ -1037,7 +1067,25 @@ failing check now exists for each, written before the fix.
          silent member — the note-edit tooltip beside the named attachment
          tooltip, `MemoTab.integration.tsx`'s carry-forward beside
          `MemoTab.tsx`'s, and the plan file's carry-forward beside both. Silence
-         about the third case is what the rule now forbids.
+         about the third case is what the rule now forbids. A fourth instance
+         landed the same round from the other direction: the atomicity sentence
+         listed `attachments` alongside `mode` as protected by the capture when
+         only `extensionsAvailable` and `noteEdit` are captured — an enumeration
+         that was too LONG rather than too short. Both directions fail the rule.
+      5. **Mutation results** — added 2026-08-30, after a mutation claim went
+         stale in three consecutive rounds, each time in a different box. A
+         mutation RESULT is a measurement of a tree, exactly as a line number is
+         a pointer into one, and it rots the same way: the code moves, the
+         sentence does not, and nothing goes red. Every mutation a live
+         criterion cites by number is RE-EXECUTED against HEAD before the plan
+         is submitted, never carried forward from a recorded outcome. Two
+         corollaries, both learned the hard way: re-executing one copy of a
+         mutation claim does not re-execute the others (a mutation claim lives
+         in more than one box — mutation 12's did, in two); and the commit that
+         changes the code a disclosure describes is the commit that owes the
+         re-derivation, which is exactly what `b05ebcc` failed to do. The
+         2026-08-30 sweep re-ran all four live citations — mutations 4, 8, 11
+         and 12 — and 12 was the one that had gone false.
       **SCOPE, stated so the rule does not outrun its check.** Rule 3's sweep is
       `grep -noE '(MemoTab\.tsx|MemoTab\.integration\.tsx|appStore\.tsx):[0-9]+'`
       restricted to the current-state regions — i.e. exactly the CODE files this
@@ -1073,33 +1121,37 @@ failing check now exists for each, written before the fix.
       memo"; replacing the kind check with `if (false)` breaks all THREE
       transport tests; deleting the bounded retry breaks the same three.
       Re-executed against HEAD 2026-08-29.
-- [ ] DISCLOSURE (not a deliverable): the RETRY ARM of `effectiveNoteEdit` —
-      the `retry ? retry.noteEdit :` half of `send()`'s note-edit refusal — is
-      defense-in-depth that no test reaches. Replacing the whole expression with
-      `noteEdit()` leaves the suite fully green (mutation 12), because the Retry
-      button for edit turns is disabled on exactly `!catalogAvailable()` and so
-      swallows the click before `send()` runs; mutation 4 shows that binding is
-      itself pinned. **NARROWED 2026-08-29, and this box was FALSE for one
-      round before it was.** It previously disclosed the entire `send()` refusal
-      for `retry.noteEdit && !catalogAvailable()` as unreached, citing a
-      mutation-8 deletion that left the suite green. Both halves went stale when
-      the guard was generalized to the effective request: deleting the refusal
-      now breaks "a direct send never downgrades a latched note-edit to a plain
-      memo", and mutation 8 is now the NARROWING mutation, not the deletion.
-      **A suite-relative count stood here and was itself stale**, measured
-      before the memo-retry test landed and never re-derived. It is DELETED
-      rather than refreshed: the identity above is the durable record, the
-      number is the part that rots, and refreshing it would only reset the
-      clock. Writing the corrected figure here instead would have reintroduced
-      the same defect — that was the first attempt at this fix, and it
-      falsified the grep-clean claim in the same edit. The current measurement
-      lives in the dated progress entry for this round, where a figure is
-      allowed to be a historical record. The parallel disclosure in TASK-011b's
-      criterion was corrected in the same round while THIS copy was missed —
-      which is the recurrence the rule below exists to stop: a disclosure lives
-      in more than one place, and re-deriving one copy does not re-derive the
-      others. Per the plan's DISCLOSURE rule this is not an unmet deliverable
-      and does not hold the plan open.
+- [x] **The RETRY ARM of `effectiveNoteEdit` is PINNED. This box was a
+      DISCLOSURE claiming the opposite until 2026-08-30; it is converted, not
+      reworded.** It read: the retry arm is "defense-in-depth that no test
+      reaches", and "replacing the whole expression with `noteEdit()` leaves the
+      suite fully green (mutation 12)". Re-executed against HEAD on 2026-08-30,
+      that mutation is CAUGHT: `1 failed | 28 passed`, FAIL
+      `MemoTab.integration.tsx > MemoTab integration > retrying a failed
+      note-edit turn never silently downgrades it to a memo`, at the assertion
+      that the retried request carries `mode: 'edit'`.
+      **Recorded by the IDENTITY of the test it breaks**, per the criterion
+      above; the count belongs to the dated progress entry, not here.
+      **Why it changed, stated so the next round does not have to rediscover
+      it.** `b05ebcc` pinned this arm without anyone noticing: it routed the
+      builder through the guard local `effectiveNoteEdit` instead of re-reading
+      `retry ? retry.noteEdit : noteEdit()`. That made the local observable in
+      the outgoing retry request, so mutating it now changes a value the suite
+      already asserts on. The commit that broke the disclosure did not re-derive
+      it — the same omission this box has now recorded three times, and the
+      reason rule 5 exists.
+      **Two things this box previously got right are kept.** (1) Its NARROWING
+      history: it once disclosed the entire `send()` refusal for
+      `retry.noteEdit && !catalogAvailable()` as unreached, which went stale
+      when the guard was generalized to the effective request; deleting that
+      refusal now breaks "a direct send never downgrades a latched note-edit to
+      a plain memo", and mutation 8 is the NARROWING mutation, not the deletion
+      — re-confirmed against HEAD 2026-08-30. (2) Its reason for carrying no
+      figure: a suite-relative count stood here and was itself stale, and was
+      deleted rather than refreshed because refreshing only resets the clock.
+      **Consequence for the arithmetic:** there is now no DISCLOSURE box in this
+      plan, so the unchecked count drops from 7 to 6 and the plan-location
+      criterion's breakdown is updated to match.
 
 ### TASK-012: Execute the full Swift sweep
 
@@ -1382,16 +1434,19 @@ Manual smoke with `kaiba serve --web-root web/dist`:
       active: TASK-008's three browser-runtime criteria are unmet and blocked. A RETRACTED
       item (TASK-001's screenshot-date deliverable and its matching criterion) is
       a withdrawn obligation, not an unmet one, and does not hold the plan open.
-      The same applies to the DISCLOSURE item in TASK-011b's criteria: it records
-      an unpinned no-op line so no checkbox overclaims, and it is not a
-      deliverable. **The arithmetic, stated once so the three places that cite
-      it agree:** 7 unchecked boxes = 2 RETRACTED + 3 TASK-008 browser-runtime
-      criteria + 1 TASK-009 rollup (open only because of those three) + 1
-      DISCLOSURE (the unreachable RETRY ARM of TASK-011c's `send()` guard —
-      narrowed on 2026-08-29 from "the guard" to "one arm of it" after the
-      direct-send half was found reachable, fixed, and pinned; TASK-011b's former
-      signal-write disclosure was withdrawn on 2026-08-29 after being falsified
-      and is now a pinned line). UNMET DELIVERABLES = 1. TASK-008's three boxes are three
+      **The arithmetic, stated once so every place that cites it agrees, and
+      RE-DERIVED 2026-08-30:** 6 unchecked boxes = 2 RETRACTED + 3 TASK-008
+      browser-runtime criteria + 1 TASK-009 rollup (open only because of those
+      three). UNMET DELIVERABLES = 1.
+      **It was 7 = the same four terms + 1 DISCLOSURE until 2026-08-30.** That
+      last term is gone because the box it counted — TASK-011c's claim that the
+      RETRY ARM of `effectiveNoteEdit` was unreached — was falsified by
+      re-executing mutation 12 against HEAD and is now a checked, pinned
+      criterion. No DISCLOSURE box remains in this plan. TASK-011b's former
+      signal-write disclosure had already been withdrawn on 2026-08-29 after
+      being falsified the same way, which makes this the second disclosure to
+      die by re-measurement rather than by argument — the pattern rule 5
+      generalizes. TASK-008's three boxes are three
       CRITERIA of a single deliverable — browser-runtime verification — not
       three deliverables; that is the reading the Status line at the top and the
       TASK-014 progress entry both use, and it is the reading this plan adopts
@@ -2367,11 +2422,35 @@ the more reachable of the two — stayed open. Reproduced before fixing.
   than re-reading `noteEdit()`. Without that capture the invariant held only at
   the send's ENTRY: the builder runs after two awaits, and discovery (which
   re-runs on every `catalogRevision` bump and is not gated on `busy()`) could
-  flip availability false inside that window, silently stripping `mode` and
-  `attachments` from a request the guard had already admitted. Captured, "guard
-  the EFFECTIVE request" holds across the whole await window — the request is
-  atomically either fully extended or refused, and an actually-old server
-  rejects the extension field loudly rather than answering an edit as a memo.
+  flip availability false inside that window, silently stripping `mode` from a
+  request the guard had already admitted. Captured, "guard the EFFECTIVE
+  request" holds across the whole await window for the TWO values actually
+  captured — `extensionsAvailable` and `noteEdit` — so `mode` and the extension
+  flag are atomically either both sent or the send is refused, and an
+  actually-old server rejects the extension field loudly rather than answering
+  an edit as a memo.
+- **NAMED, ACCEPTED CONSEQUENCE: `attachments` is NOT among the captured
+  values, and this sentence claimed it was until 2026-08-30.** The guard reads
+  `attachments().length` into `effectiveAttachments` before the awaits, but the
+  BUILDER re-reads `attachments()` afterwards (`retry ? [] : await
+  Promise.all(attachments().map(fileToAttachment))`), and the older-server
+  discovery branch calls `setAttachments([])`. So on the first send of a note
+  with no subject yet, a `graphql`-kind downgrade landing inside the
+  `await props.ensureSubject?.()` window lets a request the guard admitted with
+  one attachment go out with zero while `extensionsAvailable` is still true.
+  **Accepted rather than fixed here, for the same reason as the two tooltip
+  exclusions**: no failing check compels it, and the constraint on this round is
+  to change composer behavior only where a failing check requires. It is also
+  materially milder than the masquerade the capture exists to stop — the drop is
+  ANNOUNCED, not silent: that branch sets "This server does not accept
+  attachments, so the staged files were removed.", and `send()` clears the error
+  BEFORE the awaits, so the message survives to the user. A masquerade is
+  answering an edit as a memo with nothing said; this is a narrower window with
+  an explanation attached.
+  **The one-line close, recorded so it is a decision and not an oversight:**
+  hoist `const stagedAttachments = retry ? [] : attachments()` above the
+  `ensureSubject` await and map that captured array in the builder. Deliberately
+  NOT done in this round; it is behavior change without a failing check.
 - **A retry arm prevents a FALSE refusal, and is pinned.** A retry never carries
   attachments, and the Retry button is disabled only for EDIT turns — so a failed
   MEMO turn stays retryable during an outage. Reading `attachments().length`
@@ -2772,3 +2851,125 @@ This correction itself is a markdown-only follow-up commit; it changes no
 TypeScript, so it cannot move any gate result recorded above. `b05ebcc` is left
 in history rather than amended: the self-review's evidence cites that sha, and
 rewriting it would make the citation unresolvable.
+
+### 2026-08-30 — A disclosure that had quietly become false, and the rule that ends the class
+
+Step 7 re-executed mutation 12 against HEAD and got a different answer than the
+plan recorded. It was right. Reproduced independently before changing anything:
+
+```
+perl -0pi -e 's/const effectiveNoteEdit = retry \? retry\.noteEdit : noteEdit\(\)/const effectiveNoteEdit = noteEdit()/' web/src/components/MemoTab.tsx
+bun run vitest run
+→ 1 failed | 28 passed
+FAIL src/components/MemoTab.integration.tsx > MemoTab integration >
+     retrying a failed note-edit turn never silently downgrades it to a memo
+     at :432, expect(requests[0]).toMatchObject({ mode: 'edit' })
+```
+
+The plan said that mutation "breaks NOTHING". It breaks a test. The RETRY ARM of
+`effectiveNoteEdit` is PINNED, not defense-in-depth nobody reaches.
+
+**What pinned it, and why nobody noticed.** `b05ebcc` — the commit at the centre
+of this whole round — changed the builder from re-reading
+`retry ? retry.noteEdit : noteEdit()` to consuming the guard local
+`effectiveNoteEdit`. That single substitution made the local OBSERVABLE in the
+outgoing retry request, so mutating it now changes a value the suite already
+asserts on. The pin was a side effect of a fix aimed at something else, and the
+commit that caused it did not re-derive the disclosure it invalidated. The
+disclosure kept being re-READ and re-QUOTED across three rounds; it was never
+re-MEASURED.
+
+**Both copies were fixed, because that is the specific way this failed before.**
+The claim lived in two places — the numbered mutation list ("12. ... → breaks
+NOTHING. This is the DISCLOSURE below.") and the DISCLOSURE box itself. The
+plan's own text already warned that "a disclosure lives in more than one place,
+and re-deriving one copy does not re-derive the others", having been burned by
+exactly that on 2026-08-29. Fixing one copy again would have been the same
+mistake a third time.
+
+**The box is CONVERTED, not reworded.** `- [ ] DISCLOSURE` became
+`- [x]` recording the pin, the test identity, and the cause. Rewording it would
+have preserved a box whose premise is gone.
+
+**ARITHMETIC CHANGED, and every live copy was updated together:** 6 unchecked
+boxes = 2 RETRACTED + 3 TASK-008 browser-runtime criteria + 1 TASK-009 rollup.
+It was 7 = those four terms + 1 DISCLOSURE. The sweep is
+`grep -cE '^- \[[ ]\]' impl-plans/active/right-pane-agent-composer.md` → 6.
+(Written with a bracket expression on purpose: the obvious spelling of that
+pattern contains an unchecked box literal, so documenting it the obvious way
+makes the document match its own sweep and report 7. Found by running it.)
+No DISCLOSURE box remains in this plan. **The "7 unchecked" figure in this same
+day's earlier progress entry was true when written and is left as that entry's
+record; this entry supersedes it.**
+
+**THE FULL MUTATION SWEEP, not just the flagged one.** Step 7's feedback was to
+re-execute every mutation the plan cites by number rather than fix the one that
+was caught. All four live citations were re-run against HEAD on 2026-08-30:
+
+- **Mutation 4** — revert the Retry binding to `disabled={busy()}` → CAUGHT.
+  FAIL "retrying a failed note-edit turn never silently downgrades it to a memo"
+  at `:422`, the DISABLED assertion. Claim holds.
+- **Mutation 8** — narrow the guard from `effectiveNoteEdit` to
+  `Boolean(retry?.noteEdit)` → CAUGHT. FAIL "a direct send never downgrades a
+  latched note-edit to a plain memo". Claim holds; 8 is still the NARROWING
+  mutation, not the deletion.
+- **Mutation 11** — replace `retry ? 0 : attachments().length` with
+  `attachments().length` → CAUGHT. FAIL "a memo retry during an outage is not
+  refused for chips it would never send". Claim holds.
+- **Mutation 12** — CAUGHT, contradicting the plan. The one stale claim of four.
+
+Mutations 4 and 12 break the SAME test at DIFFERENT assertions (`:422` disabled,
+`:432` request `mode`), which is precisely why the old derivation looked sound:
+it reasoned that the disabled Retry button swallows the click before `send()`
+runs, and that is still true of the button — but the test also drives a
+retryable path that reaches the builder, and the builder now reads the local.
+Reasoning about one assertion of a two-assertion test is how a derivation goes
+stale while staying persuasive.
+
+The tree was restored from a pristine copy after each mutation and verified with
+`git diff --stat web/src/components/MemoTab.tsx` returning empty. No mutation
+artifact was committed.
+
+**RULE 5 — Mutation results.** Added to the evidence criterion. A mutation
+result is a measurement of a tree, exactly as a line number is a pointer into
+one; both are facts ABOUT a tree stored OUTSIDE it, where nothing re-checks
+them. Every mutation a live criterion cites by number is re-executed against
+HEAD before submission. Two corollaries, both paid for: re-executing one copy
+does not re-execute the others, and the commit that changes the code a
+disclosure describes owes the re-derivation.
+
+**LOW finding, addressed by naming rather than by code.** Step 7 also found the
+atomicity paragraph overreaching: it claimed the capture makes the request
+"atomically either fully extended or refused", listing `mode` AND `attachments`
+as protected. `attachments` is not captured. The guard reads
+`attachments().length` before the awaits, but the builder re-reads
+`attachments()` after `await props.ensureSubject?.()`, and the older-server
+discovery branch calls `setAttachments([])`. On a first send of a note with no
+subject yet, a downgrade landing in that window sends zero attachments on a
+request admitted with one.
+
+Narrowed to the two values actually captured, and the window is now a NAMED,
+ACCEPTED consequence stated beside the binding — the same treatment the
+attachment tooltip and note-edit tooltip exclusions already get, which is the
+consistency three earlier rounds each flagged the absence of. Accepted rather
+than fixed because no failing check compels it and this round's constraint is to
+change composer behavior only where a failing check requires. It is also milder
+than the masquerade the capture exists to stop: the drop is ANNOUNCED — that
+branch sets "This server does not accept attachments, so the staged files were
+removed." and `send()` clears the error before the awaits, so the message
+survives. The one-line close is recorded in the plan so it is a decision, not an
+oversight: hoist `const stagedAttachments = retry ? [] : attachments()` above the
+`ensureSubject` await and map that array in the builder.
+
+Rule 4's enumeration corollary gained a fourth instance from this: the atomicity
+list was too LONG, not too short. Both directions fail the same rule.
+
+VERIFICATION: `mise run web:check` re-run after the four mutations were reverted
+— `tsc --noEmit` clean; `bun test src` 155 pass / 0 fail across 21 files;
+`vitest run` 29 passed across 5 files; `eslint .` clean; `vite build` ✓ 57
+modules. This round changed no TypeScript — `git diff` on the code files is
+empty and the only committed path is this plan — so the Swift, SwiftLint and
+Tauri legs recorded above still describe HEAD unchanged.
+
+STILL ENVIRONMENT-BLOCKED, unchanged: TASK-008's three browser-runtime criteria.
+The plan stays in `impl-plans/active/`.
