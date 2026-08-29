@@ -3942,7 +3942,7 @@ render rather than recalled:
       composer textarea  MemoTab.tsx:732  disabled={props.busy}
       submit             MemoTab.tsx:747  disabled={props.busy || !draft}
 
-  > **CORRECTION 2026-08-30 (later), two parts, both measured.** (1) COORDINATES:
+  > **CORRECTION 2026-08-30 (later), three parts, all measured.** (1) COORDINATES:
   > every `MemoTab.tsx` line below :390 in this entry shifted +7 when the capture
   > comments were corrected in the same-day entry at the end of this log. Read the
   > table's numbers against fb080f7; the current ones are +7 (chip remove
@@ -4010,10 +4010,20 @@ open. So the ten-row table is 8 + Retry + New chat, and :518 is the third button
 the command returns and the one deliberately left out.
 
 **THE BOUNDARY THIS DRAWS, said plainly.** "Composer control" here means a control
-rendered by the composer subtree or, in MemoTab's own render, one that writes a
-signal the builder reads or the post-send reset clears. Retry and New chat both
-qualify — Retry calls `send()` and New chat writes four of them. :518 qualifies on
-neither count.
+rendered by the composer subtree or, in MemoTab's own render, one that INVOKES
+`send()` or writes a signal the builder reads or the post-send reset clears. Retry
+and New chat both qualify — Retry calls `send()` and New chat writes four of them.
+:518 qualifies on neither count. (CORRECTION 2026-08-30, later: the invoke clause
+is new. The earlier wording said only "writes a signal", which did not literally
+license the next sentence's justification for Retry — Retry's `onClick` writes no
+setter directly; `send()`'s own reset does. The membership conclusion was right on
+a causal reading and the bridge was stated, but the rule now says what it means.
+Checked against the code rather than asserted, by
+`awk 'NR>=507 && NR<=692' web/src/components/MemoTab.tsx | grep -nE 'onClick=|void
+send\(|startNewChat'`, over the post-shift region: THREE `onClick` handlers, of
+which exactly two touch that machinery — `void send(...)` at :584 and
+`startNewChat` at :601. The third, :529, is :525's memo-note-ref opening a note,
+which is why it is excluded.)
 
 So the honest form of the table is: FIVE sibling controls were already busy-gated
 and New chat now joins them; the attachment input/button and the model select are
@@ -4295,6 +4305,55 @@ remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
   (both pre-existing); web 155 bun pass / 0 fail; vitest 34 passed across 5 files
   (33 before, +1 for the new test); eslint clean; vite built in 1.18s; tauri:check
   finished. Unchecked boxes: 6, unchanged.
+
+  Unchanged: TASK-008's three browser-runtime criteria are environment-blocked,
+  they remain the single unmet deliverable, and the plan stays in
+  `impl-plans/active/`.
+- 2026-08-30: **A COUNT THAT ITS OWN LIST CONTRADICTED, plus the boundary clause it
+  was cheap to close alongside.** Markdown only; no executable line changed.
+
+  **THE DEFECT.** The coordinate-correction block written earlier today opened
+  "**CORRECTION 2026-08-30 (later), two parts, both measured.**" and then numbered
+  THREE: (1) the +7 coordinate map, (2) the "NOT BUSY-GATED" heading being
+  syntactically true and behaviourally false, (3) the chip-remove row. "both
+  measured" carried the same wrong count twice in one sentence. All three parts are
+  individually correct and none of them moved — only the announced count did.
+
+  **THIS IS THE OLDEST SHAPE IN THE FILE, NOT A NEW ONE, and that is the point
+  worth recording.** Attempt-9's finding was a lead-in reading "Its three
+  corrections are named" above a four-clause list; attempts 14 and 16 were the same
+  class. Today's eleventh instance (the :740 predicate) had a genuinely new shape —
+  a sound enumeration feeding a predicate that could not see what it claimed — and
+  the lesson recorded for it was about EVIDENCE, not about counting. Then a
+  counting defect landed hours later, in a block written to correct someone else's
+  counting. The two lessons do not substitute for each other: deriving every count
+  beside its list is still the standing rule, and it is the one that lapsed here.
+
+  **THE LOW, taken while the file was open.** The boundary definition said a
+  MemoTab-render control qualifies if it "writes a signal the builder reads or the
+  post-send reset clears", then justified Retry with "Retry calls `send()`" —
+  Retry's `onClick` writes no setter directly; `send()`'s own reset does. The
+  conclusion was right on a causal reading and the bridge was stated explicitly, so
+  it never blocked; the rule now says what it means. Added "INVOKES `send()` or".
+
+  **AND THE CLAUSE'S OWN EVIDENCE WAS MEASURED, not written from memory — which
+  caught a second error before it shipped.** The first draft of that correction said
+  "over :500-685 exactly two handlers … `void send(...)` at :580". Running
+  `awk 'NR>=507 && NR<=692' … | grep -nE 'onClick=|void send\(|startNewChat'`
+  returns THREE `onClick` handlers at :529, :584, :601 — so the region was the
+  pre-shift one (:500-685 rather than :507-692) and `send()`'s handler is at :584,
+  not :580, which is its `<button` tag. Exactly two of the three touch the
+  machinery, as claimed; the coordinates and the region did not. Corrected before
+  commit, and recorded because the round's own +7 map is what made the stale region
+  easy to reach for.
+
+  VERIFICATION: markdown only, so no post-modification TypeScript check is
+  triggered and the full gate from 0eb058e still describes HEAD (FINAL_EXIT=0;
+  Swift 523 executed / 0 failures; swift-testing 34/34; SwiftLint 2 violations 0
+  serious in 181 files; web 155 bun pass / 0 fail; vitest 34 passed; eslint clean;
+  vite build; tauri:check finished). Sweeps re-run after the edit: unchecked boxes
+  6; rule-1 over the live region 0; clause sweep 4, ascending; one ```sh fence;
+  rule-2 extracted from the file and executed verbatim = 17. All unchanged.
 
   Unchanged: TASK-008's three browser-runtime criteria are environment-blocked,
   they remain the single unmet deliverable, and the plan stays in
