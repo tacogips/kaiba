@@ -1218,4 +1218,73 @@ describe('MemoTab integration', () => {
       host.remove()
     }
   })
+  // Step 7 adversarial MID. The chip-remove button was the one composer control
+  // with no `disabled` binding of any kind: every other extension control routes
+  // through `agentComposerExtensionsEnabled`, which already rests on `busy`.
+  // `send()` captures `stagedAttachments` before the guard, so a mid-send click
+  // removed the chip from the composer while the captured file was still
+  // base64'd and uploaded — the UI confirmed a withdrawal the wire ignored, and
+  // the half that escaped is the irreversible one. Same settlement as New chat:
+  // make the control unavailable while a send is in flight, so no withdrawal is
+  // accepted that the request cannot honour.
+  test('a mid-send chip removal is refused rather than accepted and inverted', async () => {
+    let releaseAttachmentRead!: () => void
+    const attachmentRead = new Promise<void>((resolve) => { releaseAttachmentRead = resolve })
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => <MemoTab app={testStore(requests, [])} />, host)
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+
+      const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      const staged = new File(['secret'], 'secret.txt', { type: 'text/plain' })
+      Object.defineProperty(picker, 'files', { configurable: true, value: [staged] })
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(host.textContent).toContain('secret.txt'))
+      // The attachment read is the hold: it parks the send between the guard and
+      // the builder, which is the only window in which the chip is reachable.
+      Object.defineProperty(staged, 'arrayBuffer', {
+        configurable: true,
+        value: async () => {
+          await attachmentRead
+          return new TextEncoder().encode('secret').buffer
+        },
+      })
+
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Send with the file attached'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await settle()
+      expect(requests).toHaveLength(0)
+
+      const chip = () => host.querySelector<HTMLButtonElement>('button[title="Remove secret.txt"]')
+      expect(chip()!.disabled).toBe(true)
+      chip()!.click()
+      await settle()
+      // Refused, not accepted: the chip stays, so the composer never claims a
+      // withdrawal the in-flight request is going to contradict.
+      expect(chip()).not.toBeNull()
+
+      releaseAttachmentRead()
+      await waitFor(() => expect(requests).toHaveLength(1))
+      expect(requests[0]?.attachments).toHaveLength(1)
+
+      // And the control is only rested, not dead: once the send completes the
+      // button takes a removal again. Proven rather than asserted, the same way
+      // the New chat gate is.
+      const second = new File(['later'], 'later.txt', { type: 'text/plain' })
+      Object.defineProperty(picker, 'files', { configurable: true, value: [second] })
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(host.textContent).toContain('later.txt'))
+      const laterChip = () => host.querySelector<HTMLButtonElement>('button[title="Remove later.txt"]')
+      expect(laterChip()!.disabled).toBe(false)
+      laterChip()!.click()
+      await waitFor(() => expect(laterChip()).toBeNull())
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
 })

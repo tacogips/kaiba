@@ -2173,7 +2173,9 @@ remaining risks. Do not mark a checkbox complete on intent alone.
   `extensionsEnabled: false` with `canNoteEdit: false`, so both assertions hold
   under the added term either way — recorded in TASK-011b so the next reader does
   not have to re-derive it. Also named a second explicit exclusion: the note-edit
-  toggle's `title` expression at `MemoTab.tsx:584` is NOT changed, so a writable
+  toggle's `title` expression at `MemoTab.tsx:584` (CORRECTION 2026-08-30: that
+  expression now lives at `MemoTab.tsx:724`; the consequence below is unchanged
+  and still live — only the coordinate rotted) is NOT changed, so a writable
   note under an unavailable catalog renders a disabled toggle whose tooltip still
   reads "Edit note mode". The disabled state satisfies
   `web-chatbook-ui.md:254-257`; the tooltip branch is presentation work under the
@@ -3940,6 +3942,24 @@ render rather than recalled:
       composer textarea  MemoTab.tsx:732  disabled={props.busy}
       submit             MemoTab.tsx:747  disabled={props.busy || !draft}
 
+  > **CORRECTION 2026-08-30 (later), two parts, both measured.** (1) COORDINATES:
+  > every `MemoTab.tsx` line below :390 in this entry shifted +7 when the capture
+  > comments were corrected in the same-day entry at the end of this log. Read the
+  > table's numbers against fb080f7; the current ones are +7 (chip remove
+  > :740 → :747, attachment input :699 → :706, attach button :707-708 → :714-715,
+  > model select :744 → :751, memo-only :711 → :718, note-edit :719 → :726,
+  > textarea :732 → :739, submit :747 → :754, Retry :576 → :583, New chat
+  > :594 → :601, memo-note-ref :518 → :525). (2) THE "NOT BUSY-GATED" HEADING IS
+  > SYNTACTICALLY TRUE AND BEHAVIOURALLY FALSE, which the adversarial review
+  > measured and this entry did not: `busy` appears nowhere in those three
+  > bindings, but `extensionsEnabled` is
+  > `agentComposerExtensionsEnabled(catalogAvailable(), memoOnly(), busy())`
+  > (MemoTab.tsx:138-139 → memoComposer.ts:45-51), so the attachment input, the
+  > attach button and the model select ARE rested while a send is in flight. The
+  > table enumerated the SPELLING of the gate and the prose then read it as the
+  > gate's effect. (3) The chip-remove row is out of date as well: :747 now carries
+  > `disabled={props.busy}`, so the "NOT GATED AT ALL" class is empty.
+
     NOT BUSY-GATED (extension-availability only, `busy` appears nowhere)
       attachment input   MemoTab.tsx:699  disabled={!props.extensionsEnabled}
       attachment button  MemoTab.tsx:707-708
@@ -4053,6 +4073,21 @@ drop and the note-edit tooltip are recorded. Closing it would be a separate
 decision with the same two settlements: gate the control, or make the reset
 conditional.
 
+  > **CORRECTION 2026-08-30 (later). THIS ANALOGUE IS RETIRED, and it was never
+  > as open as this paragraph says.** "Availability-gated only" is the spelling,
+  > not the effect: `extensionsEnabled` is
+  > `agentComposerExtensionsEnabled(catalogAvailable(), memoOnly(), busy())`, so
+  > the staging input (now :706) and the attach button (now :714-715) are already
+  > rested for the whole await window. A user cannot stage a file mid-send, so
+  > the reset has nothing of theirs to throw away. The residual is the category
+  > this plan already uses elsewhere: UNREACHABLE-BY-EVERY-ENTRY-POINT rather
+  > than impossible — `change` is not a Solid-delegated event, so a programmatic
+  > dispatch still reaches a disabled input, which is exactly why the discovery
+  > `.catch`'s defensive `setAttachments([])` is worth keeping pinned. The
+  > accept-then-discard set as this paragraph drew it therefore has ONE member
+  > that was real (New chat, fixed) and one that was overstated (this), and a
+  > third the same entry wrongly excluded (the chip button, fixed today).
+
 **Why the chip-remove button at :740 is NOT a third member, stated rather than
 assumed.** It is the least gated control of all, so the question is fair. But
 accept-then-discard requires the reset to UNDO what the user asked for, and here
@@ -4065,6 +4100,21 @@ and :740; `setNewConversation` / `setActiveConversationId` ← `startNewChat` on
 plus the subject-change effect at :225-226, which is an effect and not a control.
 So the set is the two members named, and :740 is excluded for a reason rather
 than by omission.
+
+  > **CORRECTION 2026-08-30 (later). THE ENUMERATION ABOVE IS SOUND AND THE
+  > PREDICATE IT FEEDS IS WRONG.** The reset-target derivation is correct as far
+  > as it goes — every writer named is a writer, and none was missed. What it
+  > measures is COMPOSER STATE, and it never asks what left the machine. The
+  > adversarial review reproduced the consequence rather than arguing it: with a
+  > send parked on the staged file's `arrayBuffer`, clicking the chip's × removed
+  > the chip and the file was still base64'd and uploaded, because
+  > `stagedAttachments` had been captured before the guard. So the user's intent
+  > is not satisfied, it is INVERTED, and the inverted half is the irreversible
+  > one — `setAttachments([])` satisfies the visible half while the capture
+  > contradicts the material half. The right test is **does the request honour
+  > the click**, not **does the reset undo it**. Settled the same way as New chat:
+  > `disabled={props.busy}` on the chip button (now MemoTab.tsx:747), pinned
+  > failing-first. Full account in the same-day entry at the end of this log.
 
 **What the gate does and does not enforce, named in the plan's own category
 vocabulary.** `startNewChat` remains a plain closure with no `busy()` check; only
@@ -4139,3 +4189,113 @@ pass / 0 fail; vitest 33 passed; eslint clean; vite build. Unchecked boxes: 6.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+- 2026-08-30: **STEP 7 ADVERSARIAL MID CLOSED — the chip-remove button is gated,
+  and the exclusion argument that cleared it is corrected rather than deleted.**
+
+  **THE DEFECT, reproduced before it was fixed.** `send()` captures
+  `stagedAttachments` before the refusal guards, so the request that ships is the
+  request the guard admitted. The chip-remove button (then MemoTab.tsx:740) carried
+  no `disabled` binding of any kind, so it was the one composer control still live
+  during a send. Clicking a chip's × mid-send ran
+  `setAttachments(removeComposerAttachment(...))`, the chip vanished, and the file
+  was base64'd and uploaded anyway. The user's gesture means "do not send this
+  file"; the round's own atomicity invariant is what guaranteed it was sent. The
+  visible half of the withdrawal was honoured and the material half was inverted,
+  and the inverted half is the irreversible one.
+
+  **THE FIX.** `disabled={props.busy}` on the chip button, now
+  `web/src/components/MemoTab.tsx:747` — the same one-line settlement already
+  chosen for New chat at :601, and what `web-chatbook-ui.md` W12 implies with
+  "removable chips **before** submission".
+
+  **PINNED FAILING-FIRST, IN BOTH DIRECTIONS, measured rather than asserted.** New
+  test `a mid-send chip removal is refused rather than accepted and inverted` in
+  `web/src/components/MemoTab.integration.tsx`, using the parked-send harness this
+  suite already has (the staged File's `arrayBuffer` parks the send between the
+  guard and the builder, which is the only window in which the chip is reachable).
+
+  ```
+  before the binding, gate assertion            -> 1 failed | 21 passed
+  with disabled={props.busy}                    -> 22 passed
+  binding removed again (mutation)              -> 1 failed | 21 passed
+  over-gated to disabled={true}                 -> 2 failed | 20 passed
+  ```
+
+  The over-gate arm matters: it is what makes the test a gate rather than a
+  disable-everything assertion. It fails the new test's re-enable half AND the
+  pre-existing removal path in `wires keyboard, controls, New chat history, and
+  requests through the actual pane`, so the control is proven rested, not dead.
+
+  **WHAT WAS WRONG WITH THE ARGUMENT THAT CLEARED :740, since the data behind it
+  was correct.** The exclusion enumerated every writer of the four post-send reset
+  targets and concluded that removing a chip mid-send "asks for that file to be
+  gone, and `setAttachments([])` delivers that and more". The enumeration is sound —
+  no writer was missed, and it is left standing above with a dated correction. The
+  PREDICATE it fed is the defect: it measures COMPOSER STATE and never asks what
+  left the machine. The reset agreeing with the user's composer-state intent is
+  irrelevant once the request has already gone out carrying the opposite. The test
+  is **does the request honour the click**, not **does the reset undo it**.
+
+  **THIS IS THE ELEVENTH INSTANCE OF THE CLASS, AND THE FIRST WITH A DIFFERENT
+  SHAPE, which is why it is worth separating from the other ten.** The previous ten
+  were claims stated WIDER than the code — a quantifier, a comparison, a command's
+  blind spot, a region the command was not run over. This one is a claim of exactly
+  the right width over exactly the right data, reached by a predicate that cannot
+  see the thing being claimed. No enumeration discipline would have caught it: the
+  enumeration was right. What caught it was executing the scenario. The lesson that
+  generalises is narrower and harsher than "derive your counts": **when a claim is
+  about what the user gets, the evidence has to be what the user gets — not the
+  state the code holds afterwards.**
+
+  **A SECOND MEASUREMENT CORRECTED THE TABLE ITSELF.** The control table's
+  "NOT BUSY-GATED" class was read off the SPELLING of the bindings, and `busy`
+  genuinely appears in none of the three. But `extensionsEnabled` is
+  `agentComposerExtensionsEnabled(catalogAvailable(), memoOnly(), busy())`
+  (MemoTab.tsx:138-139 → memoComposer.ts:45-51), so the attachment input, the
+  attach button and the model select ARE rested for the whole await window. Two
+  consequences, both recorded as dated corrections beside the text they falsify:
+  the chip button was the ONLY genuinely live control (which is what made the
+  finding reachable at all), and the "UNFIXED ANALOGUE" block naming the attach
+  control is RETIRED — a user cannot stage a file mid-send. Its residual is the
+  category this plan already uses: UNREACHABLE-BY-EVERY-ENTRY-POINT rather than
+  impossible, because `change` is not a Solid-delegated event, so a programmatic
+  dispatch still reaches a disabled input. With that, the accept-then-discard set
+  as previously drawn had one real member (New chat, fixed), one overstated (the
+  attach control, retired), and one wrongly excluded (the chip button, fixed here).
+
+  **THE THREE CARRIED LOWS, taken in the same pass.**
+  1. `MemoTab.tsx`'s capture comment argued from "`startNewChat` is not gated on
+     `busy()`", which a101bbb made false at the DOM. Rewritten to state the
+     historical defect in the past tense and to name what is still true: the
+     closure is ungated, so that half rests on the button's binding. The
+     `stagedAttachments` capture also now carries the reason the chip gate exists,
+     so the two lines that must agree sit next to each other.
+  2. TASK-011b's dated entry cited the note-edit title expression at
+     `MemoTab.tsx:584`; it now lives at :724. Dated inline correction added; the
+     consequence it records is unchanged and still live.
+  3. The three conversation captures are unpinned AS A GROUP (reverting all three
+     together leaves the suite green). Left as disclosed defence-in-depth: the New
+     chat button is gated, so no reachable scenario distinguishes them, and
+     manufacturing one would widen the composer change past what a failing check
+     compels.
+
+  **COORDINATES MOVED, so the earlier entries in this log are read against their
+  own commits.** The comment corrections added 7 lines above :400, so every
+  `MemoTab.tsx` coordinate below that point shifted +7 from fb080f7. Current
+  values: chip remove :747, attachment input :706, attach button :714-715,
+  memo-only :718, note-edit :726, note-edit title :724, textarea :739, model
+  select :751, submit :754, Retry :583, New chat :601, memo-note-ref :525,
+  post-send reset :447-452, `startNewChat` :489. A dated correction carrying this
+  map sits beside the table it moves.
+
+  VERIFICATION, full gate re-run because production TypeScript changed:
+  `PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig mise run check` → FINAL_EXIT=0,
+  captured unpiped to /tmp/gate-chip.log. Swift 523 executed / 0 failures (0
+  unexpected); swift-testing 34/34; SwiftLint 2 violations 0 serious in 181 files
+  (both pre-existing); web 155 bun pass / 0 fail; vitest 34 passed across 5 files
+  (33 before, +1 for the new test); eslint clean; vite built in 1.18s; tauri:check
+  finished. Unchecked boxes: 6, unchanged.
+
+  Unchanged: TASK-008's three browser-runtime criteria are environment-blocked,
+  they remain the single unmet deliverable, and the plan stays in
+  `impl-plans/active/`.

@@ -389,6 +389,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // matters.
     const extensionsAvailable = catalogAvailable()
     const effectiveNoteEdit = retry ? retry.noteEdit : noteEdit()
+    // Captured, so a mid-send mutation of `attachments()` cannot change what
+    // this request uploads. The chip-remove button is gated on `busy()` for the
+    // matching reason: a withdrawal this capture cannot honour must not be
+    // accepted, or the composer would confirm a removal the wire ignored.
     const stagedAttachments = retry ? [] : attachments()
     const effectiveAttachments = stagedAttachments.length
     // `agentModel` is re-derived by the normalization effect whenever `models`
@@ -397,10 +401,13 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // `configuredModel` instead of the model the composer displayed when the
     // user pressed send.
     const effectiveModel = app.state.settings.agentModel
-    // `startNewChat` is not gated on `busy()`, so one click during the await
-    // window would reroute an already-submitted message into a new conversation
-    // and half-apply its reset — chips cleared in the composer while the same
-    // chips still rode out on the wire.
+    // Before the New chat button carried `disabled={busy()}`, one click during
+    // the await window rerouted an already-submitted message into a new
+    // conversation and half-applied its reset — chips cleared in the composer
+    // while the same chips still rode out on the wire. The capture below settles
+    // the request; the button's gate is what keeps the click from being accepted
+    // and then discarded. `startNewChat` itself is still an ungated closure, so
+    // that half rests on the DOM binding rather than on this function.
     const effectiveConversations = retry ? [] : conversations()
     const effectiveConversationId = retry ? retry.conversationId : activeConversationId()
     const effectiveNewConversation = retry ? false : newConversation()
@@ -737,7 +744,7 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         />
         <Show when={props.attachments.length > 0}>
           <div class="attachment-chips">{props.attachments.map((file, index) =>
-            <button type="button" title={`Remove ${file.name}`} onClick={() => props.onRemoveAttachment(index)}>{file.name} ×</button>
+            <button type="button" title={`Remove ${file.name}`} disabled={props.busy} onClick={() => props.onRemoveAttachment(index)}>{file.name} ×</button>
           )}</div>
         </Show>
       </div>
