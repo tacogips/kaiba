@@ -905,12 +905,19 @@ that failing check requires. Nothing beyond the capability gate may change.
       SECOND hit, in `addMemoOnly()`. That guard was never probed, is not on this
       surface, and this wording must not be read as covering it.
       **This sentence read "NO sub-expression remains unpinned", unscoped, and
-      was falsified SEVEN times — three of them after being "corrected".** The
+      was falsified FOUR times, three of them after being "corrected".** The
       unscoped form is retired for the reason the falsifications share: a claim
       whose scope is not stated cannot be checked, only disproved. A scoped claim
-      can be re-measured, and that is the whole difference. Its three corrections
-      are named because each was found by measurement after the previous had
-      already "closed" it:
+      can be re-measured, and that is the whole difference. All FOUR are named
+      below, in the order they happened, because each was found by measurement
+      after the previous had already "closed" it:
+      **Two different counters run through this document and they are not the
+      same number.** FOUR is how many times THIS SENTENCE was falsified — the
+      list (i)-(iv) below. SEVEN is how many stale COPIES of a pinning claim have
+      been corrected across the whole plan, counted in the risk register, and it
+      is larger because one falsification can leave several copies stale at once.
+      Neither number is the other, and the earlier wording "falsified SEVEN times
+      — three of them after being corrected" conflated them.
       (i) It said "EXACTLY ONE remains unpinned … the RETRY ARM of
       `effectiveNoteEdit` (mutation 12)" until mutation 12 was re-executed
       against HEAD and came back CAUGHT — it breaks "retrying a failed note-edit
@@ -924,19 +931,6 @@ that failing check requires. Nothing beyond the capability gate may change.
       under a sentence claiming none was. Closed by measurement, not by wording:
       mutation 15 and the new test "a mid-send read-only lock cannot downgrade an
       already-admitted note edit" kill it.
-      (iv) It was then false a THIRD time, on a site outside the builder
-      entirely: dropping the `busy()` term from `send()`'s re-entry guard
-      (`if (!body || busy()) return` → `if (!body) return`) SURVIVES the whole
-      web leg. That is the THIRD survivor, and it is **not** an equivalent mutant
-      — it is UNREACHABLE-BY-EVERY-ENTRY-POINT, a weaker and separately stated
-      category. Verified by reading all three call paths into `send()`, each
-      busy-gated at the DOM before the guard is reached: the submit button
-      (`disabled={props.busy || !props.draft.trim()}`), the textarea keydown
-      (`handleComposerKeyDown` via `composerKeyDownAction`, which returns `'none'`
-      when busy), and the Retry button (`disabled={busy() || …}`). A programmatic
-      call while busy WOULD differ, so the term is real defense-in-depth rather
-      than dead code — which is why it is written down here instead of being
-      called equivalent and forgotten.
       (iii) And the sentence was STILL false after (ii), because fixing the arm a
       reviewer named is not the same as applying the rule the fix stated. The
       first exhaustive probe of the builder's four retry arms found THREE more
@@ -946,6 +940,39 @@ that failing check requires. Nothing beyond the capability gate may change.
       it is stated with its two measured exclusions: mutation 19 and the
       attachments-guard re-read are EQUIVALENT mutants, ruled out by reading
       rather than left as open gaps.
+      (iv) It was then false a FOURTH time, on a site outside the builder
+      entirely: dropping the `busy()` term from `send()`'s re-entry guard
+      (`if (!body || busy()) return` → `if (!body) return`) SURVIVES the whole
+      web leg. That is the THIRD survivor — third SURVIVOR, fourth
+      FALSIFICATION; the two counts differ and are deliberately not merged. It is
+      **not** an equivalent mutant
+      — it is UNREACHABLE-BY-EVERY-ENTRY-POINT, a weaker and separately stated
+      category. Verified by reading all three call paths into `send()`, each
+      busy-gated at the DOM before the guard is reached: the submit button
+      (`disabled={props.busy || !props.draft.trim()}`), the textarea keydown
+      (`handleComposerKeyDown` via `composerKeyDownAction`, which returns `'none'`
+      when busy), and the Retry button (`disabled={busy() || …}`). A programmatic
+      call while busy WOULD differ, so the term is real defense-in-depth rather
+      than dead code — which is why it is written down here instead of being
+      called equivalent and forgotten.
+      **This clause was written as "(iv) … a THIRD time" and placed ABOVE the
+      third clause on 2026-08-30.** It was appended where the author was reading
+      rather than where it belonged, so the list ran (i), (ii), (iv), (iii) and
+      two clauses claimed the third slot. Moved and re-ordinalled the same day.
+      The ordering is checkable, and the check is SCOPED TO THE LIVE REGION for
+      the same reason rules 1 and 2 are — dated Progress Log entries quote these
+      markers by design and would otherwise register as extra clauses:
+
+          PL=$(grep -n '^## Progress Log$' impl-plans/active/right-pane-agent-composer.md | head -1 | cut -d: -f1)
+          awk -v n="$PL" 'NR<n' impl-plans/active/right-pane-agent-composer.md \
+            | grep -cE '^[[:space:]]+\((i|ii|iii|iv)\)'
+
+      It must return 4, and `grep -n` on the same region must give strictly
+      ascending line numbers. This paragraph says "the third clause" in prose
+      rather than reprinting its marker for that reason. The first draft of this
+      paragraph reprinted it, registered as a fifth clause, and was caught by
+      running the sweep; the progress entry recording the fix then did it a
+      second time and was caught the same way.
       **The cause, recorded so this does not rot a third time.** `b05ebcc` is
       what pinned it, and pinned it as a side effect nobody re-derived: that
       commit changed the builder from re-reading `retry ? retry.noteEdit :
@@ -3459,6 +3486,17 @@ can run the nine-site surface and disagree with the result. That is the whole
 difference, and it is why this round retires the form instead of repairing it
 again.
 
+**CORRECTED 2026-08-30, same day, inline per this plan's convention for dated
+entries.** Two numbers in the paragraph above are wrong and are left visible
+rather than rewritten. (1) "falsified SEVEN times" then lists FOUR causes —
+mutation 12, the builder's `noteEdit` argument, three more builder arms, and
+`busy()`. FOUR is the count of falsifications of the sentence; SEVEN is the count
+of stale COPIES corrected across the plan, which is larger because one
+falsification can strand several copies. The live criterion now states both
+counters and says they are not the same number. (2) "the nine-site surface" was
+widened to TEN later the same day, when the re-entry guard — already probed — was
+found to be missing from the list.
+
 **The third survivor, categorized precisely rather than lumped in.** It is NOT an
 equivalent mutant. Mutation 19 and the attachments-guard re-read are provably
 equivalent — an operand never evaluated, and a capture assigned three lines above
@@ -3527,6 +3565,79 @@ production or test file touched this round. `mise run web:check` GREEN: `tsc
 --noEmit`; `bun test src` 155 pass / 0 fail across 21 files; `vitest run` 31
 passed across 5 files; `eslint .`; `vite build` 57 modules. Rule 1's sweep over
 the live region: clean. Unchecked boxes: 6.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — The clause list was appended to, not maintained
+
+Self-review read the criterion top to bottom instead of reading only the sentence
+under review, and found the list beneath the pinning claim broken in three ways
+at once. All three verified before editing:
+
+- **COUNT.** The lead-in said "Its three corrections are named" and then named
+  FOUR clauses.
+- **ORDER.** `grep -nE '^\s+\((i|ii|iii|iv)\)'` returned :915 (i), :920 (ii),
+  :928 (iv), :940 (iii) — not ascending. Clause (iv) sat above clause (iii).
+- **ORDINAL.** Clause (iv) opened "It was then false a THIRD time" while the
+  third clause already held that slot and said "STILL false after the second".
+
+**Cause: `375e395` appended clause (iv) where the author was reading rather than
+where it belonged, and updated nothing around it.** That is the same shape as
+five earlier findings — a correction applied to its own spot and not to the
+enumeration containing it — landing inside the paragraph written to retire that
+shape. It survived a full round because every prior check read the CLAIM; none
+read the LIST under it.
+
+**Fixed by moving the clause, not by renumbering it.** (iv) is chronologically
+fourth — mutation 12 (`976ea82`), the builder `noteEdit` argument (`92ef089`),
+the three retry arms (`7f28224`), then `busy()` (`375e395`) — so it belongs after
+(iii), and its ordinal was wrong rather than its label. The list now runs
+(i)-(iv) in the order the corrections happened.
+
+**Two counters were being conflated and are now separated.** FOUR is how many
+times the sentence itself was falsified — the clauses. SEVEN is how many stale
+COPIES of a pinning claim have been corrected across the plan, and it is larger
+because one falsification can strand several copies at once. The old wording
+"falsified SEVEN times — three of them after being corrected" attached the
+copy-counter to a list of four falsifications. Both counters are now named at the
+criterion, and the earlier Progress Log paragraph carrying the conflated form has
+a dated inline correction rather than a rewrite.
+
+**The sweep caught its own documentation TWICE, and the second catch changed the
+fix.** The paragraph recording this correction first wrapped so that "(iii)"
+began a line, making the sweep return FIVE hits — a fifth clause that does not
+exist, breaking the check in the act of documenting it. Rewritten to say "the
+third clause" in prose. Then THIS progress entry did the same thing, on the
+bullet describing the ordinal defect, and the sweep caught it again.
+
+Two catches in one edit meant prose discipline was the wrong fix on its own, so
+the check is now **SCOPED TO THE LIVE REGION** the way rules 1 and 2 already are:
+dated Progress Log entries quote these markers by design and always will, so a
+whole-file sweep was guaranteed to keep breaking as the log grew. The live-region
+form is written out at the criterion and returns 4.
+
+This is the third and fourth instance of one trap — rule 1 hit it by quoting
+withdrawn digits, rule 2's checkbox sweep by printing an unchecked box, and this
+sweep twice in one sitting. The general form, stated once: **a document that
+greps itself must either not quote the pattern it greps for, or scope the sweep
+to the region where quoting it is not allowed.** The second half is new, and it
+is the more durable half, because it does not depend on remembering.
+
+ALSO CORRECTED, low, carried from the self-review: the previous payload reported
+`grep -c 's two refusal guards, its three'` as 0. Against the committed file it
+returns 1 — the figure was measured before the progress entry was appended, and
+that entry quotes the superseded wording. The hit is at a Progress Log line, a
+labelled quotation the convention permits, so the substance held; the number did
+not describe the commit it was reported against. Stated correctly here: ZERO live
+copies, ONE labelled quotation below the Progress Log.
+
+VERIFICATION: plan wording only. `git diff --stat -- web/ Sources/` empty — no
+production or test file touched. `mise run web:check` GREEN: `tsc --noEmit`;
+`bun test src` 155 pass / 0 fail across 21 files; `vitest run` 31 passed across 5
+files; `eslint .`; `vite build`. Clause sweep over the live region: exactly 4
+hits, ascending. Rule 1 over the live region: clean. Rule-2 sweep extracted and executed: 17. All three
+copies of the ten-site surface agree. Unchecked boxes: 6.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
