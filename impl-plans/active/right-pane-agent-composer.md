@@ -3945,9 +3945,38 @@ render rather than recalled:
       attachment button  MemoTab.tsx:707-708
       agent-model select MemoTab.tsx:744  disabled={!props.extensionsEnabled}
 
+    NOT GATED AT ALL (no disabled binding, no gating ancestor)
+      chip remove        MemoTab.tsx:740  <button type="button" title={`Remove …`}
+                                          onClick={() => props.onRemoveAttachment(index)}>
+                                          one per staged file, rendered by
+                                          `<Show when={props.attachments.length > 0}>`,
+                                          handler at :650 → setAttachments(...)
+
+**THE THIRD ROW WAS INVISIBLE TO THE COMMAND THAT BUILT THE FIRST TWO, and that
+is the part worth keeping.** The table was derived from
+`grep -nE 'disabled=|aria-disabled=' web/src/components/MemoTab.tsx`. That grep
+CANNOT return a control which carries no disabled binding, so what it enumerates
+is CONTROLS-WITH-A-DISABLED-BINDING, not controls. The prose then wrote
+"controls". Re-derived by TAG instead, which can see them all:
+
+    awk 'NR>=686 && NR<=750' web/src/components/MemoTab.tsx \
+      | grep -nE '<button|<select|<input|<textarea'
+
+returns EIGHT elements in `MemoComposerControls` — the attachment input and its
+button, the memo-only and note-edit toggles, the textarea, the chip-remove
+button, the model select, the submit button — and Retry (:576) and New chat
+(:594) live in `MemoTab`'s own render, for TEN. The old table listed nine. The
+missing one is :740, exactly the element with no `disabled=` on it.
+
+SCOPE OF THIS ENUMERATION, stated because the last defect was an unstated scope:
+it covers `MemoComposerControls`' render (MemoTab.tsx:686-750) plus the two
+composer controls in `MemoTab`'s own render. It is not an enumeration of every
+interactive element in the pane.
+
 So the honest form of the table is: FIVE sibling controls were already busy-gated
-and New chat now joins them, while the attachment controls and the model select
-are gated on extension availability alone.
+and New chat now joins them; the attachment input/button and the model select are
+gated on extension availability alone; and the chip-remove button is gated on
+nothing.
 
 **THE COMPARATIVE ARGUMENT IS WITHDRAWN, not narrowed a second time.** The first
 draft asserted that every OTHER composer extension control was already busy-gated.
@@ -4001,6 +4030,19 @@ here so the set has both its members, the way the ensureSubject-window attachmen
 drop and the note-edit tooltip are recorded. Closing it would be a separate
 decision with the same two settlements: gate the control, or make the reset
 conditional.
+
+**Why the chip-remove button at :740 is NOT a third member, stated rather than
+assumed.** It is the least gated control of all, so the question is fair. But
+accept-then-discard requires the reset to UNDO what the user asked for, and here
+it does not: removing a chip mid-send asks for that file to be gone, and
+`setAttachments([])` at :442 delivers that and more. The user's intent is
+satisfied, not thrown away. Derived by enumerating every writer of the four reset
+targets: `setDraft` ← the busy-gated textarea (:732) and `startNewChat` (now
+gated); `setAttachments` ← the availability-gated staging control, `startNewChat`,
+and :740; `setNewConversation` / `setActiveConversationId` ← `startNewChat` only,
+plus the subject-change effect at :225-226, which is an effect and not a control.
+So the set is the two members named, and :740 is excluded for a reason rather
+than by omission.
 
 **What the gate does and does not enforce, named in the plan's own category
 vocabulary.** `startNewChat` remains a plain closure with no `busy()` check; only
