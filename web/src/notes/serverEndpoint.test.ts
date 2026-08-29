@@ -67,6 +67,12 @@ describe('native server endpoint', () => {
     expect(resolveServerRequest(target, 'https://notes.example.test')).toBe(target)
   })
 
+  test('pins the storage key literals that persisted data depends on', () => {
+    // Renaming either silently signs every existing install out.
+    expect(serverCredentialStorageKey).toBe('kaiba-note-bearer')
+    expect(serverEndpointStorageKey).toBe('kaiba-server-endpoint')
+  })
+
   test('scopes a credential to the origin that issued it', () => {
     expect(serverCredentialKey('https://a.example.test'))
       .toBe(`${serverCredentialStorageKey}:https://a.example.test`)

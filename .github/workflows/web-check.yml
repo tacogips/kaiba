@@ -1,0 +1,49 @@
+name: Web client check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-check:
+    name: Typecheck, test, lint and build the web client
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # The Tauri Rust shell needs a macOS toolchain, so tauri:check stays local.
+      # Everything mise's web:check task runs is pure bun and executes here.
+      - name: Install Bun
+        env:
+          BUN_VERSION: "1.3.14"
+        run: |
+          set -euo pipefail
+          curl --proto "=https" --tlsv1.2 -fsSL https://bun.sh/install \
+            | bash -s -- "bun-v${BUN_VERSION}"
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+      - name: Install Dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Run Web Client Gate
+        working-directory: web
+        run: |
+          set -euo pipefail
+          bun run typecheck
+          bun run test
+          bun run lint
+          bun run build

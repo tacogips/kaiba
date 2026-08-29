@@ -91,11 +91,15 @@ without a phone-specific layout branch.
 The Tauri capability permits `http://**` and `https://**` because the actual
 host is user-configurable and cannot be enumerated at build time. Endpoint
 validation is therefore the effective guard on which origins the app contacts.
-The HTTP plugin is built with `unsafe-headers`, which lifts the WebView's
-forbidden-header restrictions on native requests. That is broader than the
-client needs today: it sets only `Authorization` and `Content-Type`. The
-feature should be dropped if no native request comes to require a restricted
-header.
+The HTTP plugin is built with no extra features. `unsafe-headers`, which lifts
+the WebView's forbidden-header restrictions on native requests, was dropped:
+the plugin's forbidden-header list covers `Cookie`, `Host`, `Origin`,
+`Referer`, `proxy-*`, `sec-*` and the other fetch-spec restricted names, and
+the client sets only `Authorization`, `Content-Type` and `Accept`, none of
+which is restricted. Keeping the feature would have let any script reaching the
+WebView forge those headers against any `http`/`https` origin for no functional
+benefit. Reinstating it requires a native request that genuinely needs a
+restricted header, and revisiting this paragraph.
 
 The WebView content-security policy is disabled (`"csp": null`). The client
 renders no server-supplied HTML, so there is no injection sink to constrain
@@ -121,8 +125,13 @@ server host, so destroying the credential on every origin change would make one
 mistyped character an unrecoverable state on a phone away from that host. With
 per-origin keys, correcting the endpoint makes the original credential readable
 again, and no confirmation prompt is needed because nothing was lost. An
-install created before scoping holds one unscoped `kaiba-note-bearer` value; it
-belongs to the endpoint in effect, so it is filed under that origin on first
+Clearing is per origin for the same reason: `clearCredential()` drops the key
+for the endpoint currently in effect and leaves other origins' credentials in
+place, so a 401 from one server does not sign the user out of the others.
+Nothing prunes the keys of origins the user no longer uses.
+
+An install created before scoping holds one unscoped `kaiba-note-bearer` value;
+it belongs to the endpoint in effect, so it is filed under that origin on first
 read, and `saveServerEndpoint` files it under the outgoing origin if the
 endpoint changes first.
 
@@ -149,10 +158,13 @@ Validation gates are `mise run web:check` (typecheck, test, lint, build),
 warnings`), and `mise run test` for the Swift suites. `mise run check` runs all
 of them. The client's tests are the only mechanical guard on the credential
 rules below, so `web:check` and `tauri:check` are named in the AGENTS.md command
-list rather than left to whoever remembers them. CI still runs only the Linux
-Swift build and gitleaks: neither web gate executes there, because the client
-needs a macOS toolchain for the Tauri half. Until a macOS CI job exists, the
-enforcement point is the AGENTS.md command list and local `mise run check`.
+list rather than left to whoever remembers them. `web:check` is pure bun and
+needs no macOS, so it runs in CI on `ubuntu-24.04`
+(`.github/workflows/web-check.yml`) on every push to `main` and every pull
+request, which is what mechanically enforces the credential rules below.
+`tauri:check` and the bundle builds are the parts that require a macOS
+toolchain; they have no CI job, so their enforcement point remains the AGENTS.md
+command list and local `mise run check`.
 
 Build-time environment exposure: `web/vite.config.ts` sets
 `envPrefix: ['VITE_', 'TAURI_ENV_']`. The prefix is deliberately not the bare

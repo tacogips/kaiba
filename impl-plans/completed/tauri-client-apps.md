@@ -571,8 +571,12 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   design spec's Architecture bullet plus the plan);
   and `91dd88c`, the gate-wiring revision, which is the last commit carrying
   code. `08c4843..91dd88c` is therefore the range an audit or revert must cover.
-  `1c80dd6`, `21cf582` and any later commit in this close-out touch only this
-  plan and `design-docs/`, so they carry no code and need no SHA recorded here.
+  `1c80dd6`, `21cf582` and `17449f6` touch only this plan, `design-docs/` and
+  `AGENTS.md`, so they carry no application code and need no SHA recorded here.
+  A later revision (recorded in the final progress-log entry) adds a CI job and
+  drops a Cargo feature, so it does carry code;
+  `git log --oneline 08c4843..main -- web/ .github/ mise.toml` enumerates every
+  code-carrying commit in the close-out without this note going stale again.
   `5ed5090` and the revision changed a security-relevant behavior contract, so
   reverting `08c4843..1d93eba` alone would leave credential handling for a
   transport that no longer exists.
@@ -671,3 +675,41 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   pruning of per-origin credential keys. Gates after the change:
   `mise run web:check` exit 0 (`bun test src` 153 pass / 0 fail, up from 150),
   `mise run tauri:check` exit 0, `mise run test` exit 0.
+- 2026-08-29: Second adversarial Step 7 round on `08c4843..17449f6` returned two
+  mid findings, no high finding, and both are now fixed.
+  Mid 1 - unnecessary native privilege. `web/src-tauri/Cargo.toml` built
+  `tauri-plugin-http` with `unsafe-headers`, which compiles out the plugin's
+  forbidden-header filter. The spec deferred removal on the condition that no
+  native request needs a restricted header, and the review demonstrated that
+  condition was already met: the plugin's list covers `Cookie`, `Host`,
+  `Origin`, `Referer`, `proxy-*` and `sec-*`, while the client sets only
+  `Authorization` (client.ts:129, :721), `Content-Type` (client.ts:68, :716) and
+  `Accept` (events.ts:59). The feature is dropped (`features = []`), which is
+  behavior-preserving for every request the client makes, and the spec now
+  records the removal instead of a deferral whose trigger had fired.
+  `mise run tauri:check` re-run after the change, exit 0.
+  Mid 2 - false CI justification. The spec claimed neither web gate ran in CI
+  "because the client needs a macOS toolchain for the Tauri half". That is true
+  of `tauri:check` and the bundle builds, not of `web:check`, which is pure bun
+  and was therefore excluded by a precondition it never had to meet - leaving
+  the only mechanical guard on the credential invariant outside CI. Fixed by
+  adding the guard rather than only correcting the sentence:
+  `.github/workflows/web-check.yml` runs typecheck, test, lint and build on
+  `ubuntu-24.04` for every push to `main` and every pull request, pinned
+  checkout by SHA with `persist-credentials: false`, `permissions: contents:
+  read`, `timeout-minutes`, a concurrency group and a pinned bun version. The
+  spec now states which gate runs where and why.
+  Three items the ordinary review had agreed to were folded in: the range note
+  widened to name `AGENTS.md` and give a command that cannot go stale; storage
+  key literals pinned in `serverEndpoint.test.ts` (renaming either would sign
+  every install out silently); and the spec now records that
+  `clearCredential()`/`dropBearer()` is per origin, so a 401 from one server
+  does not sign the user out of the others.
+  Gates after the change: `mise run tauri:check` exit 0, `mise run web:check`
+  exit 0 (`bun test src` 154 pass / 0 fail, up from 153).
+  Five lows stay open and unchanged: single-hop scope of `assertServerOrigin`
+  (reqwest strips `Authorization` cross-host, so the residual is response trust
+  rather than credential leak), the web build filing its bearer under the
+  default-endpoint key, the TOCTOU around the dynamic import, `readBearer()`
+  bypassing the injected `NoteClientEnvironment` and migrating from a predicate,
+  and no pruning of per-origin keys.

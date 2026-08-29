@@ -42,6 +42,8 @@ swift run kaiba --help
 lives in `web/` and `web/src-tauri/`, and its tests are the only mechanical
 guard on the client's server-credential rules, so run `web:check` and
 `tauri:check` (or `check`, which runs everything) whenever you touch `web/`.
+`web:check` also runs in CI on Linux; `tauri:check` needs macOS and runs only
+locally.
 
 ## Swift Code Development
 
