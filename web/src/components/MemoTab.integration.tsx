@@ -966,6 +966,54 @@ describe('MemoTab integration', () => {
     }
   })
 
+  // Step 6 self-review MID, and the exhaustive application of mutation 15's
+  // lesson. The builder takes FOUR `retry ? … : …` arms, and mutation 11 pins
+  // only the GUARD's copy of the attachments one. Probing every arm found three
+  // more survivors; this test kills the two that a single reachable scenario
+  // distinguishes. A retry issued with chips staged and New chat pending must
+  // still be a retry: it carries no attachments and posts back into the FAILED
+  // TURN's conversation, not into a new one.
+  test('a retry ignores staged chips and a pending New chat', async () => {
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(
+      () => <MemoTab app={testStore(requests, [], { failedMemoTurn: true })} />, host,
+    )
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Summarize the note'))
+      const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      await waitFor(() => expect(picker.disabled).toBe(false))
+
+      // New chat FIRST, then stage — `startNewChat` resets the composer, so
+      // staging before it would clear the chips and make the attachments
+      // assertion below vacuous. Measured: with the other order, mutation 16
+      // survived this very test.
+      host.querySelector<HTMLButtonElement>('button[aria-label="New chat"]')!.click()
+      await settle()
+
+      // Catalog is HEALTHY here — that is what makes this distinct from the
+      // outage retry test. With extensions available the builder would happily
+      // put staged chips on the wire if the retry arm stopped withholding them.
+      const staged = new File(['context'], 'context.txt', { type: 'text/plain' })
+      Object.defineProperty(picker, 'files', { configurable: true, value: [staged] })
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(host.textContent).toContain('context.txt'))
+
+      const retry = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Retry')!
+      retry.click()
+      await settle(); await settle(); await settle()
+      await waitFor(() => expect(requests).toHaveLength(1))
+      expect(requests[0]).not.toHaveProperty('attachments')
+      // A retry re-sends INTO the failed turn's conversation. A pending New chat
+      // must not turn it into the first message of a different one.
+      expect(requests[0]).toMatchObject({ conversationNotebookId: 'conversation-old' })
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
   // Step 7 MID. The `!props.catalogAvailable` term was added to the note-edit
   // toggle's disabled/aria-disabled WITHOUT the `&& !props.noteEdit` escape the
   // adjacent canNoteEdit term already carries, so an ALREADY-PRESSED toggle went

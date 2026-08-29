@@ -823,6 +823,37 @@ that failing check requires. Nothing beyond the capability gate may change.
          `mode: 'edit'`. **RE-DERIVED 2026-08-30; this entry read "breaks
          NOTHING" for one round after it stopped being true.** See the pinning
          record that replaced the former DISCLOSURE below for the cause.
+      16-19. **Added 2026-08-30, from the first EXHAUSTIVE probe of the
+         builder's retry arms rather than the one a reviewer named.** The
+         builder takes four `retry ? … : …` arms and mutation 11 pins only the
+         GUARD's copy of the attachments one. Probing all four:
+         **16.** `const attachmentInputs = retry ? [] : await Promise.all(…)` →
+         drop the retry arm. SURVIVED when first measured; now breaks "a retry
+         ignores staged chips and a pending New chat". Non-equivalent: chips
+         persist through an outage and nothing clears them on the retry path, so
+         the mutant sends attachments on a retry — against the plan's own stated
+         invariant that a retry never carries attachments.
+         **17.** `newConversation: retry ? false : newConversation()` → drop the
+         arm. SURVIVED; now breaks the same test. Non-equivalent: a pending New
+         chat would turn a retry into the first message of a different
+         conversation.
+         **18.** `activeConversationId: retry ? retry.conversationId : activeConversationId()`
+         → drop the arm. SURVIVED; now breaks the same test. Non-equivalent: the
+         retry would post into whatever conversation the UI has selected rather
+         than the failed turn's.
+         **19.** `conversations: retry ? [] : conversations()` → drop the arm.
+         SURVIVES, and is recorded as a **MEASURED EQUIVALENT MUTANT, not a
+         gap.** `buildAgentChatComposerRequest` reads `conversations` only
+         through `options.activeConversationId ?? latestConversationId(...)`, and
+         on the retry path `activeConversationId` is `retry.conversationId`,
+         typed `NotebookId` and always sourced from `entry.conversationId`. The
+         right operand is never evaluated, so the mutant cannot differ. **A
+         second equivalent mutant is recorded for the same reason:** re-reading
+         `!catalogAvailable()` in place of `!extensionsAvailable` at the
+         attachments guard survives, because the capture is assigned three lines
+         above with no await between. **Surviving ≠ unpinned.** Both were
+         measured and then RULED OUT by reading, so a later round does not
+         re-find them and "fix" a non-problem.
       15. **Added 2026-08-30 after the enumeration was found INCOMPLETE.**
          Revert the BUILDER ARGUMENT `noteEdit: effectiveNoteEdit` to its
          pre-`b05ebcc` form `noteEdit: retry ? retry.noteEdit : noteEdit()` →
@@ -866,6 +897,15 @@ that failing check requires. Nothing beyond the capability gate may change.
       under a sentence claiming none was. Closed by measurement, not by wording:
       mutation 15 and the new test "a mid-send read-only lock cannot downgrade an
       already-admitted note edit" kill it.
+      (iii) And the sentence was STILL false after (ii), because fixing the arm a
+      reviewer named is not the same as applying the rule the fix stated. The
+      first exhaustive probe of the builder's four retry arms found THREE more
+      survivors — mutations 16, 17 and 18 — all closed by one new test, "a retry
+      ignores staged chips and a pending New chat". **The claim now rests on an
+      exhaustive probe rather than on a list someone believed was complete**, and
+      it is stated with its two measured exclusions: mutation 19 and the
+      attachments-guard re-read are EQUIVALENT mutants, ruled out by reading
+      rather than left as open gaps.
       **The cause, recorded so this does not rot a third time.** `b05ebcc` is
       what pinned it, and pinned it as a side effect nobody re-derived: that
       commit changed the builder from re-reading `retry ? retry.noteEdit :
@@ -1625,8 +1665,16 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   The current state of all three cases, each by the test that pins it: the retry
   arm by "retrying a failed note-edit turn never silently downgrades it to a
   memo"; the builder's use of the captured `noteEdit` by "a mid-send read-only
-  lock cannot downgrade an already-admitted note edit" (mutation 15); and the
+  lock cannot downgrade an already-admitted note edit" (mutation 15); the
+  builder's three other retry arms — attachments, `newConversation`,
+  `activeConversationId` — by "a retry ignores staged chips and a pending New
+  chat" (mutations 16-18, all three SURVIVING until that test existed); and the
   sibling `setAttachments([])` by the mutation-verified deferred-rejection test.
+  **CORRECTED A FOURTH TIME, making this the sixth stale copy of a pinning claim
+  and the third time this entry went stale.** Its previous form said no unpinned
+  sub-expression remained while three builder arms were open. The claim now
+  rests on an exhaustive probe of all four arms, with mutation 19 recorded as a
+  measured equivalent mutant rather than a gap.
   **The generalized mitigation:** a superseded claim must be REWRITTEN where it
   lives, not merely contradicted by a newer entry elsewhere. FOUR copies of this
   plan's disclosures have now gone stale independently — TASK-011b's criterion,
@@ -3258,3 +3306,62 @@ Mutation 15 re-run against the restored tree: KILLED. `git diff` on
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked,
 they remain the single unmet deliverable, and the plan stays in
 `impl-plans/active/`.
+
+### 2026-08-30 — Applying the rule instead of the finding: three more arms were open
+
+The previous entry added mutation 15 for `noteEdit`'s definition-vs-use split and
+stated the lesson: *an enumeration over definitions is not an enumeration over
+call sites.* Then it fixed only the arm a reviewer had named. Self-review applied
+the rule instead of the finding, probed the builder's OTHER retry arms, and found
+three more survivors.
+
+**The full probe, all four arms of `buildAgentChatComposerRequest`'s call:**
+
+| mutation | arm | before | after |
+| --- | --- | --- | --- |
+| 16 | `attachments`: drop `retry ? [] :` | SURVIVED | KILLED |
+| 17 | `newConversation`: drop `retry ? false :` | SURVIVED | KILLED |
+| 18 | `activeConversationId`: drop `retry ? retry.conversationId :` | SURVIVED | KILLED |
+| 19 | `conversations`: drop `retry ? [] :` | SURVIVES | equivalent mutant |
+
+**One test closes three.** "a retry ignores staged chips and a pending New chat"
+— healthy catalog, failed memo turn, New chat clicked, chips staged, then Retry.
+It asserts the request carries no `attachments` and targets
+`conversationNotebookId: 'conversation-old'`, the failed turn's conversation. That
+single scenario distinguishes all three arms at once, which is why it is one test
+and not three.
+
+**Ordering inside the test is load-bearing, and was found by measurement.** The
+first draft staged the chips BEFORE clicking New chat; `startNewChat` resets the
+composer, so the chips were cleared and the attachments assertion was vacuous —
+mutation 16 survived that very test. Measured, reordered, re-measured. Recorded
+because a test that looks like it covers something and does not is exactly what
+the mutation discipline exists to catch.
+
+**TWO EQUIVALENT MUTANTS, measured then RULED OUT rather than reported as gaps.**
+Surviving is not the same as unpinned:
+- Mutation 19, `conversations: retry ? [] : conversations()`. The builder reads
+  `conversations` only via `options.activeConversationId ?? latestConversationId(…)`,
+  and on the retry path `activeConversationId` is `retry.conversationId` — typed
+  `NotebookId`, always sourced from `entry.conversationId`. The right operand is
+  never evaluated, so the mutant cannot differ.
+- The attachments guard re-reading `!catalogAvailable()` instead of
+  `!extensionsAvailable`. The capture is assigned three lines above with no await
+  between them.
+Both are recorded so a later round does not re-find them and "fix" a non-problem.
+
+**SIXTH stale copy of a pinning claim, and the third time the risk-register entry
+went stale.** Both live copies are corrected again, and the claim now rests on an
+exhaustive probe of all four arms with its two exclusions named — not on a list
+someone believed was complete. The honest summary of this document's record: six
+for six, every coverage claim stated wider than its checks has been falsified by
+measurement, and the only ones that have held are the ones a mutation killed.
+
+VERIFICATION: `mise run web:check` GREEN — `tsc --noEmit`; `bun test src` 155 pass
+/ 0 fail across 21 files; `vitest run` 31 passed across 5 files (was 30; the new
+test is the +1); `eslint .`; `vite build` 57 modules. All four mutations reverted
+from a pristine copy; `git diff --stat -- web/src/components/MemoTab.tsx` empty —
+no production line changed this round either.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
