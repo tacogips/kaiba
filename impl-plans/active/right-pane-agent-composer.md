@@ -1039,8 +1039,20 @@ failing check now exists for each, written before the fix.
       that tree, where nothing re-checks it. Concretely, and each half
       checkable:
       1. **Counts** — no live criterion carries a suite-relative count.
-         `grep -nE '[0-9]+ failed / [0-9]+ passed'` above the Progress Log
-         returns nothing.
+         The sweep is `grep -nE '[0-9]+ (failed|passed)'` above the Progress
+         Log, and it returns nothing. **WIDENED 2026-08-30 from
+         `[0-9]+ failed / [0-9]+ passed`.** The narrow form matched one
+         SPELLING of a count rather than the class the rule names, so a
+         pipe-separated failed/passed pair sat in the swept region for a round
+         while the sweep reported clean. A check that matches a spelling instead
+         of a class is the same defect as a pointer that matches a location
+         instead of a fact.
+         **The withdrawn figure's digits are deliberately NOT reproduced here or
+         in the criterion that carried them.** Writing them out would make this
+         document match its own widened sweep and falsify the "returns nothing"
+         claim in the same edit that widened it — which is what the first draft
+         of this correction did, caught by running the sweep. A withdrawn count
+         is recorded as "a count stood here", never as the count.
       2. **Claims** — a corrected claim is rewritten at EVERY copy, not
          contradicted at one. Grep the claim's own words before recording it
          corrected.
@@ -1084,8 +1096,12 @@ failing check now exists for each, written before the fix.
          in more than one box — mutation 12's did, in two); and the commit that
          changes the code a disclosure describes is the commit that owes the
          re-derivation, which is exactly what `b05ebcc` failed to do. The
-         2026-08-30 sweep re-ran all four live citations — mutations 4, 8, 11
-         and 12 — and 12 was the one that had gone false.
+         2026-08-30 sweep re-ran every LIVE citation — mutations 4, 8 and 12 —
+         plus mutation 11, whose only citation sits in the Progress Log and
+         which was re-run anyway. 12 was the one that had gone false. The
+         live/Progress-Log split is itself derived, not recalled: classify each
+         hit of `grep -noE 'mutation(s)? [0-9]+'` against the line of
+         `grep -n '^## Progress Log'`.
       **SCOPE, stated so the rule does not outrun its check.** Rule 3's sweep is
       `grep -noE '(MemoTab\.tsx|MemoTab\.integration\.tsx|appStore\.tsx):[0-9]+'`
       restricted to the current-state regions — i.e. exactly the CODE files this
@@ -1126,12 +1142,19 @@ failing check now exists for each, written before the fix.
       reworded.** It read: the retry arm is "defense-in-depth that no test
       reaches", and "replacing the whole expression with `noteEdit()` leaves the
       suite fully green (mutation 12)". Re-executed against HEAD on 2026-08-30,
-      that mutation is CAUGHT: `1 failed | 28 passed`, FAIL
+      that mutation is CAUGHT: it fails
       `MemoTab.integration.tsx > MemoTab integration > retrying a failed
       note-edit turn never silently downgrades it to a memo`, at the assertion
       that the retried request carries `mode: 'edit'`.
-      **Recorded by the IDENTITY of the test it breaks**, per the criterion
-      above; the count belongs to the dated progress entry, not here.
+      **Recorded by the IDENTITY of the test it breaks**, per rule 1; the count
+      belongs to the dated progress entry, not here. **This box carried a
+      suite-relative failed/passed figure for the length of one review round
+      while the sentence you are reading contradicted it in the same breath** —
+      a count in a live criterion, introduced by the very edit that was fixing a
+      stale measurement. Rule 1's sweep missed it because the figure used a PIPE
+      where the sweep expected a slash; the sweep is now widened to match the
+      rule it checks, and the figure's digits are not reproduced here for the
+      reason rule 1 now states.
       **Why it changed, stated so the next round does not have to rediscover
       it.** `b05ebcc` pinned this arm without anyone noticing: it routed the
       builder through the guard local `effectiveNoteEdit` instead of re-reading
@@ -1566,16 +1589,30 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   disclosure as the mitigation. That claim was falsified and withdrawn — the
   entry immediately above records the withdrawal and the line is now PINNED by
   the mid-session rollback test — but this copy kept asserting it, so the risk
-  register contradicted itself for a round. Both surviving cases are now stated
-  once, in their current form: the ONLY unpinned sub-expression is the RETRY ARM
-  of `effectiveNoteEdit` (mutation 12), and the sibling `setAttachments([])`,
-  once unpinned, is covered by the mutation-verified deferred-rejection test.
+  register contradicted itself for a round.
+  **CORRECTED AGAIN 2026-08-30, and this entry was itself the fourth stale
+  copy.** Until then it read "the ONLY unpinned sub-expression is the RETRY ARM
+  of `effectiveNoteEdit` (mutation 12)". Mutation 12 was re-executed against
+  HEAD on 2026-08-30 and is CAUGHT, so that arm is PINNED and NO unpinned
+  sub-expression remains. The current state of both cases: the retry arm is
+  pinned by "retrying a failed note-edit turn never silently downgrades it to a
+  memo"; the sibling `setAttachments([])`, once unpinned, is covered by the
+  mutation-verified deferred-rejection test.
   **The generalized mitigation:** a superseded claim must be REWRITTEN where it
-  lives, not merely contradicted by a newer entry elsewhere. Three copies of
-  this plan's disclosures have now gone stale independently — TASK-011b's
-  criterion, TASK-011c's criterion, and this register entry — each because a
-  correction was applied at one site while the others kept asserting the old
-  fact. Grep every copy of a claim before recording it as corrected.
+  lives, not merely contradicted by a newer entry elsewhere. FOUR copies of this
+  plan's disclosures have now gone stale independently — TASK-011b's criterion,
+  TASK-011c's criterion, this register entry (twice, on 2026-08-29 and again on
+  2026-08-30) — each because a correction was applied at one site while the
+  others kept asserting the old fact.
+  **The fourth is the instructive one: it was missed by the same round that
+  wrote rule 5's corollary saying correcting one copy does not correct the
+  others.** Stating the rule is not running it. So the rule now carries a
+  SWEEP rather than an intention, the way rules 1 and 3 do:
+  `awk 'NR<$(grep -n "^## Progress Log" <plan> | head -1 | cut -d: -f1)' <plan>
+  | grep -nE 'unpinned|no test reaches|breaks NOTHING|defense-in-depth'`
+  — run over the live region before recording any disclosure as corrected, and
+  read every hit, not just the one the reviewer named. That sweep is what found
+  this copy.
 
 ## Progress Log Expectations
 
@@ -2973,3 +3010,76 @@ Tauri legs recorded above still describe HEAD unchanged.
 
 STILL ENVIRONMENT-BLOCKED, unchanged: TASK-008's three browser-runtime criteria.
 The plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — The fourth copy, and a rule that now runs instead of intending
+
+Self-review found two live defects introduced or left behind by the previous
+commit. Both are in this file; no code changed.
+
+**ONE: a fourth stale copy of the retry-arm claim, in the risk register.** The
+previous round corrected three sites — the numbered mutation list, TASK-011b's
+"EXACTLY ONE remains unpinned" paragraph, and the DISCLOSURE box it converted —
+and missed the `## Risks and Mitigations` entry, which still read "the ONLY
+unpinned sub-expression is the RETRY ARM of `effectiveNoteEdit` (mutation 12)".
+Mutation 12 is CAUGHT at HEAD. Three sites agreed; the fourth contradicted them.
+
+The missed paragraph is the one that says "a superseded claim must be REWRITTEN
+where it lives, not merely contradicted by a newer entry elsewhere", and it
+enumerates the copies that had previously gone stale. It is now the fourth entry
+in its own list — and it was missed by the same commit that added rule 5's
+corollary stating that correcting one copy does not correct the others.
+
+**Stating a rule is not running it.** That is the whole lesson of this round, and
+the fix is mechanical rather than hortatory: rule 2 now carries a SWEEP, the way
+rules 1 and 3 already do —
+
+```
+awk 'NR<$(grep -n "^## Progress Log" <plan> | head -1 | cut -d: -f1)' <plan> \
+  | grep -nE 'unpinned|no test reaches|breaks NOTHING|defense-in-depth'
+```
+
+run over the live region before recording any disclosure as corrected, reading
+EVERY hit rather than the one a reviewer named. Run now, it returns twelve hits
+and all twelve are correct: past-tense history of the withdrawn signal-write
+disclosure, quotations of withdrawn text explicitly marked as withdrawn, the
+corrected register entry, and the sweep command itself.
+
+**TWO: the converted criterion carried a suite-relative count.** It recorded the
+mutation result as a pipe-separated failed/passed pair while the next sentence
+said "the count belongs to the dated progress entry, not here". The box
+contradicted itself, and it falsified the neighbouring rule-1 criterion's claim
+that no live criterion carries such a count.
+
+Rule 1's sweep had reported clean the whole time, because it matched
+`[0-9]+ failed / [0-9]+ passed` — one SPELLING — while the figure used a pipe.
+**A check that matches a spelling instead of the class its rule names is the
+same defect as a pointer that matches a location instead of a fact.** The sweep
+is widened to `grep -nE '[0-9]+ (failed|passed)'`, and the figure is removed
+from the criterion; the test identity was always the durable record.
+
+**A trap inside the fix, worth recording because running the check is what
+caught it.** The first draft of this correction quoted the withdrawn figure's
+digits while explaining its removal. That made this document match its own newly
+widened sweep, falsifying "returns nothing" in the same edit that widened it —
+the identical shape as an earlier round writing `grep -c` with an unchecked-box
+literal and thereby making the plan match its own box count. A withdrawn count is
+now recorded as "a count stood here", never as the count. Both sweeps were run
+after the edit, not assumed: rule 1's returns nothing over the live region, and
+the checkbox sweep returns 6.
+
+**LOW, also fixed:** rule 5 described the round's work as re-running "all four
+live citations — mutations 4, 8, 11 and 12". Mutation 11's only citation sits in
+the Progress Log, so it is not a live citation; running it anyway was right, but
+the classification was wrong. Rule 5 now says "every LIVE citation (4, 8, 12),
+plus mutation 11, cited in the Progress Log and re-run anyway", and states how
+the split is derived rather than recalled.
+
+VERIFICATION: `mise run web:check` green — `tsc --noEmit`; `bun test src`
+155 pass / 0 fail across 21 files; `vitest run` 29 passed across 5 files;
+`eslint .`; `vite build` 57 modules. `git diff --stat -- web/ Sources/` is empty:
+this round changed no TypeScript, Swift or Rust, so the Swift, SwiftLint and
+Tauri legs recorded above still describe HEAD.
+
+Unchanged and still true: TASK-008's three browser-runtime criteria are
+environment-blocked, they are the single unmet deliverable, and the plan stays in
+`impl-plans/active/`.
