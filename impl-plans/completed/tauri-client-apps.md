@@ -569,9 +569,9 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   `0c52dbf` the credential-scoping revision;
   `1c80dd6` and `21cf582`, documentation only (plan progress log, then the
   design spec's Architecture bullet plus the plan);
-  and the gate-wiring revision below, which is the tail.
-  The full close-out is therefore `08c4843..HEAD` through that commit; the two
-  documentation commits contain no code.
+  and `91dd88c`, the gate-wiring revision, which is the tail.
+  The full close-out is therefore `08c4843..91dd88c`; `1c80dd6` and `21cf582`
+  contain no code.
   `5ed5090` and the revision changed a security-relevant behavior contract, so
   reverting `08c4843..1d93eba` alone would leave credential handling for a
   transport that no longer exists.
