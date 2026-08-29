@@ -21,8 +21,11 @@ without creating a second note domain, database, or API implementation.
   Tauri's HTTP plugin, avoiding WebView cross-origin restrictions.
 - The API bearer and native endpoint are stored in the app WebView's local
   storage. They are never compiled into the application. The bearer is bound to
-  the endpoint that issued it: changing the configured origin drops the stored
-  credential, so a key issued by one server is never presented to another.
+  the endpoint that issued it: it is stored under
+  `kaiba-note-bearer:<normalized endpoint>` and is unreadable for any other
+  origin, so changing the configured endpoint presents no credential to the new
+  host and deletes nothing, and a key issued by one server is never presented to
+  another.
 
 ## Transport boundary
 

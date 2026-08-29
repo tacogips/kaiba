@@ -593,11 +593,37 @@ the pre-stage path count. TASK-005 records the commit SHA and the push.
   `web/src/components/ServerConnectionSettings.integration.tsx` covers the
   submit handler end to end (native-only rendering, per-origin credential
   survival across a switch and back, invalid-URL failure message, reload called
-  exactly once per successful save and never on failure). The design doc now
-  states the scoping behavior and why destruction was rejected. Two Step 7 lows
+  exactly once per successful save and never on failure). The design doc's
+  Native permissions section now states the scoping behavior and why
+  destruction was rejected; its Architecture summary bullet was left stale by
+  this entry and is corrected in the follow-up below. Two Step 7 lows
   are deliberately not taken and remain open: resolving `URL`/`Request` inputs
   in `resolveServerRequest` (latent, every caller passes a string) and an
   eslint `no-restricted-syntax` guard on `innerHTML`/`iframe` to mechanically
   enforce the `"csp": null` precondition. Gates: `mise run web:check` exit 0
   (`bun test src` 150 pass / 0 fail, vitest 11 pass / 5 files),
   `mise run tauri:check` exit 0.
+- 2026-08-29: Step 7 review of `08c4843..1c80dd6` returned one mid finding and
+  three lows, and did not request adversarial re-review. Mid, fixed here and
+  documentation-only: `design-docs/specs/tauri-client-apps.md` Architecture
+  bullet still carried the rejected `5ed5090` contract ("changing the
+  configured origin drops the stored credential") while the Native permissions
+  section stated the shipped scoping contract, so the spec contradicted itself
+  and a reader of the summary alone could reintroduce the destructive behavior.
+  The bullet now states that the bearer lives at
+  `kaiba-note-bearer:<normalized endpoint>`, is unreadable for any other
+  origin, and that changing the endpoint presents no credential to the new host
+  and deletes nothing; the invariant sentence is kept. A whole-document scan
+  for the destructive wording now returns only the Native permissions passage
+  that explains why destruction was rejected. No code change: the reviewer
+  independently re-executed both gates on `1c80dd6` and confirmed the
+  implementation matches the accepted design on every other point.
+  The three lows are accepted as-is and remain open, all in
+  `web/src/notes/`: `currentServerCredentialKey()` resolves the endpoint from
+  ambient `globalThis.localStorage` rather than the injected
+  `NoteClientEnvironment`, so the environment abstraction is incomplete (no
+  production impact - `browserEnvironment` maps onto the same storage);
+  `hasCredential()` performs the pre-scoping migration write as a side effect
+  of a predicate; and nothing prunes per-origin credential keys, so one entry
+  accumulates per server ever configured. Each would change shipped credential
+  code to fix, which is not warranted by a documentation-only revision.
