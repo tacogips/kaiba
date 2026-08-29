@@ -3889,3 +3889,79 @@ still fail exactly their own test. Unchecked boxes: 6.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — MID 2 was half-closed: the click stopped being honoured at all
+
+Step 7 measured what the capture did NOT reach, and it was right. Capturing
+`newConversation`/`activeConversationId` pre-guard stopped the in-flight message
+being rerouted, but the post-send reset still ran `setNewConversation(false)` and
+`setActiveConversationId(result.conversationNotebookId)`, clobbering the state
+`startNewChat` had just set. So a click the LIVE button accepted was then thrown
+away: the user's NEXT message went back into the old conversation. Reproduced
+before editing with Step 7's own probe — `expected { subjectNoteId: 'subject-1', …
+} to not have property "conversationNotebookId"`.
+
+**Before this round the click at least took effect, on the wrong message. After
+the capture it took effect on nothing.** That is a regression the capture
+introduced, and the plan's MID 2 entry called it "FIXED by capturing both" with
+no residual named — the silence rule :1242 forbids.
+
+**Fixed with the primary settlement Step 7 named: `disabled={busy()}` on the New
+chat button.** Every other composer extension control is already busy-gated; New
+chat was the one that was not. Gating it means no click is ACCEPTED during the
+await window, so none can be discarded — the defect is removed by preventing
+acceptance rather than by making the discard smarter.
+
+**A DISAGREEMENT WITH THE REVIEW, resolved by measurement rather than argument.**
+Step 7 wrote that its suggested assertion "passes with either fix". It does not
+pass with the primary one. Its probe sends a second message after the race and
+asserts the New chat intent SURVIVED — which encodes the *alternative* fix
+(skip the clobber, honour the click). Under the button gate the click never
+registers, so there is no surviving intent and the probe still fails. Measured
+both ways:
+
+```
+Step 7's probe, unfixed tree        -> 1 failed | 20 passed  (the finding)
+Step 7's probe, with disabled={busy()} -> 1 failed | 20 passed  (still fails)
+```
+
+The two settlements have genuinely different semantics, and the probe only fits
+the one Step 7 listed second. Recorded because "passes with either fix" would
+otherwise read as verified when it was not.
+
+**The pin therefore matches the shipped semantics, and is failing-first in both
+halves.** The New-chat race test now asserts (a) the button is DISABLED while the
+send is parked, and (b) after completion it is ENABLED again and clicking it makes
+the NEXT message start a new conversation. Measured:
+
+```
+remove disabled={busy()}     -> 1 failed | 20 passed   ("expected false to be true")
+over-gate to disabled={true} -> 2 failed | 19 passed   ("expected true to be false")
+```
+
+Half (a) catches the missing gate; half (b) catches over-gating, so the pair
+cannot be satisfied by disabling the control permanently. Both halves were
+measured, not asserted.
+
+**Also measured, and it changes nothing but is worth recording:** deleting
+`setNewConversation(false)` from the post-send reset fails 1 test, so that line
+is independently pinned by the existing suite and was left alone.
+
+**Step 7's two LOW findings are recorded, not fixed.** (1) The `if (!retry)` reset
+is unconditional on the subject still being the one that was sent, so switching
+notes mid-send clears the NEW note's composer — pre-existing, traced by Step 7 to
+`fb3997a`/`b076a33`, outside this round's diff and outside the builder-argument
+property by construction. (2) The conversation captures are taken before the
+initial load can settle, so sending during that microtask-sized window routes to a
+new conversation rather than the latest existing one; already covered by the
+`?? latestConversationId(...)` reasoning in the survivor register. Both are named
+here rather than left silent, which is what :1242 requires.
+
+VERIFICATION, full gate re-run because production TypeScript changed:
+`PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise run check` →
+FINAL_EXIT=0, captured unpiped. Swift 523 executed / 0 failures; swift-testing
+34/34; SwiftLint 2 violations 0 serious in 181 files (both pre-existing); web 155
+pass / 0 fail; vitest 33 passed; eslint clean; vite build. Unchecked boxes: 6.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.

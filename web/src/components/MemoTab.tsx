@@ -591,7 +591,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         when={Boolean(subject()) || Boolean(props.ensureSubject)}
         fallback={<p class="pane-empty">Open a notebook or note to read and write memos.</p>}
       >
-        <button type="button" class="new-chat-button" aria-label="New chat" title="New chat" onClick={startNewChat}>＋</button>
+        <button type="button" class="new-chat-button" aria-label="New chat" title="New chat" disabled={busy()} onClick={startNewChat}>＋</button>
         <Show when={loading() && entries().length === 0}>
           <div class="loading-state"><span class="loader" />Loading memos…</div>
         </Show>

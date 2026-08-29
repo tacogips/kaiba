@@ -1180,8 +1180,12 @@ describe('MemoTab integration', () => {
       await settle()
       expect(requests).toHaveLength(0)
 
-      // One click of New chat while the send is parked on the attachment read.
-      host.querySelector<HTMLButtonElement>('button[aria-label="New chat"]')!.click()
+      // New chat is busy-gated like every other composer control, so the click
+      // cannot land inside the await window at all. Asserted, not assumed: this
+      // is the binding whose absence let an accepted click be discarded.
+      const newChat = () => host.querySelector<HTMLButtonElement>('button[aria-label="New chat"]')!
+      expect(newChat().disabled).toBe(true)
+      newChat().click()
       await settle()
       expect(requests).toHaveLength(0)
 
@@ -1192,6 +1196,23 @@ describe('MemoTab integration', () => {
       // And the reset does not half-apply: the chip the guard admitted is still
       // the chip on the wire, rather than cleared in the composer only.
       expect(requests[0]?.attachments).toHaveLength(1)
+
+      // Step 7 measured the other half: capturing stopped the reroute but the
+      // post-send reset still ran `setNewConversation(false)`, so a click that
+      // the live button ACCEPTED was then silently discarded — the user's next
+      // message went back into the old conversation. Gating the button is what
+      // closes that: the control is simply unavailable mid-send, like every
+      // other composer control, so nothing is accepted and nothing is discarded.
+      // Proven here rather than asserted: the button re-enables on completion
+      // and the click then does take effect on the next message.
+      expect(newChat().disabled).toBe(false)
+      newChat().click()
+      const composer2 = host.querySelector('textarea')!
+      composer2.value = 'and now a fresh conversation'
+      composer2.dispatchEvent(new Event('input', { bubbles: true }))
+      composer2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await waitFor(() => expect(requests).toHaveLength(2))
+      expect(requests[1]).not.toHaveProperty('conversationNotebookId')
     } finally {
       dispose()
       host.remove()
