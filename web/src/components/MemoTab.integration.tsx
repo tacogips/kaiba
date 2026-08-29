@@ -1069,5 +1069,132 @@ describe('MemoTab integration', () => {
       host.remove()
     }
   })
-})
+  // Step 7 MID. `selectedModel` was the one builder argument still read from the
+  // store AFTER the two awaits. The catalog rollback this suite already drives
+  // clears `models`, the normalization effect re-derives `agentModel` to
+  // `configuredModel`, and an in-flight request went out carrying a model the
+  // user never chose. The existing catalog-flip test cannot see it: its fixture
+  // selects nothing, so `agentModel` and `configuredModel` are both 'configured'
+  // and the assertion holds either way. This one selects a DIFFERENT model first,
+  // which is what makes the substitution observable.
+  test('a mid-send catalog rollback cannot substitute the model the composer displayed', async () => {
+    let releaseFirst!: () => void
+    let releaseSecond!: () => void
+    let releaseAttachmentRead!: () => void
+    const first = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const second = new Promise<void>((resolve) => { releaseSecond = resolve })
+    const attachmentRead = new Promise<void>((resolve) => { releaseAttachmentRead = resolve })
+    let bumpCatalog!: () => void
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(
+      () => <MemoTab app={testStore(requests, [], {
+        agentModelsGates: [{ wait: first, outcome: 'ok' }, { wait: second, outcome: 'graphql' }],
+        bindBumpCatalog: (bump) => { bumpCatalog = bump },
+      })} />, host,
+    )
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+      releaseFirst()
+      const model = () => host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
+      await waitFor(() => expect(model().disabled).toBe(false))
 
+      // The user picks a model OTHER than configuredModel. Without this the test
+      // is vacuous — measured, not assumed: with the fixture's default selection
+      // the assertion passes against the unfixed builder too.
+      model().value = 'compact'
+      model().dispatchEvent(new Event('input', { bubbles: true }))
+      await waitFor(() => expect(model().value).toBe('compact'))
+
+      const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      const staged = new File(['context'], 'context.txt', { type: 'text/plain' })
+      Object.defineProperty(picker, 'files', { configurable: true, value: [staged] })
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(host.textContent).toContain('context.txt'))
+      Object.defineProperty(staged, 'arrayBuffer', {
+        configurable: true,
+        value: async () => {
+          await attachmentRead
+          return new TextEncoder().encode('context').buffer
+        },
+      })
+
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Summarize with the compact model'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await settle()
+      expect(requests).toHaveLength(0)
+
+      // Rollback lands while the send is parked between guard and builder.
+      bumpCatalog()
+      await settle()
+      releaseSecond()
+      await waitFor(() => expect(model().disabled).toBe(true))
+
+      releaseAttachmentRead()
+      await waitFor(() => expect(requests).toHaveLength(1))
+      // The model the composer displayed at submit time is the model on the wire.
+      expect(requests[0]).toMatchObject({ model: 'compact' })
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
+  // Step 7 MID. `startNewChat` is not gated on `busy()` and the New chat button
+  // carries no `disabled` binding, so a click during the await window reached the
+  // builder's conversation reads. The submitted message silently started a NEW
+  // conversation, and the reset half-applied to it: `setAttachments([])` cleared
+  // the composer while the same file still rode out on the wire. Capturing both
+  // reads settles it in one direction — the admitted request keeps its
+  // conversation AND its chips.
+  test('a mid-send New chat cannot reroute an already-admitted message or half-apply its reset', async () => {
+    let releaseAttachmentRead!: () => void
+    const attachmentRead = new Promise<void>((resolve) => { releaseAttachmentRead = resolve })
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => <MemoTab app={testStore(requests, [])} />, host)
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+
+      const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      const staged = new File(['context'], 'context.txt', { type: 'text/plain' })
+      Object.defineProperty(picker, 'files', { configurable: true, value: [staged] })
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(host.textContent).toContain('context.txt'))
+      Object.defineProperty(staged, 'arrayBuffer', {
+        configurable: true,
+        value: async () => {
+          await attachmentRead
+          return new TextEncoder().encode('context').buffer
+        },
+      })
+
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Add this to the earlier conversation'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await settle()
+      expect(requests).toHaveLength(0)
+
+      // One click of New chat while the send is parked on the attachment read.
+      host.querySelector<HTMLButtonElement>('button[aria-label="New chat"]')!.click()
+      await settle()
+      expect(requests).toHaveLength(0)
+
+      releaseAttachmentRead()
+      await waitFor(() => expect(requests).toHaveLength(1))
+      // The message the user submitted into the existing conversation stays in it.
+      expect(requests[0]).toMatchObject({ conversationNotebookId: 'conversation-old' })
+      // And the reset does not half-apply: the chip the guard admitted is still
+      // the chip on the wire, rather than cleared in the composer only.
+      expect(requests[0]?.attachments).toHaveLength(1)
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+})

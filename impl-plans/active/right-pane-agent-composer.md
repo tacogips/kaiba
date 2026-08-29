@@ -887,12 +887,28 @@ that failing check requires. Nothing beyond the capability gate may change.
       retry-specific wording; collapsing it to the single message left the suite
       green, so the untested branch was removed instead of shipped. One message
       now serves both paths.
-      **EVERY SUB-EXPRESSION ON THE PROBED SURFACE IS PINNED, and the surface is
-      named rather than left implicit: `send()`'s THREE guards — its re-entry
-      guard `if (!body || busy()) return` plus its two refusal guards — its three
-      capture definitions, and the builder's four `retry ? … : …` arms. TEN
-      sites.** All three survivors are on it and are recorded with their
-      ruling-out reasoning; nothing else on it survives.
+      **THE SURFACE IS NOW A PROPERTY, NOT A LIST — widened 2026-08-30 after Step 7
+      reproduced two post-await reads that sat outside the ten-site
+      enumeration.** The property: EVERY ARGUMENT of the
+      `buildAgentChatComposerRequest` object literal must be a value captured
+      BEFORE the guard; the builder may not read a signal or a store field. Plus
+      `send()`'s three guards and its capture definitions, which is what the
+      ten-site list already covered. It is checkable by reading the builder call
+      rather than by trusting a list: every field there is an `effective*` or
+      `staged*` local.
+      **Why the list had to go.** It was drawn around the SHAPE of the four
+      falsifications that produced it — guards, captures, retry arms — rather
+      than around the hazard they share. `selectedModel` was none of those shapes
+      and was read from the store after two awaits; the non-retry reads of
+      `newConversation()`/`activeConversationId()` sat inside arms whose probes
+      had only ever mutated the RETRY branch. Both were OUTSIDE the surface, so
+      the scoped claim was not falsified — it was under-drawn, for the fifth
+      time. A surface that needs widening by one shape per round is the wrong
+      kind of surface; the property does not have that failure mode because it
+      quantifies over the object literal instead of enumerating what someone
+      remembered to probe.
+      Survivors on the surface are recorded with their ruling-out reasoning;
+      nothing else on it survives unrecorded.
       **The re-entry guard was added to this list on 2026-08-30, after the first
       draft said "two refusal guards" and then claimed three survivors on that
       nine-site surface.** Only two were: the `busy()` survivor lives in the
@@ -1749,7 +1765,13 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   survivor was found outside the builder entirely — the `busy()` term in
   `send()`'s re-entry guard. The scope is now stated where the claim is made:
   `send()`'s three guards — re-entry plus the two refusal guards — its three
-  capture definitions, and the builder's four retry arms: ten sites. (The
+  capture definitions, and the builder's four retry arms: ten sites.
+  **WIDENED 2026-08-30 to a property, after Step 7 reproduced two post-await
+  reads outside that list — `selectedModel`, and the non-retry conversation
+  reads. The surface is now: every argument of the builder object literal must be
+  captured before the guard.** The ten-site list was not wrong, it was
+  under-drawn for the fifth time, because it enumerated the shapes that had
+  already failed instead of the hazard they share. (The
   re-entry guard was added 2026-08-30; the first draft named only the two refusal
   guards and then counted three survivors on that nine-site list, when the
   `busy()` one sat in the guard the list omitted. `addMemoOnly()`'s identical
@@ -3490,7 +3512,9 @@ web leg. Reproduced here before editing anything — `vitest run` 31 passed.
    worse than the overclaim it was describing.
 
 **The fix is narrowing, not another correction.** The claim now states its
-surface where the claim is made: `send()`'s three guards — its re-entry guard
+surface where the claim is made (WIDENED to a property 2026-08-30 — see the
+criterion; every builder argument must be captured pre-guard): `send()`'s three
+guards — its re-entry guard
 plus its two refusal guards — its three capture definitions, and the builder's
 four `retry ? … : …` arms. Ten sites. Both live copies say the same thing.
 **Corrected the same day:** this list first read "two refusal guards", which
@@ -3714,6 +3738,76 @@ executed verbatim: 4, exit 0. Rule 1 over the live region: clean. Rule-2 sweep
 extracted and executed: 17. One ```sh fence. Unchecked boxes: 6. The register's
 tally chain is internally consistent — THIRD/FIFTH, FOURTH/sixth, FIFTH/SEVENTH,
 SIXTH/EIGHTH, each header incrementing both counts by one.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
+remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.
+
+### 2026-08-30 — Step 7 found two more post-await reads; the surface is now a property
+
+Step 7 reproduced BOTH findings by execution against the working tree, and both
+were real. Both sat in the `buildAgentChatComposerRequest` call this round
+edited, and both defeated the atomicity property the round's own production
+comment asserts.
+
+**MID 1 — silent model substitution.** `selectedModel` was read from
+`app.state.settings.agentModel` at the builder, after two awaits, while the three
+gated values were captured before the guard. A mid-send catalog rollback clears
+`models`, the normalization effect re-derives `agentModel` to `configuredModel`,
+and the in-flight request went out carrying a model the user never chose. The
+existing catalog-flip test could not see it: its fixture selects nothing, so
+`agentModel` and `configuredModel` are both the same string and the assertion
+held either way. FIXED by capturing `effectiveModel` beside the others.
+
+**MID 2 — New chat mid-send rerouted an admitted message.** `startNewChat` has no
+`busy()` guard and the New chat button has no `disabled` binding, unlike every
+other composer extension control. `newConversation()` and `activeConversationId()`
+were read at the builder, so one click during the await window sent a message the
+user had submitted into the existing conversation off to a NEW one. FIXED by
+capturing both, which is the settlement Step 7 called the smaller change and the
+one matching this round's stated atomicity rule — the admitted request keeps its
+conversation and its chips rather than half-inheriting a reset.
+
+**Both fixes are pinned, failing-first by mutation rather than by assertion.**
+Reverting `selectedModel: effectiveModel` to the store read fails "a mid-send
+catalog rollback cannot substitute the model the composer displayed". Reverting
+the two conversation arms fails "a mid-send New chat cannot reroute an
+already-admitted message or half-apply its reset". Each mutation was run against
+the new tests and each killed exactly one.
+
+**The new model test is deliberately NOT a copy of the existing one.** It selects
+`compact` through the real `select[aria-label="Agent model"]` before sending,
+because with the fixture's default selection the assertion passes against the
+UNFIXED builder — measured, not assumed. That vacuity is precisely why the
+existing test at the same scenario never caught this.
+
+**A THIRD capture was added and is NOT pinned; recorded rather than claimed.**
+`stagedAttachments = retry ? [] : attachments()` replaces the builder's re-read.
+Reverting it leaves the whole suite green — SURVIVOR. The reason is structural,
+not an oversight in the test: the scenario that distinguishes them needs the send
+to park on `await props.ensureSubject?.()`, and the integration harness never
+passes `ensureSubject`, so no test can reach that window without new fixture
+machinery. The capture is kept because it closes the ensureSubject-window
+attachment drop this plan has carried as a named accepted consequence since
+2026-08-29, and because a builder with one signal read left in it is not the
+property the criterion now states. Both facts are stated: the window is closed by
+construction, and the closure is unpinned.
+
+**LOW 3 — the surface was under-drawn, not wrong.** Step 7's third finding is
+correct and is the reason for the criterion change: the ten-site list could not
+contain either mid, because `selectedModel` is not a guard, a capture or a retry
+arm, and the non-retry conversation reads sat in arms whose probes only ever
+mutated the retry branch. The surface is now the PROPERTY — every argument of the
+builder object literal is captured before the guard — at all three copies. Five
+rounds of widening a list by one shape each time is what a wrong abstraction looks
+like; quantifying over the object literal ends it.
+
+VERIFICATION, full gate re-run because production TypeScript changed:
+`PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise run check` →
+FINAL_EXIT=0, captured unpiped. Swift XCTest "Test Suite 'All tests' passed",
+523 executed / 0 failures (0 unexpected); swift-testing 34/34; SwiftLint 2
+violations 0 serious in 181 files (both pre-existing); web 155 pass / 0 fail;
+vitest 33 passed (was 31 — the two new tests are the delta); eslint clean; vite
+built. Unchecked boxes: 6.
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked, they
 remain the single unmet deliverable, and the plan stays in `impl-plans/active/`.

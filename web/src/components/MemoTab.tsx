@@ -373,9 +373,31 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // prevent. Captured, the request is atomically either fully extended or
     // refused; if the server does turn out to be old mid-send it rejects the
     // extension field loudly, which is the intended failure mode.
+    // WIDENED 2026-08-30 from three captures to every value the builder reads.
+    // The earlier set was drawn around the three fields the capability gate
+    // refuses on; Step 7 then reproduced two more post-await reads that the
+    // narrower set left exposed — the selected model, and the conversation
+    // routing. The property being defended is not "the gated fields are stable"
+    // but "the request the guard admits is the request that goes out", so every
+    // argument of `buildAgentChatComposerRequest` below is read HERE, before the
+    // guard, and nothing in the builder re-reads a signal.
     const extensionsAvailable = catalogAvailable()
     const effectiveNoteEdit = retry ? retry.noteEdit : noteEdit()
-    const effectiveAttachments = retry ? 0 : attachments().length
+    const stagedAttachments = retry ? [] : attachments()
+    const effectiveAttachments = stagedAttachments.length
+    // `agentModel` is re-derived by the normalization effect whenever `models`
+    // changes, and the discovery `.catch` clears `models` on an older-server
+    // verdict. Re-read at the builder, an in-flight request would silently carry
+    // `configuredModel` instead of the model the composer displayed when the
+    // user pressed send.
+    const effectiveModel = app.state.settings.agentModel
+    // `startNewChat` is not gated on `busy()`, so one click during the await
+    // window would reroute an already-submitted message into a new conversation
+    // and half-apply its reset — chips cleared in the composer while the same
+    // chips still rode out on the wire.
+    const effectiveConversations = retry ? [] : conversations()
+    const effectiveConversationId = retry ? retry.conversationId : activeConversationId()
+    const effectiveNewConversation = retry ? false : newConversation()
     if (!extensionsAvailable && effectiveNoteEdit) {
       setError('Note edit mode is unavailable until the agent model catalog loads, so this note edit was not sent.')
       return
@@ -391,17 +413,18 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     try {
       current = current ?? await props.ensureSubject?.()
       if (!current) return
-      const attachmentInputs = retry ? [] : await Promise.all(attachments().map(fileToAttachment))
+      const attachmentInputs = await Promise.all(stagedAttachments.map(fileToAttachment))
+      // Every field below is a value captured before the guard. Nothing here
+      // reads a signal, which is what makes "admitted" and "sent" the same
+      // request rather than two requests separated by two awaits.
       const result = await app.client.sendAgentChatMessage(buildAgentChatComposerRequest({
         subject: current,
-        conversations: retry ? [] : conversations(),
-        activeConversationId: retry ? retry.conversationId : activeConversationId(),
-        newConversation: retry ? false : newConversation(),
+        conversations: effectiveConversations,
+        activeConversationId: effectiveConversationId,
+        newConversation: effectiveNewConversation,
         userMarkdown: body,
         idempotencyKey: newIdempotencyKey(),
-        selectedModel: app.state.settings.agentModel,
-        // Both reuse the values the guard admitted. `noteEdit()` can be cleared
-        // by the read-only effect above during the same await window.
+        selectedModel: effectiveModel,
         noteEdit: effectiveNoteEdit,
         extensionsAvailable,
         attachments: attachmentInputs,
