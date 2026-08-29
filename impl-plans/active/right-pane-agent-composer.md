@@ -2701,6 +2701,39 @@ Historical progress entries that quote the old `:600` form are left as written;
 they are a record of what was believed at the time, and this entry is the
 correction.
 
-VERIFICATION FOR THIS ROUND: the executed evidence block above. One code file
-changed (`web/src/components/MemoTab.integration.tsx`, test-only assertion
-reshaping to satisfy `noUncheckedIndexedAccess`); no production behavior changed.
+VERIFICATION FOR THIS ROUND: the executed evidence block above.
+
+**WHAT THE COMMIT ACTUALLY CONTAINS, corrected.** The first version of this line
+read "One code file changed (`MemoTab.integration.tsx`, test-only assertion
+reshaping); no production behavior changed." Every clause of that was wrong about
+the commit, and it was wrong in this plan's own forbidden way — a sentence that
+stays readable while going false. `git show --numstat b05ebcc` reports THREE
+files:
+
+- `impl-plans/active/right-pane-agent-composer.md` (+179/-8) — this entry and the
+  two criteria above it.
+- `web/src/components/MemoTab.integration.tsx` (+80/-0) — NOT a three-assertion
+  reshaping. The whole mid-send-flip test (`a mid-send catalog flip cannot strip
+  extensions from an already-admitted request`) was still UNCOMMITTED from the
+  prior round, so the commit lands the entire test, with this round's
+  `noUncheckedIndexedAccess` reshaping folded into it. The reshaping is the only
+  part authored this round.
+- `web/src/components/MemoTab.tsx` (+16/-4) — PRODUCTION code. The
+  `const extensionsAvailable = catalogAvailable()` capture was likewise
+  uncommitted from the prior round. It is production behavior authored EARLIER
+  and committed HERE. "No production behavior changed" was true of what this
+  round authored and false of what this commit contains; the two are not the
+  same claim and the line conflated them.
+
+The distinction that matters to a reviewer: this round authored one test-only
+edit, but this commit is the first time the capture fix and its pinning test
+enter history, so `MemoTab.tsx` is in scope for independent review even though no
+one edited it today. The correction is recorded rather than silently patched,
+because the same conflation — describing what was AUTHORED as if it were what was
+COMMITTED — is what would let a carried-forward production change ship
+unreviewed.
+
+This correction itself is a markdown-only follow-up commit; it changes no
+TypeScript, so it cannot move any gate result recorded above. `b05ebcc` is left
+in history rather than amended: the self-review's evidence cites that sha, and
+rewriting it would make the citation unresolvable.
