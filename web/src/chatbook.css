@@ -487,6 +487,12 @@
 .config-presets { display: flex; flex-wrap: wrap; gap: 8px; }
 .config-slider { max-width: 420px; }
 .config-slider input[type="range"] { height: auto; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.server-connection { display: grid; max-width: 620px; gap: 8px; }
+.server-connection > label { color: #9db0c1; font-size: calc(11px * var(--fs, 1)); font-weight: 650; }
+.server-connection-row { display: flex; gap: 8px; }
+.server-connection-row input { min-width: 0; flex: 1; padding: 9px 11px; border: 1px solid #2d4658; border-radius: 7px; color: #dce7f3; background: #0c141d; }
+.server-connection > p { margin: 0; color: #75889d; font-size: calc(10px * var(--fs, 1)); line-height: 1.5; }
+.server-connection.compact { padding-top: 4px; border-top: 1px solid #263544; }
 .config-preview {
   margin: 0; padding: 12px;
   border: 1px dashed #24374a; border-radius: 8px;

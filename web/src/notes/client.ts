@@ -22,6 +22,7 @@ import type {
   TagComment,
   TagDetail,
 } from './types'
+import { isTauriRuntime, serverRequest } from './serverEndpoint'
 
 const bearerKey = 'kaiba-note-bearer'
 export const notebookPageLimit = 200
@@ -62,7 +63,7 @@ export class NoteGraphQLClient {
     const response = await this.environment.request('/note/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, displayName: 'Kaiba Web' }),
+      body: JSON.stringify({ code, displayName: isTauriRuntime() ? 'Kaiba App' : 'Kaiba Web' }),
     })
     const value = await parseJSON<{ credential?: { bearerToken?: string }; error?: string }>(response)
     const bearer = value.credential?.bearerToken
@@ -722,7 +723,7 @@ function normalizeNotebook(notebook: Notebook): Notebook {
 // startup, so a per-tab credential would strand every new tab.
 function browserEnvironment(): NoteClientEnvironment {
   return {
-    request: (input, init) => fetch(input, init),
+    request: serverRequest,
     getStoredItem: (key) => localStorage.getItem(key),
     setStoredItem: (key, value) => localStorage.setItem(key, value),
     removeStoredItem: (key) => localStorage.removeItem(key),

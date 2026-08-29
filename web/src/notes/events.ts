@@ -1,4 +1,5 @@
 import type { NotebookId } from './ids'
+import { serverRequest } from './serverEndpoint'
 export interface NoteChangeEvent {
   kind: string
   notebookId?: NotebookId | null
@@ -28,14 +29,16 @@ const POLL_TIMEOUT_MS = 25_000
 const FAILURES_BEFORE_UNAVAILABLE = 5
 
 /**
- * Subscribes to the same-origin `/note/events` long-poll feed. The server holds
+ * Subscribes to the `/note/events` long-poll feed. Browser deployments use
+ * same-origin fetch; native apps resolve the path against their configured
+ * server. The server holds
  * each request open until the store's revision passes the one we last saw, so
  * updates arrive with push latency over a plain request/response transport.
  * Events only schedule refreshes on the caller's side; an unavailable feed
  * degrades to the caller's manual refresh behavior.
  */
 export function subscribeNoteEvents(options: NoteEventStreamOptions): () => void {
-  const fetchImpl = options.fetchImpl ?? fetch.bind(globalThis)
+  const fetchImpl = options.fetchImpl ?? serverRequest
   const baseDelay = options.reconnectDelayMs ?? 1000
   let closed = false
   let connected = false

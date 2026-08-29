@@ -9,6 +9,10 @@ Accepted (2026-08-23). Initial implementation.
 - The Cask release ships a real macOS app bundle, `Kaiba.app`, in addition to
   the `kaiba` CLI. Launching it makes kaiba a **resident menu-bar app**: it runs
   the note server in-process and stays up in the status bar until quit.
+  `design-docs/specs/tauri-client-apps.md` describes a second, undistributed
+  `Kaiba.app` -- the Tauri client build output (`com.tacogips.kaiba`, never
+  installed to `/Applications`) -- so any change to the Cask name or this
+  bundle's naming must be checked against that spec.
 - The app is an **accessory** app (`LSUIElement`): no Dock tile, no window, just
   an `NSStatusItem` whose menu shows server status and offers Open web UI,
   Start/Stop, Start-at-login, and Quit.

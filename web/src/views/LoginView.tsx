@@ -1,5 +1,6 @@
 import { Show, createSignal, type JSX } from 'solid-js'
 import { errorMessage, useApp } from '../state/appStore'
+import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
 
 // The unauthenticated surface. It replaces the reader shell outright: with no
 // credential the catalog is empty for a reason the reader cannot express, and
@@ -65,6 +66,8 @@ export function LoginView(): JSX.Element {
         <Show when={failure()}>
           <p class="login-failure" role="alert">{failure()}</p>
         </Show>
+
+        <ServerConnectionSettings compact />
 
         <details class="login-help">
           <summary>How do I get one?</summary>

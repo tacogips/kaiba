@@ -20,6 +20,8 @@ fi
 swift = "6.3.3"
 swiftlint = "latest"
 rust = "1.97.1"
+rust-analyzer = "latest"
+bun = "latest"
 gitleaks = "latest"
 github-cli = "latest"
 awscli = "latest"
@@ -93,6 +95,59 @@ rm -rf .build dist release
 description = "Run SwiftLint when available"
 run = '''
 swiftlint
+'''
+
+[tasks."web:check"]
+description = "Typecheck, test, lint, and build the shared web/native client"
+run = '''
+cd web
+bun run typecheck
+bun run test
+bun run lint
+bun run build
+'''
+
+[tasks."tauri:check"]
+description = "Check and lint the Tauri Rust shell"
+run = '''
+CARGO_TERM_QUIET=true cargo fmt --manifest-path web/src-tauri/Cargo.toml -- --check
+CARGO_TERM_QUIET=true cargo check --manifest-path web/src-tauri/Cargo.toml
+CARGO_TERM_QUIET=true cargo clippy --manifest-path web/src-tauri/Cargo.toml -- -D warnings
+'''
+
+[tasks."tauri:dev"]
+description = "Run the Kaiba macOS Tauri client in development mode"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:dev
+'''
+
+[tasks."tauri:build"]
+description = "Build the Kaiba macOS Tauri app"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:build
+'''
+
+[tasks."tauri:ios:init"]
+description = "Generate the Kaiba Tauri iOS Xcode project"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:ios:init
+'''
+
+[tasks."tauri:ios:dev"]
+description = "Run the Kaiba Tauri client on an iPhone device or simulator"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:ios:dev -- "$@"
+'''
+
+[tasks."tauri:ios:build"]
+description = "Build the Kaiba Tauri iPhone app"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:ios:build -- "$@"
 '''
 
 [tasks."build:homebrew"]

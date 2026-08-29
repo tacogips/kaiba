@@ -1,6 +1,7 @@
 import { For, type JSX } from 'solid-js'
 import { useApp } from '../state/appStore'
 import { clampFontScale, fontScaleBounds } from '../notes/settings'
+import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
 
 // The config screen. Settings live in the kaiba store's sqlite
 // (`app_settings`), so they follow the store across browsers and devices;
@@ -57,6 +58,11 @@ export function ConfigView(): JSX.Element {
         <p class="config-preview" aria-hidden="true">
           The quick brown fox jumps over the lazy dog. — 素早い茶色の狐が怠け者の犬を飛び越える。
         </p>
+      </section>
+
+      <section class="config-section">
+        <h2>Server connection</h2>
+        <ServerConnectionSettings />
       </section>
 
       <section class="config-section">

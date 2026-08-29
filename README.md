@@ -171,6 +171,36 @@ curl -X POST http://127.0.0.1:8787/graphql \
 kaiba graphql 'query Tags { tags { result { accepted } value { name } } }'
 ```
 
+## macOS and iPhone clients
+
+The same SolidJS client is packaged with Tauri 2 for macOS and iPhone. Start a
+Kaiba server first, then run or build the native client:
+
+```bash
+kaiba serve --web-root web/dist
+mise run tauri:dev
+mise run tauri:build
+
+# One-time generation, then iPhone development/build:
+mise run tauri:ios:init
+mise run tauri:ios:dev
+mise run tauri:ios:build
+```
+
+The macOS app defaults to `http://127.0.0.1:8787`. In the native app's Config
+screen, set the Kaiba server URL and reconnect. A physical iPhone must use an
+HTTPS or LAN address reachable from the phone; its loopback address does not
+refer to the Mac. Authentication uses the same API key or registration flow as
+the browser client.
+
+`mise run tauri:build` emits `Kaiba.app`, which is the same installed name the
+Homebrew Cask uses for the resident menu-bar app. The bundle identifiers differ
+-- the client is `com.tacogips.kaiba` and the Cask app is `dev.kaiba.Kaiba` --
+so neither overwrites the other's preferences or state, but the file names
+collide. The client bundle is build output only: do not copy it into
+`/Applications` under the current name. See
+`design-docs/specs/tauri-client-apps.md` for the unresolved naming decision.
+
 ## Development
 
 ```bash
@@ -187,7 +217,7 @@ The package uses Swift Package Manager with:
   `AppGraphQL` (note GraphQL executor), `AppServer` (local HTTP server)
 - Executable target: `AppCLI`
 - Installed executable: `kaiba`
-- Web viewer: `web/` (SolidJS + vite; `bun run build`)
+- Shared web/native client: `web/` (SolidJS + Vite + Tauri 2; `bun run build`)
 
 Document conversion is consumed exclusively through `anydoc-swift`'s
 `AnydocKit` product. macOS development and release builds use its published

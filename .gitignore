@@ -31,5 +31,8 @@ logs/
 # Web viewer build artifacts
 web/node_modules/
 web/dist/
+web/src-tauri/target/
+web/src-tauri/gen/apple/build/
+web/src-tauri/gen/schemas/
 
 mise.local.toml

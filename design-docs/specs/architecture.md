@@ -31,7 +31,9 @@ Homebrew. See `kaiba-note.md` for the note domain design.
 - `AppCoreTests` / `AppGraphQLTests`: vendored Riela Note domain and
   note GraphQL suites plus kaiba CLI round-trip tests.
 - `web/`: SolidJS note viewer (vite + tailwind; `bun run build` →
-  `web/dist`, served by `kaiba serve --web-root web/dist`).
+  `web/dist`, served by `kaiba serve --web-root web/dist`). The same assets are
+  packaged by `web/src-tauri/` as macOS and iPhone clients; native requests use
+  a configured server endpoint and Tauri's HTTP plugin.
 
 ## Identifiers
 
@@ -90,3 +92,9 @@ is the byte-for-byte output the store had before.
 
 - Homebrew formula archives under `dist/homebrew/`
 - Signed and notarized Cask DMGs under `dist/homebrew-cask/`
+- Tauri macOS client bundles under `web/src-tauri/target/release/bundle/`, and
+  Tauri iPhone builds from the Xcode project regenerated under
+  `web/src-tauri/gen/apple/`. These are build output only, not distributed: the
+  client currently builds as `Kaiba.app`, the same installed name the Cask DMG
+  uses for the resident menu-bar app in `macos-menu-bar-app.md`, so it must be
+  renamed before distribution. See `tauri-client-apps.md`.

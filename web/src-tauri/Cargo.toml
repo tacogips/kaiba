@@ -1,0 +1,20 @@
+[package]
+name = "kaiba-client"
+version = "0.1.9"
+description = "Native macOS and iPhone clients for Kaiba"
+edition = "2021"
+license = "MIT"
+homepage = "https://github.com/tacogips/kaiba"
+repository = "https://github.com/tacogips/kaiba"
+
+[lib]
+name = "kaiba_client_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+

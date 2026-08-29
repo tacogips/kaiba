@@ -2,7 +2,7 @@
 
 :root { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; color: #dce7f3; background: #070b11; font-synthesis: none; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 72% -20%, #153349 0, transparent 38rem), #070b11; }
+body { margin: 0; min-width: 320px; min-height: 100vh; padding-top: env(safe-area-inset-top); padding-right: env(safe-area-inset-right); padding-bottom: env(safe-area-inset-bottom); padding-left: env(safe-area-inset-left); background: radial-gradient(circle at 72% -20%, #153349 0, transparent 38rem), #070b11; }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 .skip-link { position: fixed; z-index: 20; top: 8px; left: 8px; transform: translateY(-150%); padding: 8px 12px; border-radius: 6px; color: #071018; background: #7de5e5; }
