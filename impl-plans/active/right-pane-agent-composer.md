@@ -823,6 +823,19 @@ that failing check requires. Nothing beyond the capability gate may change.
          `mode: 'edit'`. **RE-DERIVED 2026-08-30; this entry read "breaks
          NOTHING" for one round after it stopped being true.** See the pinning
          record that replaced the former DISCLOSURE below for the cause.
+      15. **Added 2026-08-30 after the enumeration was found INCOMPLETE.**
+         Revert the BUILDER ARGUMENT `noteEdit: effectiveNoteEdit` to its
+         pre-`b05ebcc` form `noteEdit: retry ? retry.noteEdit : noteEdit()` →
+         SURVIVED the entire gate when first measured, and now breaks "a mid-send
+         read-only lock cannot downgrade an already-admitted note edit" with
+         `expected { … } to match object { mode: 'edit' }`.
+         **This is the enumeration's own blind spot, and it is worth stating
+         plainly:** mutations 1-14 walk `send()`'s DEFINITION lines, and the
+         capture has two halves — a definition and a USE. `extensionsAvailable`
+         had its use pinned by the mid-send catalog-flip test; `noteEdit` did
+         not, so half of the round's headline fix was unpinned while the plan
+         asserted the opposite. An enumeration over definitions is not an
+         enumeration over call sites. Rule 4 applies to mutation lists too.
       13. Restore the note-edit toggle's bare `!props.catalogAvailable` (drop the
          `&& !props.noteEdit` escape) → breaks "a latched note-edit toggle can
          still be released while the catalog is unavailable".
@@ -836,13 +849,23 @@ that failing check requires. Nothing beyond the capability gate may change.
       retry-specific wording; collapsing it to the single message left the suite
       green, so the untested branch was removed instead of shipped. One message
       now serves both paths.
-      NO sub-expression remains unpinned. **This paragraph said "EXACTLY ONE
-      remains unpinned, and it carries its own DISCLOSURE: the RETRY ARM of
-      `effectiveNoteEdit` (mutation 12)" until 2026-08-30, when mutation 12 was
-      re-executed against HEAD and came back CAUGHT** — it breaks "retrying a
-      failed note-edit turn never silently downgrades it to a memo" at the
-      assertion on the retried request's `mode`. The retry arm is pinned, so the
-      DISCLOSURE it carried is withdrawn, not reworded.
+      NO sub-expression remains unpinned — **true only since 2026-08-30, and it
+      was asserted for one round while FALSE.** Two separate corrections stand
+      behind this sentence and both are named, because the second was found by
+      measurement after the first had already "closed" it:
+      (i) It said "EXACTLY ONE remains unpinned … the RETRY ARM of
+      `effectiveNoteEdit` (mutation 12)" until mutation 12 was re-executed
+      against HEAD and came back CAUGHT — it breaks "retrying a failed note-edit
+      turn never silently downgrades it to a memo" at the assertion on the
+      retried request's `mode`. That DISCLOSURE is withdrawn, not reworded.
+      (ii) The rewritten sentence was then ITSELF false, because the enumeration
+      it summarizes stops at `send()`'s definition lines and never reached the
+      BUILDER ARGUMENT `b05ebcc` introduced. Reverting `noteEdit:
+      effectiveNoteEdit` to `noteEdit: retry ? retry.noteEdit : noteEdit()` left
+      the entire gate green — half the round's headline capture was unpinned
+      under a sentence claiming none was. Closed by measurement, not by wording:
+      mutation 15 and the new test "a mid-send read-only lock cannot downgrade an
+      already-admitted note edit" kill it.
       **The cause, recorded so this does not rot a third time.** `b05ebcc` is
       what pinned it, and pinned it as a side effect nobody re-derived: that
       commit changed the builder from re-reading `retry ? retry.noteEdit :
@@ -1593,11 +1616,17 @@ Manual smoke with `kaiba serve --web-root web/dist`:
   **CORRECTED AGAIN 2026-08-30, and this entry was itself the fourth stale
   copy.** Until then it read "the ONLY unpinned sub-expression is the RETRY ARM
   of `effectiveNoteEdit` (mutation 12)". Mutation 12 was re-executed against
-  HEAD on 2026-08-30 and is CAUGHT, so that arm is PINNED and NO unpinned
-  sub-expression remains. The current state of both cases: the retry arm is
-  pinned by "retrying a failed note-edit turn never silently downgrades it to a
-  memo"; the sibling `setAttachments([])`, once unpinned, is covered by the
-  mutation-verified deferred-rejection test.
+  HEAD on 2026-08-30 and is CAUGHT, so that arm is PINNED.
+  **CORRECTED A THIRD TIME the same day — this entry is the FIFTH stale copy of
+  a pinning claim, and the second time this particular entry went stale.** It
+  then read "and NO unpinned sub-expression remains", which was false: the
+  builder argument `noteEdit: effectiveNoteEdit` was unpinned, because the
+  14-mutation enumeration walks definitions and never reached that call site.
+  The current state of all three cases, each by the test that pins it: the retry
+  arm by "retrying a failed note-edit turn never silently downgrades it to a
+  memo"; the builder's use of the captured `noteEdit` by "a mid-send read-only
+  lock cannot downgrade an already-admitted note edit" (mutation 15); and the
+  sibling `setAttachments([])` by the mutation-verified deferred-rejection test.
   **The generalized mitigation:** a superseded claim must be REWRITTEN where it
   lives, not merely contradicted by a newer entry elsewhere. FOUR copies of this
   plan's disclosures have now gone stale independently — TASK-011b's criterion,
@@ -1629,8 +1658,14 @@ awk -v n="$PL" 'NR<n' impl-plans/active/right-pane-agent-composer.md \
   **So the standard, stated once for every sweep this plan prints:** a sweep is
   verified by executing the DOCUMENTED TEXT VERBATIM and recording its hit
   count — never by executing an equivalent and documenting a variant. Executed
-  verbatim on 2026-08-30, the block above returns 12 hits, and every one was
-  read.
+  verbatim on 2026-08-30, the block above returned a hit for every live mention
+  of a pinning claim, and every one was read.
+  **The hit COUNT is deliberately not written here, and that is the second
+  lesson of the same day.** A figure stood in this sentence and went stale
+  within hours: correcting the register entry added two matching lines, so the
+  recorded number was wrong by the next edit — the drift a reviewer had already
+  predicted as a low risk. Refreshing it would only reset the clock, exactly as
+  rule 1 says of suite counts. Run the block; read what it returns.
 
 ## Progress Log Expectations
 
@@ -3157,4 +3192,69 @@ VERIFICATION: `mise run web:check` green — `tsc --noEmit`; `bun test src`
 
 Unchanged: TASK-008's three browser-runtime criteria are environment-blocked,
 they are the single unmet deliverable, and the plan stays in
+`impl-plans/active/`.
+
+### 2026-08-30 — Half the headline fix was unpinned, and the sentence saying otherwise was the fifth stale copy
+
+The test-integrity step mutated a line the plan's 14-mutation enumeration never
+covered, and the whole gate stayed green. Reproduced before changing anything:
+
+```
+perl -0pi -e 's/        noteEdit: effectiveNoteEdit,\n/        noteEdit: retry ? retry.noteEdit : noteEdit(),\n/' web/src/components/MemoTab.tsx
+mise run web:check   →  GREEN. Mutation SURVIVED.
+```
+
+**What that means.** The capture at the top of `send()` holds TWO values.
+`extensionsAvailable`'s USE in the builder was pinned by the mid-send
+catalog-flip test. `noteEdit`'s USE was not. Half of this round's headline fix
+could be reverted silently, under a plan sentence asserting NO sub-expression
+remained unpinned.
+
+**The enumeration's blind spot, stated so it does not recur.** Mutations 1-14
+walk `send()`'s DEFINITION lines. A capture has a definition AND a use, and the
+use is where the masquerade actually happens — the builder is what puts `mode`
+on the wire. **An enumeration over definitions is not an enumeration over call
+sites.** That is rule 4's enumeration corollary applied to mutation lists, and it
+is why this survived five self-review attempts: every one of them checked that
+the enumeration's entries were accurate, and none checked that the enumeration
+was complete.
+
+**Closed by a test, not by a disclosure.** The hazard is reachable, and the
+production comment at the builder already named it: the read-only effect clears
+`noteEdit()` when a note stops being editable, and it is not gated on `busy()`,
+so it can fire inside the send's await window. New test — "a mid-send read-only
+lock cannot downgrade an already-admitted note edit" — latches note edit, parks
+the send on a gated attachment read, locks the notebook so the effect clears the
+toggle (asserted via `aria-pressed` going false), releases, and requires the
+released request to still carry `mode: 'edit'`.
+
+Recorded FAILING FIRST against the mutation, by identity:
+`FAIL … a mid-send read-only lock cannot downgrade an already-admitted note edit`
+— `AssertionError: expected { … } to match object { mode: 'edit' }`. That is the
+masquerade itself, not a proxy for it. Restored, the test passes.
+
+**One test-harness change, disclosed because it is not cosmetic.** `testStore`'s
+`notebook()` returned a frozen literal, so `noteEditAvailable` could never
+recompute and the read-only effect was unreachable from any test. It now reads a
+signal, with a `bindLockNotebook` option symmetric with the existing
+`bindBumpCatalog`. No existing test's behavior changes — `readOnly` still starts
+`false` — and this is an ADDITION to reachability, not a relaxation: it makes a
+previously untestable production path testable.
+
+**FIFTH stale copy of a pinning claim, and the second time the risk-register
+entry went stale.** Both live copies are corrected in place: the TASK-011b
+paragraph now names both corrections (the withdrawn DISCLOSURE, and the sentence
+that replaced it being itself false), and the register entry now lists all three
+pinned cases each by the test that pins it. The pattern is now five for five:
+every time this plan has asserted coverage wider than its checks, measurement
+found it.
+
+VERIFICATION: `mise run web:check` GREEN after the fix — `tsc --noEmit`;
+`bun test src` 155 pass / 0 fail across 21 files; `vitest run` 30 passed across 5
+files (was 29; the new test is the +1); `eslint .`; `vite build` 57 modules.
+Mutation 15 re-run against the restored tree: KILLED. `git diff` on
+`web/src/components/MemoTab.tsx` empty — no production line changed this round.
+
+Unchanged: TASK-008's three browser-runtime criteria are environment-blocked,
+they remain the single unmet deliverable, and the plan stays in
 `impl-plans/active/`.

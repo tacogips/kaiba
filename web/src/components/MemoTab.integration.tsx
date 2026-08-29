@@ -97,11 +97,17 @@ function testStore(
      * increments only after a catalog reload SUCCEEDS — i.e. the server is
      * reachable again. */
     bindBumpCatalog?: (bump: () => void) => void
+    /** Hands the caller a way to lock the notebook mid-test. `notebook()` reads
+     * a signal so `noteEditAvailable` recomputes and the read-only effect fires,
+     * which is the only reachable way to clear `noteEdit()` during a send. */
+    bindLockNotebook?: (lock: () => void) => void
   } = {},
 ): AppStore {
   let transportFailures = 0
   let agentModelsCalls = 0
   const [catalogRevision, setCatalogRevision] = createSignal(0)
+  const [notebookReadOnly, setNotebookReadOnly] = createSignal(false)
+  options.bindLockNotebook?.(() => setNotebookReadOnly(true))
   options.bindBumpCatalog?.(() => setCatalogRevision((revision) => revision + 1))
   let newConversationCreated = false
   const state = {
@@ -187,7 +193,7 @@ function testStore(
     state,
     client,
     notes: () => [subject],
-    notebook: () => ({ notebookId: subject.notebookId, title: 'Notebook', readOnly: false }),
+    notebook: () => ({ notebookId: subject.notebookId, title: 'Notebook', readOnly: notebookReadOnly() }),
     updateSettings: (partial: Partial<WebAppSettings>) => Object.assign(state.settings, partial),
   } as unknown as AppStore
 }
@@ -792,6 +798,77 @@ describe('MemoTab integration', () => {
       // is what goes out. Neither field may be silently dropped.
       expect(requests[0]).toMatchObject({ mode: 'edit', model: 'configured' })
       expect(requests[0]?.attachments).toHaveLength(1)
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
+  // Step 6 test-integrity MID. The capture at the top of `send()` holds TWO
+  // values, and only `extensionsAvailable` was pinned: reverting the builder
+  // argument to `retry ? retry.noteEdit : noteEdit()` left the whole gate green.
+  // The hazard is the one the production comment names — the read-only effect
+  // clears `noteEdit()` when the note stops being editable, and it is not gated
+  // on `busy()`, so it can fire INSIDE the send's await window and strip `mode`
+  // from a request the guard admitted as an edit. Same masquerade as the catalog
+  // flip, reached through a different signal.
+  test('a mid-send read-only lock cannot downgrade an already-admitted note edit', async () => {
+    let releaseFirst!: () => void
+    let releaseAttachmentRead!: () => void
+    const first = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const attachmentRead = new Promise<void>((resolve) => { releaseAttachmentRead = resolve })
+    let lockNotebook!: () => void
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(
+      () => <MemoTab app={testStore(requests, [], {
+        agentModelsGates: [{ wait: first, outcome: 'ok' }],
+        bindLockNotebook: (lock) => { lockNotebook = lock },
+      })} />, host,
+    )
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+      releaseFirst()
+      const model = () => host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
+      await waitFor(() => expect(model().disabled).toBe(false))
+
+      const noteEdit = host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!
+      noteEdit.click()
+      await waitFor(() => expect(noteEdit.getAttribute('aria-pressed')).toBe('true'))
+
+      // The staged file is only a way to park the send between the guard and the
+      // builder; the assertion is about `mode`, not about attachments.
+      const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!
+      const staged = new File(['context'], 'context.txt', { type: 'text/plain' })
+      Object.defineProperty(picker, 'files', { configurable: true, value: [staged] })
+      picker.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitFor(() => expect(host.textContent).toContain('context.txt'))
+      Object.defineProperty(staged, 'arrayBuffer', {
+        configurable: true,
+        value: async () => {
+          await attachmentRead
+          return new TextEncoder().encode('context').buffer
+        },
+      })
+
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Apply what we discussed to the note'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await settle()
+      expect(requests).toHaveLength(0)
+
+      // The note stops being editable WHILE the send is parked. The effect
+      // clears the toggle — visible in `aria-pressed` — but the request was
+      // already admitted as an edit.
+      lockNotebook()
+      await waitFor(() => expect(noteEdit.getAttribute('aria-pressed')).toBe('false'))
+      expect(requests).toHaveLength(0)
+
+      releaseAttachmentRead()
+      await waitFor(() => expect(requests).toHaveLength(1))
+      expect(requests[0]).toMatchObject({ mode: 'edit' })
     } finally {
       dispose()
       host.remove()
