@@ -190,8 +190,16 @@ mise run tauri:ios:build
 The macOS app defaults to `http://127.0.0.1:8787`. In the native app's Config
 screen, set the Kaiba server URL and reconnect. A physical iPhone must use an
 HTTPS or LAN address reachable from the phone; its loopback address does not
-refer to the Mac. Authentication uses the same API key or registration flow as
-the browser client.
+refer to the Mac. That Server connection form is native-only: the browser
+client always talks to the origin that served it, so its Config screen shows no
+such card.
+
+Authentication uses the same API key or registration flow as the browser
+client, and the credential is stored per server origin. Pointing the native
+client at a different server therefore starts unauthenticated rather than
+carrying the previous server's bearer to a new host, and correcting a mistyped
+URL reads the earlier session back. A native request whose target does not
+resolve to the configured server origin is refused before it is sent.
 
 `mise run tauri:build` emits `Kaiba.app`, which is the same installed name the
 Homebrew Cask uses for the resident menu-bar app. The bundle identifiers differ
@@ -209,6 +217,14 @@ mise run build
 mise run test
 swift run kaiba --help
 ```
+
+`mise run check` runs every verification gate: Swift tests, SwiftLint,
+`web:check` (typecheck, test, lint, and build of the shared web/native client)
+and `tauri:check` (`cargo fmt --check`, `check`, and `clippy` on the Tauri Rust
+shell). `web:check` is a thin wrapper around `bun run check` in `web/`, the same
+script the "Web client check" GitHub Actions workflow runs, so the local gate
+and CI cannot drift. `tauri:check` needs a macOS toolchain and runs locally
+only.
 
 The package uses Swift Package Manager with:
 
