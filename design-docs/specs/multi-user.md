@@ -491,6 +491,11 @@ predicates before pagination, aggregation, or memo selection. AppCore and
 GraphQL regressions cover unauthenticated and revoked-member refusal for
 protected comments and counts.
 
+This surface is security-bearing and is the yardstick for adversarial review:
+ownership boundaries, principal-bound token issuance and validation, and stream
+authorization. Review and acceptance state is tracked in `progress.json`, not
+here.
+
 ## Verification
 
 - `swift test`: default user exists on a fresh store, is unique, and survives

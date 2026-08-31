@@ -172,23 +172,131 @@ private func processGroupMembers(processGroupIdentifier: pid_t) -> [ProcessGroup
 }
 
 #if os(Linux)
+/// The three outcomes the Linux enumeration contract distinguishes for one
+/// `/proc/<pid>/stat` read. `vanished` is a deliberate skip, not a failure.
+private enum LinuxProcessStatReadOutcome {
+  case contents([UInt8])
+  case vanished
+  case failure
+}
+
+/// Reads `/proc/<pid>/stat` through raw syscalls so the discrimination is made
+/// from the errno of the failing call, at the instant it fails.
+///
+/// Exactly two errnos mean the PID vanished, and both are honored at **both**
+/// syscall sites. `ENOENT` means the `/proc/<pid>` directory is already gone.
+/// `ESRCH` means the directory still exists but procfs could not resolve it to
+/// a task: the kernel's `get_proc_task`/`get_pid_task` lookup found nothing, so
+/// the process is gone and cannot possibly be a live descendant. Either one
+/// skips the entry, and the enumeration stays complete without it. Every other
+/// errno is a real inspection failure on a process that still exists and must
+/// be reported as an incomplete enumeration (`unavailable`). `EINTR` is retried
+/// at both the open and the read rather than classified.
+///
+/// `ESRCH` matters in practice, not only in principle. It is the errno a task
+/// reaped between a successful open and the read produces, and that window is
+/// not the negligible microsecond race an earlier revision of this code assumed:
+/// measured under heavy PID churn on Linux, treating `ESRCH` as a failure made
+/// `unavailable` the outcome of 1.56% of enumerations. Honoring it at the read
+/// site alone still leaves the open site producing `ESRCH`, so both are covered
+/// or neither is. The skip is deliberately not widened past these two errnos.
+///
+/// Discrimination is deliberately not made by re-testing the path for
+/// existence after a failed read. A re-check is a second observation at a later
+/// instant, and a process that exits between a genuine read failure and that
+/// re-check would be reclassified as vanished, which is the fail-open
+/// direction. `ENOENT` and `ESRCH` are not that: each is read in band, from the
+/// syscall that failed, at the instant it failed. Foundation's convenience read
+/// is likewise unusable here: it discards the error outright, and inspecting an
+/// `NSError` domain or code afterwards reports Foundation's own classification
+/// through a mapping that is not guaranteed to preserve the distinction this
+/// contract turns on.
+private func linuxProcessStatContents(path: String) -> LinuxProcessStatReadOutcome {
+  // `errno` is captured inside the same scope as the call that set it, so no
+  // intervening work (buffer deallocation, ARC traffic) can clobber the value
+  // the classification turns on.
+  var descriptor: Int32 = -1
+  var openError: Int32 = 0
+  repeat {
+    (descriptor, openError) = path.withCString { path -> (Int32, Int32) in
+      let result = open(path, O_RDONLY | O_CLOEXEC)
+      return (result, result == -1 ? errno : 0)
+    }
+  } while descriptor == -1 && openError == EINTR
+  guard descriptor >= 0 else {
+    // Both errnos prove the task is gone, so neither can hide a live
+    // descendant. A zombie keeps its `/proc/<pid>` entry until it is reaped,
+    // so the skip cannot hide a zombie either.
+    return openError == ENOENT || openError == ESRCH ? .vanished : .failure
+  }
+  defer { close(descriptor) }
+  var bytes: [UInt8] = []
+  var buffer = [UInt8](repeating: 0, count: 4096)
+  while true {
+    let (readCount, readError) = buffer.withUnsafeMutableBytes { buffer -> (Int, Int32) in
+      let result = read(descriptor, buffer.baseAddress, buffer.count)
+      return (result, result == -1 ? errno : 0)
+    }
+    if readCount > 0 {
+      bytes.append(contentsOf: buffer[0 ..< readCount])
+      continue
+    }
+    if readCount == 0 { break }
+    if readError == EINTR { continue }
+    // The task was reaped between the open and this read. Any bytes gathered so
+    // far describe a process that no longer exists, so they are discarded with
+    // the entry rather than parsed.
+    if readError == ESRCH { return .vanished }
+    return .failure
+  }
+  return .contents(bytes)
+}
+
+/// Splits the fields that follow the `comm` field of a `/proc/<pid>/stat` line.
+///
+/// Only the tail after the last `)` is decoded. `comm` is the one part of the
+/// line that carries arbitrary process-supplied bytes, and decoding it would
+/// force a choice between a lossy replacement decode and reporting every
+/// process with a non-UTF-8 name as an enumeration failure. The tail the
+/// contract actually reads is kernel-generated ASCII, so an undecodable tail is
+/// a genuine cause-2 inspection failure rather than a routine occurrence.
+private func linuxProcessStatFieldsAfterCommand(_ bytes: [UInt8]) -> [Substring]? {
+  guard let closingParenthesis = bytes.lastIndex(of: UInt8(ascii: ")")) else { return nil }
+  let tail = Array(bytes[bytes.index(after: closingParenthesis)...])
+  guard let fields = String(bytes: tail, encoding: .utf8) else { return nil }
+  return fields.split(separator: " ")
+}
+
 private func linuxProcessGroupMembers(processGroupIdentifier: pid_t) -> [ProcessGroupMember]? {
+  // Cause 1: nothing was enumerated, so nothing may be concluded.
   guard let entries = try? FileManager.default.contentsOfDirectory(atPath: "/proc") else { return nil }
   var members: [ProcessGroupMember] = []
   for entry in entries {
     guard let processIdentifier = pid_t(entry) else { continue }
-    guard let stat = try? String(contentsOfFile: "/proc/\(entry)/stat", encoding: .utf8),
-      let closingParenthesis = stat.lastIndex(of: ")")
-    else {
+    let stat: [UInt8]
+    switch linuxProcessStatContents(path: "/proc/\(entry)/stat") {
+    case .contents(let contents):
+      stat = contents
+    case .vanished:
+      continue
+    case .failure:
       return nil
     }
-    let fields = stat[stat.index(after: closingParenthesis)...].split(separator: " ")
-    guard fields.count >= 3,
-      pid_t(fields[2]) == processGroupIdentifier
-    else {
-      continue
-    }
-    members.append(ProcessGroupMember(processIdentifier: processIdentifier, isZombie: fields[0] == "Z"))
+    // Cause 2: the stat file existed and was read, but yields no parseable line.
+    guard let fields = linuxProcessStatFieldsAfterCommand(stat) else { return nil }
+    guard fields.count >= 3 else { return nil }
+    // Structural state invariant, not an allowlist: the token must be present
+    // and exactly one character. An enumerated set of known process states
+    // would fail in the dangerous direction, because an unlisted-but-valid
+    // state would make `unavailable` the normal Linux result.
+    let state = fields[0]
+    guard state.count == 1 else { return nil }
+    // The former compound guard sent two opposite-safety outcomes to one
+    // `continue`. An unparseable pgid is cause 2 and fails closed; a pgid that
+    // parses and simply names another group is an ordinary non-member skip.
+    guard let memberProcessGroupIdentifier = pid_t(fields[2]) else { return nil }
+    guard memberProcessGroupIdentifier == processGroupIdentifier else { continue }
+    members.append(ProcessGroupMember(processIdentifier: processIdentifier, isZombie: state == "Z"))
   }
   return members
 }
@@ -275,6 +383,7 @@ final class ProcessTerminator: @unchecked Sendable {
   private let terminationGraceNanoseconds: UInt64
   private let processGroupPollIntervalWaiter: (@Sendable () async -> Void)?
   private let signalObserver: (@Sendable (pid_t, Int32) -> Void)?
+  private let scheduledDescendantStatusObserver: (@Sendable (ProcessGroupDescendantStatus) -> Void)?
   private var terminationRequested = false
   private var forceKillRequested = false
   private var deadlineExceeded = false
@@ -283,7 +392,8 @@ final class ProcessTerminator: @unchecked Sendable {
        processGroupWitness: ProcessGroupWitness,
        terminationGraceNanoseconds: UInt64,
        processGroupPollIntervalWaiter: (@Sendable () async -> Void)?,
-       signalObserver: (@Sendable (pid_t, Int32) -> Void)?) {
+       signalObserver: (@Sendable (pid_t, Int32) -> Void)?,
+       scheduledDescendantStatusObserver: (@Sendable (ProcessGroupDescendantStatus) -> Void)? = nil) {
     self.input = input
     self.output = output
     self.error = error
@@ -291,6 +401,7 @@ final class ProcessTerminator: @unchecked Sendable {
     self.terminationGraceNanoseconds = terminationGraceNanoseconds
     self.processGroupPollIntervalWaiter = processGroupPollIntervalWaiter
     self.signalObserver = signalObserver
+    self.scheduledDescendantStatusObserver = scheduledDescendantStatusObserver
   }
 
   var didExceedDeadline: Bool {
@@ -363,7 +474,14 @@ final class ProcessTerminator: @unchecked Sendable {
     DispatchQueue.global(qos: .utility).asyncAfter(
       deadline: .now() + .nanoseconds(Int(clamping: terminationGraceNanoseconds))
     ) {
-      switch self.processGroupWitness.descendantStatus() {
+      // Observation seam, not an injection seam: the real inspector still runs
+      // and still decides, and the observer only reports what it decided. The
+      // scheduled probe is otherwise the one state evaluation in this contract
+      // whose outcome leaves no trace, so `none` and `zombies` are
+      // indistinguishable from outside without this report.
+      let status = self.processGroupWitness.descendantStatus()
+      self.scheduledDescendantStatusObserver?(status)
+      switch status {
       case .live, .unavailable:
         self.forceKillRemainingProcessGroup()
       case .none, .zombies:

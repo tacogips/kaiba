@@ -290,6 +290,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     processGroupPollIntervalWaiter: (@Sendable () async -> Void)? = nil,
     processGroupDescendantStatusInspector: (@Sendable (pid_t) -> ProcessGroupDescendantStatus)? = nil,
     signalObserver: (@Sendable (pid_t, Int32) -> Void)? = nil,
+    scheduledDescendantStatusObserver: (@Sendable (ProcessGroupDescendantStatus) -> Void)? = nil,
     leaderWaitpidReturnedObserver: (@Sendable () -> Void)? = nil,
     leaderReapedObserver: (@Sendable () -> Void)? = nil
   ) async throws -> Execution {
@@ -324,7 +325,8 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
       processGroupWitness: spawned.processGroupWitness,
       terminationGraceNanoseconds: terminationGraceNanoseconds,
       processGroupPollIntervalWaiter: processGroupPollIntervalWaiter,
-      signalObserver: signalObserver
+      signalObserver: signalObserver,
+      scheduledDescendantStatusObserver: scheduledDescendantStatusObserver
     )
     let stopProcess: @Sendable () -> Void = { terminator.terminateForOutputLimit() }
     let stdoutCollector = PipeCollector(
