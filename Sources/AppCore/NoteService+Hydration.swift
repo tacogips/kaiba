@@ -10,7 +10,7 @@ func isSQLiteUniqueConstraintViolation(_ error: SQLiteError) -> Bool {
 func loadNotebook(_ notebookId: NotebookID, in database: SQLiteDatabase) throws -> Notebook {
   let rows = try database.query(
     """
-    SELECT notebook_id, title, read_only, created_at, updated_at, library_id,
+    SELECT notebook_id, title, read_only, created_at, updated_at, library_id, owner_user_id, created_by, updated_by,
       CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
     FROM notebooks
     WHERE notebook_id = ?
@@ -30,7 +30,7 @@ func loadNote(_ noteId: NoteID, in database: SQLiteDatabase) throws -> Note {
   let rows = try database.query(
     """
     SELECT note_id, notebook_id, note_number, title, body_markdown, read_only,
-      created_at, updated_at,
+      created_at, updated_at, created_by, updated_by,
       CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
     FROM notes
     WHERE note_id = ?
@@ -71,7 +71,7 @@ func requireNotes(_ noteIds: [NoteID], in database: SQLiteDatabase) throws -> [N
   let rows = try database.query(
     """
     SELECT note_id, notebook_id, note_number, title, body_markdown, read_only,
-      created_at, updated_at,
+      created_at, updated_at, created_by, updated_by,
       CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
     FROM notes
     WHERE note_id IN (\(placeholders(count: orderedNoteIds.count)))
@@ -183,7 +183,10 @@ func notebook(from row: SQLiteRow, in database: SQLiteDatabase) throws -> Notebo
     updatedAt: updatedAt,
     metaJSON: row["meta_json"] ?? nil,
     tags: try notebookTags(notebookId: notebookId, in: database),
-    libraryId: row.identifier("library_id", as: LibraryID.self) ?? nil
+    libraryId: row.identifier("library_id", as: LibraryID.self) ?? nil,
+    ownerUserId: row.identifier("owner_user_id", as: UserID.self) ?? nil,
+    createdBy: row.identifier("created_by", as: UserID.self) ?? nil,
+    updatedBy: row.identifier("updated_by", as: UserID.self) ?? nil
   )
 }
 
@@ -225,7 +228,9 @@ private func note(from row: SQLiteRow, tags: [TagAssignment]) throws -> Note {
     createdAt: createdAt,
     updatedAt: updatedAt,
     metaJSON: row["meta_json"] ?? nil,
-    tags: tags
+    tags: tags,
+    createdBy: row.identifier("created_by", as: UserID.self) ?? nil,
+    updatedBy: row.identifier("updated_by", as: UserID.self) ?? nil
   )
 }
 

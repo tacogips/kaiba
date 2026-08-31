@@ -4,7 +4,7 @@ import { render } from 'solid-js/web'
 import { describe, expect, test } from 'vitest'
 import { NoteTransportError, type NoteGraphQLClient } from '../notes/client'
 import type { WebAppSettings } from '../notes/settings'
-import type { AgentChatAttachmentInput, AgentChatMessageResult, Note } from '../notes/types'
+import type { AgentChatAttachmentInput, AgentChatMessageResult, AgentReplyStreamPoll, Note } from '../notes/types'
 import type { AppStore } from '../state/appStore'
 import { MemoTab } from './MemoTab'
 import type { NotebookId } from '../notes/ids'
@@ -24,6 +24,13 @@ const newTurn: Note = {
   bodyMarkdown: '## User\nAsk in a new chat\n## Agent\nNew answer', readOnly: false,
   createdAt: '2026-08-13T00:02:00Z', updatedAt: '2026-08-13T00:02:00Z',
   metaJSON: JSON.stringify({ kaibaChat: { status: 'answered', userMarkdown: 'Ask in a new chat' } }),
+}
+
+const pendingStreamTurn: Note = {
+  noteId: asNoteId('turn-streaming'), notebookId: asNotebookId('conversation-new'), noteNumber: 1,
+  title: 'Streaming question', bodyMarkdown: '## User\nStreaming question', readOnly: false,
+  createdAt: '2026-08-13T00:02:00Z', updatedAt: '2026-08-13T00:02:00Z',
+  metaJSON: JSON.stringify({ kaibaChat: { status: 'pending', userMarkdown: 'Streaming question' } }),
 }
 
 // A persisted turn that failed while in note-edit mode. Retrying it must
@@ -101,6 +108,8 @@ function testStore(
      * a signal so `noteEditAvailable` recomputes and the read-only effect fires,
      * which is the only reachable way to clear `noteEdit()` during a send. */
     bindLockNotebook?: (lock: () => void) => void
+    /** Drives a pending turn through the reply-stream route. */
+    streamPoll?: (call: number) => Promise<AgentReplyStreamPoll>
   } = {},
 ): AppStore {
   let transportFailures = 0
@@ -110,6 +119,7 @@ function testStore(
   options.bindLockNotebook?.(() => setNotebookReadOnly(true))
   options.bindBumpCatalog?.(() => setCatalogRevision((revision) => revision + 1))
   let newConversationCreated = false
+  let streamPollCalls = 0
   const state = {
     noteId: subject.noteId,
     notebookId: subject.notebookId,
@@ -178,14 +188,21 @@ function testStore(
       }] : []),
     ],
     notes: async (notebookId: NotebookId) => {
-      if (notebookId === 'conversation-new') return [newTurn]
+      if (notebookId === 'conversation-new') return options.streamPoll ? [pendingStreamTurn] : [newTurn]
       if (options.failedMemoTurn) return [failedMemoTurn]
       return options.failedEditTurn ? [failedEditTurn] : [earlierTurn]
     },
     sendAgentChatMessage: async (request: Record<string, unknown>): Promise<AgentChatMessageResult> => {
       requests.push(request)
       newConversationCreated = true
-      return { conversationNotebookId: asNotebookId('conversation-new'), turnNoteId: null, agentStatus: 'answered' }
+      return options.streamPoll
+        ? { conversationNotebookId: asNotebookId('conversation-new'), turnNoteId: pendingStreamTurn.noteId, agentStatus: 'pending' }
+        : { conversationNotebookId: asNotebookId('conversation-new'), turnNoteId: null, agentStatus: 'answered' }
+    },
+    pollAgentReplyStream: async () => {
+      if (!options.streamPoll) throw new Error('agent reply stream was not configured')
+      streamPollCalls += 1
+      return options.streamPoll(streamPollCalls)
     },
     addNoteComment: async (_noteId: string, body: string) => { memoWrites.push(body) },
   } as unknown as NoteGraphQLClient
@@ -1282,6 +1299,56 @@ describe('MemoTab integration', () => {
       expect(laterChip()!.disabled).toBe(false)
       laterChip()!.click()
       await waitFor(() => expect(laterChip()).toBeNull())
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
+  test('stream payload resync clears an incomplete partial reply until durable completion', async () => {
+    let releaseSecondPoll!: () => void
+    const secondPoll = new Promise<void>((resolve) => { releaseSecondPoll = resolve })
+    let markSecondPollStarted!: () => void
+    const secondPollStarted = new Promise<void>((resolve) => { markSecondPollStarted = resolve })
+    let markThirdPollStarted!: () => void
+    const thirdPollStarted = new Promise<void>((resolve) => { markThirdPollStarted = resolve })
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => <MemoTab app={testStore(requests, [], {
+      streamPoll: async (call) => {
+        if (call === 1) {
+          return {
+            cursor: 1, chunks: ['prefix-fragment'], done: false,
+            status: null, message: null, resync: false,
+          }
+        }
+        if (call === 2) {
+          markSecondPollStarted()
+          await secondPoll
+          return {
+            cursor: 2, chunks: ['suffix-fragment'], done: false,
+            status: null, message: null, resync: true,
+          }
+        }
+        markThirdPollStarted()
+        return await new Promise<AgentReplyStreamPoll>(() => {})
+      },
+    })} />, host)
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Streaming question'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+
+      await waitFor(() => expect(host.textContent).toContain('prefix-fragment'))
+      await secondPollStarted
+      releaseSecondPoll()
+      await thirdPollStarted
+      expect(host.textContent).not.toContain('prefix-fragment')
+      expect(host.textContent).not.toContain('suffix-fragment')
+      expect(host.textContent).toContain('Waiting for the agent')
     } finally {
       dispose()
       host.remove()

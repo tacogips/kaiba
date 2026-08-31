@@ -14,6 +14,7 @@ public extension NoteService {
   ) throws -> Note {
     let note = try driver.withDatabase { database in
       try database.transaction { db in
+        try requireEnabledActingUser(in: db)
         _ = try requireNote(noteId, in: db)
         let previous = try ftsPayload(noteId: noteId, in: db)
         var tagDeltas: [JSONValue] = []
@@ -65,9 +66,11 @@ public extension NoteService {
   func removeTag(noteId: NoteID, tagName: String, removedBy provenance: NoteProvenance) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db -> (note: Note, removed: Bool) in
+        try requireEnabledActingUser(in: db)
+        let note = try requireNote(noteId, in: db)
         let existing = try tagAssignment(noteId: noteId, tagName: tagName, in: db)
         guard let existing else {
-          return (try requireNote(noteId, in: db), false)
+          return (note, false)
         }
         guard existing.deletable else {
           throw NoteServiceError.protectedTag(tagName)

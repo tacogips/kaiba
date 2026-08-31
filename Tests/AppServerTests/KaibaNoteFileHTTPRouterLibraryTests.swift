@@ -74,6 +74,33 @@ final class KaibaNoteFileHTTPRouterLibraryTests: XCTestCase {
     XCTAssertEqual(response.body, pngBytes)
   }
 
+  func testUnauthenticatedReaderCannotFetchAnotherOwnersOpenLibraryFile() async throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let aliceService = service.scoped(to: alice.userId)
+    let note = try aliceService.createNote(bodyMarkdown: "# Alice\nBody.")
+    let attachment = try aliceService.attachFile(
+      noteId: note.noteId,
+      data: pngBytes,
+      role: .sourcePageImage,
+      mediaType: "image/png",
+      originalFilename: "alice.png"
+    )
+    let router = KaibaNoteFileHTTPRouter(
+      service: LibrarySentinelHandler(),
+      noteService: service,
+      allowUnauthenticated: true
+    )
+
+    let response = await router.response(for: KaibaHTTPRequest(
+      method: "GET",
+      path: "/files/\(attachment.file.fileId)"
+    ))
+
+    XCTAssertEqual(response.status, 404)
+    XCTAssertFalse(response.body.contains(pngBytes))
+  }
+
   func testAuthenticatedReaderFetchesAFileFromAnAuthenticatedLibrary() async throws {
     let service = try makeService()
     let attachment = try attachPNG(to: service, library: "shared", authRequired: true)
@@ -91,6 +118,47 @@ final class KaibaNoteFileHTTPRouterLibraryTests: XCTestCase {
 
     XCTAssertEqual(response.status, 200)
     XCTAssertEqual(response.body, pngBytes)
+  }
+
+  func testDisabledAccountCredentialIsRejectedByFileRoute() async throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let aliceService = service.scoped(to: alice.userId)
+    let note = try aliceService.createNote(bodyMarkdown: "# Alice\nPrivate attachment")
+    let attachment = try aliceService.attachFile(
+      noteId: note.noteId,
+      data: pngBytes,
+      role: .related,
+      mediaType: "image/png",
+      originalFilename: "private.png"
+    )
+    let token = "disabled-account-file-token"
+    _ = try service.registerAPIClient(
+      displayName: "Alice file client",
+      bearerToken: token,
+      userId: alice.userId
+    )
+    let router = KaibaNoteFileHTTPRouter(
+      service: LibrarySentinelHandler(),
+      noteService: service,
+      authenticator: QRClientRegistrationAuthenticator(service: service, registrationScope: "file-disabled-account")
+    )
+
+    let beforeDisable = await router.response(for: KaibaHTTPRequest(
+      method: "GET",
+      path: "/files/\(attachment.file.fileId)",
+      headers: ["Authorization": "Bearer \(token)"]
+    ))
+    XCTAssertEqual(beforeDisable.status, 200)
+
+    _ = try service.setUserDisabled(userId: alice.userId, disabled: true)
+    let afterDisable = await router.response(for: KaibaHTTPRequest(
+      method: "GET",
+      path: "/files/\(attachment.file.fileId)",
+      headers: ["Authorization": "Bearer \(token)"]
+    ))
+    XCTAssertEqual(afterDisable.status, 401)
+    XCTAssertFalse(afterDisable.body.contains(pngBytes))
   }
 
   // `serve --allow-unauthenticated --as-admin`: the operator has said this
@@ -139,9 +207,8 @@ final class KaibaNoteFileHTTPRouterLibraryTests: XCTestCase {
     XCTAssertFalse(response.body.contains(pngBytes))
   }
 
-  // A member of the library still gets the bytes: scoping must not lock out a
-  // legitimate reader.
-  func testAuthenticatedMemberFetchesAFileFromAnAuthenticatedLibrary() async throws {
+  // Library membership does not override notebook ownership.
+  func testAuthenticatedMemberCannotFetchAnotherOwnersFile() async throws {
     let service = try makeService()
     let created = try service.createLibrary(name: "shared", authRequired: true)
     let member = try service.createUser(email: "member@example.com", displayName: "Member")
@@ -167,8 +234,8 @@ final class KaibaNoteFileHTTPRouterLibraryTests: XCTestCase {
       headers: ["Authorization": "Bearer token-1"]
     ))
 
-    XCTAssertEqual(response.status, 200)
-    XCTAssertEqual(response.body, pngBytes)
+    XCTAssertEqual(response.status, 404)
+    XCTAssertFalse(response.body.contains(pngBytes))
   }
 
   // Finding 4: an attacker-chosen active media type is served as an inert

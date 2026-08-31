@@ -73,6 +73,23 @@ openrouter.
   model and the binary resolves (`commandPath` else `PATH`).
   `AgentGatewayCLIModelCatalog` similarly delegates model discovery to
   `agent-gateway models`, without requiring a configured model.
+  Served requests are stricter than local operator commands: `codex`,
+  `claude-code`, and `cursor` are refused before launch, while permitted API
+  vendors require an explicit credential-variable name and execute in a fresh
+  temporary working directory with an allowlisted environment. On macOS the
+  child also runs under a filesystem sandbox that permits writes only inside
+  that directory, reads the exact configured gateway executable plus approved
+  system runtime paths (never its parent directory), and permits outbound
+  network access for the selected API provider. Gateway diagnostics from served
+  requests are not returned or persisted because provider tools can include
+  credentials or local paths in their errors. Availability preflight applies
+  these served restrictions before auto-actions are enabled. The credential
+  variable must be an ASCII environment-variable identifier and must not be a
+  sandbox runtime key (`HOME`, `TMPDIR`, `XDG_CONFIG_HOME`,
+  `XDG_CACHE_HOME`, `PATH`, `LANG`, or `LC_ALL`). Every served invocation
+  failure, including a binary that disappears after preflight or workspace and
+  process-start failure, is converted to a fixed diagnostic before durable AI
+  workflow state can record it.
   When invocation requirements are not met, every AI surface reports
   the unavailable state with the specific
   reason, and `kaiba serve` force-disables the AI auto-actions so the
@@ -131,8 +148,10 @@ openrouter.
   vendor; `model` is required (the gateway takes an explicit model).
   `commandPath` overrides the `PATH` lookup for the `agent-gateway`
   binary. `apiKeyEnvironmentVariable` is the credential's environment
-  variable NAME (never a value); when absent the gateway's per-vendor
-  default applies (e.g. `OPENROUTER_API_KEY`). `autoTag.auto` defaults
+  variable NAME (never a value). Local operator commands may use the
+  gateway's per-vendor default when it is absent, but served requests require
+  the explicit variable so only that selected credential enters the sandbox.
+  `autoTag.auto` defaults
   to `off`. `translate.provider`/`translate.model` override the agent
   vendor for translation requests only (set `model` whenever `provider`
   differs — model ids are vendor-specific);
@@ -230,7 +249,7 @@ openrouter.
 - **AI9 — Notebook translation.** A translation is a
   `notebook-kind:translation` notebook created up front in `pending`
   state, with meta JSON `{"kaibaTranslation":{"sourceNotebookId":...,
-  "targetLanguage":..., "status":"pending|completed|failed",
+  "targetLanguage":..., "status":"pending|completed|failed|cancelled",
   "error":...?}}` (the `kaibaChat` precedent). `AITranslationService`
   invokes the agent once per source note (purpose `translation`, prompt
   demands the translated markdown only, structure preserved, code/URLs
@@ -242,7 +261,21 @@ openrouter.
   dispatch uses workflow `notebook-translation`, routed by
   `KaibaAutoActionDispatcher` — or `kaiba ai translate --resume <id>`
   resumes where a failed run stopped instead of re-paying for finished
-  pages. The per-feature vendor override rides
+  pages. `cancelled` is a terminal safety state: disabled or unavailable
+  originating principals cancel the translation without provider execution,
+  and recovery preserves that terminal state rather than retrying it. The
+  durable dispatch processes one keyset page of at most 128 sources and
+  persists its continuation before a later outbox lease resumes it. A
+  synchronous CLI run advances unchanged pages to completion without consuming
+  reconciliation rounds, including the empty completion page after an exact
+  full page. Reconciliation rounds are charged only when a durable source
+  revision changes and resets the cursor. That revision is a non-prunable
+  per-notebook token committed with the source action, rather than a retained
+  action-history row; provider-call and elapsed-time caps apply to
+  each bounded page. Sustained churn therefore consumes the normal
+  retry budget without making stable notebook cardinality a reconciliation
+  failure. The
+  per-feature vendor override rides
   `AgentInvocationRequest.provider/model` (`ai.translate` config, CLI
   `--provider`/`--model`). There is no automatic trigger: translation
   is always requested manually (CLI synchronously; UI/GraphQL via a

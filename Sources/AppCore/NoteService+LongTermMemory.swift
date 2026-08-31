@@ -142,7 +142,8 @@ extension NoteService {
   }
 
   public func longTermMemoryNotebook() throws -> Notebook {
-    try driver.withDatabase { database in
+    try requireUnscopedLongTermMemoryAccess()
+    return try driver.withDatabase { database in
       try requireNotebook(try requireLongTermMemoryNotebookId(in: database), in: database)
     }
   }
@@ -158,6 +159,7 @@ extension NoteService {
     _ entries: [LongTermMemoryEntryInput],
     idempotencyKey: String
   ) throws -> LongTermMemoryAppendResult {
+    try requireUnscopedLongTermMemoryAccess()
     guard !entries.isEmpty else {
       throw NoteServiceError.invalidInput("long-term memory append requires at least one entry")
     }
@@ -226,6 +228,7 @@ extension NoteService {
     tagFilters: [String] = [],
     limit: Int = 20
   ) throws -> [Note] {
+    try requireUnscopedLongTermMemoryAccess()
     let boundedLimit = max(1, min(limit, Self.longTermMemoryMaximumLimit))
     return try driver.withDatabase { database in
       let notebookId = try requireLongTermMemoryNotebookId(in: database)
@@ -289,6 +292,7 @@ extension NoteService {
     includeAssociations: Bool = false,
     associationDepth: Int = NoteGraphPolicy.associationMaxDepth
   ) throws -> [LongTermMemoryRecallResult] {
+    try requireUnscopedLongTermMemoryAccess()
     let boundedLimit = max(1, min(limit, Self.longTermMemoryMaximumLimit))
     return try driver.withDatabase { database in
       let notebookId = try requireLongTermMemoryNotebookId(in: database)
@@ -345,6 +349,7 @@ extension NoteService {
     noteId: NoteID,
     limit: Int = 8
   ) throws -> [NoteLink] {
+    try requireUnscopedLongTermMemoryAccess()
     let boundedLimit = max(1, min(limit, NoteGraphPolicy.maximumLimit))
     try driver.withDatabase { database in
       let notebookId = try requireLongTermMemoryNotebookId(in: database)
@@ -386,6 +391,12 @@ extension NoteService {
 }
 
 private extension NoteService {
+  func requireUnscopedLongTermMemoryAccess() throws {
+    guard actingUserId == nil, !isUnauthenticatedPrincipal else {
+      throw NoteServiceError.notFound("long-term memory not found")
+    }
+  }
+
   func requireLongTermMemoryNotebookId(in database: SQLiteDatabase) throws -> NotebookID {
     let notebookIds = try longTermMemoryNotebookIds(in: database)
     guard notebookIds.count == 1, let notebookId = notebookIds.first else {

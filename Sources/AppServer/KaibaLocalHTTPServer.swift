@@ -46,9 +46,26 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
 
   private let routeHandler: any KaibaHTTPRouteHandling
   private let queue: DispatchQueue
+  private let incompleteRequestTimeoutNanoseconds: UInt64
+  private let scheduleIncompleteRequestTimeout: (@escaping @Sendable () -> Void) -> Void
   private let lock = NSLock()
+  /// Every accepted connection owns a socket, a parsing buffer, and often a
+  /// long-poll task.  Keep a hard server-wide ceiling independent of route
+  /// admission so malformed or unauthenticated requests cannot exhaust them.
+  public static let maximumConcurrentConnections = 256
+  /// Long-poll routes begin only after a complete request. Headers and bodies
+  /// have one non-extendable lifetime so a slow peer cannot retain capacity
+  /// forever by periodically sending a byte.
+  public static let defaultIncompleteRequestTimeout: UInt64 = 15_000_000_000
+
+  /// Extracted so connection-capacity admission can be exercised without
+  /// opening hundreds of sockets in a unit test.
+  static func hasConnectionCapacity(activeConnectionCount: Int) -> Bool {
+    activeConnectionCount < maximumConcurrentConnections
+  }
   private var listener: NWListener?
   private var connections: [UUID: NWConnection] = [:]
+  private var incompleteRequestTimeoutGenerations: [UUID: UInt64] = [:]
   private var generation: UInt64 = 0
   private var state = KaibaLocalHTTPServerState.stopped
   private var stateHandler: StateHandler?
@@ -57,10 +74,24 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
 
   public init(
     routeHandler: any KaibaHTTPRouteHandling,
-    queue: DispatchQueue = DispatchQueue(label: "dev.kaiba.local-http-server", qos: .userInitiated)
+    queue: DispatchQueue = DispatchQueue(label: "dev.kaiba.local-http-server", qos: .userInitiated),
+    incompleteRequestTimeoutNanoseconds: UInt64 = defaultIncompleteRequestTimeout,
+    incompleteRequestTimeoutScheduler: ((@escaping @Sendable () -> Void) -> Void)? = nil
   ) {
     self.routeHandler = routeHandler
     self.queue = queue
+    self.incompleteRequestTimeoutNanoseconds = incompleteRequestTimeoutNanoseconds
+    if let incompleteRequestTimeoutScheduler {
+      scheduleIncompleteRequestTimeout = incompleteRequestTimeoutScheduler
+    } else {
+      let timeout = incompleteRequestTimeoutNanoseconds
+      scheduleIncompleteRequestTimeout = { work in
+        queue.asyncAfter(
+          deadline: .now() + .nanoseconds(Int(clamping: timeout)),
+          execute: work
+        )
+      }
+    }
   }
 
   public func setStateHandler(_ handler: StateHandler?) {
@@ -76,6 +107,13 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return state
+  }
+
+  /// Internal observability for deterministic connection-capacity tests.
+  var activeConnectionCountForTesting: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return connections.count
   }
 
   @discardableResult
@@ -225,6 +263,7 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
     }
     listener = nil
     connections.removeAll()
+    incompleteRequestTimeoutGenerations.removeAll()
     pendingStart = startContinuation
     startContinuation = nil
     pendingStops = stopContinuations
@@ -259,12 +298,22 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
       connection.cancel()
       return
     }
+    guard Self.hasConnectionCapacity(activeConnectionCount: connections.count) else {
+      lock.unlock()
+      let response = KaibaHTTPResponse.text(status: 429, "Server connection capacity reached")
+      connection.start(queue: queue)
+      connection.send(content: response.serialized(forMethod: "GET"), completion: .contentProcessed { _ in
+        connection.cancel()
+      })
+      return
+    }
     connections[connectionID] = connection
     lock.unlock()
     connection.stateUpdateHandler = { [weak self, weak connection] connectionState in
       guard let self, let connection else { return }
       switch connectionState {
       case .ready:
+        self.refreshIncompleteRequestDeadline(for: connection, id: connectionID)
         self.receive(from: connection, id: connectionID, buffer: Data())
       case .failed, .cancelled:
         self.removeConnection(id: connectionID)
@@ -288,9 +337,11 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
           if isComplete || error != nil {
             self.send(.text(status: 400, "Incomplete HTTP request"), method: "GET", through: connection, id: id)
           } else {
+            self.refreshIncompleteRequestDeadline(for: connection, id: id)
             self.receive(from: connection, id: id, buffer: nextBuffer)
           }
         case let .complete(request):
+          self.clearIncompleteRequestDeadline(id: id)
           Task {
             let response = await self.routeHandler.response(for: request)
             self.send(response, method: request.method, through: connection, id: id)
@@ -324,7 +375,56 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
   private func removeConnection(id: UUID) {
     lock.lock()
     connections[id] = nil
+    incompleteRequestTimeoutGenerations[id] = nil
     lock.unlock()
+  }
+
+  private func refreshIncompleteRequestDeadline(for connection: NWConnection, id: UUID) {
+    let timeoutGeneration: UInt64
+    lock.lock()
+    guard connections[id] === connection else {
+      lock.unlock()
+      return
+    }
+    guard incompleteRequestTimeoutGenerations[id] == nil else {
+      lock.unlock()
+      return
+    }
+    timeoutGeneration = 1
+    incompleteRequestTimeoutGenerations[id] = timeoutGeneration
+    lock.unlock()
+    scheduleIncompleteRequestTimeout { [weak self, weak connection] in
+      guard let self, let connection else { return }
+      self.expireIncompleteRequest(
+        for: connection,
+        id: id,
+        timeoutGeneration: timeoutGeneration
+      )
+    }
+  }
+
+  private func clearIncompleteRequestDeadline(id: UUID) {
+    lock.lock()
+    incompleteRequestTimeoutGenerations[id] = nil
+    lock.unlock()
+  }
+
+  private func expireIncompleteRequest(
+    for connection: NWConnection,
+    id: UUID,
+    timeoutGeneration: UInt64
+  ) {
+    lock.lock()
+    guard connections[id] === connection,
+      incompleteRequestTimeoutGenerations[id] == timeoutGeneration
+    else {
+      lock.unlock()
+      return
+    }
+    connections[id] = nil
+    incompleteRequestTimeoutGenerations[id] = nil
+    lock.unlock()
+    connection.cancel()
   }
 
   private func updateStateLocked(_ newState: KaibaLocalHTTPServerState) {

@@ -12,6 +12,9 @@ public enum AgentChatTurnStatus: String, Codable, Equatable, Sendable {
   case pending
   case answered
   case failed
+  /// Terminal safety stop: this turn must not resume if its original account
+  /// is later re-enabled.
+  case cancelled
   /// Persisted while no agent runtime is configured; retried like `failed`
   /// once a runtime becomes available.
   case unavailable
@@ -34,19 +37,25 @@ public struct AgentChatTurnState: Equatable, Sendable {
   public var model: String?
   /// Immutable mode snapshot; nil means `memo`.
   public var mode: AgentChatTurnMode?
+  /// Immutable library that authorized the provider context for an answered
+  /// reply. A recovered outbox lease uses this to terminalize its stream
+  /// without weakening visibility after a later conversation move.
+  public var replyLibraryId: LibraryID?
 
   public init(
     status: AgentChatTurnStatus,
     userMarkdown: String,
     errorMessage: String? = nil,
     model: String? = nil,
-    mode: AgentChatTurnMode? = nil
+    mode: AgentChatTurnMode? = nil,
+    replyLibraryId: LibraryID? = nil
   ) {
     self.status = status
     self.userMarkdown = userMarkdown
     self.errorMessage = errorMessage
     self.model = model
     self.mode = mode
+    self.replyLibraryId = replyLibraryId
   }
 }
 
@@ -139,44 +148,27 @@ public struct AgentChatConversation: Equatable, Sendable {
 }
 
 public extension NoteService {
-  /// Creates the conversation notebook for a subject note.
-  @discardableResult
-  func startAgentConversation(
-    subjectNoteId: NoteID,
-    title: String? = nil
-  ) throws -> Notebook {
-    let subject = try getNote(subjectNoteId)
-    let conversationTitle = title
-      ?? "Chat: \(subject.title ?? NoteTitleDerivation.fallbackTitle(from: subject.bodyMarkdown))"
-    let metaJSON = try Self.chatNotebookMetaJSON(
-      subjectNoteId: subjectNoteId,
-      subjectNotebookId: subject.notebookId
-    )
-    return try createNotebook(
-      title: conversationTitle,
-      kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
-      metaJSON: metaJSON
-    )
-  }
-
-  /// Creates the conversation notebook for a whole-notebook subject (a memo
-  /// thread started with no note selected).
-  @discardableResult
-  func startAgentConversation(
-    subjectNotebookId: NotebookID,
-    title: String? = nil
-  ) throws -> Notebook {
-    let subject = try getNotebook(subjectNotebookId)
-    let conversationTitle = title ?? "Chat: \(subject.title)"
-    let metaJSON = try Self.chatNotebookMetaJSON(
-      subjectNoteId: nil,
-      subjectNotebookId: subjectNotebookId
-    )
-    return try createNotebook(
-      title: conversationTitle,
-      kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
-      metaJSON: metaJSON
-    )
+  /// Returns a committed idempotent turn after authorizing its conversation.
+  ///
+  /// Replay intentionally does not resolve the conversation subject: a turn
+  /// that was valid when committed remains replayable after that mutable
+  /// subject is deleted. New sends continue through
+  /// `appendPendingAgentChatTurn`, which validates the subject before insert.
+  func existingAgentChatTurn(
+    conversationNotebookId: NotebookID,
+    idempotencyKey: String
+  ) throws -> Note? {
+    try driver.withDatabase { database in
+      let conversation = try requireNotebook(conversationNotebookId, in: database)
+      guard try isReplayableAgentChatConversation(conversation, in: database) else {
+        return nil
+      }
+      return try chatTurn(
+        notebookId: conversationNotebookId,
+        idempotencyKey: idempotencyKey,
+        in: database
+      )
+    }
   }
 
   /// Appends the user half of a turn. The assistant half arrives later via
@@ -242,6 +234,21 @@ public extension NoteService {
     do {
       result = try driver.withDatabase { database in
         try database.transaction { db -> AppendResult in
+        // Replays are reads of a turn already committed in this conversation.
+        // Authorize the conversation first, but do not revalidate its mutable
+        // subject: that subject may legitimately have been deleted since the
+        // original request completed.
+        let conversation = try requireNotebook(conversationNotebookId, in: db)
+        if let idempotencyKey,
+          try isReplayableAgentChatConversation(conversation, in: db),
+          let existing = try chatTurn(
+            notebookId: conversationNotebookId,
+            idempotencyKey: idempotencyKey,
+            in: db
+          ) {
+          return AppendResult(note: existing, inserted: false, dispatches: [])
+        }
+
         _ = try requireWritableNotebook(conversationNotebookId, in: db)
         guard let subject = try chatSubject(
           notebookId: conversationNotebookId,
@@ -258,14 +265,6 @@ public extension NoteService {
             throw NoteServiceError.invalidInput("note edit mode requires a note subject")
           }
           try requireWritableNote(subjectNoteId, in: db)
-        }
-        if let idempotencyKey,
-          let existing = try chatTurn(
-            notebookId: conversationNotebookId,
-            idempotencyKey: idempotencyKey,
-            in: db
-          ) {
-          return AppendResult(note: existing, inserted: false, dispatches: [])
         }
         let now = NoteStoreClock.system.now()
         let noteNumber = try nextNoteNumber(notebookId: conversationNotebookId, in: db)
@@ -361,45 +360,6 @@ public extension NoteService {
     return result.note
   }
 
-  /// Fills in the assistant half and marks the turn answered.
-  @discardableResult
-  func completeAgentChatTurn(
-    turnNoteId: NoteID,
-    assistantMarkdown: String,
-    originatingActionId: AutoActionID? = nil
-  ) throws -> Note {
-    try updateChatTurn(turnNoteId: turnNoteId) { state in
-      AgentChatTurnState(
-        status: .answered,
-        userMarkdown: state.userMarkdown,
-        model: state.model,
-        mode: state.mode
-      )
-    } assistantMarkdown: { _ in
-      assistantMarkdown
-    }
-  }
-
-  /// Records a failed reply attempt; the turn stays retryable.
-  @discardableResult
-  func failAgentChatTurn(
-    turnNoteId: NoteID,
-    message: String,
-    originatingActionId: AutoActionID? = nil
-  ) throws -> Note {
-    try updateChatTurn(turnNoteId: turnNoteId) { state in
-      AgentChatTurnState(
-        status: .failed,
-        userMarkdown: state.userMarkdown,
-        errorMessage: message,
-        model: state.model,
-        mode: state.mode
-      )
-    } assistantMarkdown: { _ in
-      nil
-    }
-  }
-
   /// Conversations whose subject is the note, newest first.
   func listAgentConversations(
     subjectNoteId: NoteID,
@@ -438,6 +398,21 @@ public extension NoteService {
       throw NoteServiceError.invalidInput("limit must be between 0 and 200")
     }
     return try driver.withDatabase { database in
+      var queryBindings: [SQLiteValue] = [.id(binding)]
+      var ownershipPredicate = ""
+      var libraryReachPredicate = ""
+      if let actingUserId {
+        ownershipPredicate = " AND nb.owner_user_id = ?"
+        queryBindings.append(.id(actingUserId))
+      }
+      if let reachableLibraryIds = try reachableLibraryIds(in: database) {
+        guard !reachableLibraryIds.isEmpty else {
+          return []
+        }
+        libraryReachPredicate = " AND nb.library_id IN (\(placeholders(count: reachableLibraryIds.count)))"
+        queryBindings.append(contentsOf: reachableLibraryIds.sqliteBindings)
+      }
+      queryBindings.append(.int(Int64(limit)))
       let rows = try database.query(
         """
         SELECT nb.notebook_id AS notebook_id,
@@ -445,11 +420,11 @@ public extension NoteService {
           json_extract(nb.meta_json, '$.kaibaChat.subjectNotebookId') AS subject_notebook_id,
           (SELECT COUNT(*) FROM notes n WHERE n.notebook_id = nb.notebook_id) AS turn_count
         FROM notebooks nb
-        WHERE \(predicate)
+        WHERE \(predicate)\(ownershipPredicate)\(libraryReachPredicate)
         ORDER BY nb.updated_at DESC, nb.notebook_id
         LIMIT ?
         """,
-        bindings: [.id(binding), .int(Int64(limit))]
+        bindings: queryBindings
       )
       return try rows.map { row in
         guard let notebookId = row.identifier("notebook_id", as: NotebookID.self),
@@ -484,7 +459,8 @@ public extension NoteService {
       userMarkdown: userMarkdown,
       errorMessage: chat["error"]?.asString,
       model: chat["model"]?.asString,
-      mode: chat["mode"]?.asString.flatMap(AgentChatTurnMode.init(rawValue:))
+      mode: chat["mode"]?.asString.flatMap(AgentChatTurnMode.init(rawValue:)),
+      replyLibraryId: chat.identifier("replyLibraryId", as: LibraryID.self)
     )
   }
 
@@ -519,14 +495,22 @@ public extension NoteService {
     guard let state = Self.chatTurnState(of: turnNote) else {
       throw NoteServiceError.invalidInput("note is not an agent chat turn: \(turnNoteId)")
     }
-    guard state.status != .answered else {
+    if state.status == .answered {
+      try await reconcileAnsweredAgentReplyStream(
+        turnNote: turnNote,
+        state: state,
+        streamPublisher: streamPublisher
+      )
       return
     }
-    guard let subject = try chatSubject(notebookId: turnNote.notebookId) else {
-      throw NoteServiceError.invalidInput(
-        "notebook is not an agent chat conversation: \(turnNote.notebookId)"
-      )
+    guard state.status != .cancelled else {
+      return
     }
+    let subjectSnapshot = try agentChatSubjectSnapshot(
+      conversationNotebookId: turnNote.notebookId,
+      editMode: state.mode == .edit
+    )
+    let subject = subjectSnapshot.subject
     let priorNotes = try listNotes(notebookId: turnNote.notebookId, limit: 100, offset: 0)
       .filter { $0.noteNumber < turnNote.noteNumber }
       .sorted { $0.noteNumber < $1.noteNumber }
@@ -555,111 +539,139 @@ public extension NoteService {
     if state.mode == .edit, case let .note(subjectNoteId) = subject {
       editSubjectNoteId = subjectNoteId
     }
-    var noteEditApplied = false
+    var turnWasCompleted = false
     do {
-      let subjectMarkdown: String?
-      switch subject {
-      case let .note(subjectNoteId):
-        if editSubjectNoteId != nil {
-          // The reply replaces the whole body, so the agent must see all of
-          // it: a fetch failure or an over-budget body fails the turn instead
-          // of letting the agent rewrite the note from a partial view.
-          let body = try getNote(subjectNoteId).bodyMarkdown
-          guard body.utf8.count <= Self.subjectContextLimitBytes else {
-            throw NoteServiceError.invalidInput(
-              "note \(subjectNoteId) is too large to edit in agent chat"
-            )
-          }
-          subjectMarkdown = body
-        } else {
-          subjectMarkdown = ((try? getNote(subjectNoteId))?.bodyMarkdown)
-            .map { utf8Prefix($0, limit: Self.subjectContextLimitBytes) }
-        }
-      case let .notebook(subjectNotebookId):
-        // A tag-memo subject notebook holds only chat/memo state; ground the
-        // agent on the tag's occurrences across notebooks instead (T4).
-        if let subjectTagId = (try? tagMemoSubjectTagId(notebookId: subjectNotebookId)) ?? nil {
-          subjectMarkdown = try? tagContextMarkdown(tagId: subjectTagId)
-        } else {
-          subjectMarkdown = try? notebookContextMarkdown(notebookId: subjectNotebookId)
-        }
-      }
       let request = AgentInvocationRequest(
         purpose: .chat,
         systemPrompt: editSubjectNoteId == nil ? Self.chatSystemPrompt : Self.noteEditSystemPrompt,
         turns: turns,
-        contextMarkdown: subjectMarkdown,
+        contextMarkdown: subjectSnapshot.markdown,
         provider: provider,
         model: state.model ?? model
       )
       let reply: AgentInvocationResult
+      try await admitAutoActionProviderInvocation()
       // An edit-mode reply is mostly the raw replacement body; streaming it
       // into the memo timeline would show markup, so it completes in one shot.
       if editSubjectNoteId == nil, let streamPublisher, let streaming = invoker as? AgentStreamingInvoking {
-        reply = try await streaming.invoke(request) { chunk in
-          streamPublisher.publishAgentReplyChunk(turnNoteId: turnNoteId, text: chunk)
+        let lease: AgentReplyStreamLease?
+        if requiresActiveAutoActionDispatchLease {
+          guard let activeLease = try activeAgentReplyStreamLease() else {
+            throw NoteServiceError.conflict("auto-action dispatch lease is no longer active")
+          }
+          lease = activeLease
+        } else {
+          lease = nil
         }
+        let postLeaseValidationHook = agentReplyStreamPostLeaseValidationHook
+        let chunkRelay = AgentReplyChunkRelay { chunk in
+          if let lease {
+            await postLeaseValidationHook?(lease)
+            await streamPublisher.publishLeasedAgentReplyChunk(
+              turnNoteId: turnNoteId,
+              text: chunk,
+              libraryId: subjectSnapshot.libraryId,
+              lease: lease
+            )
+          } else {
+            streamPublisher.publishAgentReplyChunk(
+              turnNoteId: turnNoteId,
+              text: chunk,
+              libraryId: subjectSnapshot.libraryId
+            )
+          }
+        }
+        reply = try await streaming.invoke(request) { chunk in
+          chunkRelay.append(chunk)
+        }
+        try await chunkRelay.finishPublishing()
       } else {
         reply = try await invoker.invoke(request)
       }
+      try AgentReplyOutputLimits.validateFinalReply(reply.markdown)
       let assistantMarkdown: String
       if let editSubjectNoteId {
         let applied = try applyNoteEditReply(
           reply.markdown,
+          turnNoteId: turnNoteId,
           subjectNoteId: editSubjectNoteId,
+          conversationNotebookId: turnNote.notebookId,
+          expectedSubject: subject,
+          expectedLibraryId: subjectSnapshot.libraryId,
+          expectedSubjectBodyMarkdown: subjectSnapshot.noteBodyMarkdown,
           originatingActionId: originatingActionId
         )
         assistantMarkdown = applied.assistantMarkdown
-        noteEditApplied = applied.updatedNote
+        turnWasCompleted = applied.updatedNote
       } else {
         assistantMarkdown = reply.markdown
       }
-      _ = try completeAgentChatTurn(
-        turnNoteId: turnNoteId,
-        assistantMarkdown: assistantMarkdown,
-        originatingActionId: originatingActionId
-      )
-      streamPublisher?.finishAgentReplyStream(
-        turnNoteId: turnNoteId,
-        status: "answered",
-        message: nil
-      )
+      if !turnWasCompleted {
+        _ = try completeAgentChatTurn(
+          turnNoteId: turnNoteId,
+          assistantMarkdown: assistantMarkdown,
+          expectedSubject: subject,
+          expectedLibraryId: subjectSnapshot.libraryId,
+          originatingActionId: originatingActionId
+        )
+      }
+      if let streamPublisher {
+        if activeAutoActionDispatchLease != nil {
+          guard let lease = try activeAgentReplyStreamLease() else { return }
+          guard hasActiveAutoActionDispatchLease() else { return }
+          await agentReplyStreamPostLeaseValidationHook?(lease)
+          await streamPublisher.finishLeasedAgentReplyStream(
+            turnNoteId: turnNoteId,
+            status: "answered",
+            message: nil,
+            libraryId: subjectSnapshot.libraryId,
+            lease: lease
+          )
+        } else {
+          streamPublisher.finishAgentReplyStream(
+            turnNoteId: turnNoteId,
+            status: "answered",
+            message: nil,
+            libraryId: subjectSnapshot.libraryId
+          )
+        }
+      }
     } catch {
-      // A committed note edit survives a later turn-persistence failure; the
-      // failure message must not imply the note is untouched.
-      let message = noteEditApplied
-        ? "the note edit was applied, but recording the turn failed: \(error)"
-        : "\(error)"
-      _ = try? failAgentChatTurn(
+      let message = "\(error)"
+      let failureWasRecorded = (try? failAgentChatTurn(
         turnNoteId: turnNoteId,
         message: message,
+        expectedSubject: subject,
+        expectedLibraryId: subjectSnapshot.libraryId,
         originatingActionId: originatingActionId
-      )
-      streamPublisher?.finishAgentReplyStream(
-        turnNoteId: turnNoteId,
-        status: "failed",
-        message: message
-      )
+      )) != nil
+      if let streamPublisher {
+        if activeAutoActionDispatchLease != nil {
+          if let lease = try activeAgentReplyStreamLease(), hasActiveAutoActionDispatchLease() {
+            await agentReplyStreamPostLeaseValidationHook?(lease)
+            await streamPublisher.finishLeasedAgentReplyStream(
+              turnNoteId: turnNoteId,
+              status: "failed",
+              message: failureWasRecorded ? message : nil,
+              libraryId: subjectSnapshot.libraryId,
+              lease: lease
+            )
+          }
+        } else {
+          streamPublisher.finishAgentReplyStream(
+            turnNoteId: turnNoteId,
+            status: "failed",
+            message: failureWasRecorded ? message : nil,
+            libraryId: subjectSnapshot.libraryId
+          )
+        }
+      }
       throw error
     }
   }
 
   /// Byte budget for the subject document handed to the agent as context.
   static let subjectContextLimitBytes = 200 * 1024
-
-  /// Notebook-subject context: title plus each note's markdown in page order,
-  /// capped so a large imported document cannot blow the prompt.
-  func notebookContextMarkdown(
-    notebookId: NotebookID,
-    limitBytes: Int = 200 * 1024
-  ) throws -> String {
-    let notebook = try getNotebook(notebookId)
-    return boundedMarkdownContext(
-      heading: "# \(notebook.title)",
-      sections: try listNotes(notebookId: notebookId, limit: 200, offset: 0).map(\.bodyMarkdown),
-      limitBytes: limitBytes
-    )
-  }
 
   static var chatSystemPrompt: String {
     """
@@ -731,77 +743,21 @@ public extension NoteService {
 
   // MARK: - Internals
 
-  private func updateChatTurn(
-    turnNoteId: NoteID,
-    transformState: (AgentChatTurnState) -> AgentChatTurnState,
-    assistantMarkdown: (AgentChatTurnState) -> String?
-  ) throws -> Note {
-    let result = try driver.withDatabase { database in
-      try database.transaction { db -> (note: Note, notebookId: NotebookID) in
-        let note = try requireNote(turnNoteId, in: db)
-        guard let state = Self.chatTurnState(of: note) else {
-          throw NoteServiceError.invalidInput("note is not an agent chat turn: \(turnNoteId)")
-        }
-        let newState = transformState(state)
-        let assistant = assistantMarkdown(state)
-        let idempotencyKey = Self.chatIdempotencyKey(of: note)
-        let body = Self.chatTurnBody(
-          noteNumber: note.noteNumber,
-          userMarkdown: newState.userMarkdown,
-          assistantMarkdown: assistant
-        )
-        let metaJSON = try Self.chatTurnMetaJSON(state: newState, idempotencyKey: idempotencyKey)
-        let previous = try ftsPayload(noteId: turnNoteId, in: db)
-        let now = NoteStoreClock.system.now()
-        try db.execute(
-          """
-          UPDATE notes
-          SET body_markdown = ?, title = ?, meta_json = jsonb(?), updated_at = ?,
-            updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id)
-          WHERE note_id = ?
-          """,
-          bindings: [
-            .text(body),
-            .optionalText(noteTitle(from: body)),
-            .text(metaJSON),
-            .text(now),
-            .id(turnNoteId)
-          ]
-        )
-        try db.execute(
-          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
-          bindings: [.text(now), .id(note.notebookId)]
-        )
-        try refreshFTS(noteId: turnNoteId, previous: previous, in: db)
-        return (try requireNote(turnNoteId, in: db), note.notebookId)
-      }
-    }
-    publishChange(NoteChangeEvent(
-      kind: NoteChangeEventKind.noteUpdated,
-      notebookId: result.notebookId
-    ))
-    return result.note
-  }
-
   private func chatSubjectNoteId(
     notebookId: NotebookID,
     in database: SQLiteDatabase
   ) throws -> NoteID? {
-    try database.query(
-      """
-      SELECT json_extract(meta_json, '$.kaibaChat.subjectNoteId') AS subject
-      FROM notebooks
-      WHERE notebook_id = ?
-      LIMIT 1
-      """,
-      bindings: [.id(notebookId)]
-    ).first?.identifier("subject", as: NoteID.self)
+    guard case let .note(subjectNoteId)? = try chatSubject(notebookId: notebookId, in: database) else {
+      return nil
+    }
+    return subjectNoteId
   }
 
-  private func chatSubject(
+  func chatSubject(
     notebookId: NotebookID,
     in database: SQLiteDatabase
   ) throws -> AgentChatSubject? {
+    let conversation = try requireNotebook(notebookId, in: database)
     guard let row = try database.query(
       """
       SELECT json_extract(meta_json, '$.kaibaChat.subjectNoteId') AS subject_note,
@@ -814,10 +770,30 @@ public extension NoteService {
     ).first else {
       return nil
     }
-    if let subjectNoteId = row.identifier("subject_note", as: NoteID.self) {
+    let subjectNoteId = row.identifier("subject_note", as: NoteID.self)
+    let subjectNotebookId = row.identifier("subject_notebook", as: NotebookID.self)
+    if let subjectNoteId {
+      let subjectNote = try requireNote(subjectNoteId, in: database)
+      let subjectNotebook = try requireNotebook(subjectNote.notebookId, in: database)
+      guard subjectNotebook.ownerUserId == conversation.ownerUserId,
+        subjectNotebook.libraryId == conversation.libraryId,
+        subjectNotebookId == nil || subjectNotebookId == subjectNotebook.notebookId
+      else {
+        throw NoteServiceError.invalidInput(
+          "agent chat conversation has an invalid note subject: \(notebookId)"
+        )
+      }
       return .note(subjectNoteId)
     }
-    if let subjectNotebookId = row.identifier("subject_notebook", as: NotebookID.self) {
+    if let subjectNotebookId {
+      let subjectNotebook = try requireNotebook(subjectNotebookId, in: database)
+      guard subjectNotebook.ownerUserId == conversation.ownerUserId,
+        subjectNotebook.libraryId == conversation.libraryId
+      else {
+        throw NoteServiceError.invalidInput(
+          "agent chat conversation has an invalid notebook subject: \(notebookId)"
+        )
+      }
       return .notebook(subjectNotebookId)
     }
     return nil
@@ -834,14 +810,23 @@ public extension NoteService {
       FROM notes
       WHERE notebook_id = ?
         AND json_extract(meta_json, '$.kaibaChat.idempotencyKey') = ?
-      LIMIT 1
+      ORDER BY note_number, note_id
       """,
       bindings: [.id(notebookId), .text(idempotencyKey)]
     )
-    guard let noteId = rows.first?.identifier("note_id", as: NoteID.self) else {
-      return nil
+    for row in rows {
+      guard let noteId = row.identifier("note_id", as: NoteID.self) else {
+        throw NoteServiceError.invalidRow("idempotent chat turn row is missing note ID")
+      }
+      let note = try requireNote(noteId, in: database)
+      guard Self.chatIdempotencyKey(of: note) == idempotencyKey,
+        Self.chatTurnState(of: note) != nil
+      else {
+        continue
+      }
+      return note
     }
-    return try requireNote(noteId, in: database)
+    return nil
   }
 
   private func noteExists(_ noteId: NoteID, in database: SQLiteDatabase) throws -> Bool {
@@ -911,10 +896,43 @@ public extension NoteService {
     chat["error"] = state.errorMessage.map(JSONValue.string)
     chat["model"] = state.model.map(JSONValue.string)
     chat["mode"] = state.mode.map { .string($0.rawValue) }
+    chat["replyLibraryId"] = state.replyLibraryId.map(JSONValue.id)
     do {
       return try JSONValue.object(["kaibaChat": .object(chat)]).encodedString()
     } catch {
       throw NoteServiceError.invalidInput("chat turn meta JSON must be UTF-8")
     }
+  }
+
+  /// Recovery may claim a new outbox lease after an answered turn committed
+  /// but before its original worker admitted the terminal stream marker. The
+  /// durable answer is authoritative, so finish the current lease's stream
+  /// without invoking the provider again. `replyLibraryId` preserves the
+  /// provider-context visibility boundary across a later notebook move.
+  private func reconcileAnsweredAgentReplyStream(
+    turnNote: Note,
+    state: AgentChatTurnState,
+    streamPublisher: (any AgentReplyStreamPublishing)?
+  ) async throws {
+    guard let streamPublisher, activeAutoActionDispatchLease != nil,
+      let lease = try activeAgentReplyStreamLease()
+    else {
+      return
+    }
+    let libraryId: LibraryID
+    if let replyLibraryId = state.replyLibraryId {
+      libraryId = replyLibraryId
+    } else {
+      libraryId = try getNotebook(turnNote.notebookId).libraryId
+        ?? LibraryID(NoteStoreSchema.defaultLibraryName)
+    }
+    await agentReplyStreamPostLeaseValidationHook?(lease)
+    await streamPublisher.finishLeasedAgentReplyStream(
+      turnNoteId: turnNote.noteId,
+      status: "answered",
+      message: nil,
+      libraryId: libraryId,
+      lease: lease
+    )
   }
 }

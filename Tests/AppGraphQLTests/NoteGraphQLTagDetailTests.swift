@@ -116,6 +116,167 @@ final class NoteGraphQLTagDetailTests: XCTestCase {
     XCTAssertEqual(repeated["notebookId"], notebook["notebookId"])
   }
 
+  func testScopedTagCommentsHideInternalLongTermMemoryComments() async throws {
+    let service = try makeNoteGraphQLService()
+    let topic = try service.service.defineTag(name: "graphql-internal-memory-comments")
+    let memory = try XCTUnwrap(try service.service.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(
+        bodyMarkdown: "Internal GraphQL memory comment source",
+        topicTags: [topic.name]
+      )],
+      idempotencyKey: "graphql-internal-memory-comment-refusal"
+    ).notes.first)
+    _ = try service.service.addComment(
+      noteId: memory.noteId,
+      bodyMarkdown: "Internal GraphQL memory note comment"
+    )
+    _ = try service.service.addNotebookComment(
+      notebookId: memory.notebookId,
+      bodyMarkdown: "Internal GraphQL memory notebook comment"
+    )
+
+    for scopedService in [
+      service.service.scoped(to: NoteStoreSchema.defaultUserId),
+      service.service.scoped(to: NoteStoreSchema.defaultUserId).unauthenticated(),
+      service.service.unauthenticated()
+    ] {
+      let scoped = GraphQLNoteGraphQLService(service: scopedService)
+      let noteComments = await scoped.tagComments(tagId: topic.tagId)
+      XCTAssertTrue(noteComments.result.accepted)
+      XCTAssertEqual(noteComments.value, [])
+
+      let notebookComments = await scoped.tagComments(
+        tagId: NoteStoreSchema.longTermMemoryNotebookKindTagId
+      )
+      XCTAssertTrue(notebookComments.result.accepted)
+      XCTAssertEqual(notebookComments.value, [])
+
+      let topicDetail = await scoped.tagDetail(tagId: topic.tagId)
+      XCTAssertTrue(topicDetail.result.accepted)
+      XCTAssertEqual(topicDetail.value?.noteCount, 0)
+
+      let memoryDetail = await scoped.tagDetail(
+        tagId: NoteStoreSchema.longTermMemoryNotebookKindTagId
+      )
+      XCTAssertTrue(memoryDetail.result.accepted)
+      XCTAssertEqual(memoryDetail.value?.notebookCount, 0)
+    }
+  }
+
+  func testTagCommentsAndCountsRequireCurrentLibraryReach() async throws {
+    let service = try makeNoteGraphQLService()
+    let defaultService = service.service.scoped(to: NoteStoreSchema.defaultUserId)
+    let tag = try service.service.defineTag(name: "graphql-protected-tag-comment-reach")
+    let protectedLibrary = try defaultService.createLibrary(
+      name: "graphql-protected-tag-comment-reach",
+      authRequired: true
+    )
+    let protectedService = defaultService.scoped(toLibrary: protectedLibrary.libraryId)
+    let note = try protectedService.createNote(
+      notebookTitle: "Protected GraphQL comments",
+      bodyMarkdown: "# Protected\nGraphQL must not expose this comment."
+    )
+    _ = try protectedService.applyTags(
+      noteId: note.noteId,
+      tags: [NoteTagInput(name: tag.name)],
+      provenance: .human,
+      assignedBy: "test"
+    )
+    _ = try protectedService.applyNotebookTags(
+      notebookId: note.notebookId,
+      tags: [tag.name],
+      provenance: .human,
+      assignedBy: "test"
+    )
+    _ = try protectedService.addComment(noteId: note.noteId, bodyMarkdown: "protected GraphQL note comment")
+    _ = try protectedService.addNotebookComment(
+      notebookId: note.notebookId,
+      bodyMarkdown: "protected GraphQL notebook comment"
+    )
+
+    let unauthenticated = GraphQLNoteGraphQLService(service: defaultService.unauthenticated())
+    let unauthenticatedComments = await unauthenticated.tagComments(tagId: tag.tagId)
+    XCTAssertTrue(unauthenticatedComments.result.accepted)
+    XCTAssertEqual(unauthenticatedComments.value, [])
+    let unauthenticatedDetail = await unauthenticated.tagDetail(tagId: tag.tagId)
+    XCTAssertEqual(unauthenticatedDetail.value?.noteCount, 0)
+    XCTAssertEqual(unauthenticatedDetail.value?.notebookCount, 0)
+
+    let alice = try service.service.createUser(
+      email: "graphql-tag-comment-revoked@example.com",
+      displayName: "Alice"
+    )
+    let aliceService = service.service.scoped(to: alice.userId)
+    let aliceLibrary = try aliceService.createLibrary(
+      name: "graphql-revoked-tag-comment-reach",
+      authRequired: true
+    )
+    let aliceTag = try service.service.defineTag(name: "graphql-revoked-tag-comment-reach")
+    let aliceNote = try aliceService.scoped(toLibrary: aliceLibrary.libraryId).createNote(
+      notebookTitle: "Alice protected GraphQL comments",
+      bodyMarkdown: "# Alice protected\nThis membership is revoked."
+    )
+    _ = try aliceService.scoped(toLibrary: aliceLibrary.libraryId).applyTags(
+      noteId: aliceNote.noteId,
+      tags: [NoteTagInput(name: aliceTag.name)],
+      provenance: .human,
+      assignedBy: "test"
+    )
+    _ = try aliceService.scoped(toLibrary: aliceLibrary.libraryId).addComment(
+      noteId: aliceNote.noteId,
+      bodyMarkdown: "revoked GraphQL comment"
+    )
+    try service.service.revokeLibraryAccess(libraryName: aliceLibrary.name, userId: alice.userId)
+
+    let revoked = GraphQLNoteGraphQLService(service: aliceService)
+    let revokedComments = await revoked.tagComments(tagId: aliceTag.tagId)
+    XCTAssertTrue(revokedComments.result.accepted)
+    XCTAssertEqual(revokedComments.value, [])
+    let revokedDetail = await revoked.tagDetail(tagId: aliceTag.tagId)
+    XCTAssertEqual(revokedDetail.value?.noteCount, 0)
+  }
+
+  func testEnsureTagMemoPreservesProtectedLibraryAfterFinalSourceTagRemoval() async throws {
+    let root = try makeNoteGraphQLService()
+    let defaultService = root.service.scoped(to: NoteStoreSchema.defaultUserId)
+    let protectedLibrary = try defaultService.createLibrary(
+      name: "graphql-removed-tag-memo-source",
+      authRequired: true
+    )
+    let protectedService = defaultService.scoped(toLibrary: protectedLibrary.libraryId)
+    let tag = try root.service.defineTag(name: "graphql-removed-tag-memo-source")
+    let source = try protectedService.createNote(
+      notebookTitle: "Protected GraphQL tagged source",
+      bodyMarkdown: "# Protected\nThe final source tag will be removed."
+    )
+    _ = try protectedService.applyTags(
+      noteId: source.noteId,
+      tags: [NoteTagInput(name: tag.name)],
+      provenance: .human,
+      assignedBy: "test"
+    )
+    let protectedGraphQL = GraphQLNoteGraphQLService(service: protectedService)
+    let originalResult = await protectedGraphQL.ensureTagMemoNotebook(tagId: tag.tagId)
+    let original = try XCTUnwrap(originalResult.notebook)
+
+    _ = try protectedService.removeTag(
+      noteId: source.noteId,
+      tagName: tag.name,
+      removedBy: .human
+    )
+    let ordinaryGraphQL = GraphQLNoteGraphQLService(service: defaultService)
+    let retainedResult = await ordinaryGraphQL.ensureTagMemoNotebook(tagId: tag.tagId)
+    XCTAssertTrue(retainedResult.result.accepted)
+    let retained = try XCTUnwrap(retainedResult.notebook)
+    XCTAssertEqual(retained.notebookId, original.notebookId)
+    XCTAssertEqual(retained.libraryId, protectedLibrary.libraryId)
+
+    let unauthenticated = GraphQLNoteGraphQLService(service: defaultService.unauthenticated())
+    let hidden = await unauthenticated.notebook(notebookId: retained.notebookId)
+    XCTAssertFalse(hidden.result.accepted)
+    XCTAssertNil(hidden.value)
+  }
+
   private func makeNoteGraphQLService(function: String = #function) throws -> GraphQLNoteGraphQLService {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
       .appendingPathComponent("tmp/AppGraphQLTests", isDirectory: true)

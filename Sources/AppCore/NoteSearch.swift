@@ -18,20 +18,70 @@ struct NoteSearchScope {
   var notebookId: NotebookID?
   /// Nil is unrestricted — an authenticated caller with no library selected.
   var reachableLibraryIds: [LibraryID]?
+  var actingUserId: UserID?
+  var excludesLongTermMemory: Bool
   var createdAfter: String?
   var createdBefore: String?
 
   init(
     notebookId: NotebookID? = nil,
     reachableLibraryIds: [LibraryID]? = nil,
+    actingUserId: UserID? = nil,
+    excludesLongTermMemory: Bool = false,
     createdAfter: String? = nil,
     createdBefore: String? = nil
   ) {
     self.notebookId = notebookId
     self.reachableLibraryIds = reachableLibraryIds
+    self.actingUserId = actingUserId
+    self.excludesLongTermMemory = excludesLongTermMemory
     self.createdAfter = createdAfter
     self.createdBefore = createdBefore
   }
+}
+
+func appendLongTermMemoryExclusionPredicate(
+  alias: String,
+  excludesLongTermMemory: Bool,
+  predicates: inout [String],
+  bindings: inout [SQLiteValue]
+) {
+  guard excludesLongTermMemory else { return }
+  predicates.append(
+    "\(alias).notebook_id NOT IN (SELECT notebook_id FROM notebook_tags WHERE tag_id = ?)"
+  )
+  bindings.append(.id(NoteStoreSchema.longTermMemoryNotebookKindTagId))
+}
+
+/// Ownership is independent of library reach: an admin has unrestricted
+/// libraries but still sees only its own notebooks on a scoped request.
+func appendOwnerScopePredicate(
+  alias: String,
+  actingUserId: UserID?,
+  predicates: inout [String],
+  bindings: inout [SQLiteValue]
+) {
+  guard let actingUserId else { return }
+  predicates.append("\(alias).notebook_id IN (SELECT notebook_id FROM notebooks WHERE owner_user_id = ?)")
+  bindings.append(.id(actingUserId))
+  // Long-term memory is a singleton internal notebook. It is currently
+  // store-wide rather than per-user, so no scoped principal may discover its
+  // rows simply because the bootstrap account owns it.
+  predicates.append(
+    "\(alias).notebook_id NOT IN (SELECT notebook_id FROM notebook_tags WHERE tag_id = ?)"
+  )
+  bindings.append(.id(NoteStoreSchema.longTermMemoryNotebookKindTagId))
+}
+
+func appendOwnerScopePredicate(
+  alias: String,
+  actingUserId: UserID?,
+  sql: inout String,
+  bindings: inout [SQLiteValue]
+) {
+  var predicates: [String] = []
+  appendOwnerScopePredicate(alias: alias, actingUserId: actingUserId, predicates: &predicates, bindings: &bindings)
+  for predicate in predicates { sql += "\n  AND \(predicate)" }
 }
 
 /// Restricts a note query to the libraries the caller may reach
@@ -164,6 +214,11 @@ func searchNotesInDatabase(
     sql: &sql,
     bindings: &bindings
   )
+  appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, sql: &sql, bindings: &bindings)
+  if scope.excludesLongTermMemory, scope.actingUserId == nil {
+    sql += "\n  AND n.notebook_id NOT IN (SELECT notebook_id FROM notebook_tags WHERE tag_id = ?)"
+    bindings.append(.id(NoteStoreSchema.longTermMemoryNotebookKindTagId))
+  }
   appendCreatedAtPredicates(
     alias: "n",
     createdAfter: scope.createdAfter,
@@ -270,6 +325,15 @@ private func searchNotesByFilters(
     predicates: &predicates,
     bindings: &bindings
   )
+  appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, predicates: &predicates, bindings: &bindings)
+  if scope.excludesLongTermMemory, scope.actingUserId == nil {
+    appendLongTermMemoryExclusionPredicate(
+      alias: "n",
+      excludesLongTermMemory: true,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+  }
   if let notebookId = scope.notebookId {
     predicates.append("n.notebook_id = ?")
     bindings.append(.id(notebookId))
@@ -373,6 +437,15 @@ private func searchNotesByTextLike(
     predicates: &predicates,
     bindings: &bindings
   )
+  appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, predicates: &predicates, bindings: &bindings)
+  if scope.excludesLongTermMemory, scope.actingUserId == nil {
+    appendLongTermMemoryExclusionPredicate(
+      alias: "n",
+      excludesLongTermMemory: true,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+  }
   if let notebookId = scope.notebookId {
     predicates.append("n.notebook_id = ?")
     bindings.append(.id(notebookId))
@@ -469,6 +542,7 @@ private func appendLinkedNeighborResults(
     maxDepth: depth,
     limit: NoteGraphPolicy.maximumLimit,
     resultExclusions: directNoteIdSet,
+    scope: scope,
     in: database
   )
   guard !graphResults.isEmpty else {
@@ -488,6 +562,15 @@ private func appendLinkedNeighborResults(
     predicates: &predicates,
     bindings: &bindings
   )
+  appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, predicates: &predicates, bindings: &bindings)
+  if scope.excludesLongTermMemory, scope.actingUserId == nil {
+    appendLongTermMemoryExclusionPredicate(
+      alias: "n",
+      excludesLongTermMemory: true,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+  }
   if let notebookId = scope.notebookId {
     predicates.append("n.notebook_id = ?")
     bindings.append(.id(notebookId))

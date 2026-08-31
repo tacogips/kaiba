@@ -25,19 +25,24 @@ public struct GraphQLNoteGraphQLService: Sendable {
   public var agentModel: String?
   /// Server-only model discovery; its result never exposes credentials or paths.
   public var agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)?
+  /// Shared by copies of this request service so concurrent model queries use
+  /// one bounded catalog refresh instead of each starting a gateway process.
+  public var agentModelCatalogCache: AgentModelCatalogCache
 
   public init(
     service: NoteService,
     agentInvoker: (any AgentInvoking)? = nil,
     agentProvider: String? = nil,
     agentModel: String? = nil,
-    agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)? = nil
+    agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)? = nil,
+    agentModelCatalogCache: AgentModelCatalogCache = AgentModelCatalogCache()
   ) {
     self.service = service
     self.agentInvoker = agentInvoker
     self.agentProvider = agentProvider
     self.agentModel = agentModel
     self.agentModelCatalog = agentModelCatalog
+    self.agentModelCatalogCache = agentModelCatalogCache
   }
 
   public func note(noteId: NoteID) async -> GraphQLNoteQueryResult<GraphQLNoteDTO> {
@@ -184,6 +189,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
 
   public func createNote(_ input: GraphQLCreateNoteInput) async -> GraphQLNoteMutationResult {
     noteMutation {
+      try validatePublicNoteMetaJSON(input.metaJSON)
       let note = try service.createNote(
         notebookId: input.notebookId,
         notebookTitle: input.notebookTitle,
@@ -202,6 +208,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
 
   public func createNotebook(_ input: GraphQLCreateNotebookInput) async -> GraphQLNoteMutationResult {
     noteMutation {
+      try validatePublicNotebookMetaJSON(input.metaJSON)
       let notebook = try service.createNotebook(
         title: input.title,
         kindTagName: input.kindTagName,
@@ -692,6 +699,26 @@ private func graphQLNoteProvenance(_ rawValue: String) throws -> NoteProvenance 
     throw GraphQLNoteServiceError.invalidRequest("unsupported note provenance: \(rawValue)")
   }
   return provenance
+}
+
+private func validatePublicNotebookMetaJSON(_ metaJSON: String?) throws {
+  guard let metaJSON,
+    let metadata = (try? JSONValue(parsing: metaJSON))?.asObject,
+    metadata["kaibaChat"] != nil
+  else {
+    return
+  }
+  throw GraphQLNoteServiceError.invalidRequest("kaibaChat notebook metadata is server-managed")
+}
+
+private func validatePublicNoteMetaJSON(_ metaJSON: String?) throws {
+  guard let metaJSON,
+    let metadata = (try? JSONValue(parsing: metaJSON))?.asObject,
+    metadata["kaibaChat"] != nil
+  else {
+    return
+  }
+  throw GraphQLNoteServiceError.invalidRequest("kaibaChat note metadata is server-managed")
 }
 
 private func graphQLNoteListSort(_ rawValue: String?) throws -> NoteListSort {

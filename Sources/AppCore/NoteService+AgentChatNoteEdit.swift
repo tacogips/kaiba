@@ -7,6 +7,12 @@ import Foundation
 /// `kaiba edit`, portable across every provider adapter.
 
 public extension NoteService {
+  private struct AgentChatEditApplication {
+    let note: Note
+    let turn: Note
+    let dispatches: [QueuedAutoActionDispatch]
+  }
+
   static let noteEditBodyOpening = "<kaiba-note-body>"
   static let noteEditBodyClosing = "</kaiba-note-body>"
 
@@ -53,19 +59,69 @@ public extension NoteService {
   /// the turn was accepted).
   internal func applyNoteEditReply(
     _ markdown: String,
+    turnNoteId: NoteID,
     subjectNoteId: NoteID,
+    conversationNotebookId: NotebookID,
+    expectedSubject: AgentChatSubject,
+    expectedLibraryId: LibraryID,
+    expectedSubjectBodyMarkdown: String?,
     originatingActionId: AutoActionID?
   ) throws -> (assistantMarkdown: String, updatedNote: Bool) {
     let parsed = Self.noteEditReply(from: markdown)
     guard let bodyMarkdown = parsed.bodyMarkdown else {
       return (markdown, false)
     }
-    _ = try updateNoteBody(
-      noteId: subjectNoteId,
-      bodyMarkdown: bodyMarkdown,
-      provenance: .ai,
-      originatingActionId: originatingActionId
-    )
+    let result = try driver.withDatabase { database in
+      try database.transaction { db -> AgentChatEditApplication in
+        try requireEnabledActingUser(in: db)
+        let conversation = try requireNotebook(conversationNotebookId, in: db)
+        guard conversation.libraryId == expectedLibraryId,
+          let currentSubject = try chatSubject(notebookId: conversationNotebookId, in: db),
+          currentSubject == expectedSubject
+        else {
+          throw NoteServiceError.invalidInput(
+            "agent chat conversation subject changed before applying edit: \(conversationNotebookId)"
+          )
+        }
+        let subject = try requireNote(subjectNoteId, in: db)
+        guard subject.bodyMarkdown == expectedSubjectBodyMarkdown else {
+          throw NoteServiceError.conflict(
+            "agent chat subject content changed before applying edit: \(subjectNoteId)"
+          )
+        }
+        let updated = try updateNoteBodyInDatabase(
+          noteId: subjectNoteId,
+          bodyMarkdown: bodyMarkdown,
+          provenance: .ai,
+          originatingActionId: originatingActionId,
+          in: db
+        )
+        try agentChatEditPrecompletionHook?(db)
+        let turn = try completeAgentChatTurnInDatabase(
+          turnNoteId: turnNoteId,
+          assistantMarkdown: parsed.commentary.isEmpty ? "Updated the note." : parsed.commentary,
+          expectedSubject: expectedSubject,
+          expectedLibraryId: expectedLibraryId,
+          in: db
+        )
+        return AgentChatEditApplication(
+          note: updated.note,
+          turn: turn,
+          dispatches: updated.dispatches
+        )
+      }
+    }
+    dispatchQueuedAutoActions(result.dispatches)
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteUpdated,
+      notebookId: result.note.notebookId
+    ))
+    if result.turn.notebookId != result.note.notebookId {
+      publishChange(NoteChangeEvent(
+        kind: NoteChangeEventKind.noteUpdated,
+        notebookId: result.turn.notebookId
+      ))
+    }
     return (parsed.commentary.isEmpty ? "Updated the note." : parsed.commentary, true)
   }
 }

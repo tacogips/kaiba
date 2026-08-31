@@ -88,6 +88,12 @@ extension NoteService {
         predicates.append("notebooks.owner_user_id = ?")
         bindings.append(.id(actingUserId))
       }
+      if actingUserId != nil || isUnauthenticatedPrincipal {
+        predicates.append(
+          "notebooks.notebook_id NOT IN (SELECT notebook_id FROM notebook_tags WHERE tag_id = ?)"
+        )
+        bindings.append(.id(NoteStoreSchema.longTermMemoryNotebookKindTagId))
+      }
       // A selected library narrows the catalog to it; without one, an unscoped
       // caller is still held to the libraries that need no authentication
       // (`design-docs/specs/library.md`).
@@ -97,7 +103,7 @@ extension NoteService {
       bindings.append(.int(Int64(offset)))
       var notebooks = try database.query(
         """
-        SELECT notebook_id, title, read_only, created_at, updated_at, library_id,
+        SELECT notebook_id, title, read_only, created_at, updated_at, library_id, owner_user_id, created_by, updated_by,
           CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
         FROM notebooks
         \(whereClause)

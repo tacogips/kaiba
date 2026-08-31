@@ -10,7 +10,9 @@ public extension NoteService {
   ) throws -> NoteLink {
     return try driver.withDatabase { database in
       try database.transaction { db in
-        try linkNotesInDatabase(
+        _ = try requireNote(fromNoteId, in: db)
+        _ = try requireNote(toNoteId, in: db)
+        return try linkNotesInDatabase(
           from: fromNoteId,
           to: toNoteId,
           linkKind: linkKind,
@@ -24,6 +26,9 @@ public extension NoteService {
   func listLinks(noteId: NoteID) throws -> [NoteLink] {
     try driver.withDatabase { database in
       _ = try requireNote(noteId, in: database)
+      // A link is visible only when both endpoints are visible. Store-wide
+      // maintenance and memory workflows may create cross-owner links, but a
+      // scoped caller must not learn the other endpoint's id or provenance.
       return try database.query(
         """
         SELECT from_note_id, to_note_id, link_kind, provenance, created_at
@@ -32,7 +37,10 @@ public extension NoteService {
         ORDER BY created_at, from_note_id, to_note_id
         """,
         bindings: [.id(noteId), .id(noteId)]
-      ).map(noteLink(from:))
+      ).map(noteLink(from:)).filter {
+        try canReachNote($0.fromNoteId, in: database)
+          && canReachNote($0.toNoteId, in: database)
+      }
     }
   }
 
@@ -52,7 +60,10 @@ public extension NoteService {
         WHERE from_note_id = ? OR to_note_id = ?
         """,
         bindings: [.id(noteId), .id(noteId)]
-      ).map(noteLink(from:))
+      ).map(noteLink(from:)).filter {
+        try canReachNote($0.fromNoteId, in: database)
+          && canReachNote($0.toNoteId, in: database)
+      }
       let excludedIds = Set(links.map { $0.counterpartNoteId(for: noteId) } + [noteId])
       let results = try filterReachable(
         try noteGraphNeighborsInDatabase(
@@ -60,6 +71,11 @@ public extension NoteService {
           maxDepth: NoteGraphPolicy.associationMaxDepth,
           limit: limit,
           resultExclusions: excludedIds,
+          scope: NoteSearchScope(
+            reachableLibraryIds: try reachableLibraryIds(in: database),
+            actingUserId: actingUserId,
+            excludesLongTermMemory: actingUserId != nil || isUnauthenticatedPrincipal
+          ),
           in: database
         ),
         in: database
@@ -163,10 +179,29 @@ public extension NoteService {
     return try driver.withDatabase { database in
       var sql = """
         SELECT comment_id, note_id, notebook_id, body_markdown, author, created_at
-        FROM note_comments
+        FROM note_comments c
         WHERE body_markdown LIKE ? ESCAPE '\\'
         """
       var bindings: [SQLiteValue] = [.text("%\(escapedLikePattern(trimmed))%")]
+      if let actingUserId {
+        // Restored partial copies can retain a note-anchored comment without
+        // its denormalized notebook id. Either anchor establishes ownership.
+        sql += """
+
+          AND EXISTS (
+            SELECT 1
+            FROM notebooks owner_notebook
+            WHERE owner_notebook.owner_user_id = ?
+              AND (
+                owner_notebook.notebook_id = c.notebook_id
+                OR owner_notebook.notebook_id = (
+                  SELECT notebook_id FROM notes WHERE note_id = c.note_id
+                )
+              )
+          )
+          """
+        bindings.append(.id(actingUserId))
+      }
       // A memo is as reachable as the notebook it hangs on
       // (`design-docs/specs/library.md`).
       if let reachableLibraryIds = try reachableLibraryIds(in: database) {
@@ -175,15 +210,44 @@ public extension NoteService {
         }
         sql += """
 
-          AND notebook_id IN (
-            SELECT notebook_id FROM notebooks
-            WHERE library_id IN (\(placeholders(count: reachableLibraryIds.count)))
+          AND EXISTS (
+            SELECT 1
+            FROM notebooks reachable_notebook
+            WHERE reachable_notebook.library_id IN (\(placeholders(count: reachableLibraryIds.count)))
+              AND (
+                reachable_notebook.notebook_id = c.notebook_id
+                OR reachable_notebook.notebook_id = (
+                  SELECT notebook_id FROM notes WHERE note_id = c.note_id
+                )
+              )
           )
           """
         bindings.append(contentsOf: reachableLibraryIds.sqliteBindings)
       }
+      // The store-wide long-term-memory notebook is an internal processing
+      // surface. Its bootstrap owner must not make memo rows visible through
+      // either comment anchor to a scoped (including unauthenticated) caller.
+      // Rows restored without a notebook id remain eligible when their note
+      // anchor is otherwise reachable.
+      if actingUserId != nil || isUnauthenticatedPrincipal {
+        sql += """
+
+          AND NOT EXISTS (
+            SELECT 1
+            FROM notebook_tags internal_notebook
+            WHERE internal_notebook.tag_id = ?
+              AND (
+                internal_notebook.notebook_id = c.notebook_id
+                OR internal_notebook.notebook_id = (
+                  SELECT notebook_id FROM notes WHERE note_id = c.note_id
+                )
+              )
+          )
+          """
+        bindings.append(.id(NoteStoreSchema.longTermMemoryNotebookKindTagId))
+      }
       if let notebookId {
-        sql += "\n  AND (notebook_id = ? OR note_id IN (SELECT note_id FROM notes WHERE notebook_id = ?))"
+        sql += "\n  AND (c.notebook_id = ? OR c.note_id IN (SELECT note_id FROM notes WHERE notebook_id = ?))"
         bindings.append(.id(notebookId))
         bindings.append(.id(notebookId))
       }
@@ -220,7 +284,26 @@ public extension NoteService {
   ) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
-        _ = try requireWritableNotebook(notebookId, in: db)
+        let conversation = try requireWritableNotebook(notebookId, in: db)
+        // An idempotent replay has already committed its sources and must not
+        // be invalidated if one is deleted before the retry arrives.
+        if let idempotencyKey,
+           let existing = try conversationTurn(
+             notebookId: notebookId,
+             idempotencyKey: idempotencyKey,
+             in: db
+           ) {
+          return (note: existing, dispatches: [QueuedAutoActionDispatch]())
+        }
+        try requireConversationTurnSourceNotes(using: self, turn: turn, in: db)
+        try requireConversationSourceLinks(using: self, sourceLinks: sourceLinks, in: db)
+        let sourceNoteIds = turn.sourceNoteIds + (sourceLinks?.sourceNoteIds ?? [])
+        if let sourceLibraryId = try sourceLibraryId(fromSourceNoteIds: sourceNoteIds, in: db),
+          sourceLibraryId != conversation.libraryId {
+          throw NoteServiceError.invalidInput(
+            "conversation sources must belong to the conversation library"
+          )
+        }
         let appendResult = try appendConversationTurnInDatabase(
           notebookId: notebookId,
           turn: turn,
@@ -262,13 +345,18 @@ public extension NoteService {
   ) throws -> SavedConversation {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
+        try requireConversationSourceLinks(using: self, sourceLinks: sourceLinks, in: db)
+        for turn in transcript {
+          try requireConversationTurnSourceNotes(using: self, turn: turn, in: db)
+        }
         let now = NoteStoreClock.system.now()
         let notebookId = NotebookID.generate()
         // A conversation about a note stays in that note's library. Landing it
         // in the default library would carry the transcript of an
         // authenticated library into an unauthenticated one.
         let libraryId = try inheritedLibraryId(
-          fromSourceNoteIds: sourceLinks?.sourceNoteIds ?? [],
+          fromSourceNoteIds: (sourceLinks?.sourceNoteIds ?? [])
+            + transcript.flatMap(\.sourceNoteIds),
           in: db
         )
         try db.execute(
@@ -349,9 +437,6 @@ private func appendConversationTurnInDatabase(
      ) {
     return (existing, false)
   }
-  for sourceNoteId in turn.sourceNoteIds {
-    _ = try loadNote(sourceNoteId, in: database)
-  }
   var sourceNoteIds = sourceLinks?.sourceNoteIds ?? []
   var missingSourceNoteIds: [NoteID] = []
   if let sourceLinks {
@@ -421,6 +506,44 @@ private func appendConversationTurnInDatabase(
   )
   try refreshFTS(noteId: noteId, previous: nil, in: database)
   return (try loadNote(noteId, in: database), true)
+}
+
+/// Conversation sources are an externally supplied graph entry point.  The
+/// batch hydrator deliberately stays unscoped for graph filtering, so writers
+/// must establish read-level ownership here before inserting any link.
+private func requireConversationTurnSourceNotes(
+  using service: NoteService,
+  turn: NoteConversationTurn,
+  in database: SQLiteDatabase
+) throws {
+  for sourceNoteId in turn.sourceNoteIds {
+    _ = try service.requireNote(sourceNoteId, in: database)
+  }
+}
+
+private func requireConversationSourceLinks(
+  using service: NoteService,
+  sourceLinks: NoteConversationSourceLinks?,
+  in database: SQLiteDatabase
+) throws {
+  guard let sourceLinks else { return }
+  for sourceNoteId in sourceLinks.sourceNoteIds {
+    do {
+      _ = try service.requireNote(sourceNoteId, in: database)
+    } catch let error as NoteServiceError {
+      // Missing expansion sources are an explicitly supported recovery path.
+      // A foreign source reports the same public error, so distinguish it by
+      // checking only whether a row exists and never treat it as deletable.
+      let exists = try !database.query(
+        "SELECT 1 FROM notes WHERE note_id = ? LIMIT 1",
+        bindings: [.id(sourceNoteId)]
+      ).isEmpty
+      if sourceLinks.allowMissingSourceNotes, !exists {
+        continue
+      }
+      throw error
+    }
+  }
 }
 
 private func conversationTurn(

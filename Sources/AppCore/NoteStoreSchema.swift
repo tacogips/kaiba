@@ -546,6 +546,14 @@ private let schemaStatements = [
   CREATE INDEX IF NOT EXISTS idx_notebooks_library
   ON notebooks (library_id, updated_at DESC)
   """,
+  // A translation source token must survive action-history retention pruning.
+  // It is internal state rather than user-visible notebook metadata.
+  """
+  CREATE TABLE IF NOT EXISTS notebook_translation_revisions (
+    notebook_id TEXT PRIMARY KEY REFERENCES notebooks(notebook_id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK (revision >= 0)
+  ) STRICT, WITHOUT ROWID
+  """,
   """
   CREATE TABLE IF NOT EXISTS notes (
     note_id TEXT PRIMARY KEY,
@@ -703,6 +711,7 @@ private let schemaStatements = [
   """,
   autoActionDispatchesTableStatement,
   autoActionDispatchesStatusIndexStatement,
+  autoActionCancellationTableStatement,
   noteActionLogTableStatement,
   noteActionLogActorIndexStatement,
   noteActionLogEntityIndexStatement,
@@ -777,6 +786,18 @@ private let autoActionDispatchesTableStatement = """
 
 private let autoActionDispatchesStatusIndexStatement =
   "CREATE INDEX IF NOT EXISTS idx_auto_action_dispatches_status ON auto_action_dispatches(status, created_at)"
+
+/// An explicit terminal cancellation outcome for dispatch rows. The original
+/// dispatch status remains compatible with existing stores; readers project a
+/// joined cancellation as `.cancelled` rather than conflating it with a
+/// successful provider dispatch.
+private let autoActionCancellationTableStatement = """
+  CREATE TABLE IF NOT EXISTS auto_action_dispatch_cancellations (
+    dispatch_id TEXT PRIMARY KEY REFERENCES auto_action_dispatches(dispatch_id),
+    reason TEXT NOT NULL,
+    cancelled_at TEXT NOT NULL
+  ) STRICT, WITHOUT ROWID
+  """
 
 /// Append-only per-actor action history behind undo/redo
 /// (`design-docs/specs/action-history-undo.md`). Added through this idempotent

@@ -43,6 +43,9 @@ public struct Notebook: Equatable, Sendable {
   /// it leave it nil rather than inventing the default
   /// (`design-docs/specs/library.md`).
   public var libraryId: LibraryID?
+  public var ownerUserId: UserID?
+  public var createdBy: UserID?
+  public var updatedBy: UserID?
 
   public init(
     notebookId: NotebookID,
@@ -54,7 +57,10 @@ public struct Notebook: Equatable, Sendable {
     tags: [TagAssignment] = [],
     firstNotePreview: String? = nil,
     noteCount: Int? = nil,
-    libraryId: LibraryID? = nil
+    libraryId: LibraryID? = nil,
+    ownerUserId: UserID? = nil,
+    createdBy: UserID? = nil,
+    updatedBy: UserID? = nil
   ) {
     self.notebookId = notebookId
     self.title = title
@@ -66,6 +72,9 @@ public struct Notebook: Equatable, Sendable {
     self.firstNotePreview = firstNotePreview
     self.noteCount = noteCount
     self.libraryId = libraryId
+    self.ownerUserId = ownerUserId
+    self.createdBy = createdBy
+    self.updatedBy = updatedBy
   }
 }
 
@@ -114,6 +123,8 @@ public struct Note: Equatable, Sendable {
   public var updatedAt: String
   public var metaJSON: String?
   public var tags: [TagAssignment]
+  public var createdBy: UserID?
+  public var updatedBy: UserID?
 
   public init(
     noteId: NoteID,
@@ -125,7 +136,9 @@ public struct Note: Equatable, Sendable {
     createdAt: String,
     updatedAt: String,
     metaJSON: String? = nil,
-    tags: [TagAssignment] = []
+    tags: [TagAssignment] = [],
+    createdBy: UserID? = nil,
+    updatedBy: UserID? = nil
   ) {
     self.noteId = noteId
     self.notebookId = notebookId
@@ -137,6 +150,8 @@ public struct Note: Equatable, Sendable {
     self.updatedAt = updatedAt
     self.metaJSON = metaJSON
     self.tags = tags
+    self.createdBy = createdBy
+    self.updatedBy = updatedBy
   }
 }
 
@@ -406,6 +421,7 @@ public enum AutoActionDispatchStatus: String, Codable, Equatable, Sendable {
   case pending
   case inFlight = "in_flight"
   case dispatched
+  case cancelled
 }
 
 public struct AutoActionDispatchAttempt: Codable, Equatable, Sendable {

@@ -484,7 +484,9 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "createdAt": nil,
     "updatedAt": nil,
     "metaJSON": nil,
-    "tags": "NoteTagAssignment"
+    "tags": "NoteTagAssignment",
+    "createdBy": nil,
+    "updatedBy": nil
   ],
   "Notebook": [
     "notebookId": nil,
@@ -496,7 +498,10 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "tags": "NoteTagAssignment",
     "firstNotePreview": nil,
     "noteCount": nil,
-    "libraryId": nil
+    "libraryId": nil,
+    "ownerUserId": nil,
+    "createdBy": nil,
+    "updatedBy": nil
   ],
   "NoteLibrary": [
     "libraryId": nil,

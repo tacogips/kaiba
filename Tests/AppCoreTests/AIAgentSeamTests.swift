@@ -258,7 +258,12 @@ final class KaibaAutoActionDispatcherTests: NoteTestCase {
         position: 0,
         createdAt: "2026-08-12T00:00:00Z"
       ),
-      event: NoteAutoActionEvent(trigger: trigger, notebookId: notebookId, noteId: noteId)
+      event: NoteAutoActionEvent(
+        trigger: trigger,
+        notebookId: notebookId,
+        noteId: noteId,
+        originatingIsUnauthenticatedPrincipal: false
+      )
     )
   }
 

@@ -82,7 +82,8 @@ public protocol AgentInvoking: Sendable {
 public enum AgentInvokerFactory {
   public static func makeInvoker(
     configuration: KaibaAIConfiguration?,
-    environment: [String: String] = ProcessInfo.processInfo.environment
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    executionMode: AgentGatewayExecutionMode = .local
   ) -> (any AgentInvoking)? {
     guard let agent = configuration?.agent,
       agent.backend == KaibaAgentBackendConfiguration.agentGatewayCLIBackend,
@@ -96,14 +97,25 @@ public enum AgentInvokerFactory {
       vendor: vendor,
       model: model,
       apiKeyEnvironment: agent.apiKeyEnvironmentVariable,
-      environment: environment
+      environment: environment,
+      executionMode: executionMode
     )
-    return invoker.isAvailable ? invoker : nil
+    do {
+      try invoker.validateAvailability()
+      if let translationVendor = configuration?.translate?.provider,
+        !translationVendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        try invoker.validateAvailability(vendor: translationVendor)
+      }
+      return invoker
+    } catch {
+      return nil
+    }
   }
 
   public static func describeAvailability(
     configuration: KaibaAIConfiguration?,
-    environment: [String: String] = ProcessInfo.processInfo.environment
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    executionMode: AgentGatewayExecutionMode = .local
   ) -> String {
     guard let agent = configuration?.agent else {
       return "no agent backend configured (ai.agent is absent in config.json)"
@@ -124,10 +136,16 @@ public enum AgentInvokerFactory {
       vendor: vendor,
       model: model,
       apiKeyEnvironment: agent.apiKeyEnvironmentVariable,
-      environment: environment
+      environment: environment,
+      executionMode: executionMode
     )
     do {
       let binary = try invoker.resolveBinary()
+      try invoker.validateAvailability()
+      if let translationVendor = configuration?.translate?.provider,
+        !translationVendor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        try invoker.validateAvailability(vendor: translationVendor)
+      }
       return "agent-gateway ready at \(binary) (vendor \(vendor), model \(model))"
     } catch AgentInvocationError.unavailable(let message) {
       return message

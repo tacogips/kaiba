@@ -21,7 +21,10 @@ export interface NoteEventStreamOptions {
 }
 
 interface NoteEventPollResponse {
-  revision: number
+  /** Opaque, principal-bound cursor; never a global store revision. */
+  revision: string
+  /** True when the server issued a new cursor and a refresh is required. */
+  resync?: boolean
   events: NoteChangeEvent[]
 }
 
@@ -32,8 +35,9 @@ const FAILURES_BEFORE_UNAVAILABLE = 5
  * Subscribes to the `/note/events` long-poll feed. Browser deployments use
  * same-origin fetch; native apps resolve the path against their configured
  * server. The server holds
- * each request open until the store's revision passes the one we last saw, so
- * updates arrive with push latency over a plain request/response transport.
+ * each request open until an event visible to the caller arrives, so updates
+ * arrive with push latency over a plain request/response transport without
+ * exposing global store activity through a shared revision or wake timing.
  * Events only schedule refreshes on the caller's side; an unavailable feed
  * degrades to the caller's manual refresh behavior.
  */
@@ -44,7 +48,7 @@ export function subscribeNoteEvents(options: NoteEventStreamOptions): () => void
   let connected = false
   let failures = 0
   let reportedUnavailable = false
-  let revision = 0
+  let revision = '0'
   let abort = new AbortController()
 
   const run = async (): Promise<void> => {
@@ -64,22 +68,26 @@ export function subscribeNoteEvents(options: NoteEventStreamOptions): () => void
           throw new Error(`note event feed unavailable (${response.status})`)
         }
         const payload = (await response.json()) as Partial<NoteEventPollResponse>
-        if (typeof payload.revision !== 'number') {
+        if (typeof payload.revision !== 'string') {
           throw new Error('note event feed returned a malformed payload')
         }
         if (closed) return
-        revision = payload.revision
-        failures = 0
-        reportedUnavailable = false
-        // Only on (re)connect, never per poll: the subscriber treats onConnect
-        // as "you may have missed events, refresh once".
-        if (!connected) {
-          connected = true
+        // Only on (re)connect or a server cursor reset, never per ordinary
+        // poll: the subscriber treats onConnect as "refresh once".
+        const shouldConnect = !connected || payload.resync === true
+        if (shouldConnect) {
           options.onConnect()
         }
         for (const event of payload.events ?? []) {
           if (typeof event?.kind === 'string') options.onEvent(event)
         }
+        // A server cursor is acknowledged only after every callback accepts
+        // the complete batch. If a callback throws, retry the old cursor so
+        // the server can replay its retained events rather than dropping one.
+        revision = payload.revision
+        connected = true
+        failures = 0
+        reportedUnavailable = false
         continue
       } catch {
         if (closed) return

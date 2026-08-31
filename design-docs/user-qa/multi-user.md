@@ -94,17 +94,16 @@ off on the grounds that sharing has not arrived.
 
 ### Should `/note/agent-stream` and `/note/events` be scoped now?
 
-**Status**: Pending, deferred to `impl-plans/active/note-api-auth.md`.
+**Status**: Done — TASK-408 shipped with the completed multi-user plan.
 
-Neither route enters `NoteService`, so the ownership predicate does not reach
-them: the agent stream serves any turn note by id, and the change feed hands
-every poller each mutation's `notebookId` and `tagNames`. Both are open item 6
-of `design-docs/specs/note-api-auth.md:115-124`, and the fix is the same one
-that closes the library boundary there — carry the authenticated `userId` the
-routes currently discard, filter the feed through `reachableLibraryIds`, and
-resolve the turn note through `requireNote`. That plan is out of scope for this
-work, so this work records the gap rather than closing it, and the boundary
-claim here is scoped to the GraphQL surface and the file-byte route.
+Both routes now enter a request-scoped `NoteService`: agent streaming resolves
+the requested turn through `requireNote` before polling, and event polling
+uses an opaque, principal-bound cursor that advances and wakes only for events
+visible through the same owner/library boundary. A deleted notebook carries
+internal owner and library snapshots so its owner receives the refresh only
+while that library remains reachable; the snapshots are never serialized.
+Operational authorization failures answer 500 without advancing the caller
+cursor.
 
 ### Should the tag memo notebook become per-user?
 
@@ -131,11 +130,11 @@ permanent per-tag `notFound` for every account but the first.
 
 The long-term memory notebook is a store-wide singleton keyed by
 `notebook-kind:long-term-memory`, so a second account cannot own a second copy.
-Ownership enforcement therefore carves it out rather than locking every account
-but its creator out of the store's memory. Today it is reached only unscoped
-(bootstrap, no GraphQL field, no CLI command), so the carve-out changes no
-behavior. Making memory per-user means dropping the singleton guard in favor of
-one notebook per owner, which is a larger change than closing this boundary.
+Until it becomes per-user, scoped access is refused rather than exempted:
+memory-source links and a guessed note id must not disclose store-wide memory.
+Unscoped internal processing retains the singleton behavior. Making memory
+per-user means dropping the singleton guard in favor of one notebook per owner,
+which remains a larger change than closing this boundary.
 
 ### Should the tag detail aggregates carry a library predicate?
 

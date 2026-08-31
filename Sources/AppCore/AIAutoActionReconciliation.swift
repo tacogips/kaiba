@@ -19,7 +19,9 @@ public enum AIAutoActionReconciliation {
   public static func reconcile(
     service: NoteService,
     aiConfiguration: KaibaAIConfiguration?,
-    invokerAvailable: Bool
+    invokerAvailable: Bool,
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    executionMode: AgentGatewayExecutionMode = .local
   ) throws -> [String] {
     var lines: [String] = []
     let tagging = invokerAvailable && (aiConfiguration?.autoTagEnabled ?? false)
@@ -43,7 +45,11 @@ public enum AIAutoActionReconciliation {
     )
     lines.append("agentChatReplies=\(chat ? "on" : "off")")
     if !invokerAvailable, aiConfiguration != nil {
-      lines.append(AgentInvokerFactory.describeAvailability(configuration: aiConfiguration))
+      lines.append(AgentInvokerFactory.describeAvailability(
+        configuration: aiConfiguration,
+        environment: environment,
+        executionMode: executionMode
+      ))
     }
     return lines
   }

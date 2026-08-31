@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-08-31",
+  "status": "implementation_complete_review_pending",
+  "estimatedCompletionPercent": 99,
+  "workflow": {
+    "name": "codex-design-and-implement-review-loop",
+    "sessionId": "codex-design-and-implement-review-loop-session-51",
+    "currentStep": "step6-implement-self-review",
+    "sessionStatus": "failed",
+    "failureKind": "adapterFailure",
+    "failureReason": "invalid_output: agent-gateway stream ended without a session/prompt response",
+    "lastCompletedStep": "step6-implement",
+    "sessionLineage": [
+      "codex-design-and-implement-review-loop-session-46",
+      "codex-design-and-implement-review-loop-session-50",
+      "codex-design-and-implement-review-loop-session-51",
+      "fable-and-improve-opus-session-52",
+      "fable-and-improve-opus-session-53"
+    ],
+    "successorAttempts": [
+      {
+        "sessionId": "fable-and-improve-opus-session-52",
+        "status": "failed",
+        "failureReason": "kb-recall-prior: unsupportedLegacyVersion(found: 10, required: 17) against the default kaiba note root"
+      },
+      {
+        "sessionId": "fable-and-improve-opus-session-53",
+        "status": "failed",
+        "failureReason": "fable-analysis: adapterFailure, agent-gateway/claude-code did not return a JSON object"
+      }
+    ],
+    "rielaAccepted": false,
+    "reviewsCompleted": []
+  },
+  "completed": [
+    "Implemented the accepted multi-user ownership and authorization plan",
+    "Implemented principal-bound tokens and authenticated event and reply streams",
+    "Implemented lease-fenced provider workflows, recovery, and bounded gateway execution",
+    "Implemented bounded reply payload retention and client resynchronization",
+    "Moved the multi-user implementation plan to completed",
+    "Passed the latest recorded full Swift, web, lint, build, and Tauri gate before comm-000677",
+    "Recorded the comm-000681 agent-chat source-revision remediation and deterministic post-output regression",
+    "Step 6 self-review accepted the comm-000681 remediation in comm-000684 before Step 7 identified comm-000685",
+    "Implemented the comm-000687 non-prunable translation source-revision remediation and low-retention regression",
+    "Step 6 implementation, self-review, test integrity, and ordinary review completed in comm-000688 through comm-000691",
+    "Passed the comm-000691 repository gate: 701 XCTest, 37 Swift Testing, 157 Bun, and 35 Vitest tests",
+    "Implemented comm-000692 gateway cleanup and incomplete-request deadline remediation; focused tests, SwiftLint, and mise run check passed",
+    "Implemented and verified comm-000694 post-waitpid lifecycle and absolute incomplete-request deadline remediation",
+    "Implemented comm-000696 synchronized waitpid/reap-state/process-group termination authority with an exact interleaving regression",
+    "Passed comm-000696 complete verification: 705 XCTest, 37 Swift Testing, 157 Bun, 35 Vitest, SwiftLint, web build, and Tauri checks",
+    "Implemented comm-000699 scheduled-SIGKILL grace-escalation regression coverage; focused lifecycle verification and eight repeated runs passed",
+    "Implemented comm-000701 SIGTERM-exit lifecycle regression and explicit child SIGTERM disposition/mask restoration",
+    "Passed the comm-000701 clean repository gate: 705 XCTest, 37 Swift Testing, 157 Bun, and 35 Vitest tests",
+    "Implemented comm-000703 deterministic terminal-stream cancellation coverage and post-reap lifecycle timeout-attempt readiness",
+    "Passed the comm-000703 repository gate: 705 XCTest, 37 Swift Testing, 157 Bun, and 35 Vitest tests",
+    "Implemented comm-000707 queued source-churn retry accounting and closed-descriptor descendant cleanup regressions",
+    "Passed the comm-000707 focused translation/gateway suite and complete repository gate: 707 XCTest, 37 Swift Testing, 157 Bun, and 35 Vitest tests",
+    "Implemented the comm-000709 process-group identity remediation with an unreaped direct-child witness and four lifecycle regressions",
+    "Passed focused AgentGatewayCLIInvokerTests and AgentGatewayCLIInvokerLifecycleTests: 29 XCTest tests",
+    "Passed the comm-000709 focused and full gates: 90 focused XCTest tests; mise run lint (3 non-serious warnings); mise run build; mise run check (707 XCTest, 37 Swift Testing, 157 Bun, and 35 Vitest tests); and git diff --check",
+    "Implemented the comm-000711 production post-exit cleanup wait and un-injected cancellation regression",
+    "Passed the comm-000711 focused and full gates: 91 focused XCTest tests; mise run lint (3 non-serious warnings); mise run build; mise run check (708 XCTest, 37 Swift Testing, 157 Bun, and 35 Vitest tests); and git diff --check",
+    "Passed a full repository gate on the committed worktree: 710 XCTest, 37 Swift Testing, 157 Bun, and 35 Vitest tests; SwiftLint 3 violations and 0 serious; web:check, tauri:check, and git diff --check all clean"
+  ],
+  "currentRemediation": [],
+  "remainingGates": [
+    "Step 6 self-review has not run to completion",
+    "Step 6 test-integrity review has not run to completion",
+    "Step 7 ordinary review has not run to completion",
+    "Adversarial acceptance has not run to completion",
+    "Re-verify the ownership-witness descendant-liveness remediation under review"
+  ],
+  "latestRecordedVerification": {
+    "xctest": 710,
+    "swiftTesting": 37,
+    "bun": 157,
+    "vitest": 35,
+    "swiftLint": "passed with 3 non-serious warnings, 0 serious",
+    "webBuild": "passed",
+    "tauri": "passed",
+    "gitDiffCheck": "passed",
+    "verifiedBy": "direct mise run check, not a Riela review step"
+  },
+  "deferred": [
+    "TASK-409 Host/Origin hardening and browser login",
+    "Per-user long-term memory",
+    "Sharing-era attribution",
+    "Linux served-gateway runtime execution",
+    "Right-pane runtime browser validation due to unavailable browser"
+  ],
+  "commit": {
+    "requested": true,
+    "created": true,
+    "pushed": true,
+    "boundary": "completed implementation, pending review",
+    "authorizedBy": "explicit user request to commit and push"
+  },
+  "notes": [
+    "This commit was created and pushed at the user's explicit request at a completed-implementation but pending-review boundary. Riela did not reach terminal acceptance.",
+    "No Riela review step (self-review, test-integrity, ordinary, or adversarial) completed in any session; every session ended in adapterFailure.",
+    "The verification totals above come from running mise run check directly, not from a Riela review gate.",
+    "The completion percentage stays below 100 because the review gates listed in remainingGates were never satisfied.",
+    "Riela's authoritative runtime state is stored outside the repository under its session store.",
+    "The default kaiba note root at the user's home directory is schema version 10 while the current kaiba requires 17, and kaiba carries no migrations, so the prior knowledge base is unreadable by the current binary."
+  ]
+}

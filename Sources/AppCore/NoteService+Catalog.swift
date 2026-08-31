@@ -54,6 +54,7 @@ public extension NoteService {
     }
     return try driver.withDatabase { database in
       try database.transaction { db in
+        try requireEnabledActingUser(in: db)
         if let classId, !classId.isEmpty {
           _ = try requireTagClass(classId: classId, in: db)
         }

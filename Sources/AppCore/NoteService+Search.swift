@@ -25,6 +25,8 @@ public extension NoteService {
         scope: NoteSearchScope(
           notebookId: notebookId,
           reachableLibraryIds: try reachableLibraryIds(in: database),
+          actingUserId: actingUserId,
+          excludesLongTermMemory: actingUserId != nil || isUnauthenticatedPrincipal,
           createdAfter: createdAfter,
           createdBefore: createdBefore
         ),

@@ -15,6 +15,7 @@ final class NoteGraphQLNotebookStatsTests: XCTestCase {
       ]
     )
     let notebookId = try XCTUnwrap(created.notebook?.notebookId)
+    let noteId = try XCTUnwrap(created.notes.first?.noteId)
 
     let fetched = await service.notebook(notebookId: notebookId)
     XCTAssertEqual(fetched.value?.noteCount, 2)
@@ -36,11 +37,83 @@ final class NoteGraphQLNotebookStatsTests: XCTestCase {
     let value = try objectValue(payload["value"], field: "notebook.value")
     XCTAssertEqual(value["notebookId"], .string(notebookId.rawValue))
     XCTAssertEqual(value["noteCount"], .integer(2))
+
+    let attributed = await executor.execute(GraphQLDocumentRequest(
+      query: """
+      query Attribution($noteId: String!, $notebookId: String!) {
+        note(noteId: $noteId) { value { createdBy updatedBy } }
+        notebook(notebookId: $notebookId) { value { ownerUserId createdBy updatedBy } }
+      }
+      """,
+      variables: ["noteId": .string(noteId.rawValue), "notebookId": .string(notebookId.rawValue)],
+      operationName: "Attribution"
+    ))
+    let noteValue = try objectValue(
+      try graphQLPayload(attributed.body, field: "note")["value"],
+      field: "note.value"
+    )
+    let notebookValue = try objectValue(
+      try graphQLPayload(attributed.body, field: "notebook")["value"],
+      field: "notebook.value"
+    )
+    XCTAssertEqual(noteValue["createdBy"], .string(NoteStoreSchema.defaultUserId.rawValue))
+    XCTAssertEqual(noteValue["updatedBy"], .string(NoteStoreSchema.defaultUserId.rawValue))
+    XCTAssertEqual(notebookValue["ownerUserId"], .string(NoteStoreSchema.defaultUserId.rawValue))
+    XCTAssertEqual(notebookValue["createdBy"], .string(NoteStoreSchema.defaultUserId.rawValue))
+    XCTAssertEqual(notebookValue["updatedBy"], .string(NoteStoreSchema.defaultUserId.rawValue))
   }
 
   func testPublishedNoteSchemaIncludesNotebookNoteCount() throws {
     XCTAssertTrue(GraphQLContractProjector.schemaContract.contains("noteCount: Int"))
     XCTAssertTrue(try schemaFieldNames("Notebook").contains("noteCount"))
+    XCTAssertTrue(GraphQLContractProjector.schemaContract.contains("ownerUserId: String"))
+    XCTAssertTrue(GraphQLContractProjector.schemaContract.contains("createdBy: String"))
+    XCTAssertTrue(GraphQLContractProjector.schemaContract.contains("updatedBy: String"))
+    XCTAssertTrue(try schemaFieldNames("Notebook").isSuperset(of: ["ownerUserId", "createdBy", "updatedBy"]))
+    XCTAssertTrue(try schemaFieldNames("Note").isSuperset(of: ["createdBy", "updatedBy"]))
+    XCTAssertTrue(try schemaFieldNames("Note").isDisjoint(with: ["ownerUserId"]))
+  }
+
+  func testScopedGraphQLCannotReadADiscoveredLongTermMemoryNote() async throws {
+    let service = try makeNoteGraphQLService()
+    let alice = try service.service.createUser(email: "alice@example.com", displayName: "Alice")
+    let source = try service.service.scoped(to: alice.userId).createNote(bodyMarkdown: "Alice source")
+    let memory = try XCTUnwrap(try service.service.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(
+        bodyMarkdown: "Consolidated cross-account memory",
+        sourceNoteIds: [source.noteId]
+      )],
+      idempotencyKey: "graphql-memory-refusal"
+    ).notes.first)
+    let scoped = GraphQLNoteGraphQLService(service: service.service.scoped(to: alice.userId))
+
+    let response = await scoped.note(noteId: memory.noteId)
+
+    XCTAssertFalse(response.result.accepted)
+    XCTAssertEqual(response.result.status, "not_found")
+    XCTAssertNil(response.value)
+  }
+
+  func testDefaultAndUnauthenticatedGraphQLCannotReadInternalLongTermMemoryNote() async throws {
+    let service = try makeNoteGraphQLService()
+    let source = try service.service.createNote(bodyMarkdown: "Default source")
+    let memory = try XCTUnwrap(try service.service.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(
+        bodyMarkdown: "Default-account internal memory",
+        sourceNoteIds: [source.noteId]
+      )],
+      idempotencyKey: "graphql-default-memory-refusal"
+    ).notes.first)
+
+    for scopedService in [
+      service.service.scoped(to: NoteStoreSchema.defaultUserId),
+      service.service.scoped(to: NoteStoreSchema.defaultUserId).unauthenticated()
+    ] {
+      let response = await GraphQLNoteGraphQLService(service: scopedService).note(noteId: memory.noteId)
+      XCTAssertFalse(response.result.accepted)
+      XCTAssertEqual(response.result.status, "not_found")
+      XCTAssertNil(response.value)
+    }
   }
 
   private func makeNoteGraphQLService(function: String = #function) throws -> GraphQLNoteGraphQLService {

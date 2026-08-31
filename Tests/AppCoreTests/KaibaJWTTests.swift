@@ -98,6 +98,63 @@ final class NoteServiceAuthTokenTests: NoteTestCase {
     XCTAssertThrowsError(try service.resolveAuthToken(token))
   }
 
+  func testScopedNonAdminCannotIssueAnAuthenticationToken() throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+
+    XCTAssertThrowsError(
+      try service.scoped(to: alice.userId).issueAuthToken(userId: NoteStoreSchema.defaultUserId)
+    ) { error in
+      XCTAssertEqual(error as? NoteServiceError, .notFound("control-plane resource not found"))
+    }
+  }
+
+  func testAgentTokenIssuanceClassifiesDisabledAccounts() throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    _ = try service.setUserDisabled(userId: alice.userId, disabled: true)
+
+    XCTAssertThrowsError(try service.issueAgentToken(userId: alice.userId, ttlSeconds: 300)) { error in
+      XCTAssertEqual(error as? KaibaAgentTokenIssuingError, .accountUnavailable)
+    }
+  }
+
+  func testAgentTokenIssuanceForAnEnabledAccountProducesAResolvableJWT() throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+
+    let issue = try service.issueAgentToken(userId: alice.userId, ttlSeconds: 300)
+    let claims = try KaibaJWT.verify(issue.token, secret: service.authTokenSigningSecret())
+
+    XCTAssertEqual(try service.resolveAuthToken(issue.token).userId, alice.userId)
+    XCTAssertEqual(claims.subject, alice.userId.rawValue)
+    XCTAssertEqual(claims.expiresAt - claims.issuedAt, 300)
+    XCTAssertEqual(issue.expiresAt, claims.expiresAt)
+  }
+
+  func testConcurrentAgentTokenIssuanceUsesOneCanonicalSigningSecret() async throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+
+    let issues = try await withThrowingTaskGroup(of: KaibaAgentTokenIssue.self) { group in
+      for _ in 0..<32 {
+        group.addTask {
+          try service.issueAgentToken(userId: alice.userId, ttlSeconds: 300)
+        }
+      }
+      var collected: [KaibaAgentTokenIssue] = []
+      for try await issue in group {
+        collected.append(issue)
+      }
+      return collected
+    }
+
+    XCTAssertEqual(issues.count, 32)
+    for issue in issues {
+      XCTAssertEqual(try service.resolveAuthToken(issue.token).userId, alice.userId)
+    }
+  }
+
   func testATokenFromAnotherStoreIsRefused() throws {
     let service = try makeService()
     let other = try makeService(function: "otherStoreForTokenIsolation")

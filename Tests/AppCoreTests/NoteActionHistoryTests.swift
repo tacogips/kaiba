@@ -223,13 +223,23 @@ final class NoteActionHistoryTests: NoteTestCase {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
     let notebook = try service.createNotebook(title: "Occupied")
-    // Another actor fills the notebook; their entry lives in *their* history,
-    // so the default actor's undo target stays the notebook creation.
-    let other = try service.createUser(email: "occupant@example.com", displayName: "Occupant")
-    _ = try service.scoped(to: other.userId).createNote(
-      notebookId: notebook.notebookId,
-      bodyMarkdown: "occupant note"
-    )
+    // A raw storage write simulates an independently committed occupant while
+    // keeping the default actor's history target on notebook creation.
+    try driver.withDatabase { database in
+      try database.execute(
+        """
+        INSERT INTO notes (
+          note_id, notebook_id, note_number, title, title_source, body_markdown,
+          read_only, created_by, updated_by, created_at, updated_at, meta_json
+        ) VALUES (?, ?, 1, NULL, 'derived', ?, 0, ?, ?, ?, ?, NULL)
+        """,
+        bindings: [
+          .id(NoteID.generate()), .id(notebook.notebookId), .text("occupant note"),
+          .id(NoteStoreSchema.defaultUserId), .id(NoteStoreSchema.defaultUserId),
+          .text(NoteStoreClock.system.now()), .text(NoteStoreClock.system.now())
+        ]
+      )
+    }
     XCTAssertThrowsError(try service.undoLastAction()) { error in
       guard case NoteServiceError.conflict = error else {
         return XCTFail("expected conflict, got \(error)")

@@ -57,7 +57,7 @@ final class KaibaNoteFileHTTPRouterTests: XCTestCase {
     XCTAssertEqual(response.status, 200)
     XCTAssertEqual(response.headers["Content-Type"], "image/png")
     XCTAssertEqual(response.headers["Content-Length"], String(pngBytes.count))
-    XCTAssertEqual(response.headers["Cache-Control"], "private, max-age=3600")
+    XCTAssertEqual(response.headers["Cache-Control"], "private, no-store")
     XCTAssertEqual(response.body, pngBytes)
   }
 

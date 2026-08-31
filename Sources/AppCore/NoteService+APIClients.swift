@@ -20,6 +20,7 @@ public extension NoteService {
     let ownerUserId = userId ?? writeOwnerUserId()
     return try driver.withDatabase { database in
       try database.transaction { db in
+        try requireStoreAdministrator(in: db)
         let owner = try requireUser(ownerUserId, in: db)
         guard owner.isEnabled else {
           throw NoteServiceError.invalidInput("user is disabled: \(ownerUserId)")
@@ -47,15 +48,19 @@ public extension NoteService {
 
   func listAPIClients(includeRevoked: Bool = false) throws -> [NoteAPIClient] {
     try driver.withDatabase { database in
-      let predicate = includeRevoked ? "" : "WHERE revoked_at IS NULL"
-      return try database.query(
-        """
-        SELECT client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at
-        FROM api_clients
-        \(predicate)
-        ORDER BY created_at DESC, client_id
-        """
-      ).map(apiClient(from:))
+      try database.transaction { db in
+        try requireStoreAdministrator(in: db)
+        try apiClientListAfterAuthorizationHook?(db)
+        let predicate = includeRevoked ? "" : "WHERE revoked_at IS NULL"
+        return try db.query(
+          """
+          SELECT client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at
+          FROM api_clients
+          \(predicate)
+          ORDER BY created_at DESC, client_id
+          """
+        ).map(apiClient(from:))
+      }
     }
   }
 
@@ -63,6 +68,7 @@ public extension NoteService {
   func revokeAPIClient(clientId: APIClientID) throws -> NoteAPIClient {
     try driver.withDatabase { database in
       try database.transaction { db in
+        try requireStoreAdministrator(in: db)
         _ = try requireAPIClient(clientId, in: db)
         try db.execute(
           "UPDATE api_clients SET revoked_at = coalesce(revoked_at, ?) WHERE client_id = ?",
@@ -79,9 +85,13 @@ public extension NoteService {
       try database.transaction { db in
         let rows = try db.query(
           """
-          SELECT client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at
-          FROM api_clients
-          WHERE token_hash = ? AND revoked_at IS NULL
+          SELECT c.client_id, c.display_name, c.token_hash, c.user_id,
+            c.created_at, c.last_seen_at, c.revoked_at
+          FROM api_clients AS c
+          INNER JOIN users AS u ON u.user_id = c.user_id
+          WHERE c.token_hash = ?
+            AND c.revoked_at IS NULL
+            AND u.disabled_at IS NULL
           LIMIT 1
           """,
           bindings: [.text(tokenHash)]

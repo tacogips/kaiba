@@ -22,6 +22,7 @@ public extension NoteService {
     let name = trimmedName.isEmpty ? (normalizedEmail ?? "Unnamed user") : trimmedName
     return try driver.withDatabase { database in
       try database.transaction { db in
+        try requireStoreAdministrator(in: db)
         if let normalizedEmail, try userRow(email: normalizedEmail, in: db) != nil {
           throw NoteServiceError.invalidInput("a user already exists for \(normalizedEmail)")
         }
@@ -47,21 +48,28 @@ public extension NoteService {
 
   func listUsers(includeDisabled: Bool = false) throws -> [NoteUser] {
     try driver.withDatabase { database in
-      let predicate = includeDisabled ? "" : "WHERE disabled_at IS NULL"
-      return try database.query(
-        """
-        SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
-        FROM users
-        \(predicate)
-        ORDER BY is_default DESC, created_at, user_id
-        """
-      ).map(noteUser(from:))
+      try database.transaction { db in
+        try requireStoreAdministrator(in: db)
+        try userListAfterAuthorizationHook?(db)
+        let predicate = includeDisabled ? "" : "WHERE disabled_at IS NULL"
+        return try db.query(
+          """
+          SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
+          FROM users
+          \(predicate)
+          ORDER BY is_default DESC, created_at, user_id
+          """
+        ).map(noteUser(from:))
+      }
     }
   }
 
   func user(id userId: UserID) throws -> NoteUser? {
     try driver.withDatabase { database in
-      try userRow(id: userId, in: database).map(noteUser(from:))
+      guard try canReadUser(userId, in: database) else {
+        return nil
+      }
+      return try userRow(id: userId, in: database).map(noteUser(from:))
     }
   }
 
@@ -72,7 +80,11 @@ public extension NoteService {
       return nil
     }
     return try driver.withDatabase { database in
-      try userRow(email: normalizedEmail, in: database).map(noteUser(from:))
+      guard let user = try userRow(email: normalizedEmail, in: database).map(noteUser(from:)),
+            try canReadUser(user.userId, in: database) else {
+        return nil
+      }
+      return user
     }
   }
 
@@ -80,6 +92,7 @@ public extension NoteService {
   func setUserDisabled(userId: UserID, disabled: Bool) throws -> NoteUser {
     try driver.withDatabase { database in
       try database.transaction { db in
+        try requireStoreAdministrator(in: db)
         let user = try requireUser(userId, in: db)
         if disabled && user.isDefault {
           throw NoteServiceError.invalidInput("the default user cannot be disabled")
@@ -107,6 +120,7 @@ public extension NoteService {
   func setUserAdmin(userId: UserID, isAdmin: Bool) throws -> NoteUser {
     try driver.withDatabase { database in
       try database.transaction { db in
+        try requireStoreAdministrator(in: db)
         let user = try requireUser(userId, in: db)
         if !isAdmin && user.isAdmin {
           try requireAnotherEnabledAdmin(besides: userId, action: "demoted", in: db)
@@ -126,14 +140,18 @@ public extension NoteService {
   /// The enabled admins, default user first.
   func listAdminUsers() throws -> [NoteUser] {
     try driver.withDatabase { database in
-      try database.query(
-        """
-        SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
-        FROM users
-        WHERE is_admin = 1 AND disabled_at IS NULL
-        ORDER BY is_default DESC, created_at, user_id
-        """
-      ).map(noteUser(from:))
+      try database.transaction { db in
+        try requireStoreAdministrator(in: db)
+        try userListAfterAuthorizationHook?(db)
+        return try db.query(
+          """
+          SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
+          FROM users
+          WHERE is_admin = 1 AND disabled_at IS NULL
+          ORDER BY is_default DESC, created_at, user_id
+          """
+        ).map(noteUser(from:))
+      }
     }
   }
 
@@ -157,6 +175,81 @@ public extension NoteService {
 // caller's transaction, immediately after the row is written, which keeps the
 // column lists of the existing statements untouched.
 extension NoteService {
+  /// Looks up a user without applying the request principal. Authentication and
+  /// login workflows need this after proving a credential or login code; the
+  /// public lookup methods intentionally do not expose foreign accounts.
+  func storedUser(id userId: UserID) throws -> NoteUser? {
+    try driver.withDatabase { database in
+      try userRow(id: userId, in: database).map(noteUser(from:))
+    }
+  }
+
+  func storedUser(email: String) throws -> NoteUser? {
+    guard let normalizedEmail = try normalizedUserEmail(email) else {
+      return nil
+    }
+    return try driver.withDatabase { database in
+      try userRow(email: normalizedEmail, in: database).map(noteUser(from:))
+    }
+  }
+
+  /// User records are account metadata, not catalog data. A scoped caller can
+  /// read only itself unless it is an enabled administrator; foreign and
+  /// missing records therefore remain indistinguishable.
+  func canReadUser(_ userId: UserID, in database: SQLiteDatabase) throws -> Bool {
+    guard let actingUserId else {
+      return !isUnauthenticatedPrincipal
+    }
+    guard actingUserId != userId else {
+      return true
+    }
+    guard !isUnauthenticatedPrincipal else {
+      return false
+    }
+    let actingUser = try requireUser(actingUserId, in: database)
+    return actingUser.disabledAt == nil && actingUser.isAdmin
+  }
+
+  /// Checks the scoped writer at a workflow boundary. Mutating operations must
+  /// still call the database variant below so the check and write share one
+  /// transaction.
+  func requireEnabledActingUser() throws {
+    try driver.withDatabase { database in
+      try requireEnabledActingUser(in: database)
+    }
+  }
+
+  /// Revalidates the scoped writer inside the transaction that will mutate
+  /// data. Queued AI work can outlive account disablement, so checking only
+  /// when the dispatcher starts is insufficient.
+  func requireEnabledActingUser(in database: SQLiteDatabase) throws {
+    try requireActiveAutoActionDispatchLease(in: database)
+    guard let actingUserId else { return }
+    guard try requireUser(actingUserId, in: database).disabledAt == nil else {
+      throw NoteServiceError.accountUnavailable(
+        "account is disabled: \(actingUserId)"
+      )
+    }
+  }
+
+  /// Account and store-control operations are available to the local operator
+  /// and to enabled administrators, never to an ordinary JWT-scoped caller.
+  /// Keeping this check in the caller's transaction prevents a principal from
+  /// being demoted or disabled between authorization and the protected write.
+  func requireStoreAdministrator(in database: SQLiteDatabase) throws {
+    guard !isUnauthenticatedPrincipal else {
+      throw NoteServiceError.notFound("control-plane resource not found")
+    }
+    guard let actingUserId else { return }
+    let user = try requireUser(actingUserId, in: database)
+    guard user.disabledAt == nil else {
+      throw NoteServiceError.accountUnavailable("account is disabled: \(actingUserId)")
+    }
+    guard user.isAdmin else {
+      throw NoteServiceError.notFound("control-plane resource not found")
+    }
+  }
+
   func stampNoteCreated(_ noteId: NoteID, in db: SQLiteDatabase) throws {
     try db.execute(
       "UPDATE notes SET created_by = ?, updated_by = ? WHERE note_id = ?",
@@ -225,7 +318,7 @@ func requireUser(_ userId: UserID, in database: SQLiteDatabase) throws -> NoteUs
 }
 
 func userRow(id userId: UserID, in database: SQLiteDatabase) throws -> SQLiteRow? {
-  try database.query(
+      return try database.query(
     """
     SELECT user_id, email, display_name, is_default, is_admin, created_at, disabled_at
     FROM users

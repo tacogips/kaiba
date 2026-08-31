@@ -173,6 +173,138 @@ final class NoteServiceNotebookExpansionTests: NoteTestCase {
     XCTAssertEqual(turn["missingSourceNoteIds"], .ids([source.noteId]))
   }
 
+  func testConversationTurnReplaySurvivesDeletedTurnSource() throws {
+    let service = try makeService()
+    let source = try service.createNote(bodyMarkdown: "Source")
+    let saved = try service.saveConversation(title: "Expansion", transcript: [])
+    let turn = NoteConversationTurn(
+      userMarkdown: "Next?",
+      assistantMarkdown: "Answer",
+      sourceNoteIds: [source.noteId]
+    )
+
+    let first = try service.appendConversationTurn(
+      notebookId: saved.notebook.notebookId,
+      turn: turn,
+      idempotencyKey: "turn-source-replay"
+    )
+    try service.deleteNote(noteId: source.noteId)
+
+    let replay = try service.appendConversationTurn(
+      notebookId: saved.notebook.notebookId,
+      turn: turn,
+      idempotencyKey: "turn-source-replay"
+    )
+
+    XCTAssertEqual(replay.noteId, first.noteId)
+    XCTAssertEqual(try service.listNotes(notebookId: saved.notebook.notebookId).count, 1)
+  }
+
+  func testConversationSourcesCannotCrossNotebookOwnership() throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
+    let aliceService = service.scoped(to: alice.userId)
+    let bobService = service.scoped(to: bob.userId)
+    let aliceSource = try aliceService.createNote(bodyMarkdown: "Alice source")
+    let bobNotebook = try bobService.createNotebook(title: "Bob conversation")
+    let turn = NoteConversationTurn(
+      userMarkdown: "Question",
+      assistantMarkdown: "Answer",
+      sourceNoteIds: [aliceSource.noteId]
+    )
+
+    XCTAssertThrowsError(try bobService.appendConversationTurn(
+      notebookId: bobNotebook.notebookId,
+      turn: turn
+    )) { error in
+      guard case .notFound = error as? NoteServiceError else {
+        return XCTFail("expected notFound, got \(error)")
+      }
+    }
+    XCTAssertThrowsError(try bobService.saveConversation(
+      title: "Forbidden source",
+      transcript: [NoteConversationTurn(userMarkdown: "Q", assistantMarkdown: "A")],
+      sourceLinks: NoteConversationSourceLinks(sourceNoteIds: [aliceSource.noteId])
+    ))
+    XCTAssertThrowsError(try bobService.saveConversation(
+      title: "Forbidden empty source",
+      transcript: [],
+      sourceLinks: NoteConversationSourceLinks(sourceNoteIds: [aliceSource.noteId])
+    ))
+
+    let readOnlySource = try bobService.createNote(bodyMarkdown: "Bob read-only source")
+    try bobService.setReadOnly(noteId: readOnlySource.noteId, readOnly: true)
+    XCTAssertNoThrow(try bobService.appendConversationTurn(
+      notebookId: bobNotebook.notebookId,
+      turn: NoteConversationTurn(
+        userMarkdown: "Question",
+        assistantMarkdown: "Answer",
+        sourceNoteIds: [readOnlySource.noteId]
+      )
+    ))
+  }
+
+  func testConversationTurnCannotCopyProtectedSourcesIntoOpenConversation() throws {
+    let service = try makeService()
+    let protectedLibrary = try service.createLibrary(
+      name: "protected-conversation-append",
+      authRequired: true
+    )
+    let protectedService = service.scoped(toLibrary: protectedLibrary.libraryId)
+    let protectedSource = try protectedService.createNote(bodyMarkdown: "Protected source")
+    let openConversation = try service.saveConversation(title: "Open conversation", transcript: [])
+
+    XCTAssertThrowsError(try service.appendConversationTurn(
+      notebookId: openConversation.notebook.notebookId,
+      turn: NoteConversationTurn(
+        userMarkdown: "Summarize",
+        assistantMarkdown: "Protected answer",
+        sourceNoteIds: [protectedSource.noteId]
+      ),
+      sourceLinks: NoteConversationSourceLinks(sourceNoteIds: [protectedSource.noteId])
+    )) { error in
+      guard case .invalidInput = error as? NoteServiceError else {
+        return XCTFail("expected invalidInput, got \(error)")
+      }
+    }
+    XCTAssertTrue(try service.listNotes(notebookId: openConversation.notebook.notebookId).isEmpty)
+  }
+
+  func testSavedConversationInheritsEveryTranscriptSourceLibrary() throws {
+    let service = try makeService()
+    let protectedLibrary = try service.createLibrary(
+      name: "protected-conversation-sources",
+      authRequired: true
+    )
+    let protectedService = service.scoped(toLibrary: protectedLibrary.libraryId)
+    let protectedSource = try protectedService.createNote(bodyMarkdown: "Protected source")
+    let openSource = try service.createNote(bodyMarkdown: "Open source")
+
+    let protectedConversation = try service.saveConversation(
+      title: "Protected transcript",
+      transcript: [NoteConversationTurn(
+        userMarkdown: "Summarize",
+        assistantMarkdown: "Summary",
+        sourceNoteIds: [protectedSource.noteId]
+      )]
+    )
+    XCTAssertEqual(protectedConversation.notebook.libraryId, protectedLibrary.libraryId)
+
+    XCTAssertThrowsError(try service.saveConversation(
+      title: "Mixed transcript",
+      transcript: [NoteConversationTurn(
+        userMarkdown: "Summarize",
+        assistantMarkdown: "Summary",
+        sourceNoteIds: [protectedSource.noteId, openSource.noteId]
+      )]
+    )) { error in
+      guard case .invalidInput = error as? NoteServiceError else {
+        return XCTFail("expected invalidInput, got \(error)")
+      }
+    }
+  }
+
   private func databaseCounts(_ service: NoteService) throws -> [String: Int] {
     try service.driver.withDatabase { database in
       var counts: [String: Int] = [:]

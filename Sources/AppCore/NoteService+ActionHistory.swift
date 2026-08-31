@@ -40,8 +40,36 @@ extension NoteService {
           let seq = Int64(seqText) else {
       throw NoteServiceError.invalidRow("action log insert produced no seq")
     }
+    if let notebookId = record.notebookId {
+      try persistTranslationSourceRevision(seq, notebookId: notebookId, in: db)
+    }
     try pruneActionLog(in: db)
     return seq
+  }
+
+  /// Keeps the translation source token outside the prunable action-history
+  /// retention window. The action and token share the caller's transaction, so
+  /// a committed mutation can never disappear from translation validation.
+  private func persistTranslationSourceRevision(
+    _ revision: Int64,
+    notebookId: NotebookID,
+    in database: SQLiteDatabase
+  ) throws {
+    guard !(try database.query(
+      "SELECT 1 FROM notebooks WHERE notebook_id = ? LIMIT 1",
+      bindings: [.id(notebookId)]
+    )).isEmpty else {
+      // Notebook-deletion actions are recorded after the notebook row is gone.
+      return
+    }
+    try database.execute(
+      """
+      INSERT INTO notebook_translation_revisions (notebook_id, revision)
+      VALUES (?, ?)
+      ON CONFLICT(notebook_id) DO UPDATE SET revision = excluded.revision
+      """,
+      bindings: [.id(notebookId), .int(revision)]
+    )
   }
 
   /// Deletes entries beyond the newest `history.maxEntries`, oldest first,

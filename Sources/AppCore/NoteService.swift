@@ -2,6 +2,10 @@ import Foundation
 
 public enum NoteServiceError: Error, Equatable, Sendable {
   case notFound(String)
+  /// A scoped principal was disabled after work had already been queued. The
+  /// dispatcher treats this as a terminal safety cancellation rather than a
+  /// retryable provider failure.
+  case accountUnavailable(String)
   case readOnly(String)
   case protectedTag(String)
   case invalidInput(String)
@@ -20,13 +24,62 @@ public struct NoteService: Sendable {
   public var driver: NoteDatabaseDriving
   public var autoActionDispatcher: AutoActionDispatching?
   public var autoActionDiagnosticRecorder: (any NoteAutoActionFilterDiagnosticRecording)?
+  /// Shared by service copies and request adapters to bound all externally
+  /// executing agent work for this store.
+  public var agentExecutionAdmission: AgentExecutionAdmission
   /// Internal test seam for staged agent-chat attachment rollback. Production
   /// always uses the local store, and persisted reads remain unchanged.
   var chatAttachmentFileStore: (any NoteFileStore)?
+  /// Internal test seam that simulates a subject mutation at the pre-insert
+  /// boundary of agent-conversation creation. Production leaves this nil;
+  /// tests use it to prove the transaction rejects an invalidated snapshot.
+  var agentChatCreationPreinsertHook: (@Sendable (SQLiteDatabase) throws -> Void)?
+  /// Internal test seam that simulates a source-library mutation at the
+  /// pre-insert boundary of translation-notebook creation. Production leaves
+  /// this nil; tests use it to prove the transaction rejects a stale source
+  /// snapshot before it can create a less-restricted derived notebook.
+  var translationCreationPreinsertHook: (@Sendable (SQLiteDatabase) throws -> Void)?
+  /// Internal test seam that runs after translation output commits but before
+  /// the run attempts completion. It proves a post-write source edit replaces
+  /// obsolete output rather than leaving two visible translations.
+  var translationOutputPostCommitHook: (@Sendable (Note) throws -> Void)?
+  /// Internal test seam for the edit reply's final turn write. It executes
+  /// inside the same transaction as the replacement body, proving a failed
+  /// completion cannot leave a retryable turn with a committed edit.
+  var agentChatEditPrecompletionHook: (@Sendable (SQLiteDatabase) throws -> Void)?
+  /// Internal test seam that runs after API-client listing authorizes the
+  /// caller but before its query. It proves the authorization and listing
+  /// remain in the same transaction under a concurrent standing change.
+  var apiClientListAfterAuthorizationHook: (@Sendable (SQLiteDatabase) throws -> Void)?
+  /// Internal test seam for account-list authorization. It runs inside the
+  /// same immediate transaction as the global account query so tests can
+  /// prove a concurrent demotion cannot interleave between them.
+  var userListAfterAuthorizationHook: (@Sendable (SQLiteDatabase) throws -> Void)?
+  /// Internal test seam for retry and recovery control-plane work. It runs
+  /// after administrator authorization but before selecting or mutating
+  /// store-global dispatch rows, within the same immediate transaction.
+  var autoActionMaintenanceAuthHook: (@Sendable (SQLiteDatabase) throws -> Void)?
+  /// Internal test seam for read-only global auto-action control-plane work.
+  /// It runs after administrator authorization and before the query inside the
+  /// same immediate transaction, so standing changes cannot interleave.
+  var autoActionListAfterAuthorizationHook: (@Sendable (SQLiteDatabase) throws -> Void)?
+  /// Internal test seam that pauses a leased stream after its database lease
+  /// validation but before stream admission. It proves a recovered lease owns
+  /// every later chunk and terminal side effect.
+  var agentReplyStreamPostLeaseValidationHook: (@Sendable (AgentReplyStreamLease) async -> Void)?
+  /// Internal test seam immediately before an AI provider admission check. It
+  /// lets revocation tests disable the originating account at the last safe
+  /// boundary without giving production code another asynchronous gap.
+  var providerInvocationPreAdmissionHook: (@Sendable () async -> Void)?
   /// Window after which a live in-flight dispatch lease is treated as stale by
   /// the recovery path. A running attempt heartbeats its lease on a fraction of
   /// this window so a long workflow is never reclaimed out from under it.
   public var autoActionDispatchLeaseStaleness: TimeInterval
+  /// Present only while executing a claimed auto-action.  Write paths consult
+  /// it inside their own database transactions so a worker that lost its
+  /// lease cannot persist provider-derived state after recovery reclaims the
+  /// outbox row.
+  var activeAutoActionDispatchLease: AutoActionDispatchLease?
   /// Notified after each committed mutation visible to live clients. Nil
   /// disables the change feed entirely.
   public var changeObserver: (any NoteChangeObserving)?
@@ -53,14 +106,26 @@ public struct NoteService: Sendable {
     driver: NoteDatabaseDriving,
     autoActionDispatcher: AutoActionDispatching? = nil,
     autoActionDiagnosticRecorder: (any NoteAutoActionFilterDiagnosticRecording)? = nil,
+    agentExecutionAdmission: AgentExecutionAdmission = AgentExecutionAdmission(),
     autoActionDispatchLeaseStaleness: TimeInterval = defaultAutoActionDispatchLeaseStaleness,
     changeObserver: (any NoteChangeObserving)? = nil
   ) throws {
     self.driver = driver
     self.autoActionDispatcher = autoActionDispatcher
     self.autoActionDiagnosticRecorder = autoActionDiagnosticRecorder
+    self.agentExecutionAdmission = agentExecutionAdmission
     self.chatAttachmentFileStore = nil
+    self.agentChatCreationPreinsertHook = nil
+    self.translationCreationPreinsertHook = nil
+    self.translationOutputPostCommitHook = nil
+    self.agentChatEditPrecompletionHook = nil
+    self.apiClientListAfterAuthorizationHook = nil
+    self.userListAfterAuthorizationHook = nil
+    self.autoActionMaintenanceAuthHook = nil
+    self.agentReplyStreamPostLeaseValidationHook = nil
+    self.providerInvocationPreAdmissionHook = nil
     self.autoActionDispatchLeaseStaleness = autoActionDispatchLeaseStaleness
+    self.activeAutoActionDispatchLease = nil
     self.changeObserver = changeObserver
     self.autoActionDispatchTasks = AutoActionDispatchTaskTracker()
     self.actingUserId = nil
@@ -79,6 +144,7 @@ public struct NoteService: Sendable {
     kindTagName: String? = nil,
     folderPath: [String] = [],
     metaJSON: String? = nil,
+    libraryId: LibraryID? = nil,
     originatingActionId: AutoActionID? = nil
   ) throws -> Notebook {
     let result = try driver.withDatabase { database in
@@ -88,6 +154,7 @@ public struct NoteService: Sendable {
           kindTagName: kindTagName,
           folderPath: folderPath,
           metaJSON: metaJSON,
+          libraryId: libraryId,
           originatingActionId: originatingActionId,
           in: db
         )
@@ -111,11 +178,16 @@ public struct NoteService: Sendable {
     kindTagName: String?,
     folderPath: [String] = [],
     metaJSON: String?,
+    libraryId: LibraryID? = nil,
     originatingActionId: AutoActionID?,
     in db: SQLiteDatabase
   ) throws -> (notebook: Notebook, dispatches: [QueuedAutoActionDispatch]) {
     let now = NoteStoreClock.system.now()
     let notebookId = NotebookID.generate()
+    let destinationLibraryId = libraryId ?? writeLibraryId()
+    guard try isReachable(libraryId: destinationLibraryId, in: db) else {
+      throw NoteServiceError.notFound("library not found: \(destinationLibraryId)")
+    }
     try db.execute(
       """
       INSERT INTO notebooks (
@@ -125,7 +197,7 @@ public struct NoteService: Sendable {
       """,
       bindings: [
         .id(notebookId), .text(title), .id(writeOwnerUserId()),
-        .id(writeLibraryId()),
+        .id(destinationLibraryId),
         .id(writeOwnerUserId()), .id(writeOwnerUserId()),
         .text(now), .text(now), .optionalText(metaJSON)
       ]
@@ -219,10 +291,12 @@ public struct NoteService: Sendable {
     provenance: NoteProvenance = .human,
     assignedBy: String? = nil,
     metaJSON: String? = nil,
-    originatingActionId: AutoActionID? = nil
+    originatingActionId: AutoActionID? = nil,
+    derivedFromNotebookId: NotebookID? = nil
   ) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
+        try requireEnabledActingUser(in: db)
         let now = NoteStoreClock.system.now()
         let notebookId: NotebookID
         let createdNotebookId: NotebookID?
@@ -230,6 +304,14 @@ public struct NoteService: Sendable {
           let notebook = try requireNotebook(requestedNotebookId, in: db)
           guard !notebook.readOnly else {
             throw NoteServiceError.readOnly(requestedNotebookId.rawValue)
+          }
+          if let derivedFromNotebookId {
+            let source = try requireNotebook(derivedFromNotebookId, in: db)
+            guard source.libraryId == notebook.libraryId else {
+              throw NoteServiceError.conflict(
+                "derived note source and destination libraries no longer match"
+              )
+            }
           }
           notebookId = requestedNotebookId
           createdNotebookId = nil
@@ -641,18 +723,6 @@ public struct NoteService: Sendable {
     return (notebook: result.notebook, note: result.note)
   }
 
-  public func getNotebook(_ notebookId: NotebookID) throws -> Notebook {
-    try driver.withDatabase { database in
-      try requireNotebook(notebookId, in: database)
-    }
-  }
-
-  public func getNote(_ noteId: NoteID) throws -> Note {
-    try driver.withDatabase { database in
-      try requireNote(noteId, in: database)
-    }
-  }
-
   public func listNotes(notebookId: NotebookID, limit: Int = 100, offset: Int = 0) throws -> [Note] {
     try driver.withDatabase { database in
       _ = try requireNotebook(notebookId, in: database)
@@ -693,6 +763,20 @@ public struct NoteService: Sendable {
         predicates: &predicates,
         bindings: &bindings
       )
+      appendOwnerScopePredicate(
+        alias: "notes",
+        actingUserId: actingUserId,
+        predicates: &predicates,
+        bindings: &bindings
+      )
+      if isUnauthenticatedPrincipal, actingUserId == nil {
+        appendLongTermMemoryExclusionPredicate(
+          alias: "notes",
+          excludesLongTermMemory: true,
+          predicates: &predicates,
+          bindings: &bindings
+        )
+      }
       if let notebookId {
         _ = try requireNotebook(notebookId, in: database)
         predicates.append("notebook_id = ?")
@@ -743,72 +827,13 @@ public struct NoteService: Sendable {
   ) throws -> Note {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
-        let existing = try requireWritableNote(noteId, in: db)
-        let previous = try ftsPayload(noteId: noteId, in: db)
-        let now = NoteStoreClock.system.now()
-        // Explicit titles (set via the `title` argument on create) are preserved
-        // across body edits; only derived titles are re-derived from the new body.
-        let titleSource = try noteTitleSource(noteId: noteId, in: db)
-        let updatedTitle = titleSource == .explicit
-          ? existing.title
-          : (noteTitle(from: bodyMarkdown) ?? existing.title)
-        try db.execute(
-          """
-          UPDATE notes
-          SET title = ?, body_markdown = ?, updated_at = ?,
-            updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id)
-          WHERE note_id = ?
-          """,
-          bindings: [
-            .optionalText(updatedTitle),
-            .text(bodyMarkdown),
-            .text(now),
-            .id(noteId)
-          ]
-        )
-        try db.execute(
-          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
-          bindings: [.text(now), .id(existing.notebookId)]
-        )
-        try refreshFTS(noteId: noteId, previous: previous, in: db)
-        let note = try requireNote(noteId, in: db)
-        let bodyPatch = makeNoteBodyPatch(from: existing.bodyMarkdown, to: bodyMarkdown)
-        if bodyPatch != nil || updatedTitle != existing.title {
-          var delta: JSONObject = [:]
-          if let bodyPatch {
-            delta["body"] = bodyPatch.jsonValue
-          }
-          if updatedTitle != existing.title {
-            delta["title"] = .object([
-              "before": .optionalString(existing.title),
-              "after": .optionalString(updatedTitle)
-            ])
-          }
-          try recordAction(
-            NoteActionRecord(
-              kind: .noteBodyUpdated,
-              provenance: provenance,
-              entityType: .note,
-              entityId: noteId.rawValue,
-              notebookId: note.notebookId,
-              display: ["title": .optionalString(note.title)],
-              delta: .object(delta),
-              undoable: true
-            ),
-            in: db
-          )
-        }
-        let dispatches = try enqueueAutoActions(
-          for: NoteAutoActionEvent(
-            trigger: .noteUpdated,
-            notebookId: note.notebookId,
-            noteId: note.noteId,
-            noteBodyMarkdown: note.bodyMarkdown,
-            originatingActionId: originatingActionId
-          ),
+        try updateNoteBodyInDatabase(
+          noteId: noteId,
+          bodyMarkdown: bodyMarkdown,
+          provenance: provenance,
+          originatingActionId: originatingActionId,
           in: db
         )
-        return (note: note, dispatches: dispatches)
       }
     }
     dispatchQueuedAutoActions(result.dispatches)
@@ -817,6 +842,85 @@ public struct NoteService: Sendable {
       notebookId: result.note.notebookId
     ))
     return result.note
+  }
+
+  /// Performs the guarded note-body mutation inside a caller-owned database
+  /// transaction. Agent edit replies use this to validate their immutable
+  /// provider-context snapshot in the same transaction as the replacement.
+  func updateNoteBodyInDatabase(
+    noteId: NoteID,
+    bodyMarkdown: String,
+    provenance: NoteProvenance,
+    originatingActionId: AutoActionID?,
+    in database: SQLiteDatabase
+  ) throws -> (note: Note, dispatches: [QueuedAutoActionDispatch]) {
+    try requireEnabledActingUser(in: database)
+    let existing = try requireWritableNote(noteId, in: database)
+    let previous = try ftsPayload(noteId: noteId, in: database)
+    let now = NoteStoreClock.system.now()
+    // Explicit titles (set via the `title` argument on create) are preserved
+    // across body edits; only derived titles are re-derived from the new body.
+    let titleSource = try noteTitleSource(noteId: noteId, in: database)
+    let updatedTitle = titleSource == .explicit
+      ? existing.title
+      : (noteTitle(from: bodyMarkdown) ?? existing.title)
+    try database.execute(
+      """
+      UPDATE notes
+      SET title = ?, body_markdown = ?, updated_at = ?,
+        updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id)
+      WHERE note_id = ?
+      """,
+      bindings: [
+        .optionalText(updatedTitle),
+        .text(bodyMarkdown),
+        .text(now),
+        .id(noteId)
+      ]
+    )
+    try database.execute(
+      "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+      bindings: [.text(now), .id(existing.notebookId)]
+    )
+    try refreshFTS(noteId: noteId, previous: previous, in: database)
+    let note = try requireNote(noteId, in: database)
+    let bodyPatch = makeNoteBodyPatch(from: existing.bodyMarkdown, to: bodyMarkdown)
+    if bodyPatch != nil || updatedTitle != existing.title {
+      var delta: JSONObject = [:]
+      if let bodyPatch {
+        delta["body"] = bodyPatch.jsonValue
+      }
+      if updatedTitle != existing.title {
+        delta["title"] = .object([
+          "before": .optionalString(existing.title),
+          "after": .optionalString(updatedTitle)
+        ])
+      }
+      try recordAction(
+        NoteActionRecord(
+          kind: .noteBodyUpdated,
+          provenance: provenance,
+          entityType: .note,
+          entityId: noteId.rawValue,
+          notebookId: note.notebookId,
+          display: ["title": .optionalString(note.title)],
+          delta: .object(delta),
+          undoable: true
+        ),
+        in: database
+      )
+    }
+    let dispatches = try enqueueAutoActions(
+      for: NoteAutoActionEvent(
+        trigger: .noteUpdated,
+        notebookId: note.notebookId,
+        noteId: note.noteId,
+        noteBodyMarkdown: note.bodyMarkdown,
+        originatingActionId: originatingActionId
+      ),
+      in: database
+    )
+    return (note: note, dispatches: dispatches)
   }
 
 }
@@ -851,4 +955,17 @@ func deleteNoteRows(noteId: NoteID, in database: SQLiteDatabase) throws {
   )
   try database.execute("DELETE FROM note_comments WHERE note_id = ?", bindings: [.id(noteId)])
   try database.execute("DELETE FROM notes WHERE note_id = ?", bindings: [.id(noteId)])
+}
+
+func deleteTranslationOutputs(sourceNoteId: NoteID, in database: SQLiteDatabase) throws {
+  let outputIds = try database.query(
+    """
+    SELECT note_id FROM notes
+    WHERE json_extract(meta_json, '$.kaibaTranslation.sourceNoteId') = ?
+    """,
+    bindings: [.id(sourceNoteId)]
+  ).compactMap { $0.identifier("note_id", as: NoteID.self) }
+  for outputId in outputIds {
+    try deleteNoteRows(noteId: outputId, in: database)
+  }
 }

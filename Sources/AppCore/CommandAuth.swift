@@ -138,10 +138,9 @@ extension AppCommand {
       ttlSeconds = KaibaJWT.defaultTTLSeconds
     }
 
-    // Issuing runs unscoped on purpose: minting a token for another account is
-    // an operator action, and a scoped caller must not be able to mint one for
-    // somebody else.
-    let service = try makeService(root: context.noteRoot)
+    // Token issuance is a store-control operation. Retain --jwt scoping so
+    // only an enabled administrator may issue a token for any account.
+    let service = try makeService(context)
     let token = try service.issueAuthToken(userId: userId, ttlSeconds: ttlSeconds)
     switch output {
     case .json:

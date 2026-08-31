@@ -2,6 +2,50 @@ import Foundation
 
 import AppCore
 
+/// Small, service-owned cache for expensive gateway model discovery.  The
+/// in-flight task is deliberately shared so a burst of clients cannot fan out
+/// into one subprocess per request.  A short TTL still lets configuration
+/// changes become visible without a restart.
+public actor AgentModelCatalogCache {
+  private let lifetime: TimeInterval
+  private var cached: (catalog: AgentGatewayModelCatalogResult, expiresAt: Date)?
+  private var inFlight: Task<AgentGatewayModelCatalogResult, Error>?
+
+  public init(lifetime: TimeInterval = 30) {
+    self.lifetime = lifetime
+  }
+
+  public func catalog(
+    principalId: String,
+    admission: AgentExecutionAdmission,
+    loading loader: @escaping @Sendable () async throws -> AgentGatewayModelCatalogResult
+  ) async throws -> AgentGatewayModelCatalogResult {
+    if let cached, cached.expiresAt > Date() {
+      return cached.catalog
+    }
+    if let inFlight {
+      return try await inFlight.value
+    }
+    guard let lease = admission.acquire(principalId: principalId) else {
+      throw AgentExecutionAdmissionError.overloaded
+    }
+    let task = Task {
+      defer { admission.release(lease) }
+      return try await loader()
+    }
+    inFlight = task
+    do {
+      let catalog = try await task.value
+      cached = (catalog, Date().addingTimeInterval(lifetime))
+      inFlight = nil
+      return catalog
+    } catch {
+      inFlight = nil
+      throw error
+    }
+  }
+}
+
 /// Agent-chat GraphQL operations are kept apart from the general note service
 /// so model discovery, untrusted attachment decoding, and turn creation stay
 /// cohesive and independently testable.
@@ -25,7 +69,11 @@ public extension GraphQLNoteGraphQLService {
       )
     }
     do {
-      let catalog = try await agentModelCatalog()
+      let catalog = try await agentModelCatalogCache.catalog(
+        principalId: service.agentExecutionPrincipalId(),
+        admission: service.agentExecutionAdmission,
+        loading: agentModelCatalog
+      )
       var models = catalog.models.map(GraphQLAgentModelDTO.init)
       if !models.contains(where: { $0.modelId == configured }) {
         models.insert(GraphQLAgentModelDTO(modelId: configured), at: 0)
@@ -33,6 +81,12 @@ public extension GraphQLNoteGraphQLService {
       return GraphQLAgentModelsResult(
         result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
         models: models, discoveryAvailable: true, configuredModel: configured
+      )
+    } catch AgentExecutionAdmissionError.overloaded {
+      return GraphQLAgentModelsResult(
+        result: GraphQLControlPlaneResult(accepted: false, status: "overloaded"),
+        models: [GraphQLAgentModelDTO(modelId: configured)],
+        discoveryAvailable: false, configuredModel: configured
       )
     } catch {
       return GraphQLAgentModelsResult(
@@ -47,6 +101,21 @@ public extension GraphQLNoteGraphQLService {
     _ input: GraphQLSendAgentChatMessageInput
   ) async -> GraphQLAgentChatMessageResult {
     do {
+      // An authorized idempotent replay is a persisted response; it must not
+      // validate new payload material or spawn model-discovery work first.
+      if let conversationNotebookId = input.conversationNotebookId,
+        let idempotencyKey = input.idempotencyKey,
+        let replay = try service.existingAgentChatTurn(
+          conversationNotebookId: conversationNotebookId,
+          idempotencyKey: idempotencyKey
+        ) {
+        return GraphQLAgentChatMessageResult(
+          result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+          conversationNotebookId: conversationNotebookId,
+          turnNoteId: replay.noteId,
+          agentStatus: agentStatus(for: replay)
+        )
+      }
       let attachments = try validatedAgentChatAttachments(input.attachments ?? [])
       let selectedModel = try await selectedAgentChatModel(input.model)
       let mode = try agentChatTurnMode(input.mode)
@@ -170,6 +239,7 @@ public extension GraphQLNoteGraphQLService {
     case .unavailable: return "agent-unavailable"
     case .answered: return "answered"
     case .failed: return "failed"
+    case .cancelled: return "cancelled"
     }
   }
 

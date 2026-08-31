@@ -80,9 +80,9 @@ signing key.
 
 ### Can anyone with an email address log in?
 
-No. Fail closed: an enabled `auth_users` row must already exist for the
-address. Accounts are created out of band with `kaiba auth user add --email`.
-No self-signup, no first-visitor claim.
+No. Fail closed: an enabled `users` row must already exist for the address.
+Accounts are created out of band with `kaiba user add --email`. No self-signup,
+no first-visitor claim, and no parallel `auth_users` table.
 
 ### P5: Mail delivery
 
@@ -121,6 +121,28 @@ link renders a confirmation page on `GET` and approves on `POST`. That page also
 shows the `userCode` printed in the terminal, so a person cannot be walked into
 approving a login request someone else started.
 
+### P10: Which Host and Origin values are accepted?
+
+Exact values only. `Host` must match the normalized bind authority or an exact
+`server.allowedHosts` entry; a loopback bind also accepts the same listener
+port on `localhost`, `127.0.0.1`, and `[::1]`. `Origin`, when present on a
+state-changing request, must match the normalized request origin or an exact
+`server.allowedOrigins` entry. Wildcards, suffix matching, forwarded-host
+headers, `Origin: null`, and treating `server.endpoint` as an allowlist are all
+rejected. The local request origin is `http://` plus validated Host; an HTTPS
+reverse proxy must list its public origin and cannot rely on forwarded headers.
+Missing Origin remains available to non-browser JSON clients, including
+loopback `mode: none`; missing or invalid Host is always refused.
+
+### P11: How does a standalone SPA login receive its credential?
+
+It reuses `POST /note/login/start` and `/note/login/poll`. The SPA keeps the
+returned `{requestId, pollSecret}` only in same-origin `sessionStorage`, drives
+email or code approval, and receives the JWT from the first successful poll.
+The approval and code endpoints never return a credential. The pending pair is
+deleted on success, expiry, cancellation, or authentication failure; only the
+JWT moves to the existing `kaiba-note-bearer` localStorage key.
+
 ## Pending
 
 ### P6: Session TTL and idle expiry
@@ -128,4 +150,19 @@ approving a login request someone else started.
 The design carries a fixed TTL (default 30 days) with no idle timeout and no
 refresh. Whether a personal note server needs sliding expiry is unresolved.
 
-**Impact**: TASK-402.
+**Impact**: Browser-session storage remains deferred. It does not block the
+JWT-based process credential, pending-login handoff, or multi-user TASK-M06
+through TASK-M10; any future `auth_sessions` task must resolve this policy
+before implementation.
+
+### P9: How is `auth_login_requests` rolled out?
+
+**Status**: Pending; not part of multi-user TASK-M06 through TASK-M10.
+
+The current workflow must keep `NoteStoreSchema.currentVersion = 17`, and its
+implementation needs no new table. A later browser-login task cannot silently
+add `auth_login_requests` to the version-17 create schema: an already-created
+version-17 store would pass the version check while lacking the table. Decide
+whether that later release increments the fresh-schema version and requires
+store recreation, or introduces the project's first migration. TASK-402 in
+`impl-plans/active/note-api-auth.md` remains blocked on this rollout choice.

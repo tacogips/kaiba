@@ -1,6 +1,7 @@
 # Multi-User Note Store
 
-**Status**: Draft
+**Status**: Implemented across GraphQL, file-byte, event-stream, reply-stream,
+and tag-grounded chat boundaries
 **Related**: `design-docs/specs/note-api-auth.md`, `design-docs/specs/kaiba-note.md`
 
 ## Purpose
@@ -11,16 +12,22 @@ as a single default user.
 
 ## Current State
 
-There is no account of any kind. `api_clients` records opaque credentials with
-no owner (`Sources/AppCore/NoteService+APIClients.swift`), and every notebook,
-note, file, and tag is global: any authenticated caller sees the whole store.
-The schema carries no user table and no ownership column.
+The identity foundation has shipped at `NoteStoreSchema.currentVersion = 17`:
+the `users` table and seeded default admin, notebook ownership and attribution
+columns, per-user API clients, JWT issuance and verification, catalog scoping,
+CLI `--jwt` / `--jwt-env`, and per-request GraphQL service scoping. The schema
+is fresh-schema-only: older versions are rejected with
+`unsupportedLegacyVersion`, and there is no migration path.
 
-The store is fresh-schema-only. `NoteStoreSchema.currentVersion`
-(`Sources/AppCore/NoteStoreSchema.swift:11`) is created directly, older stores
-are rejected with `unsupportedLegacyVersion`, and there are no migrations. Adding
-tables therefore means bumping the version, and existing stores are refused
-rather than upgraded — the project's established policy.
+The delivered boundary is narrower but security-critical: by-id and bulk reads
+carry ownership checks, file-byte delivery uses GraphQL's default-user fallback,
+the API exposes notebook ownership and attribution, and authenticated callers
+can mint short-lived agent tokens only for themselves. This is TASK-M06 through
+TASK-M08 in `impl-plans/completed/multi-user.md`; it keeps
+`NoteStoreSchema.currentVersion` at 17. `NoteStoreSchema.prepare` also creates
+`auto_action_dispatch_cancellations` idempotently for version-17 stores, so
+safety cancellations retain their distinct terminal outcome without a
+versioned migration.
 
 ## Design
 
@@ -233,16 +240,18 @@ The rule has three shapes, matching the three shapes of read:
   (`notebooks.owner_user_id = ?`). Dropping rows after the query would hand a
   caller fewer hits than the page it asked for, which is the same argument the
   library scope already makes. This covers `listNotes`, `searchNotes` (through
-  `NoteSearchScope`, alongside `reachableLibraryIds`), and the graph traversal
-  exit filter.
+  `NoteSearchScope`, alongside `reachableLibraryIds`), and every graph
+  traversal expansion and exit filter. A graph path is returned only when each
+  node on it is reachable, so an unreachable intermediate cannot influence
+  ranking or leak through `pathNoteIds`.
 
   The tag detail surface is **not one thing**, and its three members get three
   different answers, so naming it as a unit would hide two of them:
   `listTagComments` and `tagDetail`'s two `taggedEntityCount` calls take the
   owner predicate; `tagDetail.memoNotebookId` is resolved per owner, at the
   lookup rather than by a predicate here (see "The tag memo notebook is
-  resolved per owner" below); and `tagContextMarkdown` is **left open** — see
-  Enforcement Status.
+  resolved per owner" below); and `tagContextMarkdown` applies the same owner,
+  reachable-library, and internal-memory predicates before its 50-note limit.
 - **Attachment bytes.** The predicate goes into `requireReachableFile`, whose
   referencing-notebook query is the only path `getFileRecord` has to a blob, so
   the route inherits it. A blob referenced by more than one notebook stays
@@ -281,33 +290,28 @@ The rule has three shapes, matching the three shapes of read:
   `NoteService+AgentChat.swift:308-320`), so no flow reads a blob during a
   window in which it is unreferenced.
 
-**Two note-API routes are out of reach of all of this, and stay open.**
-`GET /note/agent-stream` and `GET /note/events` never enter `NoteService`, so
-no predicate placed in `require*` touches them. `agent-stream`
-(`ServerContracts.swift:366-408`) authenticates and then *discards* the
-resolved client (`case .accepted: break`), polling `agentReplyStreamHub` by a
-caller-supplied `turn` note id with no ownership or library check, so a scoped
-caller can stream another account's in-progress reply. `note/events`
-(`:327-360`) hands every poller each mutation's `notebookId` and `tagNames`.
-Both are already recorded as open item 6 of
-`design-docs/specs/note-api-auth.md:115-124`, whose fix is the same for the
-library boundary and this one — filter the feed through `reachableLibraryIds`
-and resolve the turn note through `requireNote` on the scoped service — and
-which requires the routes to carry the authenticated `userId` they currently
-throw away. That is `impl-plans/active/note-api-auth.md` scope, explicitly out
-of scope here, so **this work does not close them**; it records them. The
-boundary this design closes is therefore the one on the **GraphQL surface and
-the file-byte route**, not every transport the server exposes.
+**Served event and reply routes are scoped.** `GET /note/events` retains the
+authenticated principal and uses an opaque, principal-bound cursor: only an
+event visible through the scoped `NoteService` advances or wakes that cursor.
+It therefore returns neither a store-wide revision nor foreign-write timing.
+Each delivery retains its prepared batch under the request cursor and returns
+an opaque successor; using that successor acknowledges the batch, while retry
+or overlap on the request cursor replays it after rechecking current event
+visibility. Revoked events are omitted, and an operational authorization error
+returns 500 without consuming the retained batch. Cursor retention and each
+cursor's pending event buffer are bounded per principal. A buffer overflow
+forces only that cursor to resync, so one caller cannot exhaust feed memory or
+evict or wake another caller's poll.
+`GET /note/agent-stream` resolves the caller-supplied turn through the same
+scoped service before polling. The handler fails closed when no ownership
+reader is wired. This extends the served ownership boundary beyond GraphQL and
+file bytes.
 
 A refused row is reported **missing, not forbidden**, reusing the wording the
 library layer already produces. A distinct "forbidden" answer would confirm
-that an id exists in another account, which is the fact being withheld. Note
-the limit of that property while the change feed stays unscoped: `note/events`
-hands out notebook ids to any poller on the same host, so withholding an id on
-the GraphQL surface narrows the leak rather than closing it. The wording is
-still right — it is the weaker of the two answers, and it becomes fully true
-once the feed is scoped — but it should not be read as a store-wide guarantee
-today.
+that an id exists in another account, which is the fact being withheld. The
+same missing-row behavior now applies to a foreign stream turn, and event
+filtering prevents that route from disclosing foreign notebook ids or tags.
 
 Enforcement applies **only when `actingUserId` is set**:
 
@@ -320,20 +324,14 @@ Enforcement applies **only when `actingUserId` is set**:
 - The admin role does not widen it. Admin answers one question — may this
   account reach every library — and ownership is not a library question.
 
-**The long-term memory notebook is carved out.** It is a
-store-wide singleton: the store permits exactly one notebook carrying
-`notebook-kind:long-term-memory`, so a second account cannot own a second copy,
-and enforcing ownership on it would leave every account but its creator unable
-to reach the store's memory. The exemption is keyed on the reserved tag id
-(`NoteStoreSchema.longTermMemoryNotebookKindTagId`), never on a caller-supplied
-tag name, and that tag's assignment is already guarded
-(`validateLongTermMemoryNotebookTagAssignment`), so it is not an escape hatch a
-scoped account can apply to widen its own reach. It is bootstrapped unscoped at
-`NoteService.init`, is not exposed on the GraphQL surface, and has no CLI
-command, so today it is reached only unscoped and the carve-out changes no
-behavior. It is written down because per-user long-term memory is the design
-that would replace it, and that is a larger change than this one
-(`design-docs/user-qa/multi-user.md`).
+**The long-term memory notebook is internal-only.** It remains a store-wide
+singleton carrying `notebook-kind:long-term-memory`, but it is not an ownership
+exception. Scoped reads, GraphQL note lookup, and public listing/recall APIs
+report it missing; only unscoped processing may create, list, recall, or link
+memory until per-user long-term memory replaces the singleton. This prevents a
+memory-source link from becoming a cross-account content-discovery path. The
+reserved tag assignment remains guarded by
+`validateLongTermMemoryNotebookTagAssignment`.
 
 **The tag memo notebook is resolved per owner, not carved out.** It is the
 other store-wide-singleton notebook, and unlike long-term memory it sits on the
@@ -357,7 +355,12 @@ find-or-create. The consequences, stated so they are not inferred:
 
 - **`ensureTagMemoNotebook`** finds the caller's own memo notebook for the tag,
   or creates one owned by the caller. Each account gets its own memo notebook
-  per tag. The mutation keeps working for every account.
+  per tag. If that account's sole tagged source moves to another library, the
+  existing memo retains its identity and moves with the source rather than
+  creating a second owner/tag memo. Rehoming first requires the account to
+  retain reach to the memo's current library; a revoked account receives the
+  ordinary missing-row result and cannot use a moved source to pull an
+  inaccessible memo into a reachable library.
 - **`tagDetail.memoNotebookId`** reports the caller's own memo notebook, or nil
   when they have none. A scoped caller never receives another account's
   notebook id, which is what the "missing, not forbidden" rule above already
@@ -401,11 +404,12 @@ The GraphQL contract exposes them as nullable `String` — three fields on
 Existing selections keep working because a GraphQL client asks for the fields
 it wants; adding a field to a type breaks nothing that did not ask for it.
 
-**No schema change is required, and none should be made.** All three columns
-already exist at `NoteStoreSchema.currentVersion = 17`, and the token route
-adds no table. Under the fresh-schema policy a version bump would refuse every
-existing store (`unsupportedLegacyVersion`), so this work must land without
-one.
+**No versioned migration is required.** All three columns already exist at
+`NoteStoreSchema.currentVersion = 17`, and the token route adds no table. The
+prepare-time `auto_action_dispatch_cancellations` table is an intentional
+idempotent version-17 compatibility addition, not a version bump. Under the
+fresh-schema policy a version bump would refuse every existing store
+(`unsupportedLegacyVersion`), so this work must land without one.
 
 Attribution is exposed **after** ownership enforcement is in place, never
 before. The fields name accounts, and publishing an account id on a read path
@@ -460,40 +464,15 @@ method, matching those routes.
 
 ## Enforcement Status
 
-Implemented: the user table and default user, notebook ownership, attribution
-columns, catalog scoping, per-user API clients, `--jwt` on the CLI, and
-per-request scoping in the GraphQL executor.
-
-Designed above and being implemented now: ownership enforcement below the
-catalog (by-id, bulk, and attachment bytes) **on the GraphQL surface and the
-file-byte route**, attribution on the API models and the GraphQL contract, and
-the `POST /note/agent-token` route. Until each lands with the negative test
-named under Verification, treat it as open — this section is the honest record,
-not the intent. The qualifier is load-bearing: the boundary is not closed on
-every transport, as the next list says.
+Implemented: the user table and default user, notebook ownership and
+attribution columns, catalog scoping, per-user API clients, `--jwt` on the CLI,
+per-request GraphQL scoping, ownership enforcement below the catalog (by-id,
+bulk, and attachment bytes), served event and reply stream scoping,
+principal-preserving tag-grounded chat context, API model/GraphQL attribution,
+and `POST /note/agent-token`.
 
 Deliberately still open, and recorded rather than quietly closed:
 
-- **`GET /note/agent-stream` and `GET /note/events` are not ownership
-  scoped.** They never enter `NoteService`, so nothing in the enforcement layer
-  reaches them: the agent stream serves any turn note by id, and the change
-  feed hands every poller each mutation's `notebookId` and `tagNames`. This is
-  open item 6 of `design-docs/specs/note-api-auth.md:115-124` and belongs to
-  `impl-plans/active/note-api-auth.md`, which is out of scope for this work.
-  Recorded here so that "a scoped caller cannot read another account's note by
-  id" is read as the GraphQL and file-byte claim it is, and so completing this
-  plan is not mistaken for closing the whole boundary
-  (`design-docs/user-qa/multi-user.md`).
-- **`tagContextMarkdown` grounds agent chat across accounts.** It selects the
-  bodies of up to 50 notes carrying a tag with no owner or library predicate
-  (`NoteService+TagDetail.swift:196-207`), and its only caller pastes that text
-  into a chat prompt (`NoteService+AgentChat.swift:582`). After this work, one
-  account's tag-grounded chat can still be grounded in another account's note
-  bodies. It is left open deliberately: closing it means deciding what a
-  tag-grounded chat should say when the tag spans accounts, which is a product
-  question about the chat feature rather than a predicate this work can just
-  add. The bulk-read rule above names it as excluded so the two do not
-  contradict each other.
 - **`created_by`/`updated_by` under notebook sharing.** The stamping helpers
   (`stampNoteCreated`, `stampNoteUpdated`) already record the *acting* user.
   The remaining owner-derived sites are the raw-SQL internal paths — long-term
@@ -501,14 +480,16 @@ Deliberately still open, and recorded rather than quietly closed:
   notebook owner are the same account. Sharing is a Non-Goal, so the two values
   cannot diverge today; when sharing lands, those sites must switch to the
   acting user. The item stays open until then. In the plan this is **TASK-M03's
-  third completion criterion** (`impl-plans/active/multi-user.md:70`) — not
+  third completion criterion** (`impl-plans/completed/multi-user.md:70`) — not
   TASK-M04, whose criteria are all met — and it stays unchecked when the plan
   is reconciled.
-- **Per-user long-term memory.** See the carve-out above.
-- **Library scope on the tag detail surface.** `listTagComments`, the two
-  `taggedEntityCount` calls, and `findTagMemoNotebookId` carry no *library*
-  predicate today, a pre-existing gap in `design-docs/specs/library.md` that
-  the owner predicate added here does not close. Tracked there, not here.
+- **Per-user long-term memory.** See the internal-only boundary above.
+
+Implemented tag-detail library scope: `listTagComments`, both
+`taggedEntityCount` calls, and `findTagMemoNotebookId` apply reachable-library
+predicates before pagination, aggregation, or memo selection. AppCore and
+GraphQL regressions cover unauthenticated and revoked-member refusal for
+protected comments and counts.
 
 ## Verification
 
@@ -542,10 +523,10 @@ Deliberately still open, and recorded rather than quietly closed:
   own account and no other; an unauthenticated caller, a caller whose
   credential is rejected, and a caller whose account has been disabled are all
   refused; an out-of-range TTL is refused.
-- Not tested here, knowingly: `GET /note/agent-stream` and `GET /note/events`
-  remain unscoped, so no test asserts a cross-user refusal on either. A test
-  claiming the boundary holds on those routes would be asserting something this
-  work does not deliver.
+- `swift test`, served transport and tag grounding: event polling omits a
+  foreign notebook id and tag names; a foreign reply turn is refused before
+  stream polling; and a queued tag-memo reply never sends another account's
+  tagged note body to the provider.
 - Manual: `kaiba user add`, `kaiba auth token issue`, then
   `kaiba --jwt <token> notebook create` and `notebook list` showing one user's
   catalog against the unscoped operator view.

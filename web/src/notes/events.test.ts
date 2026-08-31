@@ -41,7 +41,7 @@ describe('subscribeNoteEvents', () => {
       {
         ok: true,
         body: {
-          revision: 3,
+          revision: 'cursor-3',
           events: [
             { kind: 'notebook-read-only', notebookId: asNotebookId('nb-1'), tagNames: ['proj/alpha'] },
             { kind: 'notebook-tags', notebookId: null, tagNames: [] },
@@ -65,8 +65,8 @@ describe('subscribeNoteEvents', () => {
 
   test('threads the revision from each response into the next poll', async () => {
     const { fetchImpl, calls } = makeFetchImpl([
-      { ok: true, body: { revision: 4, events: [] } },
-      { ok: true, body: { revision: 9, events: [] } },
+      { ok: true, body: { revision: 'cursor-4', events: [] } },
+      { ok: true, body: { revision: 'cursor-9', events: [] } },
     ])
     const unsubscribe = subscribeNoteEvents({
       headers: () => ({ Authorization: 'Bearer token' }),
@@ -78,16 +78,45 @@ describe('subscribeNoteEvents', () => {
     unsubscribe()
 
     expect(calls[0]?.url).toContain('since=0')
-    expect(calls[1]?.url).toContain('since=4')
-    expect(calls[2]?.url).toContain('since=9')
+    expect(calls[1]?.url).toContain('since=cursor-4')
+    expect(calls[2]?.url).toContain('since=cursor-9')
     expect(calls[0]?.url).toContain('timeoutMs=25000')
     expect(calls[0]?.headers.Authorization).toBe('Bearer token')
   })
 
+  test('replays the current batch when an event callback fails', async () => {
+    const { fetchImpl, calls } = makeFetchImpl([
+      { ok: true, body: { revision: 'cursor-4', events: [{ kind: 'note-created' }] } },
+      { ok: true, body: { revision: 'cursor-4', events: [{ kind: 'note-created' }] } },
+    ])
+    const events: NoteChangeEvent[] = []
+    let remainingFailures = 1
+    const unsubscribe = subscribeNoteEvents({
+      headers: () => ({}),
+      onConnect: () => {},
+      onEvent: (event) => {
+        if (remainingFailures > 0) {
+          remainingFailures -= 1
+          throw new Error('subscriber failed before completing the batch')
+        }
+        events.push(event)
+      },
+      fetchImpl,
+      reconnectDelayMs: 1,
+    })
+    await settle(50)
+    unsubscribe()
+
+    expect(events.map((event) => event.kind)).toEqual(['note-created'])
+    expect(calls[0]?.url).toContain('since=0')
+    expect(calls[1]?.url).toContain('since=0')
+    expect(calls[2]?.url).toContain('since=cursor-4')
+  })
+
   test('calls onConnect once per connection, not once per poll', async () => {
     const { fetchImpl } = makeFetchImpl([
-      { ok: true, body: { revision: 1, events: [] } },
-      { ok: true, body: { revision: 2, events: [] } },
+      { ok: true, body: { revision: 'cursor-1', events: [] } },
+      { ok: true, body: { revision: 'cursor-2', events: [] } },
     ])
     let connects = 0
     const unsubscribe = subscribeNoteEvents({
@@ -102,11 +131,29 @@ describe('subscribeNoteEvents', () => {
     expect(connects).toBe(1)
   })
 
+  test('refreshes when the server resets an opaque cursor', async () => {
+    const { fetchImpl } = makeFetchImpl([
+      { ok: true, body: { revision: 'cursor-1', events: [] } },
+      { ok: true, body: { revision: 'cursor-2', resync: true, events: [] } },
+    ])
+    let connects = 0
+    const unsubscribe = subscribeNoteEvents({
+      headers: () => ({}),
+      onEvent: () => {},
+      onConnect: () => { connects += 1 },
+      fetchImpl,
+    })
+    await settle()
+    unsubscribe()
+
+    expect(connects).toBe(2)
+  })
+
   test('calls onConnect again after a failure interrupts the loop', async () => {
     const { fetchImpl } = makeFetchImpl([
-      { ok: true, body: { revision: 1, events: [] } },
+      { ok: true, body: { revision: 'cursor-1', events: [] } },
       { throws: true },
-      { ok: true, body: { revision: 2, events: [] } },
+      { ok: true, body: { revision: 'cursor-2', events: [] } },
     ])
     let connects = 0
     const unsubscribe = subscribeNoteEvents({
@@ -149,8 +196,8 @@ describe('subscribeNoteEvents', () => {
 
   test('stops polling after unsubscribe', async () => {
     const { fetchImpl, calls } = makeFetchImpl([
-      { ok: true, body: { revision: 1, events: [] } },
-      { ok: true, body: { revision: 2, events: [] } },
+      { ok: true, body: { revision: 'cursor-1', events: [] } },
+      { ok: true, body: { revision: 'cursor-2', events: [] } },
     ])
     const unsubscribe = subscribeNoteEvents({
       headers: () => ({}),

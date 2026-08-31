@@ -53,6 +53,7 @@ public extension NoteService {
     return try driver.withDatabase { database in
       try database.transaction { db in
         let library = try requireLibrary(name: normalizedName, in: db)
+        try requireLibraryManager(library, subject: normalizedName, in: db)
         let user = try requireUser(userId, in: db)
         try insertLibraryMember(
           libraryId: library.libraryId,
@@ -73,6 +74,7 @@ public extension NoteService {
     try driver.withDatabase { database in
       try database.transaction { db in
         let library = try requireLibrary(name: normalizedName, in: db)
+        try requireLibraryManager(library, subject: normalizedName, in: db)
         guard try libraryMemberRow(libraryId: library.libraryId, userId: userId, in: db) != nil else {
           throw NoteServiceError.notFound("\(userId) is not a member of \(normalizedName)")
         }
@@ -114,19 +116,43 @@ public extension NoteService {
   /// currently scoped to. Backs `kaiba library list --user`.
   func libraries(forUser userId: UserID) throws -> [NoteLibrary] {
     try driver.withDatabase { database in
-      _ = try requireUser(userId, in: database)
-      return try database.query(
-        """
-        SELECT library_id, name, title, auth_required, is_default, created_at, created_by,
-          (SELECT COUNT(*) FROM notebooks WHERE notebooks.library_id = libraries.library_id)
-            AS notebook_count
-        FROM libraries
-        WHERE auth_required = 0
-          OR library_id IN (SELECT library_id FROM library_members WHERE user_id = ?)
-        ORDER BY is_default DESC, name
-        """,
-        bindings: [.id(userId)]
-      ).map(noteLibrary(from:))
+      try database.transaction { db in
+        // A library roster and its owner-scoped counts are account metadata.
+        // Check scope before resolving the requested account so foreign and
+        // missing targets remain indistinguishable to ordinary principals.
+        guard !isUnauthenticatedPrincipal else {
+          throw NoteServiceError.notFound("user not found")
+        }
+        if let actingUserId {
+          if actingUserId == userId {
+            try requireEnabledActingUser(in: db)
+          } else {
+            try requireStoreAdministrator(in: db)
+          }
+        }
+        _ = try requireUser(userId, in: db)
+        return try db.query(
+          """
+          SELECT library_id, name, title, auth_required, is_default, created_at, created_by,
+            (SELECT COUNT(*) FROM notebooks
+              WHERE notebooks.library_id = libraries.library_id
+                AND notebooks.owner_user_id = ?
+                AND notebooks.notebook_id NOT IN (
+                  SELECT notebook_id FROM notebook_tags WHERE tag_id = ?
+                ))
+              AS notebook_count
+          FROM libraries
+          WHERE auth_required = 0
+            OR library_id IN (SELECT library_id FROM library_members WHERE user_id = ?)
+          ORDER BY is_default DESC, name
+          """,
+          bindings: [
+            .id(userId),
+            .id(NoteStoreSchema.longTermMemoryNotebookKindTagId),
+            .id(userId)
+          ]
+        ).map(noteLibrary(from:))
+      }
     }
   }
 }
@@ -154,9 +180,8 @@ extension NoteService {
     )
   }
 
-  func isLibraryMember(libraryId: LibraryID, userId: UserID, in db: SQLiteDatabase) -> Bool {
-    let rows = (try? libraryMemberRow(libraryId: libraryId, userId: userId, in: db)) ?? nil
-    return rows != nil
+  func isLibraryMember(libraryId: LibraryID, userId: UserID, in db: SQLiteDatabase) throws -> Bool {
+    try libraryMemberRow(libraryId: libraryId, userId: userId, in: db) != nil
   }
 }
 

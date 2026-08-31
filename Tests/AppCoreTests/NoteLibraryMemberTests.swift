@@ -22,10 +22,10 @@ final class NoteLibraryMemberTests: NoteTestCase {
     let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
     let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
     let closed = try service.createLibrary(name: "closed", authRequired: true)
-    let closedNote = try service.scoped(toLibrary: closed.libraryId)
+    try service.grantLibraryAccess(libraryName: "closed", userId: alice.userId)
+    let closedNote = try service.scoped(to: alice.userId).scoped(toLibrary: closed.libraryId)
       .createNote(bodyMarkdown: "# Closed\nmember-only body")
     let openNote = try service.createNote(bodyMarkdown: "# Open\nopen body")
-    try service.grantLibraryAccess(libraryName: "closed", userId: alice.userId)
     return Fixture(
       service: service,
       alice: alice,
@@ -53,10 +53,9 @@ final class NoteLibraryMemberTests: NoteTestCase {
     XCTAssertTrue(try bob.searchNotes(query: "member-only").isEmpty)
     XCTAssertFalse(try bob.listNotes().compactMap(\.title).contains("Closed"))
 
-    // A link out of the open library must not carry the closed note back.
+    // A scoped caller cannot even seed traversal from another owner's note.
     _ = try fixture.service.linkNotes(from: fixture.openNoteId, to: fixture.closedNoteId)
-    let neighbors = try bob.graphNeighbors(noteIds: [fixture.openNoteId])
-    XCTAssertFalse(neighbors.map(\.note.noteId).contains(fixture.closedNoteId))
+    XCTAssertThrowsError(try bob.graphNeighbors(noteIds: [fixture.openNoteId]))
   }
 
   func testAMemberReadsWhatANonMemberCannot() throws {
@@ -101,7 +100,7 @@ final class NoteLibraryMemberTests: NoteTestCase {
     let service = try makeService()
     let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
     let open = try service.createLibrary(name: "open", authRequired: false)
-    let note = try service.scoped(toLibrary: open.libraryId).createNote(bodyMarkdown: "# Open\nbody")
+    let note = try service.scoped(to: bob.userId).scoped(toLibrary: open.libraryId).createNote(bodyMarkdown: "# Open\nbody")
 
     let scoped = service.scoped(to: bob.userId)
 
@@ -113,7 +112,7 @@ final class NoteLibraryMemberTests: NoteTestCase {
     let service = try makeService()
     let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
     let open = try service.createLibrary(name: "open", authRequired: false)
-    let note = try service.scoped(toLibrary: open.libraryId).createNote(bodyMarkdown: "# Open\nbody")
+    let note = try service.scoped(to: bob.userId).scoped(toLibrary: open.libraryId).createNote(bodyMarkdown: "# Open\nbody")
     let scoped = service.scoped(to: bob.userId)
     XCTAssertEqual(try scoped.getNote(note.noteId).noteId, note.noteId)
 
@@ -153,6 +152,36 @@ final class NoteLibraryMemberTests: NoteTestCase {
     ))
   }
 
+  func testScopedNonOwnerCannotMutateForeignLibraryPolicyOrMembers() throws {
+    let fixture = try makeFixture()
+    let bob = fixture.service.scoped(to: fixture.bob.userId)
+
+    XCTAssertThrowsError(try bob.updateLibrary(name: "closed", authRequired: false)) { error in
+      XCTAssertEqual(error as? NoteServiceError, .notFound("library not found: closed"))
+    }
+    XCTAssertThrowsError(try bob.grantLibraryAccess(
+      libraryName: "closed", userId: fixture.bob.userId, role: .owner
+    )) { error in
+      XCTAssertEqual(error as? NoteServiceError, .notFound("library not found: closed"))
+    }
+    XCTAssertThrowsError(try bob.revokeLibraryAccess(libraryName: "closed", userId: fixture.alice.userId)) { error in
+      XCTAssertEqual(error as? NoteServiceError, .notFound("library not found: closed"))
+    }
+    XCTAssertThrowsError(try bob.deleteLibrary(name: "closed")) { error in
+      XCTAssertEqual(error as? NoteServiceError, .notFound("library not found: closed"))
+    }
+
+    try fixture.service.grantLibraryAccess(
+      libraryName: "closed", userId: fixture.alice.userId, role: .owner
+    )
+    let owner = fixture.service.scoped(to: fixture.alice.userId)
+    XCTAssertFalse(try owner.updateLibrary(name: "closed", authRequired: false).authRequired)
+    XCTAssertEqual(
+      try owner.grantLibraryAccess(libraryName: "closed", userId: fixture.bob.userId, role: .member).role,
+      .member
+    )
+  }
+
   func testANonMemberCannotReadTheRoster() throws {
     let fixture = try makeFixture()
     let bob = fixture.service.scoped(to: fixture.bob.userId)
@@ -183,6 +212,90 @@ final class NoteLibraryMemberTests: NoteTestCase {
     XCTAssertEqual(
       try fixture.service.libraries(forUser: fixture.bob.userId).map(\.name),
       ["default"]
+    )
+  }
+
+  func testLibrariesForUserDoesNotExposeForeignAccountMembershipsToScopedPrincipals() throws {
+    let fixture = try makeFixture()
+    let ordinaryToken = try fixture.service.issueAuthToken(userId: fixture.bob.userId)
+    let agentToken = try fixture.service.issueAgentToken(
+      userId: fixture.bob.userId,
+      ttlSeconds: 300
+    ).token
+    let missingUserId = UserID("user-missing")
+
+    for token in [ordinaryToken, agentToken] {
+      let authenticated = fixture.service.scoped(to: try fixture.service.resolveAuthToken(token).userId)
+      XCTAssertEqual(
+        try authenticated.libraries(forUser: fixture.bob.userId).map(\.name),
+        ["default"]
+      )
+      for target in [fixture.alice.userId, missingUserId] {
+        XCTAssertThrowsError(try authenticated.libraries(forUser: target)) { error in
+          XCTAssertEqual(error as? NoteServiceError, .notFound("control-plane resource not found"))
+        }
+      }
+    }
+
+    let unauthenticated = fixture.service.scoped(to: NoteStoreSchema.defaultUserId).unauthenticated()
+    for target in [fixture.alice.userId, missingUserId] {
+      XCTAssertThrowsError(try unauthenticated.libraries(forUser: target)) { error in
+        XCTAssertEqual(error as? NoteServiceError, .notFound("user not found"))
+      }
+    }
+
+    let administrator = fixture.service.scoped(to: NoteStoreSchema.defaultUserId)
+    XCTAssertEqual(
+      try administrator.libraries(forUser: fixture.alice.userId).map(\.name).sorted(),
+      ["closed", "default"]
+    )
+    XCTAssertEqual(
+      try fixture.service.libraries(forUser: fixture.alice.userId).map(\.name).sorted(),
+      ["closed", "default"]
+    )
+  }
+
+  func testLibraryNotebookCountsAreScopedToTheRequestedOwner() throws {
+    let fixture = try makeFixture()
+    _ = try fixture.service.scoped(to: fixture.alice.userId).createNotebook(title: "Alice open")
+    _ = try fixture.service.scoped(to: fixture.bob.userId).createNotebook(title: "Bob open")
+
+    let defaultLibraryId = NoteStoreSchema.defaultLibraryId
+    let defaultScoped = fixture.service.scoped(to: NoteStoreSchema.defaultUserId)
+    let unauthenticated = defaultScoped.unauthenticated()
+    XCTAssertEqual(
+      try fixture.service.scoped(to: fixture.alice.userId)
+        .listLibraries().first { $0.libraryId == defaultLibraryId }?.notebookCount,
+      1
+    )
+    XCTAssertEqual(
+      try fixture.service.libraries(forUser: fixture.alice.userId)
+        .first { $0.libraryId == defaultLibraryId }?.notebookCount,
+      1
+    )
+    XCTAssertEqual(
+      try fixture.service.libraries(forUser: fixture.bob.userId)
+        .first { $0.libraryId == defaultLibraryId }?.notebookCount,
+      1
+    )
+    XCTAssertEqual(
+      try defaultScoped.listLibraries().first { $0.libraryId == defaultLibraryId }?.notebookCount,
+      1
+    )
+    XCTAssertEqual(
+      try unauthenticated.listLibraries().first { $0.libraryId == defaultLibraryId }?.notebookCount,
+      1
+    )
+    XCTAssertEqual(
+      try fixture.service.libraries(forUser: NoteStoreSchema.defaultUserId)
+        .first { $0.libraryId == defaultLibraryId }?.notebookCount,
+      1
+    )
+    // The unscoped operator continues to see the default note, the internal
+    // memory notebook, and the two account-owned notebooks.
+    XCTAssertEqual(
+      try fixture.service.listLibraries().first { $0.libraryId == defaultLibraryId }?.notebookCount,
+      4
     )
   }
 }

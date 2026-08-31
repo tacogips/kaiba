@@ -26,6 +26,7 @@ func noteGraphNeighborsInDatabase(
   maxDepth: Int,
   limit: Int,
   resultExclusions: Set<NoteID>,
+  scope: NoteSearchScope? = nil,
   in database: SQLiteDatabase
 ) throws -> [NoteGraphNeighbor] {
   guard maxDepth >= 0 else {
@@ -50,7 +51,7 @@ func noteGraphNeighborsInDatabase(
 
   let normalizedDepth = min(maxDepth, NoteGraphPolicy.maximumDepth)
   let normalizedLimit = min(limit, NoteGraphPolicy.maximumLimit)
-  let noteCount = try graphNoteCount(in: database)
+  let noteCount = try graphNoteCount(scope: scope, in: database)
   let seedSet = Set(seeds)
   var state = NoteGraphTraversalState()
 
@@ -68,6 +69,7 @@ func noteGraphNeighborsInDatabase(
       seeds: seedSet,
       noteCount: noteCount,
       state: &state,
+      scope: scope,
       database: database
     )
   }
@@ -98,6 +100,7 @@ func noteGraphNeighborsInDatabase(
       seeds: seedSet,
       noteCount: noteCount,
       state: &state,
+      scope: scope,
       database: database
     )
   }
@@ -124,6 +127,7 @@ private func offerGraphExpansions(
   seeds: Set<NoteID>,
   noteCount: Int,
   state: inout NoteGraphTraversalState,
+  scope: NoteSearchScope?,
   database: SQLiteDatabase
 ) throws {
   let invalidDestinations = seeds
@@ -132,24 +136,30 @@ private func offerGraphExpansions(
   var edges = try explicitGraphEdges(
     from: path,
     excluding: invalidDestinations,
+    scope: scope,
     database: database
   )
   edges.append(contentsOf: try sharedTagGraphEdges(
     from: path,
     noteCount: noteCount,
     excluding: invalidDestinations,
+    scope: scope,
     database: database
   ))
   if path.hopCount == 0 {
     edges.append(contentsOf: try lexicalGraphEdges(
       from: path,
       excluding: invalidDestinations,
+      scope: scope,
       database: database
     ))
   }
 
   var bestByDestination: [NoteID: NoteGraphPath] = [:]
   for edge in edges {
+    guard try noteMatchesGraphScope(edge.destinationNoteId, scope: scope, in: database) else {
+      continue
+    }
     let candidate = NoteGraphPath(
       seedNoteId: path.seedNoteId,
       destinationNoteId: edge.destinationNoteId,
@@ -176,9 +186,78 @@ private func offerGraphExpansions(
   }
 }
 
+/// Traversal must stop at an authorization boundary, not merely hide final
+/// results. Otherwise an unreachable intermediate note can affect ranking and
+/// leak through a returned path.
+private func noteMatchesGraphScope(
+  _ noteId: NoteID,
+  scope: NoteSearchScope?,
+  in database: SQLiteDatabase
+) throws -> Bool {
+  guard let scope else {
+    return true
+  }
+  var predicates = ["n.note_id = ?"]
+  var bindings: [SQLiteValue] = [.id(noteId)]
+  appendLibraryScopePredicate(
+    alias: "n",
+    reachableLibraryIds: scope.reachableLibraryIds,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  appendOwnerScopePredicate(
+    alias: "n",
+    actingUserId: scope.actingUserId,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  if let notebookId = scope.notebookId {
+    predicates.append("n.notebook_id = ?")
+    bindings.append(.id(notebookId))
+  }
+  let sql = "SELECT 1 FROM notes n WHERE \(predicates.joined(separator: " AND ")) LIMIT 1"
+  return try !database.query(sql, bindings: bindings).isEmpty
+}
+
+private func appendGraphScopePredicates(
+  alias: String,
+  scope: NoteSearchScope?,
+  predicates: inout [String],
+  bindings: inout [SQLiteValue]
+) {
+  guard let scope else {
+    return
+  }
+  appendLibraryScopePredicate(
+    alias: alias,
+    reachableLibraryIds: scope.reachableLibraryIds,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  appendOwnerScopePredicate(
+    alias: alias,
+    actingUserId: scope.actingUserId,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  if scope.excludesLongTermMemory, scope.actingUserId == nil {
+    appendLongTermMemoryExclusionPredicate(
+      alias: alias,
+      excludesLongTermMemory: true,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+  }
+  if let notebookId = scope.notebookId {
+    predicates.append("\(alias).notebook_id = ?")
+    bindings.append(.id(notebookId))
+  }
+}
+
 private func explicitGraphEdges(
   from path: NoteGraphPath,
   excluding invalidDestinations: Set<NoteID>,
+  scope: NoteSearchScope?,
   database: SQLiteDatabase
 ) throws -> [NoteGraphEdge] {
   let candidateScore = path.score * NoteGraphPolicy.hopDecay
@@ -186,7 +265,23 @@ private func explicitGraphEdges(
     return []
   }
   let excluded = invalidDestinations.sorted()
-  var sql = """
+  var predicates: [String] = []
+  var bindings: [SQLiteValue] = [
+    .id(path.destinationNoteId),
+    .id(path.destinationNoteId)
+  ]
+  if !excluded.isEmpty {
+    predicates.append("destination_note_id NOT IN (\(placeholders(count: excluded.count)))")
+    bindings.append(contentsOf: excluded.sqliteBindings)
+  }
+  appendGraphScopePredicates(
+    alias: "destination",
+    scope: scope,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  let whereClause = predicates.isEmpty ? "" : "WHERE \(predicates.joined(separator: " AND "))"
+  let sql = """
     SELECT destination_note_id
     FROM (
       SELECT to_note_id AS destination_note_id
@@ -197,16 +292,11 @@ private func explicitGraphEdges(
       FROM note_links
       WHERE to_note_id = ?
     )
+    INNER JOIN notes destination ON destination.note_id = destination_note_id
+    \(whereClause)
+    ORDER BY destination_note_id
+    LIMIT ?
     """
-  var bindings: [SQLiteValue] = [
-    .id(path.destinationNoteId),
-    .id(path.destinationNoteId)
-  ]
-  if !excluded.isEmpty {
-    sql += " WHERE destination_note_id NOT IN (\(placeholders(count: excluded.count)))"
-    bindings.append(contentsOf: excluded.sqliteBindings)
-  }
-  sql += " ORDER BY destination_note_id LIMIT ?"
   bindings.append(.int(Int64(NoteGraphPolicy.sourceCandidateLimit)))
   return try database.query(sql, bindings: bindings).compactMap { row in
     row.identifier("destination_note_id", as: NoteID.self).map {
@@ -219,6 +309,7 @@ private func sharedTagGraphEdges(
   from path: NoteGraphPath,
   noteCount: Int,
   excluding invalidDestinations: Set<NoteID>,
+  scope: NoteSearchScope?,
   database: SQLiteDatabase
 ) throws -> [NoteGraphEdge] {
   guard noteCount > 0,
@@ -227,38 +318,66 @@ private func sharedTagGraphEdges(
     return []
   }
   let excluded = invalidDestinations.sorted()
-  var sql = """
+  var originPredicates = [
+    "origin.note_id = ?",
+    "t.is_system = 0",
+    "t.class_id <> 'document-kind'",
+    "t.name NOT LIKE 'notebook-kind:%'"
+  ]
+  var originBindings: [SQLiteValue] = [.id(path.destinationNoteId)]
+  appendGraphScopePredicates(
+    alias: "origin_note",
+    scope: scope,
+    predicates: &originPredicates,
+    bindings: &originBindings
+  )
+  var frequencyPredicates: [String] = []
+  var frequencyBindings: [SQLiteValue] = []
+  appendGraphScopePredicates(
+    alias: "frequency_note",
+    scope: scope,
+    predicates: &frequencyPredicates,
+    bindings: &frequencyBindings
+  )
+  var destinationPredicates = ["other.note_id <> ?"]
+  var destinationBindings: [SQLiteValue] = [.id(path.destinationNoteId)]
+  appendGraphScopePredicates(
+    alias: "destination_note",
+    scope: scope,
+    predicates: &destinationPredicates,
+    bindings: &destinationBindings
+  )
+  if !excluded.isEmpty {
+    destinationPredicates.append("other.note_id NOT IN (\(placeholders(count: excluded.count)))")
+    destinationBindings.append(contentsOf: excluded.sqliteBindings)
+  }
+  let sql = """
     WITH eligible_origin_tags AS (
       SELECT t.tag_id
       FROM note_tags origin
+      INNER JOIN notes origin_note ON origin_note.note_id = origin.note_id
       INNER JOIN tags t ON t.tag_id = origin.tag_id
       INNER JOIN tag_classes tc ON tc.class_id = t.class_id
-      WHERE origin.note_id = ?
-        AND t.is_system = 0
-        AND t.class_id <> 'document-kind'
-        AND t.name NOT LIKE 'notebook-kind:%'
+      WHERE \(originPredicates.joined(separator: " AND "))
     ), tag_frequency AS (
       SELECT note_tags.tag_id, count(DISTINCT note_tags.note_id) AS note_count
       FROM note_tags
+      INNER JOIN notes frequency_note ON frequency_note.note_id = note_tags.note_id
       INNER JOIN eligible_origin_tags ON eligible_origin_tags.tag_id = note_tags.tag_id
+      \(frequencyPredicates.isEmpty ? "" : "WHERE \(frequencyPredicates.joined(separator: " AND "))")
       GROUP BY note_tags.tag_id
     )
     SELECT other.note_id AS destination_note_id,
       min(tag_frequency.note_count) AS winning_tag_note_count
     FROM note_tags other
+    INNER JOIN notes destination_note ON destination_note.note_id = other.note_id
     INNER JOIN eligible_origin_tags ON eligible_origin_tags.tag_id = other.tag_id
     INNER JOIN tag_frequency ON tag_frequency.tag_id = other.tag_id
-    WHERE other.note_id <> ?
+    WHERE \(destinationPredicates.joined(separator: " AND "))
     """
-  var bindings: [SQLiteValue] = [
-    .id(path.destinationNoteId),
-    .id(path.destinationNoteId)
-  ]
-  if !excluded.isEmpty {
-    sql += " AND other.note_id NOT IN (\(placeholders(count: excluded.count)))"
-    bindings.append(contentsOf: excluded.sqliteBindings)
-  }
-  sql += """
+  var bindings = originBindings + frequencyBindings + destinationBindings
+  var completedSQL = sql
+  completedSQL += """
     GROUP BY other.note_id
     HAVING min(tag_frequency.note_count) <= ?
     ORDER BY winning_tag_note_count, destination_note_id
@@ -266,7 +385,7 @@ private func sharedTagGraphEdges(
     """
   bindings.append(.int(Int64(maximumTagFrequency)))
   bindings.append(.int(Int64(NoteGraphPolicy.sourceCandidateLimit)))
-  return try database.query(sql, bindings: bindings).compactMap { row in
+  return try database.query(completedSQL, bindings: bindings).compactMap { row in
     guard let destination = row.identifier("destination_note_id", as: NoteID.self),
           let frequencyText = row["winning_tag_note_count"],
           let frequency = Int(frequencyText) else {
@@ -283,6 +402,7 @@ private func sharedTagGraphEdges(
 private func lexicalGraphEdges(
   from path: NoteGraphPath,
   excluding invalidDestinations: Set<NoteID>,
+  scope: NoteSearchScope?,
   database: SQLiteDatabase
 ) throws -> [NoteGraphEdge] {
   // The seed was reached through a library-filtered candidate query; this is
@@ -299,12 +419,23 @@ private func lexicalGraphEdges(
       SELECT m.note_id, bm25(note_fts) AS rank
       FROM note_fts
       INNER JOIN note_fts_map m ON m.fts_rowid = note_fts.rowid
+      INNER JOIN notes n ON n.note_id = m.note_id
       WHERE note_fts MATCH ?
       """
     var bindings: [SQLiteValue] = [.text(graphFTSMatchQuery(term))]
     if !excluded.isEmpty {
       sql += " AND m.note_id NOT IN (\(placeholders(count: excluded.count)))"
       bindings.append(contentsOf: excluded.sqliteBindings)
+    }
+    var scopePredicates: [String] = []
+    appendGraphScopePredicates(
+      alias: "n",
+      scope: scope,
+      predicates: &scopePredicates,
+      bindings: &bindings
+    )
+    if !scopePredicates.isEmpty {
+      sql += " AND \(scopePredicates.joined(separator: " AND "))"
     }
     sql += " ORDER BY rank, m.note_id LIMIT ?"
     bindings.append(.int(Int64(NoteGraphPolicy.lexicalRowsPerTermLimit)))
@@ -365,8 +496,20 @@ private func graphFTSMatchQuery(_ term: String) -> String {
   "\"\(term.replacingOccurrences(of: "\"", with: "\"\""))\""
 }
 
-private func graphNoteCount(in database: SQLiteDatabase) throws -> Int {
-  let rows = try database.query("SELECT count(*) AS note_count FROM notes")
+private func graphNoteCount(scope: NoteSearchScope?, in database: SQLiteDatabase) throws -> Int {
+  var predicates: [String] = []
+  var bindings: [SQLiteValue] = []
+  appendGraphScopePredicates(
+    alias: "n",
+    scope: scope,
+    predicates: &predicates,
+    bindings: &bindings
+  )
+  let whereClause = predicates.isEmpty ? "" : "WHERE \(predicates.joined(separator: " AND "))"
+  let rows = try database.query(
+    "SELECT count(*) AS note_count FROM notes n \(whereClause)",
+    bindings: bindings
+  )
   return Int(rows.first?["note_count"] ?? "") ?? 0
 }
 

@@ -12,8 +12,9 @@ import Foundation
 // Reach is decided per library and per account: an open library is reachable
 // by anyone, and one that requires authentication is reachable by the accounts
 // granted access in `library_members`. Reach *inside* a library — one member
-// reading another member's notebook by id — is still notebook ownership, the
-// open item recorded in `design-docs/specs/multi-user.md`.
+// reading another member's notebook by id — is enforced by
+// `requireNotebookOwnership`. Tag-detail queries apply the same reachable
+// library scope before returning comments, aggregates, or memo notebooks.
 
 extension NoteService {
   func requireNotebook(_ notebookId: NotebookID, in db: SQLiteDatabase) throws -> Notebook {
@@ -24,6 +25,7 @@ extension NoteService {
       kind: .notebook,
       in: db
     )
+    try requireNotebookOwnership(notebookId, subject: notebookId.rawValue, in: db)
     return notebook
   }
 
@@ -35,41 +37,50 @@ extension NoteService {
       kind: .note,
       in: db
     )
+    try requireNotebookOwnership(note.notebookId, subject: noteId.rawValue, in: db)
     return note
   }
 
   @discardableResult
   func requireWritableNote(_ noteId: NoteID, in db: SQLiteDatabase) throws -> Note {
-    let note = try loadWritableNote(noteId, in: db)
+    // Establish reach and ownership before exposing mutable state.  In
+    // particular, a foreign read-only note must be indistinguishable from a
+    // missing row, not report its read-only state to the caller.
+    let note = try loadNote(noteId, in: db)
     try requireLibraryReach(
       notebookId: note.notebookId,
       subject: noteId.rawValue,
       kind: .note,
       in: db
     )
-    return note
+    try requireNotebookOwnership(note.notebookId, subject: noteId.rawValue, in: db)
+    return try loadWritableNote(noteId, in: db)
   }
 
   @discardableResult
   func requireWritableNotebook(_ notebookId: NotebookID, in db: SQLiteDatabase) throws -> Notebook {
-    let notebook = try loadWritableNotebook(notebookId, in: db)
+    // As with notes, do not reveal whether a foreign notebook is read-only.
+    let notebook = try loadNotebook(notebookId, in: db)
     try requireLibraryReach(
       libraryId: notebook.libraryId,
       subject: notebookId.rawValue,
       kind: .notebook,
       in: db
     )
-    return notebook
+    try requireNotebookOwnership(notebookId, subject: notebookId.rawValue, in: db)
+    return try loadWritableNotebook(notebookId, in: db)
   }
 
   /// Refuses a file whose owning note or notebook sits in a library this
   /// caller cannot reach. A file row is shared content-addressed storage, so
-  /// reachability is decided by what references it: unreferenced blobs stay
-  /// readable, because nothing else in the product treats them as private.
+  /// reachability is decided by what references it. Unreferenced blobs remain
+  /// available only to the unscoped local operator; scoped callers receive a
+  /// missing-file response.
   func requireReachableFile(_ fileId: FileID, in db: SQLiteDatabase) throws {
     let rows = try db.query(
       """
-      SELECT DISTINCT notebooks.library_id AS library_id
+      SELECT DISTINCT notebooks.notebook_id AS notebook_id, notebooks.library_id AS library_id,
+        notebooks.owner_user_id AS owner_user_id
       FROM notebooks
       WHERE notebooks.notebook_id IN (
         SELECT notes.notebook_id
@@ -84,16 +95,61 @@ extension NoteService {
       """,
       bindings: [.id(fileId), .id(fileId)]
     )
-    let libraryIds = rows.compactMap { $0.identifier("library_id", as: LibraryID.self) }
-    guard !libraryIds.isEmpty else {
+    guard !rows.isEmpty else {
+      if actingUserId != nil { throw NoteServiceError.notFound("file not found: \(fileId)") }
       return
     }
     // Reachable through any referencing notebook: an attachment shared by two
     // notebooks is readable when either one is.
-    for libraryId in libraryIds where isReachable(libraryId: libraryId, in: db) {
+    for row in rows {
+      guard let libraryId = row.identifier("library_id", as: LibraryID.self),
+            try isReachable(libraryId: libraryId, in: db) else { continue }
+      if actingUserId != nil || isUnauthenticatedPrincipal,
+         let notebookId = row.identifier("notebook_id", as: NotebookID.self),
+         try isLongTermMemoryNotebook(notebookId, in: db) {
+        continue
+      }
+      if let actingUserId, row.identifier("owner_user_id", as: UserID.self) != actingUserId { continue }
       return
     }
     throw NoteServiceError.notFound("file not found: \(fileId)")
+  }
+
+  /// Scoped callers may only reach notebooks owned by their account. Long-term
+  /// memory remains a store-wide internal facility until it is redesigned with
+  /// per-user attribution, so it is deliberately not an ownership exception.
+  func requireNotebookOwnership(_ notebookId: NotebookID, subject: String, in db: SQLiteDatabase) throws {
+    guard actingUserId != nil || isUnauthenticatedPrincipal else { return }
+    guard try !isLongTermMemoryNotebook(notebookId, in: db) else {
+      throw NoteServiceError.notFound("notebook not found: \(subject)")
+    }
+    guard let actingUserId else { return }
+    let rows = try db.query(
+      """
+      SELECT owner_user_id
+      FROM notebooks WHERE notebook_id = ? LIMIT 1
+      """,
+      bindings: [.id(notebookId)]
+    )
+    guard let row = rows.first,
+          row.identifier("owner_user_id", as: UserID.self) == actingUserId else {
+      throw NoteServiceError.notFound("notebook not found: \(subject)")
+    }
+  }
+
+  /// Returns false only for the intentionally indistinguishable missing-row
+  /// authorization result. Other failures remain visible to the caller rather
+  /// than being silently converted into an empty collection.
+  func canReachNote(_ noteId: NoteID, in db: SQLiteDatabase) throws -> Bool {
+    do {
+      _ = try requireNote(noteId, in: db)
+      return true
+    } catch let error as NoteServiceError {
+      guard case .notFound = error else {
+        throw error
+      }
+      return false
+    }
   }
 
   enum LibraryReachSubject {
@@ -135,7 +191,7 @@ extension NoteService {
     guard let libraryId else {
       return
     }
-    guard isReachable(libraryId: libraryId, in: db) else {
+    guard try isReachable(libraryId: libraryId, in: db) else {
       throw NoteServiceError.notFound("\(kind.label) not found: \(subject)")
     }
   }
@@ -149,22 +205,20 @@ extension NoteService {
   ///   it is a member of (`library_members`).
   /// - The unscoped local CLI is the operator view and reaches everything; it
   ///   holds the store file, so hiding rows from it would be theater.
-  func isReachable(libraryId: LibraryID, in db: SQLiteDatabase) -> Bool {
+  func isReachable(libraryId: LibraryID, in db: SQLiteDatabase) throws -> Bool {
     if let actingLibraryId, libraryId != actingLibraryId {
       return false
     }
     guard isUnauthenticatedPrincipal || actingUserId != nil else {
       return true
     }
-    if isActingAdmin(in: db) {
+    if try isActingAdmin(in: db) {
       return true
     }
-    let rows = (try? db.query(
+    let rows = try db.query(
       "SELECT auth_required FROM libraries WHERE library_id = ? LIMIT 1",
       bindings: [.id(libraryId)]
-    )) ?? []
-    // A library that cannot be read is not reachable: failing closed keeps a
-    // missing row from opening one up.
+    )
     guard let row = rows.first, let authRequired = row["auth_required"] else {
       return false
     }
@@ -177,7 +231,7 @@ extension NoteService {
     guard !isUnauthenticatedPrincipal, let actingUserId else {
       return false
     }
-    return isLibraryMember(libraryId: libraryId, userId: actingUserId, in: db)
+    return try isLibraryMember(libraryId: libraryId, userId: actingUserId, in: db)
   }
 
   /// Refuses a store-wide privileged operation to anyone but the unscoped
@@ -193,7 +247,7 @@ extension NoteService {
       if actingUserId == nil, !isUnauthenticatedPrincipal {
         return
       }
-      guard isActingAdmin(in: db) else {
+      guard try isActingAdmin(in: db) else {
         throw NoteServiceError.invalidInput("this operation requires an administrator account")
       }
     }
@@ -204,14 +258,14 @@ extension NoteService {
   /// next request instead of at the next process start. A request that
   /// presented no credential is never treated as one even though it resolves
   /// to the admin account (`design-docs/specs/library.md`).
-  func isActingAdmin(in db: SQLiteDatabase) -> Bool {
+  func isActingAdmin(in db: SQLiteDatabase) throws -> Bool {
     guard !isUnauthenticatedPrincipal, let actingUserId else {
       return false
     }
-    let rows = (try? db.query(
+    let rows = try db.query(
       "SELECT is_admin FROM users WHERE user_id = ? AND disabled_at IS NULL LIMIT 1",
       bindings: [.id(actingUserId)]
-    )) ?? []
+    )
     return rows.first?["is_admin"] == "1"
   }
 
@@ -223,7 +277,7 @@ extension NoteService {
     if let actingLibraryId {
       // Still subject to the same rule: a selection narrows what a caller may
       // see, it never widens it.
-      return isReachable(libraryId: actingLibraryId, in: db) ? [actingLibraryId] : []
+      return try isReachable(libraryId: actingLibraryId, in: db) ? [actingLibraryId] : []
     }
     if isUnauthenticatedPrincipal {
       return try db.query(
@@ -233,7 +287,7 @@ extension NoteService {
     guard let actingUserId else {
       return nil
     }
-    if isActingAdmin(in: db) {
+    if try isActingAdmin(in: db) {
       return nil
     }
     return try db.query(
@@ -250,23 +304,52 @@ extension NoteService {
   /// traversal walks links, and a link may cross into a library the caller
   /// cannot see, so the crossing has to be cut on the way out.
   func reachableNoteIds(_ noteIds: [NoteID], in db: SQLiteDatabase) throws -> Set<NoteID> {
-    guard let reachableLibraryIds = try reachableLibraryIds(in: db) else {
-      return Set(noteIds)
-    }
-    guard !noteIds.isEmpty, !reachableLibraryIds.isEmpty else {
+    let reachableLibraryIds = try reachableLibraryIds(in: db)
+    guard !noteIds.isEmpty, reachableLibraryIds != [] else {
       return []
+    }
+    var predicates = ["notes.note_id IN (\(placeholders(count: noteIds.count)))"]
+    var bindings = noteIds.sqliteBindings
+    if let reachableLibraryIds {
+      predicates.append("notebooks.library_id IN (\(placeholders(count: reachableLibraryIds.count)))")
+      bindings.append(contentsOf: reachableLibraryIds.sqliteBindings)
+    }
+    appendOwnerScopePredicate(
+      alias: "notes",
+      actingUserId: actingUserId,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+    if isUnauthenticatedPrincipal, actingUserId == nil {
+      appendLongTermMemoryExclusionPredicate(
+        alias: "notes",
+        excludesLongTermMemory: true,
+        predicates: &predicates,
+        bindings: &bindings
+      )
     }
     let rows = try db.query(
       """
       SELECT notes.note_id AS note_id
       FROM notes
       JOIN notebooks ON notebooks.notebook_id = notes.notebook_id
-      WHERE notes.note_id IN (\(placeholders(count: noteIds.count)))
-        AND notebooks.library_id IN (\(placeholders(count: reachableLibraryIds.count)))
+      WHERE \(predicates.joined(separator: " AND "))
       """,
-      bindings: noteIds.sqliteBindings + reachableLibraryIds.sqliteBindings
+      bindings: bindings
     )
     return Set(rows.compactMap { $0.identifier("note_id", as: NoteID.self) })
+  }
+
+  func isLongTermMemoryNotebook(_ notebookId: NotebookID, in db: SQLiteDatabase) throws -> Bool {
+    try !db.query(
+      """
+      SELECT 1
+      FROM notebook_tags
+      WHERE notebook_id = ? AND tag_id = ?
+      LIMIT 1
+      """,
+      bindings: [.id(notebookId), .id(NoteStoreSchema.longTermMemoryNotebookKindTagId)]
+    ).isEmpty
   }
 
   func filterReachable(

@@ -10,6 +10,7 @@ public extension NoteService {
   ) throws -> Notebook {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
+        try requireEnabledActingUser(in: db)
         let before = try requireNotebook(notebookId, in: db)
         for tagName in tags {
           let resolved: Tag
@@ -49,6 +50,7 @@ public extension NoteService {
   ) throws -> Notebook {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
+        try requireEnabledActingUser(in: db)
         let before = try requireNotebook(notebookId, in: db)
         for tagId in orderedUnique(tagIds) {
           try applyNotebookTag(
@@ -78,14 +80,37 @@ public extension NoteService {
     tagName: String,
     removedBy provenance: NoteProvenance
   ) throws -> Notebook {
-    let tagId = try driver.withDatabase { database in
-      try requireTag(name: tagName, in: database).tagId
+    let result = try driver.withDatabase { database in
+      try database.transaction { db in
+        try requireEnabledActingUser(in: db)
+        let before = try requireNotebook(notebookId, in: db)
+        let tag = try requireTag(name: tagName, in: db)
+        let existing = try notebookTagAssignment(notebookId: notebookId, tagId: tag.tagId, in: db)
+        guard let existing else {
+          return (notebook: before, tagNames: nil as [String]?)
+        }
+        guard existing.deletable else {
+          throw NoteServiceError.protectedTag(tag.name)
+        }
+        if provenance == .ai, existing.provenance == .human {
+          throw NoteServiceError.protectedTag(tag.name)
+        }
+        try db.execute(
+          "DELETE FROM notebook_tags WHERE notebook_id = ? AND tag_id = ?",
+          bindings: [.id(notebookId), .id(existing.tag.tagId)]
+        )
+        let after = try requireNotebook(notebookId, in: db)
+        return (notebook: after, tagNames: affectedFolderTagNames(before: before, after: after))
+      }
     }
-    return try removeNotebookTagById(
-      notebookId: notebookId,
-      tagId: tagId,
-      removedBy: provenance
-    )
+    if let tagNames = result.tagNames {
+      publishChange(NoteChangeEvent(
+        kind: NoteChangeEventKind.notebookTags,
+        notebookId: notebookId,
+        tagNames: tagNames
+      ))
+    }
+    return result.notebook
   }
 
   @discardableResult
@@ -96,10 +121,12 @@ public extension NoteService {
   ) throws -> Notebook {
     let result = try driver.withDatabase { database in
       try database.transaction { db in
+        try requireEnabledActingUser(in: db)
+        let before = try requireNotebook(notebookId, in: db)
         let tag = try requireTag(id: tagId, in: db)
         let existing = try notebookTagAssignment(notebookId: notebookId, tagId: tagId, in: db)
         guard let existing else {
-          return (notebook: try requireNotebook(notebookId, in: db), tagNames: nil as [String]?)
+          return (notebook: before, tagNames: nil as [String]?)
         }
         guard existing.deletable else {
           throw NoteServiceError.protectedTag(tag.name)
@@ -107,7 +134,6 @@ public extension NoteService {
         if provenance == .ai, existing.provenance == .human {
           throw NoteServiceError.protectedTag(tag.name)
         }
-        let before = try requireNotebook(notebookId, in: db)
         try db.execute(
           """
           DELETE FROM notebook_tags

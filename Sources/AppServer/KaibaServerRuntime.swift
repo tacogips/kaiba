@@ -107,7 +107,11 @@ public actor KaibaServerRuntime {
       environment: config.environment
     )
     let aiConfiguration = config.configuration.ai
-    let invoker = AgentInvokerFactory.makeInvoker(configuration: aiConfiguration)
+    let invoker = AgentInvokerFactory.makeInvoker(
+      configuration: aiConfiguration,
+      environment: config.environment,
+      executionMode: .served
+    )
     let agentReplyStreamHub = AgentReplyStreamHub()
     var dispatcher: KaibaAutoActionDispatcher?
     if let invoker {
@@ -162,7 +166,10 @@ public actor KaibaServerRuntime {
         agentInvoker: invoker,
         agentProvider: aiConfiguration?.agent?.provider,
         agentModel: aiConfiguration?.agent?.model,
-        agentModelCatalog: agentModelCatalog(configuration: aiConfiguration)
+        agentModelCatalog: agentModelCatalog(
+          configuration: aiConfiguration,
+          environment: config.environment
+        )
       ),
       s3Profiles: s3Profiles
     )
@@ -174,8 +181,10 @@ public actor KaibaServerRuntime {
       noteAPIAuthenticator: authenticator,
       allowUnauthenticatedNoteAPI: config.allowUnauthenticated,
       unauthenticatedActsAsAdmin: config.unauthenticatedActsAsAdmin,
+      noteService: service,
       noteChangeFeed: changeFeed,
-      agentReplyStreamHub: agentReplyStreamHub
+      agentReplyStreamHub: agentReplyStreamHub,
+      agentTokenIssuer: service
     )
     let adapter = DeterministicServerHTTPAdapter(
       routeHandler: routeHandler,
@@ -240,7 +249,8 @@ public actor KaibaServerRuntime {
 /// provider is configured. Ported from `ServeCommand` so both entry points wire
 /// the catalog identically.
 private func agentModelCatalog(
-  configuration: KaibaAIConfiguration?
+  configuration: KaibaAIConfiguration?,
+  environment: [String: String]
 ) -> (@Sendable () async throws -> AgentGatewayModelCatalogResult)? {
   guard let agent = configuration?.agent, let provider = agent.provider, !provider.isEmpty else {
     return nil
@@ -249,7 +259,9 @@ private func agentModelCatalog(
     try await AgentGatewayCLIModelCatalog(
       commandPath: agent.commandPath,
       vendor: provider,
-      apiKeyEnvironment: agent.apiKeyEnvironmentVariable
+      apiKeyEnvironment: agent.apiKeyEnvironmentVariable,
+      environment: environment,
+      executionMode: .served
     ).models()
   }
 }

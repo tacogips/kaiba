@@ -114,7 +114,13 @@ struct ServeCommand {
     for line in try AIAutoActionReconciliation.reconcile(
       service: reconciliationService,
       aiConfiguration: options.configuration.ai,
-      invokerAvailable: AgentInvokerFactory.makeInvoker(configuration: options.configuration.ai) != nil
+      invokerAvailable: AgentInvokerFactory.makeInvoker(
+        configuration: options.configuration.ai,
+        environment: ProcessInfo.processInfo.environment,
+        executionMode: .served
+      ) != nil,
+      environment: ProcessInfo.processInfo.environment,
+      executionMode: .served
     ) {
       print("ai: \(line)")
     }

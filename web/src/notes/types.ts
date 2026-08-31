@@ -139,6 +139,8 @@ export interface AgentReplyStreamPoll {
   done: boolean
   status: string | null
   message: string | null
+  /** The server evicted retained chunks; refresh the durable conversation. */
+  resync: boolean
 }
 
 export interface AgentChatMessageResult {

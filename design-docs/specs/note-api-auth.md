@@ -102,33 +102,39 @@ anything, and a browser cannot log in at all.
    now lives in `localStorage` keyed `kaiba-note-bearer`
    (`web/src/notes/client.ts:720-728`), so it survives new tabs and browser
    restarts, and a 401 clears the key.
-3. **No account model.** There is no user, no email, no session — only opaque
-   API clients. Nothing to attach an external identity to.
+3. ~~**No account model.**~~ Fixed by the multi-user foundation: the existing
+   `users` table is the account model, carries normalized email and disablement
+   state, and owns notebooks and API clients. Browser-driven login and
+   per-device browser-session revocation remain unimplemented; they must reuse
+   `users`, not add a parallel `auth_users` table.
 4. ~~**`--allow-unauthenticated` is unguarded.**~~ Fixed: `ServeCommand.parse`
    refuses `--allow-unauthenticated` unless the bind host is loopback
    (`127.0.0.0/8`, `::1`, or `localhost`), so serving the store unauthenticated
    on a routable address is a hard startup failure.
-5. **Login is a terminal transcription exercise.** The only working method is
+5. ~~**Served event activity exposes a shared revision.**~~ Fixed: `/note/events`
+   returns an opaque, principal-bound cursor. Only events authorized for that
+   principal advance or wake its poll, so foreign writes disclose neither
+   mutation counts nor timing. A response returns a successor cursor; the
+   request cursor retains its batch until that successor is used, making a
+   dropped response and overlapping same-cursor requests replay-safe. Every
+   replay rechecks current event visibility; revoked events are omitted and
+   operational authorization errors preserve the batch for HTTP 500 retry.
+6. **Login is a terminal transcription exercise.** The only working method is
    reading a six-digit code out of a mail client and retyping it into a shell.
    There is no browser path, so the SPA cannot log anyone in, and the CLI cannot
    log in to a server it does not share a filesystem with.
-6. **`GET /note/events` and `/note/agent-stream` are not scoped to the caller
-   (open).** The change feed returns every mutation's `notebookId` and
-   `tagNames` regardless of what the poller may reach, and the agent stream
-   serves any turn note by id with no ownership check. A low-privilege or
-   unauthenticated (`--allow-unauthenticated`) poller learns the notebook ids
-   and tag vocabulary of libraries it cannot read, and can stream another
-   user's in-progress reply. Fix: filter the feed through `reachableLibraryIds`
-   for the polling account, and resolve the turn note via `requireNote` on a
-   service scoped to the authenticated user before streaming. Needs the routes
-   to carry the authenticated `userId`, which they currently discard.
-7. **No CSRF or `Host`/`Content-Type` guard on `POST /graphql` (open).** The
-   body is decoded as JSON without checking `Content-Type`, and no route reads
-   `Origin` or `Host`. Under `--allow-unauthenticated` a cross-site
-   `text/plain` form post can drive mutations against a local store, and an
-   unchecked `Host` leaves DNS-rebinding open. Fix: require
-   `Content-Type: application/json` on `/graphql` and reject non-loopback,
-   non-configured `Host` values.
+7. ~~**`GET /note/events` and `/note/agent-stream` are not scoped to the
+   caller.**~~ Fixed: the route handler retains the authenticated principal,
+   filters event metadata through a scoped service, and authorizes each stream
+   turn before attaching it to the reply hub. The ownership reader is required
+   for both routes, so an unwired handler fails closed.
+8. **No cross-site, `Host`, or `Content-Type` guard on state-changing routes
+   (open).** The GraphQL body is decoded as JSON without checking
+   `Content-Type`, and no route reads `Origin` or `Host`. Under
+   `--allow-unauthenticated` a cross-site `text/plain` form post can drive
+   mutations against a local store, and an unchecked `Host` leaves DNS
+   rebinding open. The exact accepted-host and origin rules are defined under
+   Configuration and apply before authentication or body decoding.
 
 ## Design
 
@@ -196,7 +202,7 @@ already linked and the sessions are opaque.
 
 **Fail closed on accounts.** An address can log in only if an enabled `users`
 row exists for it. There is no self-signup and no first-visitor claim. Accounts
-are created out of band with `kaiba auth user add --email`.
+are created out of band with `kaiba user add --email`.
 
 ### Storage
 
@@ -213,9 +219,9 @@ already has `email` with a unique partial index, `display_name`, `created_at`,
   `user_id` (null until approved), `client_description`, `created_at`,
   `expires_at`, `approved_at`, `consumed_at`, `poll_count`, `last_polled_at`.
   `request_id` is the public name of the row — it may appear in the
-  verification URL and on screen. `poll_secret` is the credential the CLI
-  polls with; it is returned once by `/note/login/start`, stored only as a
-  hash, and never appears in any URL (see "Handoff" below).
+  verification URL and on screen. `poll_secret` is the credential the polling
+  client uses; it is returned once by `/note/login/start`, stored server-side
+  only as a hash, and never appears in any URL (see "Handoff" below).
 - `auth_sessions` — still unbuilt, and needed only when the SPA holds a
   credential of its own rather than a JWT: `session_id`, `user_id`,
   `token_hash`, `created_at`, `expires_at`, `revoked_at`, `last_seen_at`. The
@@ -224,23 +230,36 @@ already has `email` with a unique partial index, `display_name`, `created_at`,
   `auth_sessions` would add is revoking one browser without disabling the
   person.
 
-Raw codes, raw approval tokens, and raw session tokens are never stored, never
-logged, and never returned except in the single response or mail that mints
-them.
+Neither new table is part of multi-user TASK-M06 through TASK-M10. That work
+must keep `NoteStoreSchema.currentVersion = 17`. Before a later task adds
+`auth_login_requests`, it must resolve the schema rollout in P9: silently
+changing the version-17 create schema would leave already-created version-17
+stores without the table, while incrementing the version follows the current
+fresh-schema policy but requires store recreation. `auth_sessions` is further
+deferred on the P6 expiry decision.
+
+Raw codes, approval tokens, poll secrets, and session tokens are never
+persisted server-side or logged, and are returned only through the single
+response or mail that mints them. The CLI keeps `pollSecret` in memory. A
+standalone SPA keeps it only in same-origin `sessionStorage` until its pending
+login reaches a terminal state; it never enters a URL or `localStorage`.
 
 The JWT signing key (`auth.jwt.secret`) shares the `app_settings` table but is
 **not reachable through the `appSetting`/`setAppSetting` GraphQL surface**: keys
 under the reserved `auth.` prefix are refused there (only internal token code
 reaches them), so a bearer-token holder can neither read the key to forge an
 admin JWT nor overwrite it. This closed a privilege-escalation hole where any
-authenticated client could sign a token for any account.
+authenticated client could sign a token for any account. First-use creation is
+one transaction with `INSERT ... ON CONFLICT DO NOTHING` followed by a reread,
+so concurrent issuers always sign with the canonical stored key.
 
 ### Login flow (`builtin`, email)
 
-Login runs in a browser and is driven from the terminal: `kaiba auth login`
-opens a browser, the person signs in there, and the token lands back in the
-terminal. Retyping a code into a shell survives only as the fallback for hosts
-that cannot open a browser.
+Login runs in a browser and is initiated either by `kaiba auth login` or by the
+standalone SPA. In the CLI flow the command opens a browser and the token lands
+back in the terminal; in the standalone flow the initiating tab polls for and
+stores the token. Retyping a code into a shell survives only as the fallback
+for hosts that cannot open a browser.
 
 This makes the CLI a **client of a running kaiba server** rather than a direct
 opener of the store, which is the structural change in this revision. Today
@@ -278,8 +297,8 @@ that is already long-running and already serves a long-poll change feed.
 and in anything that logs URLs. This is RFC 8628's split between the
 `device_code` (secret, held only by the polling client) and the `user_code`
 (public, shown to the person); kaiba keeps `requestId` public and moves the
-polling right into a separate secret that exists only in the CLI's memory and
-as a hash in the row.
+polling right into a separate secret held only by the polling client and as a
+hash in the row.
 
 `userCode` is not a credential; it is the check that the browser and the
 terminal are talking about the same request. The verification page displays it
@@ -287,9 +306,28 @@ and the person confirms it matches their terminal. Without it, a pending login
 someone else started looks exactly like your own, and approving it hands them a
 token for your account.
 
+#### Standalone SPA handoff
+
+The SPA uses the same pending-login protocol; it does not get a second token
+exchange. When no `request` query parameter is present, the `builtin` login
+view calls `POST /note/login/start` itself, keeps `{requestId, pollSecret}` in
+same-origin `sessionStorage`, and then drives email-link or six-digit-code
+approval against that request. The polling tab calls `/note/login/poll`; only
+that one-time poll returns the JWT. The approval GET/POST and code endpoint
+never return a credential.
+
+`sessionStorage` is deliberate: it survives a same-tab mail-link navigation or
+reload but is not durable across browser restarts and is not shared as the
+long-lived API bearer is. The SPA deletes the pending pair on successful poll,
+expiry, cancellation, or authentication failure, then stores only the returned
+JWT under the existing `kaiba-note-bearer` `localStorage` key. A link opened in
+another tab approves the row but tells the person to return to the polling tab;
+knowing `requestId` alone can never retrieve its JWT.
+
 #### Approval in the browser
 
-Both methods approve the same row, so the terminal does not care which was used.
+Both methods approve the same row, so the polling client does not care which
+was used.
 
 **Email link.** The person enters their address on the verification page, or it
 came in on `/note/login/start`; the server mails a link carrying a single-use
@@ -398,6 +436,8 @@ object, decoded by `KaibaConfiguration`
 {
   "server": {
     "endpoint": "http://127.0.0.1:8787",
+    "allowedHosts": ["notes.example.com"],
+    "allowedOrigins": ["https://notes.example.com"],
     "auth": {
       "mode": "builtin",
       "builtin": {
@@ -434,6 +474,29 @@ Rules:
   affects what `kaiba serve` binds. The only `endpoint` in
   `KaibaConfiguration` now belongs to a storage profile
   (`KaibaConfiguration.swift:209`), so this is an addition, not a reuse.
+- `server.allowedHosts` contains exact HTTP authority values accepted in the
+  `Host` header; `server.allowedOrigins` contains exact origins allowed on
+  state-changing browser requests. Neither accepts wildcards, suffix matches,
+  paths, queries, fragments, credentials, or forwarded-host headers.
+- Host normalization lowercases DNS names, removes one trailing dot, preserves
+  an explicit port, and uses bracketed canonical IPv6. Missing, malformed, or
+  unmatched `Host` answers 400 before authentication or body decoding. The
+  default allowlist is the actual bind authority; when that bind is loopback,
+  the same listener port on `localhost`, `127.0.0.1`, and `[::1]` is also
+  accepted. Reverse-proxy and non-loopback names must be listed explicitly.
+- A state-changing request with `Origin` must exactly match the normalized
+  request origin or an entry in `server.allowedOrigins`; `Origin: null` and an
+  unmatched origin answer 403. An absent `Origin` remains valid for CLI and
+  other non-browser clients, including a loopback `mode: none` client, after
+  Host and required JSON content-type validation. Allowed cross-origin
+  responses echo the one matched origin with `Vary: Origin`; `*` is never used
+  with credentials.
+- The normalized request origin is `http://` plus the validated Host authority,
+  because `KaibaLocalHTTPServer` itself serves HTTP. An HTTPS reverse proxy
+  lists its public origin explicitly in `allowedOrigins`; forwarded proto and
+  forwarded host headers are never trusted implicitly.
+- `server.endpoint` does not grant Host or Origin access. It is a client-side
+  default and may differ from the public reverse-proxy origin.
 - Secrets are named through environment variables only, following the existing
   `--access-key-env` convention. No secret values in `config.json`.
 - Startup keeps printing the effective mode; the existing
@@ -481,7 +544,8 @@ Login view by mode:
   instructions for the QR/registration flow. No server change is required: the
   pasted key is validated by the existing `authenticateAPIClient`.
 - `builtin` — an email field, then a code field, plus an IdP button when one is
-  configured. The same views serve the verification page reached from
+  configured. A standalone login starts and polls its own pending request as
+  described above. The same views serve the verification page reached from
   `kaiba auth login`, which arrives with `?request=<requestId>` and shows
   `userCode` so the person can match it against their terminal.
 - `oidc` — a button starting Authorization Code + PKCE against the issuer.
@@ -493,6 +557,10 @@ Shipped: the credential lives in `localStorage` keyed `kaiba-note-bearer`
 browser restart. A 401 clears the key, so a revoked or expired credential
 cannot wedge the app in a loop.
 
+The future standalone `builtin` flow stores only its short-lived pending pair
+in `sessionStorage`; successful polling deletes that pair before writing the
+JWT to `kaiba-note-bearer`. Approval pages never receive or persist the JWT.
+
 ### Safety rules
 
 - `mode: none` is refused unless the bind host is loopback. Serving the note
@@ -500,6 +568,11 @@ cannot wedge the app in a loop.
   This is a hard failure, not a warning: the friendly path for LAN use is to
   run an authenticated mode. Implemented for the current `--allow-unauthenticated`
   flag in `ServeCommand.parse`.
+- Every state-changing JSON route, including GraphQL, login, registration, and
+  agent-token issuance, requires `Content-Type: application/json`; unsupported
+  media types answer 415 before decoding. The exact Host and Origin checks in
+  Configuration run before authentication and prevent DNS-rebinding and
+  browser cross-site mutation even when the local server uses `mode: none`.
 - Stored attachments served at `GET /files/<id>` are inert downloads: an
   author-supplied media type is honored only for a small allowlist of
   render-safe types, everything else (notably `text/html` and
@@ -508,10 +581,12 @@ cannot wedge the app in a loop.
   `Content-Security-Policy: default-src 'none'; sandbox`, and `nosniff` — so a
   malicious attachment cannot run script on kaiba's origin and steal the SPA's
   bearer token.
-- `GET /files/<id>` scopes its reader to the authenticated account, so per-account
-  library membership is enforced on raw bytes exactly as the GraphQL executor
-  enforces it; the route no longer crosses a library boundary for an
-  authenticated non-member.
+- `GET /files/<id>` scopes its reader to the authenticated account, so
+  per-account library membership is enforced on raw bytes exactly as the
+  GraphQL executor enforces it. Ownership enforcement and the default-user
+  fallback for an unauthenticated host are designed in
+  `design-docs/specs/multi-user.md` and remain open until TASK-M06 passes its
+  authenticated-host, unauthenticated-host, and orphan-blob tests.
 - Store-wide file maintenance (`migrateAllNoteFiles`, `reclaimNoteFileStorage`)
   is refused to non-admin clients: only the unscoped local operator or an acting
   admin may sweep or migrate blobs across every library.
@@ -537,14 +612,20 @@ cannot wedge the app in a loop.
   knows `requestId`.
 - 401 bodies keep their current shape (`error` plus a GraphQL `errors` array)
   so existing clients are unaffected.
+- `POST /note/agent-token` is owned by multi-user TASK-M08. It mints only for
+  the authenticated `NoteAPIAuthenticatedClient.userId`, accepts no account id
+  from the caller, bounds TTL, re-reads account state, and refuses requests on
+  every unauthenticated host, including `--allow-unauthenticated`. The token is
+  returned once and never logged.
 - Provider errors are logged server-side only, never returned in a response
   body, per `logNoteAPIServerError`
   (`QRClientRegistrationAuthenticator.swift:236`).
 
 ## Non-Goals
 
-- Roles and per-note authorization. Every authenticated principal keeps full
-  access to the note store; the schema has no per-user ACL.
+- Notebook sharing, roles beyond the existing admin role, and per-note ACLs.
+  The multi-user boundary is one owner per notebook; admin widens library
+  reach but does not grant access to another account's notebooks.
 - Self-service signup, password login, and account recovery flows.
 - Multi-tenant hosting.
 

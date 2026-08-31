@@ -72,7 +72,7 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
     // unless `--as-admin` says this port acts as the admin account.
     let isUnauthenticated = authenticatedClient == nil && !unauthenticatedActsAsAdmin
     let reader = noteService
-      .scoped(to: authenticatedClient?.userId)
+      .scoped(to: authenticatedClient?.userId ?? NoteStoreSchema.defaultUserId)
       .unauthenticated(isUnauthenticated)
     let record: FileRecord
     let content: Data
@@ -101,7 +101,7 @@ public struct KaibaNoteFileHTTPRouter: KaibaHTTPRouteHandling {
       headers: [
         "Content-Type": contentType,
         "Content-Length": String(content.count),
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "private, no-store",
         "Content-Disposition": disposition,
         "Content-Security-Policy": "default-src 'none'; sandbox",
         "X-Content-Type-Options": "nosniff"

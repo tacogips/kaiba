@@ -7,6 +7,20 @@ import Foundation
 // invent one (`design-docs/specs/library.md`).
 
 public extension NoteService {
+  /// Refuses a library the current service scope may not reach. This supports
+  /// server-owned metadata that must retain the visibility it had when it was
+  /// created, even if its notebook later moves to another library.
+  func requireLibraryAccess(_ libraryId: LibraryID) throws {
+    try driver.withDatabase { database in
+      try requireLibraryReach(
+        libraryId: libraryId,
+        subject: libraryId.rawValue,
+        kind: .library,
+        in: database
+      )
+    }
+  }
+
   /// The library notebooks land in when none is selected. Present in every
   /// prepared store; a store missing it is corrupt, not empty.
   func defaultLibrary() throws -> NoteLibrary {
@@ -67,12 +81,35 @@ public extension NoteService {
     try driver.withDatabase { database in
       var predicate = ""
       var predicateBindings: [SQLiteValue] = []
+      let notebookOwnerUserId = actingUserId
+        ?? (isUnauthenticatedPrincipal ? NoteStoreSchema.defaultUserId : nil)
+      let notebookCountPredicate: String
+      let notebookCountBindings: [SQLiteValue]
+      if let notebookOwnerUserId {
+        // The store-wide long-term-memory notebook is internal-only for every
+        // scoped principal, including the default account and unauthenticated
+        // requests that resolve to it. Its presence must not change a public
+        // library aggregate either.
+        notebookCountPredicate = """
+         AND notebooks.owner_user_id = ?
+         AND notebooks.notebook_id NOT IN (
+           SELECT notebook_id FROM notebook_tags WHERE tag_id = ?
+         )
+        """
+        notebookCountBindings = [
+          .id(notebookOwnerUserId),
+          .id(NoteStoreSchema.longTermMemoryNotebookKindTagId)
+        ]
+      } else {
+        notebookCountPredicate = ""
+        notebookCountBindings = []
+      }
       if isUnauthenticatedPrincipal {
         // Checked before membership: the note API resolves a credential-less
         // request to the default user, and a grant that account holds must not
         // become a way in.
         predicate = "WHERE auth_required = 0"
-      } else if isActingAdmin(in: database) {
+      } else if try isActingAdmin(in: database) {
         predicate = ""
       } else if let actingUserId {
         predicate = """
@@ -84,13 +121,14 @@ public extension NoteService {
       return try database.query(
         """
         SELECT library_id, name, title, auth_required, is_default, created_at, created_by,
-          (SELECT COUNT(*) FROM notebooks WHERE notebooks.library_id = libraries.library_id)
+          (SELECT COUNT(*) FROM notebooks
+            WHERE notebooks.library_id = libraries.library_id\(notebookCountPredicate))
             AS notebook_count
         FROM libraries
         \(predicate)
         ORDER BY is_default DESC, name
         """,
-        bindings: predicateBindings
+        bindings: notebookCountBindings + predicateBindings
       ).map(noteLibrary(from:))
     }
   }
@@ -120,6 +158,7 @@ public extension NoteService {
     return try driver.withDatabase { database in
       try database.transaction { db in
         let library = try requireLibrary(name: normalizedName, in: db)
+        try requireLibraryManager(library, subject: normalizedName, in: db)
         if let title {
           let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
           guard !trimmed.isEmpty else {
@@ -149,6 +188,7 @@ public extension NoteService {
     try driver.withDatabase { database in
       try database.transaction { db in
         let library = try requireLibrary(name: normalizedName, in: db)
+        try requireLibraryManager(library, subject: normalizedName, in: db)
         if library.isDefault {
           throw NoteServiceError.invalidInput("the default library cannot be deleted")
         }
@@ -180,8 +220,28 @@ public extension NoteService {
     let normalizedName = try normalizedLibraryName(name)
     return try driver.withDatabase { database in
       try database.transaction { db in
-        let library = try requireLibrary(name: normalizedName, in: db)
         _ = try requireNotebook(notebookId, in: db)
+        // Resolve and authorize the destination in this same write
+        // transaction. A destination library is private metadata just as much
+        // as its notebooks are, so do not let a move probe its name or strand
+        // a caller's notebook somewhere the caller cannot reach.
+        guard let row = try libraryRow(name: normalizedName, in: db) else {
+          throw NoteServiceError.notFound("library not found")
+        }
+        let library = try noteLibrary(from: row)
+        do {
+          try requireLibraryReach(
+            libraryId: library.libraryId,
+            subject: "destination",
+            kind: .library,
+            in: db
+          )
+        } catch let error as NoteServiceError {
+          guard case .notFound = error else {
+            throw error
+          }
+          throw NoteServiceError.notFound("library not found")
+        }
         try db.execute(
           "UPDATE notebooks SET library_id = ?, updated_at = ? WHERE notebook_id = ?",
           bindings: [
@@ -222,11 +282,42 @@ public extension NoteService {
 }
 
 extension NoteService {
-  /// The library a derived notebook belongs in. An agent conversation or a
-  /// consolidated memory built from a source note stays in that note's
-  /// library: landing it in the default library would move content out of an
-  /// authenticated library into an unauthenticated one.
-  func inheritedLibraryId(fromSourceNoteIds noteIds: [NoteID], in db: SQLiteDatabase) throws -> LibraryID {
+  /// Authorizes a library policy or membership mutation.  Library managers
+  /// are the local operator, enabled store administrators, and enabled
+  /// library owners.  Every decision happens inside the caller's write
+  /// transaction so a demotion or membership revocation cannot interleave
+  /// between the check and mutation.  Foreign and missing libraries stay
+  /// indistinguishable to scoped callers.
+  func requireLibraryManager(
+    _ library: NoteLibrary,
+    subject: String,
+    in database: SQLiteDatabase
+  ) throws {
+    guard !isUnauthenticatedPrincipal else {
+      throw NoteServiceError.notFound("library not found: \(subject)")
+    }
+    guard let actingUserId else {
+      return
+    }
+    let user = try requireUser(actingUserId, in: database)
+    guard user.disabledAt == nil else {
+      throw NoteServiceError.notFound("library not found: \(subject)")
+    }
+    let isOwner = try libraryMemberRow(
+      libraryId: library.libraryId,
+      userId: actingUserId,
+      in: database
+    )?["role"] == NoteLibraryRole.owner.rawValue
+    guard user.isAdmin || isOwner else {
+      throw NoteServiceError.notFound("library not found: \(subject)")
+    }
+  }
+
+  /// Returns the common library for existing source notes. Missing notes are
+  /// deliberately omitted here because callers that permit missing provenance
+  /// still need an idempotent retry to succeed after deletion.
+  func sourceLibraryId(fromSourceNoteIds noteIds: [NoteID], in db: SQLiteDatabase) throws -> LibraryID? {
+    var sourceLibraryId: LibraryID?
     for noteId in noteIds {
       let rows = try db.query(
         """
@@ -239,10 +330,23 @@ extension NoteService {
         bindings: [.id(noteId)]
       )
       if let libraryId = rows.first?.identifier("library_id", as: LibraryID.self) {
-        return libraryId
+        if let sourceLibraryId, sourceLibraryId != libraryId {
+          throw NoteServiceError.invalidInput(
+            "derived content cannot combine sources from multiple libraries"
+          )
+        }
+        sourceLibraryId = libraryId
       }
     }
-    return writeLibraryId()
+    return sourceLibraryId
+  }
+
+  /// The library a derived notebook belongs in. An agent conversation or a
+  /// consolidated memory built from a source note stays in that note's
+  /// library: landing it in the default library would move content out of an
+  /// authenticated library into an unauthenticated one.
+  func inheritedLibraryId(fromSourceNoteIds noteIds: [NoteID], in db: SQLiteDatabase) throws -> LibraryID {
+    try sourceLibraryId(fromSourceNoteIds: noteIds, in: db) ?? writeLibraryId()
   }
 
   /// Restricts a notebook query to what this caller may see. An explicit

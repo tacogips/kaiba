@@ -271,6 +271,100 @@ private func noteId(fromJSON output: String) throws -> NoteID {
   }
 }
 
+@Test func cliJWTScopedNonAdminCannotManageAccounts() throws {
+  let root = try makeTempRoot()
+  let service = try AppCommand(arguments: [], environment: [:]).makeService(root: root)
+  let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+  let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
+  let ordinaryToken = try service.issueAuthToken(userId: alice.userId)
+  let agentToken = try service.issueAgentToken(userId: alice.userId, ttlSeconds: 300).token
+
+  for token in [ordinaryToken, agentToken] {
+    do {
+      let issued = try JSONValue(parsing: run([
+        "--jwt", token,
+        "auth", "token", "issue", "--user", NoteStoreSchema.defaultUserId.rawValue, "--output", "json"
+      ], root: root))
+      Issue.record("A scoped JWT minted an administrator token")
+      let administratorToken = try #require(issued["token"]?.asString)
+      _ = try run([
+        "--jwt", administratorToken,
+        "user", "add", "--email", "escalated@example.com", "--admin"
+      ], root: root)
+      Issue.record("A JWT-minted administrator token created an administrator")
+    } catch let error as NoteServiceError {
+      #expect(error == .notFound("control-plane resource not found"))
+    }
+    #expect(throws: NoteServiceError.notFound("control-plane resource not found")) {
+      _ = try run([
+        "--jwt", token,
+        "user", "add", "--email", "attacker@example.com", "--admin"
+      ], root: root)
+    }
+    #expect(throws: NoteServiceError.notFound("control-plane resource not found")) {
+      _ = try run(["--jwt", token, "user", "grant-admin", bob.userId.rawValue], root: root)
+    }
+    #expect(throws: NoteServiceError.notFound("control-plane resource not found")) {
+      _ = try run(["--jwt", token, "user", "disable", bob.userId.rawValue], root: root)
+    }
+  }
+
+  #expect(try service.user(email: "attacker@example.com") == nil)
+  #expect(try service.user(id: bob.userId)?.isAdmin == false)
+  #expect(try service.user(id: bob.userId)?.isEnabled == true)
+}
+
+@Test func cliJWTScopedNonAdminCannotManageAPIClientsOrForeignLibraries() throws {
+  let root = try makeTempRoot()
+  let service = try AppCommand(arguments: [], environment: [:]).makeService(root: root)
+  let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+  let ordinaryToken = try service.issueAuthToken(userId: alice.userId)
+  let agentToken = try service.issueAgentToken(userId: alice.userId, ttlSeconds: 300).token
+  _ = try service.createLibrary(name: "secret", authRequired: true)
+
+  for token in [ordinaryToken, agentToken] {
+    #expect(throws: NoteServiceError.notFound("control-plane resource not found")) {
+      _ = try run([
+        "--jwt", token, "client", "issue", "--name", "escalation",
+        "--user", NoteStoreSchema.defaultUserId.rawValue
+      ], root: root)
+    }
+    #expect(throws: NoteServiceError.notFound("control-plane resource not found")) {
+      _ = try run(["--jwt", token, "client", "list"], root: root)
+    }
+    #expect(throws: NoteServiceError.notFound("library not found: secret")) {
+      _ = try run([
+        "--jwt", token, "library", "grant", "secret", "--user", alice.userId.rawValue, "--role", "owner"
+      ], root: root)
+    }
+    #expect(throws: NoteServiceError.notFound("library not found: secret")) {
+      _ = try run(["--jwt", token, "library", "update", "secret", "--auth", "none"], root: root)
+    }
+  }
+}
+
+@Test func cliJWTScopedNonAdminCannotMoveIntoAnUnreachableLibrary() throws {
+  let root = try makeTempRoot()
+  let service = try AppCommand(arguments: [], environment: [:]).makeService(root: root)
+  let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+  let notebook = try service.scoped(to: alice.userId).createNotebook(title: "Alice notebook")
+  let token = try service.issueAuthToken(userId: alice.userId)
+  _ = try service.createLibrary(name: "hidden-cli-move-destination", authRequired: true)
+
+  for destination in ["hidden-cli-move-destination", "missing-cli-move-destination"] {
+    #expect(throws: NoteServiceError.notFound("library not found")) {
+      _ = try run([
+        "--jwt", token,
+        "library", "move", notebook.notebookId.rawValue, "--to", destination
+      ], root: root)
+    }
+  }
+
+  #expect(try service.getNotebook(notebook.notebookId).libraryId == NoteStoreSchema.defaultLibraryId)
+  #expect(try service.scoped(to: alice.userId).getNotebook(notebook.notebookId).libraryId
+    == NoteStoreSchema.defaultLibraryId)
+}
+
 @Test func cliRejectsConflictingBodySources() throws {
   let root = try makeTempRoot()
   do {

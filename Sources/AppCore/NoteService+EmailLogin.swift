@@ -73,7 +73,7 @@ public extension NoteService {
     now: Date = Date()
   ) throws -> KaibaEmailLoginChallenge? {
     guard let normalizedEmail = (try? normalizedUserEmail(email)) ?? nil,
-          let user = try user(email: normalizedEmail),
+          let user = try storedUser(email: normalizedEmail),
           user.isEnabled else {
       return nil
     }
@@ -128,7 +128,7 @@ public extension NoteService {
     now: Date = Date()
   ) throws -> String {
     guard let normalizedEmail = (try? normalizedUserEmail(email)) ?? nil,
-          let user = try user(email: normalizedEmail),
+          let user = try storedUser(email: normalizedEmail),
           user.isEnabled else {
       throw KaibaEmailLoginError.invalidCode
     }
@@ -180,7 +180,7 @@ public extension NoteService {
     }
     switch outcome {
     case .accepted:
-      return try issueAuthToken(userId: user.userId, ttlSeconds: ttlSeconds)
+      return try issueVerifiedAuthToken(userId: user.userId, ttlSeconds: ttlSeconds)
     case .rejected:
       throw KaibaEmailLoginError.invalidCode
     case .exhausted:

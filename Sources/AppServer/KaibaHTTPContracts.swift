@@ -84,6 +84,7 @@ public struct KaibaHTTPResponse: Equatable, Sendable {
     case 409: "Conflict"
     case 413: "Content Too Large"
     case 415: "Unsupported Media Type"
+    case 429: "Too Many Requests"
     case 431: "Request Header Fields Too Large"
     case 500: "Internal Server Error"
     case 503: "Service Unavailable"
@@ -132,9 +133,11 @@ public struct DeterministicServerHTTPAdapter: KaibaHTTPRouteHandling {
       context: context
     )
     let body = (try? JSONEncoder.sorted.encode(JSONValue.object(descriptor.body))) ?? Data("{}".utf8)
+    var headers = descriptor.headers
+    headers["Content-Type"] = descriptor.contentType + "; charset=utf-8"
     return KaibaHTTPResponse(
       status: descriptor.status,
-      headers: ["Content-Type": descriptor.contentType + "; charset=utf-8"],
+      headers: headers,
       body: body
     )
   }

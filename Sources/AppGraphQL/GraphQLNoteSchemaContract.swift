@@ -13,13 +13,17 @@ type Notebook {
   notebookId: String!, title: String!, readOnly: Boolean!
   createdAt: String!, updatedAt: String!, metaJSON: String
   tags: [NoteTagAssignment!]!, firstNotePreview: String, noteCount: Int
-  libraryId: String
+  libraryId: String, ownerUserId: String, createdBy: String, updatedBy: String
 }
 type NoteLibrary {
   libraryId: String!, name: String!, title: String!
   authRequired: Boolean!, isDefault: Boolean!, createdAt: String!, notebookCount: Int
 }
-type Note { noteId: String!, notebookId: String!, noteNumber: Int!, title: String, bodyMarkdown: String!, readOnly: Boolean!, createdAt: String!, updatedAt: String!, metaJSON: String, tags: [NoteTagAssignment!]! }
+type Note {
+  noteId: String!, notebookId: String!, noteNumber: Int!, title: String
+  bodyMarkdown: String!, readOnly: Boolean!, createdAt: String!, updatedAt: String!
+  metaJSON: String, tags: [NoteTagAssignment!]!, createdBy: String, updatedBy: String
+}
 type NoteFile {
   fileId: String!
   storageKind: String!

@@ -88,6 +88,10 @@ extension NoteService {
     event: NoteAutoActionEvent,
     in database: SQLiteDatabase
   ) throws -> QueuedAutoActionDispatch {
+    let event = event.withOriginatingPrincipal(
+      userId: actingUserId,
+      isUnauthenticatedPrincipal: isUnauthenticatedPrincipal
+    )
     let dispatchId = AutoActionDispatchID.generate()
     let now = NoteStoreClock.system.now()
     let encoder = JSONEncoder()
@@ -169,7 +173,12 @@ public struct AITagExtractionService: Sendable {
       provider: provider,
       model: model
     )
+    try await service.admitAutoActionProviderInvocation()
     let reply = try await invoker.invoke(request)
+    // A no-op proposal has no write transaction to protect. Check the
+    // originating account at this workflow boundary as well, so a dispatch
+    // disabled while the provider was running is terminally cancelled.
+    try service.requireEnabledActingUser()
     let proposals = try Self.parseProposals(
       reply: reply.markdown,
       allowedClassIds: Set(classes.map(\.classId))

@@ -312,6 +312,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     void (async () => {
       let cursor = 0
       let failures = 0
+      let awaitingDurableReply = false
       while (current === streamGeneration) {
         let poll
         try {
@@ -332,7 +333,18 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           continue
         }
         if (current !== streamGeneration) return
-        if (poll.chunks.length > 0) setStreamText((text) => text + poll.chunks.join(''))
+        if (poll.resync && !awaitingDurableReply) {
+          // Payload eviction means this browser has an incomplete reply. Do
+          // not present a stitched prefix and suffix as model output; durable
+          // conversation state becomes authoritative when the turn finishes.
+          awaitingDurableReply = true
+          setStreamText('')
+          await reload()
+          if (current !== streamGeneration) return
+        }
+        if (!awaitingDurableReply && poll.chunks.length > 0) {
+          setStreamText((text) => text + poll.chunks.join(''))
+        }
         cursor = poll.cursor
         if (poll.done) {
           await reload()

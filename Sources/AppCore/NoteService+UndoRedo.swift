@@ -461,7 +461,9 @@ extension NoteService {
         NoteChangeEvent(
           kind: NoteChangeEventKind.notebookDeleted,
           notebookId: notebookId,
-          tagNames: folderTagNames(of: notebook)
+          tagNames: folderTagNames(of: notebook),
+          ownerUserId: notebook.ownerUserId,
+          libraryId: notebook.libraryId
         )
       ]
     )

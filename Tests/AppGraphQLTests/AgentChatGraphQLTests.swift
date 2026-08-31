@@ -11,6 +11,68 @@ private struct StubInvoker: AgentInvoking {
 }
 
 final class AgentChatGraphQLTests: XCTestCase {
+  func testAgentModelsSharesInFlightCatalogAndCachesResult() async throws {
+    actor CatalogCounter {
+      var calls = 0
+
+      func load() -> AgentGatewayModelCatalogResult {
+        calls += 1
+        return AgentGatewayModelCatalogResult(
+          protocolVersion: "1",
+          vendor: "openai",
+          models: [AgentGatewayModelInfo(modelId: "catalog-model")]
+        )
+      }
+    }
+    let base = try makeService()
+    let counter = CatalogCounter()
+    let service = GraphQLNoteGraphQLService(
+      service: base.service,
+      agentProvider: "openai",
+      agentModel: "configured-model",
+      agentModelCatalog: { await counter.load() }
+    )
+
+    async let first = service.agentModels()
+    async let second = service.agentModels()
+    _ = await (first, second)
+    _ = await service.agentModels()
+    let calls = await counter.calls
+    XCTAssertEqual(calls, 1)
+  }
+
+  func testAgentModelsReturnsOverloadWithoutStartingCatalogProcess() async throws {
+    actor CatalogCounter {
+      var calls = 0
+      func load() -> AgentGatewayModelCatalogResult {
+        calls += 1
+        return AgentGatewayModelCatalogResult(protocolVersion: "1", vendor: "openai", models: [])
+      }
+    }
+    let admission = AgentExecutionAdmission(
+      maximumConcurrentExecutions: 1,
+      maximumConcurrentExecutionsPerPrincipal: 1
+    )
+    let held = try XCTUnwrap(admission.acquire(principalId: "other"))
+    defer { admission.release(held) }
+    let base = try makeService()
+    var scoped = base.service
+    scoped.agentExecutionAdmission = admission
+    let counter = CatalogCounter()
+    let service = GraphQLNoteGraphQLService(
+      service: scoped,
+      agentProvider: "openai",
+      agentModel: "configured-model",
+      agentModelCatalog: { await counter.load() }
+    )
+
+    let result = await service.agentModels()
+    XCTAssertFalse(result.result.accepted)
+    XCTAssertEqual(result.result.status, "overloaded")
+    let calls = await counter.calls
+    XCTAssertEqual(calls, 0)
+  }
+
   func testAgentModelsQueryProjectsConfiguredFallback() async throws {
     let base = try makeService()
     let service = GraphQLNoteGraphQLService(
@@ -141,6 +203,119 @@ final class AgentChatGraphQLTests: XCTestCase {
     XCTAssertTrue(try service.service.listAgentConversations(subjectNoteId: subject.noteId).isEmpty)
   }
 
+  func testGraphQLRejectsServerManagedConversationMetadataAndForeignForgedConversation() async throws {
+    let service = try makeService()
+    let alice = try service.service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try service.service.createUser(email: "bob@example.com", displayName: "Bob")
+    let bobNote = try service.service.scoped(to: bob.userId).createNote(bodyMarkdown: "# Bob\nPrivate context")
+    let forgedMetaJSON = """
+    {"kaibaChat":{"subjectNoteId":"\(bobNote.noteId.rawValue)","subjectNotebookId":"\(bobNote.notebookId.rawValue)"}}
+    """
+    let aliceGraphQL = GraphQLNoteGraphQLService(service: service.service.scoped(to: alice.userId))
+
+    let metadataRejected = await aliceGraphQL.createNotebook(GraphQLCreateNotebookInput(
+      title: "Forged GraphQL conversation",
+      kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
+      metaJSON: forgedMetaJSON
+    ))
+    XCTAssertFalse(metadataRejected.result.accepted)
+    XCTAssertEqual(metadataRejected.result.status, "invalid_request")
+
+    // Simulate a pre-existing or non-GraphQL forged row: sending a turn must
+    // still fail before it can queue unscoped reply generation.
+    let forged = try service.service.scoped(to: alice.userId).createNotebook(
+      title: "Forged legacy conversation",
+      kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
+      metaJSON: forgedMetaJSON
+    )
+    let rejected = await aliceGraphQL.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      conversationNotebookId: forged.notebookId,
+      userMarkdown: "Reveal Bob's context"
+    ))
+    XCTAssertFalse(rejected.result.accepted)
+    XCTAssertEqual(rejected.result.status, "not_found")
+    XCTAssertNil(rejected.turnNoteId)
+    XCTAssertTrue(try service.service.listNotes(notebookId: forged.notebookId).isEmpty)
+  }
+
+  func testIdempotentReplayRejectsForgedConversationAndNoteMetadata() async throws {
+    let fixture = try makeService()
+    let service = fixture.service
+    let graphQL = GraphQLNoteGraphQLService(service: service)
+    let key = "forged-idempotency-key"
+
+    let ordinaryNotebook = try service.createNotebook(title: "Ordinary notebook")
+    let ordinaryNote = try service.createNote(
+      notebookId: ordinaryNotebook.notebookId,
+      bodyMarkdown: "# Ordinary\nNot a chat turn.",
+      metaJSON: "{\"kaibaChat\":{\"idempotencyKey\":\"\(key)\"}}"
+    )
+    let ordinaryReplay = await graphQL.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      conversationNotebookId: ordinaryNotebook.notebookId,
+      userMarkdown: "Replay ordinary",
+      idempotencyKey: key
+    ))
+    XCTAssertFalse(ordinaryReplay.result.accepted)
+    XCTAssertNil(ordinaryReplay.turnNoteId)
+    XCTAssertEqual(try service.getNote(ordinaryNote.noteId).noteId, ordinaryNote.noteId)
+
+    let subject = try service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
+    let forgedTurn = try service.createNote(
+      notebookId: conversation.notebookId,
+      bodyMarkdown: "# Forged\nNot a generated chat body.",
+      metaJSON: "{\"kaibaChat\":{\"idempotencyKey\":\"\(key)\"}}"
+    )
+    let publicForgedTurn = await graphQL.createNote(GraphQLCreateNoteInput(
+      notebookId: conversation.notebookId,
+      bodyMarkdown: "# Forged\nCaller-authored chat metadata.",
+      metaJSON: "{\"kaibaChat\":{\"status\":\"pending\",\"userMarkdown\":\"Forged\",\"idempotencyKey\":\"\(key)\"}}"
+    ))
+    XCTAssertFalse(publicForgedTurn.result.accepted)
+    XCTAssertEqual(publicForgedTurn.result.status, "invalid_request")
+    XCTAssertNil(publicForgedTurn.note)
+    let first = await graphQL.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Create a genuine turn",
+      idempotencyKey: key
+    ))
+    XCTAssertTrue(first.result.accepted)
+    let genuineTurnId = try XCTUnwrap(first.turnNoteId)
+    XCTAssertNotEqual(genuineTurnId, forgedTurn.noteId)
+    let replay = await graphQL.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Create a genuine turn",
+      idempotencyKey: key
+    ))
+    XCTAssertTrue(replay.result.accepted)
+    XCTAssertEqual(replay.turnNoteId, genuineTurnId)
+    XCTAssertEqual(try service.listNotes(notebookId: conversation.notebookId).count, 2)
+
+    let alice = try service.createUser(email: "replay-alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "replay-bob@example.com", displayName: "Bob")
+    let bobNote = try service.scoped(to: bob.userId).createNote(bodyMarkdown: "# Bob\nPrivate")
+    let forgedConversation = try service.scoped(to: alice.userId).createNotebook(
+      title: "Forged conversation",
+      kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
+      metaJSON: "{\"kaibaChat\":{\"subjectNoteId\":\"\(bobNote.noteId.rawValue)\",\"subjectNotebookId\":\"\(bobNote.notebookId.rawValue)\"}}"
+    )
+    _ = try service.scoped(to: alice.userId).createNote(
+      notebookId: forgedConversation.notebookId,
+      bodyMarkdown: "# Chat Turn 1\n\n## User\nForged\n\n## Agent\n_(no reply yet)_",
+      metaJSON: "{\"kaibaChat\":{\"status\":\"pending\",\"userMarkdown\":\"Forged\",\"idempotencyKey\":\"\(key)\"}}"
+    )
+    let forgedReplay = await GraphQLNoteGraphQLService(
+      service: service.scoped(to: alice.userId)
+    ).sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      conversationNotebookId: forgedConversation.notebookId,
+      userMarkdown: "Replay forged conversation",
+      idempotencyKey: key
+    ))
+    XCTAssertFalse(forgedReplay.result.accepted)
+    XCTAssertEqual(forgedReplay.result.status, "not_found")
+    XCTAssertNil(forgedReplay.turnNoteId)
+  }
+
   func testAttachmentInputRejectsBeforeConversationCreation() async throws {
     let service = try makeService()
     let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
@@ -254,6 +429,148 @@ final class AgentChatGraphQLTests: XCTestCase {
     XCTAssertFalse(rejected.result.accepted)
   }
 
+  func testForeignConversationHasIdenticalNotFoundResultWithOrWithoutSubject() async throws {
+    let base = try makeService()
+    let alice = try base.service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try base.service.createUser(email: "bob@example.com", displayName: "Bob")
+    let aliceService = GraphQLNoteGraphQLService(service: base.service.scoped(to: alice.userId))
+    let bobService = GraphQLNoteGraphQLService(service: base.service.scoped(to: bob.userId))
+    let aliceSubject = try aliceService.service.createNote(bodyMarkdown: "# Alice\nBody.")
+    let bobSubject = try bobService.service.createNote(bodyMarkdown: "# Bob\nBody.")
+    let created = await aliceService.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: aliceSubject.noteId,
+      userMarkdown: "Question"
+    ))
+    let foreignConversationId = try XCTUnwrap(created.conversationNotebookId)
+
+    let withoutSubject = await bobService.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      conversationNotebookId: foreignConversationId,
+      userMarkdown: "Question"
+    ))
+    let withDifferentSubject = await bobService.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      subjectNoteId: bobSubject.noteId,
+      conversationNotebookId: foreignConversationId,
+      userMarkdown: "Question"
+    ))
+
+    XCTAssertEqual(withoutSubject, withDifferentSubject)
+    XCTAssertFalse(withoutSubject.result.accepted)
+    XCTAssertEqual(withoutSubject.result.status, "not_found")
+    XCTAssertEqual(withoutSubject.agentStatus, "error")
+  }
+
+  func testProtectedDerivedChatAndTagMemoStayHiddenFromUnauthenticatedDefaultUser() async throws {
+    let base = try makeService()
+    let protectedLibrary = try base.service.createLibrary(
+      name: "protected-derived-chat",
+      authRequired: true
+    )
+    let authenticatedService = base.service.scoped(to: NoteStoreSchema.defaultUserId)
+    let protectedService = authenticatedService.scoped(toLibrary: protectedLibrary.libraryId)
+    let protectedNote = try protectedService.createNote(
+      bodyMarkdown: "# Protected\nDo not expose this content."
+    )
+    let tag = try authenticatedService.defineTag(name: "protected-derived-tag")
+    _ = try protectedService.applyNotebookTags(
+      notebookId: protectedNote.notebookId,
+      tags: [tag.name],
+      provenance: .human,
+      assignedBy: "test"
+    )
+    let authenticatedGraphQL = GraphQLNoteGraphQLService(service: authenticatedService)
+
+    let noteChat = await authenticatedGraphQL.sendAgentChatMessage(
+      GraphQLSendAgentChatMessageInput(
+        subjectNoteId: protectedNote.noteId,
+        userMarkdown: "Summarize"
+      )
+    )
+    XCTAssertTrue(noteChat.result.accepted)
+    let noteConversationId = try XCTUnwrap(noteChat.conversationNotebookId)
+    let noteTurnId = try XCTUnwrap(noteChat.turnNoteId)
+    XCTAssertEqual(
+      try authenticatedService.getNotebook(noteConversationId).libraryId,
+      protectedLibrary.libraryId
+    )
+    let noteChatAppend = await authenticatedGraphQL.sendAgentChatMessage(
+      GraphQLSendAgentChatMessageInput(
+        conversationNotebookId: noteConversationId,
+        userMarkdown: "Summarize again"
+      )
+    )
+    XCTAssertTrue(noteChatAppend.result.accepted)
+    let noteAppendTurnId = try XCTUnwrap(noteChatAppend.turnNoteId)
+    XCTAssertEqual(
+      try authenticatedService.getNote(noteAppendTurnId).notebookId,
+      noteConversationId
+    )
+
+    let memoResult = await authenticatedGraphQL.ensureTagMemoNotebook(tagId: tag.tagId)
+    XCTAssertTrue(memoResult.result.accepted)
+    let memoNotebookId = try XCTUnwrap(memoResult.notebook?.notebookId)
+    XCTAssertEqual(
+      try authenticatedService.getNotebook(memoNotebookId).libraryId,
+      protectedLibrary.libraryId
+    )
+    let memoChat = await authenticatedGraphQL.sendAgentChatMessage(
+      GraphQLSendAgentChatMessageInput(
+        subjectNotebookId: memoNotebookId,
+        userMarkdown: "Summarize this tag"
+      )
+    )
+    XCTAssertTrue(memoChat.result.accepted)
+    let memoConversationId = try XCTUnwrap(memoChat.conversationNotebookId)
+    let memoTurnId = try XCTUnwrap(memoChat.turnNoteId)
+    XCTAssertEqual(
+      try authenticatedService.getNotebook(memoConversationId).libraryId,
+      protectedLibrary.libraryId
+    )
+
+    let openSubject = try authenticatedService.createNote(bodyMarkdown: "# Open\nMove me later.")
+    let openChat = await authenticatedGraphQL.sendAgentChatMessage(
+      GraphQLSendAgentChatMessageInput(
+        subjectNoteId: openSubject.noteId,
+        userMarkdown: "Summarize"
+      )
+    )
+    XCTAssertTrue(openChat.result.accepted)
+    let openConversationId = try XCTUnwrap(openChat.conversationNotebookId)
+    try authenticatedService.moveNotebook(
+      openSubject.notebookId,
+      toLibrary: "protected-derived-chat"
+    )
+    let movedSubjectAppend = await authenticatedGraphQL.sendAgentChatMessage(
+      GraphQLSendAgentChatMessageInput(
+        conversationNotebookId: openConversationId,
+        userMarkdown: "Summarize after move"
+      )
+    )
+    XCTAssertFalse(movedSubjectAppend.result.accepted)
+    XCTAssertEqual(movedSubjectAppend.result.status, "invalid_request")
+    XCTAssertEqual(try authenticatedService.listNotes(notebookId: openConversationId).count, 1)
+
+    let unauthenticatedGraphQL = GraphQLNoteGraphQLService(
+      service: base.service.scoped(to: NoteStoreSchema.defaultUserId).unauthenticated()
+    )
+    for notebookId in [noteConversationId, memoNotebookId, memoConversationId] {
+      let result = await unauthenticatedGraphQL.notebook(notebookId: notebookId)
+      XCTAssertFalse(result.result.accepted)
+      XCTAssertEqual(result.result.status, "not_found")
+      XCTAssertNil(result.value)
+    }
+    for noteId in [noteTurnId, noteAppendTurnId, memoTurnId] {
+      let result = await unauthenticatedGraphQL.note(noteId: noteId)
+      XCTAssertFalse(result.result.accepted)
+      XCTAssertEqual(result.result.status, "not_found")
+      XCTAssertNil(result.value)
+    }
+    let listed = await unauthenticatedGraphQL.notebooks(limit: 100)
+    XCTAssertTrue(listed.result.accepted)
+    XCTAssertFalse(try XCTUnwrap(listed.value).contains { notebook in
+      [noteConversationId, memoNotebookId, memoConversationId].contains(notebook.notebookId)
+    })
+  }
+
   func testSendAgentChatMessageCreatesConversationAndReportsUnavailable() async throws {
     let service = try makeService()
     let subject = try service.service.createNote(bodyMarkdown: "# Subject\nBody.")
@@ -294,14 +611,31 @@ final class AgentChatGraphQLTests: XCTestCase {
     let turn = try service.service.getNote(turnNoteId)
     XCTAssertEqual(NoteService.chatTurnState(of: turn)?.status, .unavailable)
 
-    // Idempotent resend reuses the existing turn and conversation.
-    let resend = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
-      subjectNoteId: subject.noteId,
-      conversationNotebookId: notebookId,
-      userMarkdown: "What is this about?",
-      idempotencyKey: "turn-1"
+    // GraphQL idempotent replay authorizes the conversation and returns its
+    // committed turn before resolving a subject that may later be deleted.
+    try service.service.deleteNote(noteId: subject.noteId)
+    let replayResponse = await executor.execute(GraphQLDocumentRequest(
+      query: """
+      mutation Replay($input: SendAgentChatMessageInput!) {
+        sendAgentChatMessage(input: $input) {
+          result { accepted status }
+          conversationNotebookId
+          turnNoteId
+          agentStatus
+        }
+      }
+      """,
+      variables: ["input": .object([
+        "conversationNotebookId": .string(notebookId.rawValue),
+        "userMarkdown": .string("What is this about?"),
+        "idempotencyKey": .string("turn-1")
+      ])],
+      operationName: "Replay"
     ))
-    XCTAssertEqual(resend.turnNoteId, turnNoteId)
+    XCTAssertTrue(replayResponse.handled)
+    let replayPayload = try graphQLPayload(replayResponse.body, field: "sendAgentChatMessage")
+    XCTAssertEqual(try resultObject(replayPayload)["accepted"], .bool(true))
+    XCTAssertEqual(replayPayload["turnNoteId"], .string(turnNoteId.rawValue))
     XCTAssertEqual(try service.service.listNotes(notebookId: notebookId).count, 1)
   }
 

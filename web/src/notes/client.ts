@@ -630,7 +630,7 @@ export class NoteGraphQLClient {
   }
 
   /** One long poll of the agent reply chunk stream for a pending chat turn.
-   * `cursor` is the number of chunks already seen. */
+   * `cursor` is an opaque server-issued resume token. */
   async pollAgentReplyStream(
     turnNoteId: NoteId,
     cursor: number,
@@ -661,6 +661,7 @@ export class NoteGraphQLClient {
       done: value.done === true,
       status: typeof value.status === 'string' ? value.status : null,
       message: typeof value.message === 'string' ? value.message : null,
+      resync: value.resync === true,
     }
   }
 

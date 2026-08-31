@@ -89,6 +89,30 @@ final class AutoActionTests: NoteTestCase {
     XCTAssertEqual(attempts.first?.attemptCount, 0)
   }
 
+  func testQueuedDispatchDefersWithoutConsumingRetryWhenProviderAdmissionIsFull() async throws {
+    let admission = AgentExecutionAdmission(
+      maximumConcurrentExecutions: 1,
+      maximumConcurrentExecutionsPerPrincipal: 1
+    )
+    let held = try XCTUnwrap(admission.acquire(principalId: "operator"))
+    let dispatcher = RecordingAutoActionDispatcher()
+    var service = try makeService(autoActionDispatcher: dispatcher)
+    service.agentExecutionAdmission = admission
+
+    _ = try service.createNote(bodyMarkdown: "# Admission controlled")
+    await service.drainAutoActionDispatches()
+    let deferred = try XCTUnwrap(try service.listAutoActionDispatchAttempts().first)
+    XCTAssertEqual(deferred.status, .pending)
+    XCTAssertEqual(deferred.attemptCount, 0)
+    XCTAssertTrue(dispatcher.records().isEmpty)
+
+    admission.release(held)
+    XCTAssertEqual(try service.retryPendingAutoActionDispatches(), 1)
+    await service.drainAutoActionDispatches()
+    XCTAssertEqual(try service.listAutoActionDispatchAttempts().first?.status, .dispatched)
+    XCTAssertEqual(dispatcher.records().count, 1)
+  }
+
   func testDispatchFailureDoesNotFailOriginatingWrite() async throws {
     let dispatcher = RecordingAutoActionDispatcher(shouldThrow: true)
     let service = try makeService(autoActionDispatcher: dispatcher)
@@ -122,6 +146,122 @@ final class AutoActionTests: NoteTestCase {
     XCTAssertEqual(attempts.first?.attemptCount, 2)
     XCTAssertNil(attempts.first?.lastError)
     XCTAssertEqual(dispatcher.records().count, 2)
+  }
+
+  func testAutoActionRetryAndRecoveryHoldAdministratorAuthorizationAgainstConcurrentDemotion() async throws {
+    let service = try makeService()
+    let administrator = try service.createUser(
+      email: "auto-action-admin@example.com",
+      displayName: "Auto-action Administrator",
+      isAdmin: true
+    )
+    _ = try service.createNote(bodyMarkdown: "# Pending\nBody")
+    let dispatchId = try XCTUnwrap(try service.listAutoActionDispatchAttempts().first?.dispatchId)
+    let databasePath = service.driver.databasePath
+    var administratorService = service.scoped(to: administrator.userId)
+    let dispatcher = RecordingAutoActionDispatcher()
+    administratorService.autoActionDispatcher = dispatcher
+    administratorService.autoActionMaintenanceAuthHook = { _ in
+      let concurrent = try SQLiteDatabase.open(
+        path: databasePath,
+        options: SQLiteOpenOptions(
+          enableWAL: false,
+          busyTimeoutMilliseconds: 0,
+          requireJSONB: false,
+          requireFTS5: false
+        )
+      )
+      let updateSucceeded: Bool
+      do {
+        try concurrent.execute(
+          "UPDATE users SET is_admin = 0 WHERE user_id = ?",
+          bindings: [.id(administrator.userId)]
+        )
+        updateSucceeded = true
+      } catch {
+        updateSucceeded = false
+      }
+      guard !updateSucceeded else {
+        throw NoteServiceError.conflict(
+          "administrator demotion interleaved with auto-action control-plane work"
+        )
+      }
+    }
+
+    // The hook runs inside the authorization/selection transaction. The
+    // concurrent demotion must fail before retry can claim this pending row.
+    XCTAssertEqual(try administratorService.retryPendingAutoActionDispatches(), 1)
+    await administratorService.drainAutoActionDispatches()
+    XCTAssertEqual(dispatcher.records().count, 1)
+
+    try service.driver.withDatabase { database in
+      try database.execute(
+        """
+        UPDATE auto_action_dispatches
+        SET status = ?, lease_token = ?, leased_at = ?
+        WHERE dispatch_id = ?
+        """,
+        bindings: [
+          .text(AutoActionDispatchStatus.inFlight.rawValue),
+          .text("expired-lease"),
+          .text("1970-01-01T00:00:00.000Z"),
+          .id(dispatchId)
+        ]
+      )
+    }
+
+    XCTAssertEqual(try administratorService.recoverInterruptedAutoActionDispatches(), 1)
+    XCTAssertEqual(try service.listAutoActionDispatchAttempts(status: .pending).count, 1)
+    XCTAssertTrue(try XCTUnwrap(service.user(id: administrator.userId)).isAdmin)
+  }
+
+  func testAutoActionListingsHoldAdministratorAuthorizationAgainstConcurrentDemotion() throws {
+    let service = try makeService()
+    let administrator = try service.createUser(
+      email: "listing-auto-action-admin@example.com",
+      displayName: "Listing Auto-action Administrator",
+      isAdmin: true
+    )
+    _ = try service.createNote(bodyMarkdown: "# Pending\nBody")
+    let databasePath = service.driver.databasePath
+
+    func assertListingIsTransactional(_ list: (NoteService) throws -> Void) throws {
+      var scoped = service.scoped(to: administrator.userId)
+      scoped.autoActionListAfterAuthorizationHook = { _ in
+        let concurrent = try SQLiteDatabase.open(
+          path: databasePath,
+          options: SQLiteOpenOptions(
+            enableWAL: false,
+            busyTimeoutMilliseconds: 0,
+            requireJSONB: false,
+            requireFTS5: false
+          )
+        )
+        let updateSucceeded: Bool
+        do {
+          try concurrent.execute(
+            "UPDATE users SET is_admin = 0 WHERE user_id = ?",
+            bindings: [.id(administrator.userId)]
+          )
+          updateSucceeded = true
+        } catch {
+          updateSucceeded = false
+        }
+        guard !updateSucceeded else {
+          throw NoteServiceError.conflict(
+            "administrator demotion interleaved with auto-action listing"
+          )
+        }
+      }
+      try list(scoped)
+    }
+
+    try assertListingIsTransactional { scoped in
+      XCTAssertFalse(try scoped.listAutoActions().isEmpty)
+    }
+    try assertListingIsTransactional { scoped in
+      XCTAssertFalse(try scoped.listAutoActionDispatchAttempts().isEmpty)
+    }
   }
 
   func testInFlightAutoActionDispatchCannotBeClaimedAgain() async throws {
@@ -340,6 +480,105 @@ final class AutoActionTests: NoteTestCase {
     XCTAssertEqual(dispatcher.records().count, 3)
   }
 
+  func testStaleFinalAttemptIsTerminallyReconciledWithoutFourthProviderDispatch() async throws {
+    let delayed = DelayedAutoActionDispatcher()
+    let service = try makeService(autoActionDispatcher: delayed)
+    _ = try service.createNote(bodyMarkdown: "# Final stale\nBody")
+    await delayed.waitForFirstDispatch()
+    let dispatchId = try XCTUnwrap(try service.listAutoActionDispatchAttempts().first?.dispatchId)
+    try service.driver.withDatabase { database in
+      try database.execute(
+        """
+        UPDATE auto_action_dispatches
+        SET attempt_count = 3, status = ?, lease_token = ?, leased_at = ?
+        WHERE dispatch_id = ?
+        """,
+        bindings: [
+          .text(AutoActionDispatchStatus.inFlight.rawValue),
+          .text("final-stale-lease"),
+          .text("1970-01-01T00:00:00.000Z"),
+          .id(dispatchId)
+        ]
+      )
+    }
+    let retry = RecordingAutoActionDispatcher()
+    let recovered = try NoteService(driver: service.driver, autoActionDispatcher: retry)
+    XCTAssertEqual(try recovered.recoverInterruptedAutoActionDispatches(olderThan: 1), 1)
+    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(), 0)
+    await recovered.drainAutoActionDispatches()
+    XCTAssertTrue(retry.records().isEmpty)
+    let attempt = try XCTUnwrap(try recovered.listAutoActionDispatchAttempts().first)
+    XCTAssertEqual(attempt.status, .cancelled)
+    XCTAssertEqual(attempt.attemptCount, 3)
+    XCTAssertEqual(attempt.lastError, "auto-action dispatch exhausted after stale final lease; provider invocation was not retried")
+  }
+
+  func testStaleFinalAttemptReconcilesDurablyAnsweredTurnWithoutFourthProviderInvocation() async throws {
+    let service = try makeService()
+    let subject = try service.createNote(bodyMarkdown: "# Durable subject\nBody")
+    let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
+    _ = try service.configureAutoAction(
+      actionId: NoteStoreSchema.agentChatReplyActionId,
+      trigger: .noteCreated,
+      workflowId: NoteStoreSchema.agentChatReplyWorkflowId
+    )
+    let turn = try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Answer before the worker crashes",
+      agentAvailable: true
+    )
+    _ = try service.completeAgentChatTurn(turnNoteId: turn.noteId, assistantMarkdown: "Durable answer")
+    let dispatchId = try XCTUnwrap(
+      try service.listAutoActionDispatchAttempts().first(where: {
+        $0.record.event.noteId == turn.noteId
+          && $0.record.action.workflowId == NoteStoreSchema.agentChatReplyWorkflowId
+      })?.dispatchId
+    )
+    try service.driver.withDatabase { database in
+      try database.execute(
+        """
+        UPDATE auto_action_dispatches
+        SET attempt_count = 3, status = ?, lease_token = ?, leased_at = ?
+        WHERE dispatch_id = ?
+        """,
+        bindings: [
+          .text(AutoActionDispatchStatus.inFlight.rawValue),
+          .text("answered-final-stale-lease"),
+          .text("1970-01-01T00:00:00.000Z"),
+          .id(dispatchId)
+        ]
+      )
+      try database.execute(
+        """
+        UPDATE auto_action_dispatches
+        SET status = ?, lease_token = NULL, leased_at = NULL
+        WHERE dispatch_id != ? AND status = ?
+        """,
+        bindings: [
+          .text(AutoActionDispatchStatus.dispatched.rawValue),
+          .id(dispatchId),
+          .text(AutoActionDispatchStatus.pending.rawValue)
+        ]
+      )
+    }
+
+    let invoker = NeverInvokedAutoActionAgent()
+    let dispatcher = KaibaAutoActionDispatcher(
+      service: try NoteService(driver: service.driver),
+      invoker: invoker
+    )
+    let recovered = try NoteService(driver: service.driver, autoActionDispatcher: dispatcher)
+    XCTAssertEqual(try recovered.recoverInterruptedAutoActionDispatches(olderThan: 1), 1)
+    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(), 1)
+    await recovered.drainAutoActionDispatches()
+
+    let invocationCount = await invoker.invocationCount()
+    XCTAssertEqual(invocationCount, 0)
+    let attempt = try XCTUnwrap(try recovered.listAutoActionDispatchAttempts().first(where: { $0.dispatchId == dispatchId }))
+    XCTAssertEqual(attempt.status, .dispatched)
+    XCTAssertEqual(attempt.attemptCount, 3)
+  }
+
   func testDeletedDefaultAutoActionDoesNotReappearAfterSchemaPrepare() throws {
     let service = try makeService()
 
@@ -522,9 +761,11 @@ final class AutoActionTests: NoteTestCase {
     )
     await service.drainAutoActionDispatches()
 
+    let dispatchedActionIds = dispatcher.records().map(\.action.actionId)
+    XCTAssertEqual(dispatchedActionIds.count, 2)
     XCTAssertEqual(
-      dispatcher.records().map(\.action.actionId),
-      [AutoActionID("default-ai-tagging-note-created"), AutoActionID("good-filtered")]
+      Set(dispatchedActionIds),
+      Set([AutoActionID("default-ai-tagging-note-created"), AutoActionID("good-filtered")])
     )
     XCTAssertEqual(diagnostics.records().map(\.actionId), [AutoActionID("legacy-bad-filter")])
     XCTAssertEqual(diagnostics.records().first?.code, .filterEvaluationFailed)
@@ -592,6 +833,19 @@ private func ageAutoActionLease(driver: NoteDatabaseDriving, dispatchId: AutoAct
       "UPDATE auto_action_dispatches SET leased_at = ? WHERE dispatch_id = ?",
       bindings: [.text(aged), .id(dispatchId)]
     )
+  }
+}
+
+private actor NeverInvokedAutoActionAgent: AgentInvoking {
+  private var count = 0
+
+  func invoke(_: AgentInvocationRequest) async throws -> AgentInvocationResult {
+    count += 1
+    return AgentInvocationResult(markdown: "provider must not be invoked during durable reconciliation")
+  }
+
+  func invocationCount() -> Int {
+    count
   }
 }
 

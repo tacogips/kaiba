@@ -64,6 +64,9 @@ public struct GraphQLNotebookDTO: Codable, Equatable, Sendable {
   public var noteCount: Int?
 
   public var libraryId: LibraryID?
+  public var ownerUserId: UserID?
+  public var createdBy: UserID?
+  public var updatedBy: UserID?
 
   public init(notebook: Notebook) {
     notebookId = notebook.notebookId
@@ -76,6 +79,9 @@ public struct GraphQLNotebookDTO: Codable, Equatable, Sendable {
     firstNotePreview = notebook.firstNotePreview
     noteCount = notebook.noteCount
     libraryId = notebook.libraryId
+    ownerUserId = notebook.ownerUserId
+    createdBy = notebook.createdBy
+    updatedBy = notebook.updatedBy
   }
 }
 
@@ -113,6 +119,8 @@ public struct GraphQLNoteDTO: Codable, Equatable, Sendable {
   public var updatedAt: String
   public var metaJSON: String?
   public var tags: [GraphQLNoteTagAssignmentDTO]
+  public var createdBy: UserID?
+  public var updatedBy: UserID?
 
   public init(note: Note) {
     noteId = note.noteId
@@ -125,6 +133,8 @@ public struct GraphQLNoteDTO: Codable, Equatable, Sendable {
     updatedAt = note.updatedAt
     metaJSON = note.metaJSON
     tags = note.tags.map(GraphQLNoteTagAssignmentDTO.init)
+    createdBy = note.createdBy
+    updatedBy = note.updatedBy
   }
 }
 

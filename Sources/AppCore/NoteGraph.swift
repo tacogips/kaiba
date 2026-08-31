@@ -63,6 +63,11 @@ public extension NoteService {
         maxDepth: maxDepth,
         limit: limit,
         resultExclusions: [],
+        scope: NoteSearchScope(
+          reachableLibraryIds: try reachableLibraryIds(in: database),
+          actingUserId: actingUserId,
+          excludesLongTermMemory: actingUserId != nil || isUnauthenticatedPrincipal
+        ),
         in: database
       )
       // A link may cross into a library this caller cannot see

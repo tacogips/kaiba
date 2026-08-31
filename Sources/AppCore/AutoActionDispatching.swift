@@ -1,6 +1,11 @@
 import Foundation
 
-private let maximumAutoActionDispatchAttempts = 3
+let maximumAutoActionDispatchAttempts = 3
+
+struct AutoActionDispatchLease: Equatable, Sendable {
+  let dispatchId: AutoActionDispatchID
+  let token: String
+}
 
 /// Default window after which an in-flight dispatch lease is treated as stale
 /// and eligible to be reclaimed by the recovery path (15 minutes).
@@ -18,7 +23,7 @@ private func autoActionDispatchLeaseHeartbeatIntervalNanos(staleness: TimeInterv
   return UInt64(interval * 1_000_000_000)
 }
 
-private func autoActionDispatchLeaseCutoff(olderThan staleness: TimeInterval) -> String {
+func autoActionDispatchLeaseCutoff(olderThan staleness: TimeInterval) -> String {
   let formatter = ISO8601DateFormatter()
   formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
   return formatter.string(from: Date().addingTimeInterval(-staleness))
@@ -30,19 +35,28 @@ public struct NoteAutoActionEvent: Codable, Equatable, Sendable {
   public var noteId: NoteID?
   public var noteBodyMarkdown: String?
   public var originatingActionId: AutoActionID?
+  /// The request principal that caused this work. Dispatchers run later using
+  /// their own service value, so they must not silently regain the unscoped
+  /// operator view while producing context or a reply for a user request.
+  public var originatingUserId: UserID?
+  public var originatingIsUnauthenticatedPrincipal: Bool?
 
   public init(
     trigger: NoteAutoActionTrigger,
     notebookId: NotebookID? = nil,
     noteId: NoteID? = nil,
     noteBodyMarkdown: String? = nil,
-    originatingActionId: AutoActionID? = nil
+    originatingActionId: AutoActionID? = nil,
+    originatingUserId: UserID? = nil,
+    originatingIsUnauthenticatedPrincipal: Bool? = nil
   ) {
     self.trigger = trigger
     self.notebookId = notebookId
     self.noteId = noteId
     self.noteBodyMarkdown = noteBodyMarkdown
     self.originatingActionId = originatingActionId
+    self.originatingUserId = originatingUserId
+    self.originatingIsUnauthenticatedPrincipal = originatingIsUnauthenticatedPrincipal
   }
 }
 
@@ -64,9 +78,27 @@ public protocol AutoActionDispatching: Sendable {
   func dispatch(_ record: AutoActionDispatchRecord) async throws -> AutoActionDispatchOutcome
 }
 
+/// A dispatcher that can atomically record a terminal outcome against the
+/// outbox row it currently owns. The ordinary protocol remains sufficient for
+/// dispatchers that only execute work; this capability is used when a safety
+/// cancellation must survive loss of the caller's later acknowledgement.
+protocol LeasedAutoActionDispatching: AutoActionDispatching {
+  func dispatch(
+    _ record: AutoActionDispatchRecord,
+    dispatchId: AutoActionDispatchID,
+    leaseToken: String
+  ) async throws -> AutoActionDispatchOutcome
+}
+
 public enum AutoActionDispatchOutcome: Equatable, Sendable {
   case succeeded
+  /// Durable work yielded after a bounded chunk. The row returns to pending
+  /// without consuming a provider retry attempt; a later maintenance pass
+  /// claims the persisted continuation.
+  case deferred
   case failed(String)
+  /// The work can never safely run, so it must leave the retry queue.
+  case cancelled(String)
 }
 
 public enum NoteAutoActionDiagnosticCode: String, Codable, Equatable, Sendable {
@@ -99,6 +131,7 @@ public protocol NoteAutoActionFilterDiagnosticRecording: Sendable {
 struct QueuedAutoActionDispatch: Sendable {
   var dispatchId: AutoActionDispatchID
   var record: AutoActionDispatchRecord
+  var isFinalReconciliation = false
 }
 
 /// Tracks the background tasks spawned by fire-and-record dispatch so that a
@@ -141,20 +174,6 @@ public final class AutoActionDispatchTaskTracker: @unchecked Sendable {
 }
 
 public extension NoteService {
-  func listAutoActions() throws -> [AutoAction] {
-    try driver.withDatabase { database in
-      try database.query(
-        """
-        SELECT action_id, trigger, workflow_id,
-          CASE WHEN filter_json IS NULL THEN NULL ELSE json(filter_json) END AS filter_json,
-          enabled, position, created_at
-        FROM auto_actions
-        ORDER BY trigger, position, action_id
-        """
-      ).map(autoAction(from:))
-    }
-  }
-
   @discardableResult
   func configureAutoAction(
     actionId: AutoActionID,
@@ -167,6 +186,7 @@ public extension NoteService {
     try validateAutoActionFilterJSON(filterJSON)
     return try driver.withDatabase { database in
       try database.transaction { db in
+        try requireStoreAdministrator(in: db)
         try db.execute(
           """
           INSERT INTO auto_actions (
@@ -197,93 +217,50 @@ public extension NoteService {
   func deleteAutoAction(actionId: AutoActionID) throws {
     try driver.withDatabase { database in
       try database.transaction { db in
+        try requireStoreAdministrator(in: db)
         _ = try requireAutoAction(actionId: actionId, in: db)
         try db.execute("DELETE FROM auto_actions WHERE action_id = ?", bindings: [.id(actionId)])
       }
     }
   }
 
-  func listAutoActionDispatchAttempts(
-    status: AutoActionDispatchStatus? = nil
-  ) throws -> [AutoActionDispatchAttempt] {
-    try driver.withDatabase { database in
-      let whereClause = status == nil ? "" : "WHERE status = ?"
-      let bindings = status.map { [SQLiteValue.text($0.rawValue)] } ?? []
-      return try database.query(
-        """
-        SELECT dispatch_id, action_id, action_trigger, workflow_id,
-          CASE WHEN filter_json IS NULL THEN NULL ELSE json(filter_json) END AS filter_json,
-          action_enabled, action_position, action_created_at,
-          CASE WHEN event_json IS NULL THEN NULL ELSE json(event_json) END AS event_json,
-          status, attempt_count, last_error, created_at, updated_at
-        FROM auto_action_dispatches
-        \(whereClause)
-        ORDER BY created_at, dispatch_id
-        """,
-        bindings: bindings
-      ).map(autoActionDispatchAttempt(from:))
-    }
-  }
-
   @discardableResult
   func retryPendingAutoActionDispatches(limit: Int = 50) throws -> Int {
-    guard autoActionDispatcher != nil else {
-      return 0
-    }
-    let queued = try driver.withDatabase { database in
-      try database.query(
-        """
-        SELECT dispatch_id, action_id, action_trigger, workflow_id,
-          CASE WHEN filter_json IS NULL THEN NULL ELSE json(filter_json) END AS filter_json,
-          action_enabled, action_position, action_created_at,
-          CASE WHEN event_json IS NULL THEN NULL ELSE json(event_json) END AS event_json,
-          status, attempt_count, last_error, created_at, updated_at
-        FROM auto_action_dispatches
-        WHERE status = ? AND attempt_count < ?
-        ORDER BY created_at, dispatch_id
-        LIMIT ?
-        """,
-        bindings: [
-          .text(AutoActionDispatchStatus.pending.rawValue),
-          .int(Int64(maximumAutoActionDispatchAttempts)),
-          .int(Int64(limit))
-        ]
-      ).map { try queuedAutoActionDispatch(from: $0) }
+    let queued: [QueuedAutoActionDispatch] = try driver.withDatabase { database in
+      try database.transaction { db in
+        try requireStoreAdministrator(in: db)
+        try autoActionMaintenanceAuthHook?(db)
+        guard autoActionDispatcher != nil else {
+          return []
+        }
+        return try db.query(
+          """
+          SELECT dispatch_id, action_id, action_trigger, workflow_id,
+            CASE WHEN filter_json IS NULL THEN NULL ELSE json(filter_json) END AS filter_json,
+            action_enabled, action_position, action_created_at,
+            CASE WHEN event_json IS NULL THEN NULL ELSE json(event_json) END AS event_json,
+            status, attempt_count, last_error, created_at, updated_at
+          FROM auto_action_dispatches
+          WHERE status = ?
+            AND (
+              attempt_count < ?
+              OR (attempt_count = ? AND last_error = ?)
+            )
+          ORDER BY created_at, dispatch_id
+          LIMIT ?
+          """,
+          bindings: [
+            .text(AutoActionDispatchStatus.pending.rawValue),
+            .int(Int64(maximumAutoActionDispatchAttempts)),
+            .int(Int64(maximumAutoActionDispatchAttempts)),
+            .text(finalAutoActionReconciliationMarker),
+            .int(Int64(limit))
+          ]
+        ).map { try queuedAutoActionDispatch(from: $0) }
+      }
     }
     dispatchQueuedAutoActions(queued)
     return queued.count
-  }
-
-  /// Reclaims interrupted dispatches whose lease is older than `staleness`,
-  /// returning them to `pending` so the retry path can pick them up. Fresh
-  /// in-flight rows (a live attempt in another process) are left untouched.
-  @discardableResult
-  func recoverInterruptedAutoActionDispatches(
-    olderThan staleness: TimeInterval = defaultAutoActionDispatchLeaseStaleness
-  ) throws -> Int {
-    let cutoff = autoActionDispatchLeaseCutoff(olderThan: staleness)
-    return try driver.withDatabase { database in
-      try database.executeAndReturnChangedRowCount(
-        """
-        UPDATE auto_action_dispatches
-        SET status = ?,
-          lease_token = NULL,
-          leased_at = NULL,
-          last_error = ?,
-          updated_at = ?
-        WHERE status = ? AND attempt_count < ?
-          AND (leased_at IS NULL OR leased_at < ?)
-        """,
-        bindings: [
-          .text(AutoActionDispatchStatus.pending.rawValue),
-          .text("auto-action dispatch was interrupted before completion"),
-          .text(NoteStoreClock.system.now()),
-          .text(AutoActionDispatchStatus.inFlight.rawValue),
-          .int(Int64(maximumAutoActionDispatchAttempts)),
-          .text(cutoff)
-        ]
-      )
-    }
   }
 
   /// Explicit recovery+retry entry point. Reclaims stale leases, dispatches
@@ -307,6 +284,96 @@ public extension NoteService {
 }
 
 extension NoteService {
+  /// Returns a service value whose provider-derived writes are fenced by the
+  /// currently claimed outbox lease.  The actual check occurs in each write
+  /// transaction, never only when dispatch begins.
+  func scoped(toAutoActionDispatch dispatchId: AutoActionDispatchID, leaseToken: String) -> NoteService {
+    var copy = self
+    copy.activeAutoActionDispatchLease = AutoActionDispatchLease(
+      dispatchId: dispatchId,
+      token: leaseToken
+    )
+    return copy
+  }
+
+  func activeAgentReplyStreamLease() throws -> AgentReplyStreamLease? {
+    guard let activeAutoActionDispatchLease else { return nil }
+    return try driver.withDatabase { database in
+      let rows = try database.query(
+        """
+        SELECT attempt_count
+        FROM auto_action_dispatches
+        WHERE dispatch_id = ? AND status = ? AND lease_token = ?
+        LIMIT 1
+        """,
+        bindings: [
+          .id(activeAutoActionDispatchLease.dispatchId),
+          .text(AutoActionDispatchStatus.inFlight.rawValue),
+          .text(activeAutoActionDispatchLease.token)
+        ]
+      )
+      guard let row = rows.first,
+            let attemptNumber = Int(row.string("attempt_count")) else {
+        return nil
+      }
+      return AgentReplyStreamLease(
+        dispatchId: activeAutoActionDispatchLease.dispatchId,
+        token: activeAutoActionDispatchLease.token,
+        attemptNumber: attemptNumber
+      )
+    }
+  }
+
+  /// The last admission boundary before private workflow context leaves this
+  /// process. It atomically confirms both the originating account and the
+  /// claimed outbox lease still permit a provider call.
+  func admitAutoActionProviderInvocation() async throws {
+    await providerInvocationPreAdmissionHook?()
+    try driver.withDatabase { database in
+      try database.transaction { db in
+        try requireEnabledActingUser(in: db)
+      }
+    }
+  }
+
+  /// True when this service is executing a claimed outbox attempt.  A missing
+  /// database lease for such a service means ownership was lost; it must not
+  /// fall back to an unleased side effect.
+  var requiresActiveAutoActionDispatchLease: Bool {
+    activeAutoActionDispatchLease != nil
+  }
+
+  func requireActiveAutoActionDispatchLease(in database: SQLiteDatabase) throws {
+    guard let activeAutoActionDispatchLease else { return }
+    let rows = try database.query(
+      """
+      SELECT 1
+      FROM auto_action_dispatches
+      WHERE dispatch_id = ? AND status = ? AND lease_token = ?
+      LIMIT 1
+      """,
+      bindings: [
+        .id(activeAutoActionDispatchLease.dispatchId),
+        .text(AutoActionDispatchStatus.inFlight.rawValue),
+        .text(activeAutoActionDispatchLease.token)
+      ]
+    )
+    guard !rows.isEmpty else {
+      throw NoteServiceError.conflict("auto-action dispatch lease is no longer active")
+    }
+  }
+
+  func hasActiveAutoActionDispatchLease() -> Bool {
+    do {
+      return try driver.withDatabase { database in
+        try requireActiveAutoActionDispatchLease(in: database)
+        return true
+      }
+    } catch {
+      return false
+    }
+  }
+
   func enqueueAutoActions(
     for event: NoteAutoActionEvent,
     in database: SQLiteDatabase
@@ -318,6 +385,10 @@ extension NoteService {
     guard event.originatingActionId == nil else {
       return []
     }
+    let event = event.withOriginatingPrincipal(
+      userId: actingUserId,
+      isUnauthenticatedPrincipal: isUnauthenticatedPrincipal
+    )
     let actions = try matchingAutoActions(for: event, in: database)
     var queued: [QueuedAutoActionDispatch] = []
     for action in actions {
@@ -364,22 +435,63 @@ extension NoteService {
       return
     }
     for dispatch in queued {
+      let admission = agentExecutionAdmission
+      let principalId: String
+      if dispatch.record.event.originatingIsUnauthenticatedPrincipal == true {
+        principalId = "unauthenticated:\((dispatch.record.event.originatingUserId ?? NoteStoreSchema.defaultUserId).rawValue)"
+      } else if let userId = dispatch.record.event.originatingUserId {
+        principalId = "user:\(userId.rawValue)"
+      } else {
+        // Legacy records are rejected by the dispatcher, but still consume a
+        // bounded slot while that safe failure is recorded.
+        principalId = "legacy"
+      }
+      guard let admissionLease = admission.acquire(principalId: principalId) else {
+        // Do not claim a durable lease before capacity is available. The row
+        // remains pending for the next maintenance/retry pass, avoiding both
+        // a task backlog and a provider/process backlog.
+        continue
+      }
       let leaseToken: String
       do {
         guard let claimed = try beginAutoActionDispatchAttempt(dispatchId: dispatch.dispatchId) else {
+          admission.release(admissionLease)
           continue
         }
         leaseToken = claimed
       } catch {
+        admission.release(admissionLease)
         continue
       }
       let service = self
       let staleness = autoActionDispatchLeaseStaleness
       let task = Task<Void, Never> { [autoActionDispatcher] in
+        defer { admission.release(admissionLease) }
         // Heartbeat the lease for the duration of the attempt so a workflow that
         // runs longer than the staleness window is not reclaimed and re-dispatched
-        // concurrently. A heartbeat failure (or a superseded lease) never crashes
-        // the attempt; the heartbeat task simply stops updating.
+        // concurrently.  Lease loss cancels the execution task as a best-effort
+        // provider stop; every later durable write is independently fenced by
+        // the lease token in case a provider does not honor cancellation.
+        let execution = Task<AutoActionDispatchOutcome, Error> {
+          if dispatch.isFinalReconciliation {
+            guard let reconciler = autoActionDispatcher as? any FinalAutoActionReconciliationDispatching else {
+              return .cancelled("final auto-action reconciliation is unavailable")
+            }
+            return try await reconciler.reconcile(
+              dispatch.record,
+              dispatchId: dispatch.dispatchId,
+              leaseToken: leaseToken
+            )
+          }
+          if let leasedDispatcher = autoActionDispatcher as? any LeasedAutoActionDispatching {
+            return try await leasedDispatcher.dispatch(
+              dispatch.record,
+              dispatchId: dispatch.dispatchId,
+              leaseToken: leaseToken
+            )
+          }
+          return try await autoActionDispatcher.dispatch(dispatch.record)
+        }
         let heartbeat = Task<Void, Never> {
           let intervalNanos = autoActionDispatchLeaseHeartbeatIntervalNanos(staleness: staleness)
           guard intervalNanos > 0 else {
@@ -395,32 +507,61 @@ extension NoteService {
               leaseToken: leaseToken
             )) ?? false
             if !stillOwned {
+              execution.cancel()
               return
             }
           }
         }
         do {
-          let outcome = try await autoActionDispatcher.dispatch(dispatch.record)
+          let outcome = try await execution.value
           switch outcome {
           case .succeeded:
             try? service.markAutoActionDispatchDispatched(
               dispatchId: dispatch.dispatchId,
               leaseToken: leaseToken
             )
+          case .deferred:
+            try? service.deferAutoActionDispatch(
+              dispatchId: dispatch.dispatchId,
+              leaseToken: leaseToken
+            )
           case .failed(let message):
-            try? service.recordAutoActionDispatchFailure(
+            if dispatch.isFinalReconciliation {
+              try? service.markAutoActionDispatchCancelled(
+                dispatchId: dispatch.dispatchId,
+                leaseToken: leaseToken,
+                reason: "final auto-action reconciliation failed: \(message)"
+              )
+            } else {
+              try? service.recordAutoActionDispatchFailure(
+                dispatchId: dispatch.dispatchId,
+                leaseToken: leaseToken,
+                error: message
+              )
+            }
+          case .cancelled(let message):
+            try? service.markAutoActionDispatchCancelled(
               dispatchId: dispatch.dispatchId,
               leaseToken: leaseToken,
-              error: message
+              reason: message
             )
           }
         } catch {
-          try? service.recordAutoActionDispatchFailure(
-            dispatchId: dispatch.dispatchId,
-            leaseToken: leaseToken,
-            error: "\(error)"
-          )
+          if dispatch.isFinalReconciliation {
+            try? service.markAutoActionDispatchCancelled(
+              dispatchId: dispatch.dispatchId,
+              leaseToken: leaseToken,
+              reason: "final auto-action reconciliation failed: \(error)"
+            )
+          } else {
+            try? service.recordAutoActionDispatchFailure(
+              dispatchId: dispatch.dispatchId,
+              leaseToken: leaseToken,
+              error: "\(error)"
+            )
+          }
         }
+        execution.cancel()
         heartbeat.cancel()
         await heartbeat.value
       }
@@ -453,6 +594,22 @@ extension NoteService {
       )
       return changedRows == 1
     }
+  }
+}
+
+extension NoteAutoActionEvent {
+  func withOriginatingPrincipal(
+    userId: UserID?,
+    isUnauthenticatedPrincipal: Bool
+  ) -> NoteAutoActionEvent {
+    var event = self
+    if event.originatingUserId == nil {
+      event.originatingUserId = userId
+    }
+    if event.originatingIsUnauthenticatedPrincipal == nil {
+      event.originatingIsUnauthenticatedPrincipal = isUnauthenticatedPrincipal
+    }
+    return event
   }
 }
 
@@ -502,22 +659,33 @@ private extension NoteService {
       let changedRows = try database.executeAndReturnChangedRowCount(
         """
         UPDATE auto_action_dispatches
-        SET attempt_count = attempt_count + 1,
+        SET attempt_count = CASE
+            WHEN attempt_count < ? THEN attempt_count + 1
+            ELSE attempt_count
+          END,
           status = ?,
           lease_token = ?,
           leased_at = ?,
           last_error = NULL,
           updated_at = ?
-        WHERE dispatch_id = ? AND status = ? AND attempt_count < ?
+        WHERE dispatch_id = ?
+          AND status = ?
+          AND (
+            attempt_count < ?
+            OR (attempt_count = ? AND last_error = ?)
+          )
         """,
         bindings: [
+          .int(Int64(maximumAutoActionDispatchAttempts)),
           .text(AutoActionDispatchStatus.inFlight.rawValue),
           .text(leaseToken),
           .text(NoteStoreClock.system.now()),
           .text(NoteStoreClock.system.now()),
           .id(dispatchId),
           .text(AutoActionDispatchStatus.pending.rawValue),
-          .int(Int64(maximumAutoActionDispatchAttempts))
+          .int(Int64(maximumAutoActionDispatchAttempts)),
+          .int(Int64(maximumAutoActionDispatchAttempts)),
+          .text(finalAutoActionReconciliationMarker)
         ]
       )
       return changedRows == 1 ? leaseToken : nil
@@ -539,6 +707,33 @@ private extension NoteService {
         bindings: [
           .text(AutoActionDispatchStatus.pending.rawValue),
           .text(error),
+          .text(NoteStoreClock.system.now()),
+          .id(dispatchId),
+          .text(AutoActionDispatchStatus.inFlight.rawValue),
+          .text(leaseToken)
+        ]
+      )
+    }
+  }
+
+  /// Returns a bounded continuation to the durable pending queue without
+  /// charging it as a failed provider attempt. The next claim gets a new lease
+  /// token; source/output hashes make continuation idempotent across restart.
+  func deferAutoActionDispatch(dispatchId: AutoActionDispatchID, leaseToken: String) throws {
+    try driver.withDatabase { database in
+      try database.execute(
+        """
+        UPDATE auto_action_dispatches
+        SET status = ?,
+          attempt_count = CASE WHEN attempt_count > 0 THEN attempt_count - 1 ELSE 0 END,
+          lease_token = NULL,
+          leased_at = NULL,
+          last_error = NULL,
+          updated_at = ?
+        WHERE dispatch_id = ? AND status = ? AND lease_token = ?
+        """,
+        bindings: [
+          .text(AutoActionDispatchStatus.pending.rawValue),
           .text(NoteStoreClock.system.now()),
           .id(dispatchId),
           .text(AutoActionDispatchStatus.inFlight.rawValue),
@@ -572,6 +767,51 @@ private extension NoteService {
   }
 }
 
+extension NoteService {
+  /// Persists a distinct cancellation record so readers cannot mistake a
+  /// safety stop for successful provider work. The base row stays dispatched
+  /// for compatibility with existing stores whose status CHECK pre-dates the
+  /// cancellation outcome; list APIs project the joined row as `.cancelled`.
+  func markAutoActionDispatchCancelled(
+    dispatchId: AutoActionDispatchID,
+    leaseToken: String,
+    reason: String
+  ) throws {
+    try driver.withDatabase { database in
+      try database.transaction { db in
+        let cancelledAt = NoteStoreClock.system.now()
+        let changedRows = try db.executeAndReturnChangedRowCount(
+          """
+          UPDATE auto_action_dispatches
+          SET status = ?,
+            lease_token = NULL,
+            leased_at = NULL,
+            last_error = NULL,
+            updated_at = ?
+          WHERE dispatch_id = ? AND status = ? AND lease_token = ?
+          """,
+          bindings: [
+            .text(AutoActionDispatchStatus.dispatched.rawValue),
+            .text(cancelledAt),
+            .id(dispatchId),
+            .text(AutoActionDispatchStatus.inFlight.rawValue),
+            .text(leaseToken)
+          ]
+        )
+        guard changedRows == 1 else { return }
+        try db.execute(
+          """
+          INSERT INTO auto_action_dispatch_cancellations (dispatch_id, reason, cancelled_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(dispatch_id) DO NOTHING
+          """,
+          bindings: [.id(dispatchId), .text(reason), .text(cancelledAt)]
+        )
+      }
+    }
+  }
+}
+
 private func autoActionEventJSON(_ event: NoteAutoActionEvent) throws -> String {
   let encoder = JSONEncoder()
   encoder.outputFormatting = [.sortedKeys]
@@ -582,7 +822,7 @@ private func autoActionEventJSON(_ event: NoteAutoActionEvent) throws -> String 
   return json
 }
 
-private func autoActionEvent(from json: String) throws -> NoteAutoActionEvent {
+func autoActionEvent(from json: String) throws -> NoteAutoActionEvent {
   guard let data = json.data(using: .utf8) else {
     throw NoteServiceError.invalidRow("auto action event JSON is not UTF-8")
   }
@@ -591,10 +831,14 @@ private func autoActionEvent(from json: String) throws -> NoteAutoActionEvent {
 
 private func queuedAutoActionDispatch(from row: SQLiteRow) throws -> QueuedAutoActionDispatch {
   let attempt = try autoActionDispatchAttempt(from: row)
-  return QueuedAutoActionDispatch(dispatchId: attempt.dispatchId, record: attempt.record)
+  return QueuedAutoActionDispatch(
+    dispatchId: attempt.dispatchId,
+    record: attempt.record,
+    isFinalReconciliation: attempt.lastError == finalAutoActionReconciliationMarker
+  )
 }
 
-private func autoActionDispatchAttempt(from row: SQLiteRow) throws -> AutoActionDispatchAttempt {
+func autoActionDispatchAttempt(from row: SQLiteRow) throws -> AutoActionDispatchAttempt {
   guard let dispatchId = row.identifier("dispatch_id", as: AutoActionDispatchID.self),
         let actionId = row.identifier("action_id", as: AutoActionID.self),
         let triggerText = row["action_trigger"],
@@ -731,7 +975,7 @@ func requireAutoAction(actionId: AutoActionID, in database: SQLiteDatabase) thro
   return try autoAction(from: row)
 }
 
-private func autoAction(from row: SQLiteRow) throws -> AutoAction {
+func autoAction(from row: SQLiteRow) throws -> AutoAction {
   guard let actionId = row.identifier("action_id", as: AutoActionID.self),
         let triggerText = row["trigger"],
         let trigger = NoteAutoActionTrigger(rawValue: triggerText),

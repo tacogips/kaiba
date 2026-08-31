@@ -25,6 +25,10 @@ private actor CapturingChatInvoker: AgentInvoking {
   func latestRequest() -> AgentInvocationRequest? {
     requests.last
   }
+
+  func requests(for purpose: AgentInvocationPurpose) -> [AgentInvocationRequest] {
+    requests.filter { $0.purpose == purpose }
+  }
 }
 
 private actor FailingCapturingChatInvoker: AgentInvoking {
@@ -184,6 +188,29 @@ final class AgentChatTests: NoteTestCase {
     XCTAssertEqual(try service.listNotes(notebookId: conversation.notebookId).count, 1)
   }
 
+  func testIdempotentSendReplaysAfterSubjectDeletion() throws {
+    let service = try makeService()
+    let subject = try service.createNote(bodyMarkdown: "# Subject\nBody.")
+    let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
+    let first = try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Same question",
+      agentAvailable: true,
+      idempotencyKey: "deleted-subject-key"
+    )
+    try service.deleteNote(noteId: subject.noteId)
+
+    let replay = try service.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Same question",
+      agentAvailable: true,
+      idempotencyKey: "deleted-subject-key"
+    )
+
+    XCTAssertEqual(replay.noteId, first.noteId)
+    XCTAssertEqual(try service.listNotes(notebookId: conversation.notebookId).count, 1)
+  }
+
   func testTurnSnapshotsModelAndPersistsValidatedAttachmentsBeforeDispatch() throws {
     let service = try makeService()
     let subject = try service.createNote(bodyMarkdown: "# Subject\nBody.")
@@ -311,8 +338,9 @@ final class AgentChatTests: NoteTestCase {
     )
     let invoker = CapturingChatInvoker()
     try await service.generateAgentChatReply(turnNoteId: current.noteId, invoker: invoker)
-    let capturedRequest = await invoker.latestRequest()
-    let request = try XCTUnwrap(capturedRequest)
+    let chatRequests = await invoker.requests(for: .chat)
+    XCTAssertEqual(chatRequests.count, 1)
+    let request = try XCTUnwrap(chatRequests.first)
     let markdown = try XCTUnwrap(request.turns.last?.markdown)
     XCTAssertTrue(markdown.contains("filename=\"current%26%22%3C.txt\""))
     XCTAssertTrue(markdown.contains("<attachment omitted=\"budget\" filename=\"prior.txt\""))
@@ -516,6 +544,168 @@ final class AgentChatTests: NoteTestCase {
       userMarkdown: "   ",
       agentAvailable: true
     ))
+  }
+
+  func testForgedConversationSubjectIsRejectedBeforeTurnCreation() throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
+    let bobNote = try service.scoped(to: bob.userId).createNote(bodyMarkdown: "# Bob\nPrivate context")
+    let forgedMetaJSON = """
+    {"kaibaChat":{"subjectNoteId":"\(bobNote.noteId.rawValue)","subjectNotebookId":"\(bobNote.notebookId.rawValue)"}}
+    """
+    let conversation = try service.scoped(to: alice.userId).createNotebook(
+      title: "Forged conversation",
+      kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
+      metaJSON: forgedMetaJSON
+    )
+    let dispatchCount = try service.listAutoActionDispatchAttempts().count
+
+    XCTAssertThrowsError(try service.scoped(to: alice.userId).appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Reveal Bob's context",
+      agentAvailable: true
+    )) { error in
+      guard case .notFound = error as? NoteServiceError else {
+        return XCTFail("expected foreign subject to be not found, got \(error)")
+      }
+    }
+    XCTAssertTrue(try service.listNotes(notebookId: conversation.notebookId).isEmpty)
+    XCTAssertEqual(try service.listAutoActionDispatchAttempts().count, dispatchCount)
+  }
+
+  func testUnscopedReplyDoesNotInvokeAgentForForgedConversationSubject() async throws {
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
+    let aliceService = service.scoped(to: alice.userId)
+    let aliceNote = try aliceService.createNote(bodyMarkdown: "# Alice\nSafe context")
+    let bobNote = try service.scoped(to: bob.userId).createNote(bodyMarkdown: "# Bob\nPrivate context")
+    let conversation = try aliceService.startAgentConversation(subjectNoteId: aliceNote.noteId)
+    let turn = try aliceService.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Question",
+      agentAvailable: true
+    )
+    let forgedMetaJSON = """
+    {"kaibaChat":{"subjectNoteId":"\(bobNote.noteId.rawValue)","subjectNotebookId":"\(bobNote.notebookId.rawValue)"}}
+    """
+    try service.driver.withDatabase { database in
+      try database.execute(
+        "UPDATE notebooks SET meta_json = jsonb(?) WHERE notebook_id = ?",
+        bindings: [.text(forgedMetaJSON), .id(conversation.notebookId)]
+      )
+    }
+
+    let invoker = CapturingChatInvoker()
+    do {
+      try await service.generateAgentChatReply(turnNoteId: turn.noteId, invoker: invoker)
+      XCTFail("expected forged conversation to be rejected")
+    } catch let error as NoteServiceError {
+      guard case .invalidInput = error else {
+        return XCTFail("expected invalid forged-subject input, got \(error)")
+      }
+    } catch {
+      XCTFail("expected NoteServiceError.invalidInput, got \(error)")
+    }
+    let chatRequests = await invoker.requests(for: .chat)
+    XCTAssertTrue(chatRequests.isEmpty)
+    XCTAssertEqual(NoteService.chatTurnState(of: try service.getNote(turn.noteId))?.status, .pending)
+  }
+
+  func testQueuedTagMemoReplyScopesTagGroundingToOriginatingOwner() async throws {
+    let bare = try makeService()
+    let invoker = CapturingChatInvoker()
+    let dispatcher = KaibaAutoActionDispatcher(service: bare, invoker: invoker)
+    var service = bare
+    service.autoActionDispatcher = dispatcher
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
+    let aliceService = service.scoped(to: alice.userId)
+    let bobService = service.scoped(to: bob.userId)
+    let tag = try service.defineTag(name: "shared-grounding")
+    _ = try aliceService.createNote(
+      bodyMarkdown: "# Alice\nOnly Alice's context.",
+      tags: [NoteTagInput(name: tag.name)]
+    )
+    _ = try bobService.createNote(
+      bodyMarkdown: "# Bob\nBob private context must not reach Alice's provider.",
+      tags: [NoteTagInput(name: tag.name)]
+    )
+    let tagMemo = try aliceService.ensureTagMemoNotebook(tagId: tag.tagId)
+    let conversation = try aliceService.startAgentConversation(subjectNotebookId: tagMemo.notebookId)
+    try service.configureAutoAction(
+      actionId: NoteStoreSchema.agentChatReplyActionId,
+      trigger: .noteCreated,
+      workflowId: NoteStoreSchema.agentChatReplyWorkflowId,
+      enabled: true
+    )
+
+    _ = try aliceService.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Summarize the tag.",
+      agentAvailable: true
+    )
+    await service.drainAutoActionDispatches()
+
+    let chatRequests = await invoker.requests(for: .chat)
+    XCTAssertEqual(chatRequests.count, 1)
+    let request = try XCTUnwrap(chatRequests.first)
+    XCTAssertTrue(request.contextMarkdown?.contains("Only Alice's context.") == true)
+    XCTAssertFalse(request.contextMarkdown?.contains("Bob private context") == true)
+  }
+
+  func testRecoveredLegacyQueuedReplyFailsClosedWithoutPrincipalMetadata() async throws {
+    let bare = try makeService()
+    let subject = try bare.createNote(bodyMarkdown: "# Subject\nPrivate context")
+    let conversation = try bare.startAgentConversation(subjectNoteId: subject.noteId)
+    let turn = try bare.appendPendingAgentChatTurn(
+      conversationNotebookId: conversation.notebookId,
+      userMarkdown: "Question",
+      agentAvailable: true
+    )
+    let dispatchId = AutoActionDispatchID.generate()
+    let legacyEventJSON = """
+    {"noteId":"\(turn.noteId.rawValue)","trigger":"note-created"}
+    """
+    try bare.driver.withDatabase { database in
+      // The fixture creates its own normal auto-action rows. They are not part
+      // of the simulated pre-upgrade recovery record.
+      try database.execute(
+        "UPDATE auto_action_dispatches SET status = 'dispatched' WHERE status = 'pending'"
+      )
+      try database.execute(
+        """
+        INSERT INTO auto_action_dispatches (
+          dispatch_id, action_id, action_trigger, workflow_id, filter_json,
+          action_enabled, action_position, action_created_at, event_json,
+          status, attempt_count, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, NULL, 1, 0, ?, jsonb(?), 'pending', 0, ?, ?)
+        """,
+        bindings: [
+          .id(dispatchId),
+          .id(NoteStoreSchema.agentChatReplyActionId),
+          .text(NoteAutoActionTrigger.noteCreated.rawValue),
+          .id(NoteStoreSchema.agentChatReplyWorkflowId),
+          .text("2026-08-30T00:00:00Z"),
+          .text(legacyEventJSON),
+          .text("2026-08-30T00:00:00Z"),
+          .text("2026-08-30T00:00:00Z")
+        ]
+      )
+    }
+
+    let invoker = CapturingChatInvoker()
+    let dispatcher = KaibaAutoActionDispatcher(service: bare, invoker: invoker)
+    let recovered = try NoteService(driver: bare.driver, autoActionDispatcher: dispatcher)
+    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(), 1)
+    await recovered.drainAutoActionDispatches()
+
+    let capturedRequest = await invoker.latestRequest()
+    XCTAssertNil(capturedRequest)
+    let attempt = try XCTUnwrap(try recovered.listAutoActionDispatchAttempts().first)
+    XCTAssertEqual(attempt.status, .pending)
+    XCTAssertTrue(attempt.lastError?.contains("lacks originating principal metadata") == true)
   }
 
   func testListAgentConversationsFindsBySubject() throws {

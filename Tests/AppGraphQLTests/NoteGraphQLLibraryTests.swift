@@ -106,6 +106,55 @@ final class NoteGraphQLLibraryTests: XCTestCase {
     XCTAssertNotEqual(libraryIds["Private"], NoteStoreSchema.defaultLibraryId)
   }
 
+  func testLibraryNotebookCountIsScopedToTheGraphQLPrincipal() async throws {
+    let noteService = try makeNoteService(function: #function)
+    let alice = try noteService.createUser(email: "alice@example.com", displayName: "Alice", isAdmin: true)
+    let bob = try noteService.createUser(email: "bob@example.com", displayName: "Bob")
+    _ = try noteService.createNotebook(title: "Default")
+    _ = try noteService.scoped(to: alice.userId).createNotebook(title: "Alice")
+    _ = try noteService.scoped(to: bob.userId).createNotebook(title: "Bob")
+    let executor = NoteGraphQLDocumentExecutor(service: GraphQLNoteGraphQLService(service: noteService))
+
+    let aliceRequest = GraphQLDocumentRequest(
+      query: "{ libraries { value { libraryId notebookCount } } }",
+      authenticatedClientId: APIClientID("alice-client"),
+      actingUserId: alice.userId
+    )
+    let defaultUserRequest = GraphQLDocumentRequest(
+      query: "{ libraries { value { libraryId notebookCount } } }",
+      authenticatedClientId: APIClientID("default-client"),
+      actingUserId: NoteStoreSchema.defaultUserId
+    )
+    let unauthenticatedRequest = GraphQLDocumentRequest(
+      query: "{ libraries { value { libraryId notebookCount } } }",
+      actingUserId: NoteStoreSchema.defaultUserId,
+      isUnauthenticatedRequest: true
+    )
+    for (request, expectedCount) in [
+      (aliceRequest, 1),
+      (defaultUserRequest, 1),
+      (unauthenticatedRequest, 1)
+    ] {
+      let response = await executor.execute(request)
+      let payload = try graphQLPayload(response.body, field: "libraries")
+      guard case let .array(values)? = payload["value"],
+            case let .object(defaultLibrary)? = values.first else {
+        return XCTFail("expected default library")
+      }
+      XCTAssertEqual(defaultLibrary["notebookCount"], .integer(Int64(expectedCount)))
+    }
+
+    let operatorResponse = await executor.execute(GraphQLDocumentRequest(
+      query: "{ libraries { value { libraryId notebookCount } } }"
+    ))
+    let operatorPayload = try graphQLPayload(operatorResponse.body, field: "libraries")
+    guard case let .array(operatorLibraries)? = operatorPayload["value"],
+          case let .object(defaultLibrary)? = operatorLibraries.first else {
+      return XCTFail("expected operator default library")
+    }
+    XCTAssertEqual(defaultLibrary["notebookCount"], .integer(4))
+  }
+
   private func makeExecutor(function: String = #function) throws -> NoteGraphQLDocumentExecutor {
     let noteService = try makeNoteService(function: function)
     let shared = try noteService.createLibrary(name: "shared", authRequired: true)

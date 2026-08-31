@@ -7,11 +7,24 @@ public struct NoteChangeEvent: Equatable, Sendable {
   public var kind: String
   public var notebookId: NotebookID?
   public var tagNames: [String]
+  /// Captured before a notebook is removed so the event feed can still
+  /// authorize its deletion without querying a row that no longer exists.
+  /// This remains feed-internal and is never serialized to API clients.
+  public var ownerUserId: UserID?
+  public var libraryId: LibraryID?
 
-  public init(kind: String, notebookId: NotebookID? = nil, tagNames: [String] = []) {
+  public init(
+    kind: String,
+    notebookId: NotebookID? = nil,
+    tagNames: [String] = [],
+    ownerUserId: UserID? = nil,
+    libraryId: LibraryID? = nil
+  ) {
     self.kind = kind
     self.notebookId = notebookId
     self.tagNames = tagNames
+    self.ownerUserId = ownerUserId
+    self.libraryId = libraryId
   }
 }
 
