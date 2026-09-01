@@ -16,7 +16,9 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
   }
 
   public var service: NoteService
-  public var invoker: any AgentInvoking
+  /// The server-configured gateway runtime. Nil when `ai.agent` is absent; a
+  /// dispatcher can still exist for personal-agent chats (UA5).
+  public var invoker: (any AgentInvoking)?
   public var provider: String?
   public var model: String?
   /// Translation-only vendor overrides (`ai.translate` in config.json);
@@ -26,15 +28,20 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
   /// When serving, the stream hub that fans incremental chat-reply chunks out
   /// to long-polling web clients. Nil outside serve (no streaming surface).
   public var streamPublisher: (any AgentReplyStreamPublishing)?
+  /// Builds the personal-agent runtime for a chat turn whose principal has an
+  /// enabled credential (`design-docs/specs/user-agent-tools.md`, UA5). Nil
+  /// disables the feature.
+  public var userAgentRuntime: UserAgentRuntimeFactory?
 
   public init(
     service: NoteService,
-    invoker: any AgentInvoking,
+    invoker: (any AgentInvoking)?,
     provider: String? = nil,
     model: String? = nil,
     translateProvider: String? = nil,
     translateModel: String? = nil,
-    streamPublisher: (any AgentReplyStreamPublishing)? = nil
+    streamPublisher: (any AgentReplyStreamPublishing)? = nil,
+    userAgentRuntime: UserAgentRuntimeFactory? = nil
   ) {
     self.service = service
     self.invoker = invoker
@@ -43,6 +50,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     self.translateProvider = translateProvider
     self.translateModel = translateModel
     self.streamPublisher = streamPublisher
+    self.userAgentRuntime = userAgentRuntime
   }
 
   public func dispatch(
@@ -101,7 +109,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
         }
         try await reconciliationService.generateAgentChatReply(
           turnNoteId: turnNoteId,
-          invoker: invoker,
+          invoker: invoker ?? UnavailableAgentInvoker(),
           provider: provider,
           model: model,
           originatingActionId: record.action.actionId,
@@ -222,6 +230,9 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       }
       subject = .note(noteId)
     }
+    guard let invoker else {
+      return .failed("tag extraction needs the server agent runtime (ai.agent is not configured)")
+    }
     let extraction = AITagExtractionService(
       service: service,
       invoker: invoker,
@@ -253,6 +264,9 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       }
     } catch {
       return .failed("notebook translation could not load pending state: \(error)")
+    }
+    guard let invoker else {
+      return .failed("translation needs the server agent runtime (ai.agent is not configured)")
     }
     let translation = AITranslationService(
       service: service,
@@ -298,11 +312,12 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       if let state = NoteService.chatTurnState(of: turn), state.status == .cancelled {
         return .cancelled(state.errorMessage ?? "agent chat reply was cancelled")
       }
+      let selection = try resolveChatRuntime(for: service)
       try await service.generateAgentChatReply(
         turnNoteId: noteId,
-        invoker: invoker,
-        provider: provider,
-        model: model,
+        invoker: selection.invoker,
+        provider: selection.usesPersonalRuntime ? nil : provider,
+        model: selection.usesPersonalRuntime ? nil : model,
         originatingActionId: record.action.actionId,
         streamPublisher: streamPublisher
       )
@@ -313,6 +328,38 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       }
       return .failed("chat reply failed: \(error)")
     }
+  }
+
+  /// Whether a chat turn from `service`'s principal can be answered at all:
+  /// the gateway is configured, or the user has an enabled personal
+  /// credential. Lets the request path mark a turn `unavailable` up front
+  /// instead of queueing work that would only fail.
+  public func canAnswerChat(for service: NoteService) -> Bool {
+    if invoker != nil {
+      return true
+    }
+    guard let userAgentRuntime else {
+      return false
+    }
+    return userAgentRuntime.isAvailable(for: service)
+  }
+
+  struct ChatRuntimeSelection {
+    var invoker: any AgentInvoking
+    var usesPersonalRuntime: Bool
+  }
+
+  /// UA5 routing: an authenticated principal with an enabled credential gets
+  /// the personal runtime built over the already scoped and fenced service;
+  /// everyone else gets the gateway; with neither, the turn fails clearly.
+  func resolveChatRuntime(for service: NoteService) throws -> ChatRuntimeSelection {
+    if let userAgentRuntime, let personal = try userAgentRuntime.makeInvoker(for: service) {
+      return ChatRuntimeSelection(invoker: personal, usesPersonalRuntime: true)
+    }
+    if let invoker {
+      return ChatRuntimeSelection(invoker: invoker, usesPersonalRuntime: false)
+    }
+    return ChatRuntimeSelection(invoker: UnavailableAgentInvoker(), usesPersonalRuntime: false)
   }
 
   private func cancellationOutcome(for error: Error) -> AutoActionDispatchOutcome? {

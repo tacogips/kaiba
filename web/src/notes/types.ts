@@ -167,6 +167,32 @@ export interface AgentModelsResult {
   configuredModel: string | null
 }
 
+/** Personal-agent credential as the server reports it: the key itself is
+ * write-only, only its last four characters come back as `keyHint`. */
+export interface UserAgentCredentialSummary {
+  provider: string
+  keyHint: string
+  baseURL: string | null
+  defaultModel: string
+  enabled: boolean
+  updatedAt: string
+}
+
+export interface UserAgentCredentialState {
+  featureEnabled: boolean
+  customBaseURLAllowed: boolean
+  providers: string[]
+  credential: UserAgentCredentialSummary | null
+}
+
+export interface SetUserAgentCredentialInput {
+  provider: string
+  apiKey: string
+  defaultModel: string
+  baseURL?: string | null
+  enabled?: boolean
+}
+
 export interface NoteSearchResult {
   note: Note
   snippet: string

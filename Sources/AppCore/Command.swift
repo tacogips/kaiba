@@ -221,6 +221,11 @@ public struct AppCommand: Sendable {
                  # agentic search: the configured agent answers the question,
                  # searching notes and memos with the kaiba CLI (when its
                  # runtime can run commands) plus a built-in grep pass
+      ai credential (set --provider <p> --model <m> (--api-key-env <NAME> | --api-key-stdin)
+                 [--base-url <url>] | show | clear | enable | disable) --user <id>
+                 [--output text|json]
+                 # a user's own provider key for the personal agent, which
+                 # answers that user's chats with kaiba tools running in-process
       ai status  # AI configuration and runtime availability
 
     Serve and API access:

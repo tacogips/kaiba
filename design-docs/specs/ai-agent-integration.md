@@ -37,6 +37,11 @@ Kaiba gains three AI capabilities without depending on riela:
 3. **A pluggable agent runtime seam** — `AgentInvoking` — whose concrete
    implementation is the extracted `tacogips/agent-gateway` CLI runtime.
 
+A second runtime, the per-user personal agent with in-process kaiba tools,
+is specified separately in `design-docs/specs/user-agent-tools.md`; it plugs
+into the same `AgentInvoking` / `AgentStreamingInvoking` seams and the same
+chat reply path, and the gateway adapter described here is unchanged by it.
+
 Configuration, model invocation, persistence, dispatch wiring, CLI, GraphQL,
 streaming progress, and web UI share the same runtime boundary. When that
 runtime is absent or invalid, every surface retains a well-defined

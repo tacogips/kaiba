@@ -32,6 +32,11 @@ public struct AgentInvocationRequest: Equatable, Sendable {
   public var contextMarkdown: String?
   public var provider: String?
   public var model: String?
+  /// Whether a runtime that can execute tools may offer them for this
+  /// request. Off for note-edit turns, whose reply is a replacement body the
+  /// server applies itself (`design-docs/specs/user-agent-tools.md`, UA3).
+  /// Runtimes without tools ignore it.
+  public var allowsTools: Bool
 
   public init(
     purpose: AgentInvocationPurpose,
@@ -39,7 +44,8 @@ public struct AgentInvocationRequest: Equatable, Sendable {
     turns: [AgentInvocationTurn],
     contextMarkdown: String? = nil,
     provider: String? = nil,
-    model: String? = nil
+    model: String? = nil,
+    allowsTools: Bool = true
   ) {
     self.purpose = purpose
     self.systemPrompt = systemPrompt
@@ -47,6 +53,7 @@ public struct AgentInvocationRequest: Equatable, Sendable {
     self.contextMarkdown = contextMarkdown
     self.provider = provider
     self.model = model
+    self.allowsTools = allowsTools
   }
 }
 

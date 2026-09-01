@@ -18,6 +18,7 @@ enum AICommand {
     case translate(TranslateRequest)
     case models(output: Output)
     case search(query: String, notebookId: NotebookID?, limit: Int)
+    case credential(AICredentialCommand.Options)
     case status
   }
 
@@ -64,33 +65,26 @@ enum AICommand {
           + "translate (--notebook <id> [--to <language>] | --resume <id>) "
           + "[--provider <vendor>] [--model <model>] [--title <title>] | "
           + "search <query> [--notebook <id>] [--limit N] | "
-          + "models [--output text|json] | status"
+          + "models [--output text|json] | credential ... | status"
       )
     }
     switch subcommand {
+    case "credential":
+      return Options(
+        noteRoot: noteRoot,
+        configuration: configuration,
+        subcommand: .credential(try AICredentialCommand.parse(&iterator))
+      )
     case "status":
       if let stray = iterator.next() {
         throw AICommandError.invalidArgument(stray)
       }
       return Options(noteRoot: noteRoot, configuration: configuration, subcommand: .status)
     case "models":
-      var output = Output.text
-      while let argument = iterator.next() {
-        guard argument == "--output" else {
-          throw AICommandError.invalidArgument(argument)
-        }
-        guard let value = iterator.next() else {
-          throw AICommandError.missingValue(argument)
-        }
-        guard let parsed = Output(rawValue: value) else {
-          throw AICommandError.invalidUsage("--output expects text or json, got: \(value)")
-        }
-        output = parsed
-      }
       return Options(
         noteRoot: noteRoot,
         configuration: configuration,
-        subcommand: .models(output: output)
+        subcommand: .models(output: try parseModelsOutput(&iterator))
       )
     case "translate":
       return Options(
@@ -170,6 +164,45 @@ enum AICommand {
     }
   }
 
+  /// The `kaiba ai status` report: gateway configuration and availability,
+  /// then the personal-agent policy.
+  private static func statusReport(configuration: KaibaAIConfiguration?, runtimeAvailable: Bool) -> String {
+    let userAgent = configuration.resolvedUserAgent
+    var lines = [
+      "backend=\(configuration?.agent?.backend ?? "(none)")",
+      "provider=\(configuration?.agent?.provider ?? "(default)")",
+      "model=\(configuration?.agent?.model ?? "(default)")",
+      "autoTag=\(configuration?.autoTagEnabled == true ? "on" : "off")",
+      "runtime=\(runtimeAvailable ? "available" : "unavailable")",
+      "personalAgents=\(userAgent.isEnabled ? "enabled" : "disabled")"
+        + " (maxToolRounds=\(userAgent.resolvedMaxToolRounds),"
+        + " customBaseURL=\(userAgent.customBaseURLAllowed ? "allowed" : "off"))"
+    ]
+    if !runtimeAvailable {
+      lines.append(AgentInvokerFactory.describeAvailability(configuration: configuration))
+    }
+    return lines.joined(separator: "\n")
+  }
+
+  private static func parseModelsOutput(
+    _ iterator: inout IndexingIterator<[String]>
+  ) throws -> Output {
+    var output = Output.text
+    while let argument = iterator.next() {
+      guard argument == "--output" else {
+        throw AICommandError.invalidArgument(argument)
+      }
+      guard let value = iterator.next() else {
+        throw AICommandError.missingValue(argument)
+      }
+      guard let parsed = Output(rawValue: value) else {
+        throw AICommandError.invalidUsage("--output expects text or json, got: \(value)")
+      }
+      output = parsed
+    }
+    return output
+  }
+
   private static func parseTranslate(
     _ iterator: inout IndexingIterator<[String]>
   ) throws -> TranslateRequest {
@@ -219,17 +252,13 @@ enum AICommand {
     let invoker = AgentInvokerFactory.makeInvoker(configuration: aiConfiguration)
     switch options.subcommand {
     case .status:
-      var lines = [
-        "backend=\(aiConfiguration?.agent?.backend ?? "(none)")",
-        "provider=\(aiConfiguration?.agent?.provider ?? "(default)")",
-        "model=\(aiConfiguration?.agent?.model ?? "(default)")",
-        "autoTag=\(aiConfiguration?.autoTagEnabled == true ? "on" : "off")",
-        "runtime=\(invoker == nil ? "unavailable" : "available")"
-      ]
-      if invoker == nil {
-        lines.append(AgentInvokerFactory.describeAvailability(configuration: aiConfiguration))
-      }
-      return (lines.joined(separator: "\n"), 0)
+      return (statusReport(configuration: aiConfiguration, runtimeAvailable: invoker != nil), 0)
+    case .credential(let credentialOptions):
+      return try AICredentialCommand.runFromCLI(
+        credentialOptions,
+        noteRoot: options.noteRoot,
+        configuration: options.configuration
+      )
     case .models(let output):
       guard let agent = aiConfiguration?.agent else {
         return ("Error: no agent backend configured (ai.agent is absent in config.json)", 1)

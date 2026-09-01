@@ -2,6 +2,7 @@ import { For, type JSX } from 'solid-js'
 import { useApp } from '../state/appStore'
 import { clampFontScale, fontScaleBounds } from '../notes/settings'
 import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
+import { UserAgentSettings } from '../components/UserAgentSettings'
 
 // The config screen. Settings live in the kaiba store's sqlite
 // (`app_settings`), so they follow the store across browsers and devices;
@@ -61,6 +62,8 @@ export function ConfigView(): JSX.Element {
       </section>
 
       <ServerConnectionSettings />
+
+      <UserAgentSettings />
 
       <section class="config-section">
         <h2>Layout</h2>

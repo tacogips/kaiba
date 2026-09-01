@@ -327,6 +327,8 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.appSetting(
         key: requiredString("key", variables: variables)
       ))
+    case "userAgentCredential":
+      return try await encodedJSONValue(service.userAgentCredential())
     case "actionHistory":
       return try await encodedJSONValue(service.actionHistory(
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
@@ -433,6 +435,16 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         key: input.key,
         valueJSON: input.valueJSON
       ))
+    case "setUserAgentCredential":
+      let input: GraphQLSetUserAgentCredentialInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.setUserAgentCredential(input))
+    case "setUserAgentCredentialEnabled":
+      guard let enabled = try optionalBool("enabled", variables: variables) else {
+        throw NoteGraphQLDocumentExecutorError.invalidVariable("enabled must be a boolean")
+      }
+      return try await encodedJSONValue(service.setUserAgentCredentialEnabled(enabled))
+    case "clearUserAgentCredential":
+      return try await encodedJSONValue(service.clearUserAgentCredential())
     case "undoAction":
       return try await encodedJSONValue(service.undoAction())
     case "redoAction":

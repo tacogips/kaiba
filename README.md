@@ -171,6 +171,37 @@ curl -X POST http://127.0.0.1:8787/graphql \
 kaiba graphql 'query Tags { tags { result { accepted } value { name } } }'
 ```
 
+## Personal AI agent (your own API key)
+
+Any user can chat with an agent that runs on their **own** provider key and
+acts on their notes through tools executed inside the kaiba server
+(`design-docs/specs/user-agent-tools.md`). The tools are kaiba's own note
+operations (search, read, create, edit, comment, tag, link, delete, undo),
+bound to the signed-in user's permissions, so the agent can do what that user
+could do through the API and nothing more.
+
+```bash
+# operator: store a key for a user (the key is read from the environment or
+# stdin, never from an argument); provider is anthropic, openai, openrouter,
+# or openai-compatible (the last needs ai.userAgent.allowCustomBaseURL)
+export MY_KEY=sk-...
+kaiba ai credential set --provider anthropic --model claude-opus-5 \
+  --api-key-env MY_KEY --user <user-id>
+kaiba ai credential show --user <user-id>      # provider, model, key hint only
+kaiba ai credential disable --user <user-id>   # fall back to the server runtime
+```
+
+In the web viewer the same lives under Settings > "Personal AI agent"
+(GraphQL `userAgentCredential`, `setUserAgentCredential`,
+`setUserAgentCredentialEnabled`, `clearUserAgentCredential`). Once a user has
+an enabled credential, their chat turns run through it; tag extraction,
+translation, and agentic search still use the server's `ai.agent` runtime.
+Server policy lives in `config.json`:
+
+```json
+{ "ai": { "userAgent": { "enabled": true, "allowCustomBaseURL": false, "maxToolRounds": 24 } } }
+```
+
 ## macOS and iPhone clients
 
 The same SolidJS client is packaged with Tauri 2 for macOS and iPhone. Start a

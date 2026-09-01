@@ -382,6 +382,30 @@ public struct GraphQLAppSettingResult: Codable, Equatable, Sendable {
   }
 }
 
+/// Personal agent credential surface (`design-docs/specs/user-agent-tools.md`,
+/// UA7). `credential` is nil when none is stored or the feature is off.
+public struct GraphQLUserAgentCredentialResult: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var featureEnabled: Bool
+  public var customBaseURLAllowed: Bool
+  public var providers: [String]
+  public var credential: UserAgentCredentialSummary?
+
+  public init(
+    result: GraphQLControlPlaneResult,
+    featureEnabled: Bool,
+    customBaseURLAllowed: Bool,
+    providers: [String] = UserAgentProvider.allCases.map(\.rawValue),
+    credential: UserAgentCredentialSummary? = nil
+  ) {
+    self.result = result
+    self.featureEnabled = featureEnabled
+    self.customBaseURLAllowed = customBaseURLAllowed
+    self.providers = providers
+    self.credential = credential
+  }
+}
+
 public struct GraphQLAgenticSearchResult: Codable, Equatable, Sendable {
   public var result: GraphQLControlPlaneResult
   /// "ok", "agent-unavailable", or "failed".

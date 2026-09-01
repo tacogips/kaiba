@@ -124,19 +124,64 @@ public struct KaibaAIConfiguration: Codable, Equatable, Sendable {
   public var agent: KaibaAgentBackendConfiguration?
   public var autoTag: KaibaAutoTagConfiguration?
   public var translate: KaibaTranslateConfiguration?
+  /// Personal-agent runtime settings (`design-docs/specs/user-agent-tools.md`,
+  /// UA6). Nil applies every default, so the feature is on unless disabled.
+  public var userAgent: KaibaUserAgentConfiguration?
 
   public init(
     agent: KaibaAgentBackendConfiguration? = nil,
     autoTag: KaibaAutoTagConfiguration? = nil,
-    translate: KaibaTranslateConfiguration? = nil
+    translate: KaibaTranslateConfiguration? = nil,
+    userAgent: KaibaUserAgentConfiguration? = nil
   ) {
     self.agent = agent
     self.autoTag = autoTag
     self.translate = translate
+    self.userAgent = userAgent
   }
 
   public var autoTagEnabled: Bool {
     autoTag?.auto == .on
+  }
+}
+
+/// Settings for the personal agent runtime: chat turns that run on a user's
+/// own provider credential with kaiba's operations exposed as in-process
+/// tools (`design-docs/specs/user-agent-tools.md`). Every field is optional
+/// in `config.json`; the resolved accessors below supply the defaults.
+public struct KaibaUserAgentConfiguration: Codable, Equatable, Sendable {
+  public static let defaultMaxToolRounds = 24
+  public static let maximumConfigurableToolRounds = 200
+
+  /// `false` hides the credential surface and routes every chat to the
+  /// server-configured runtime.
+  public var enabled: Bool?
+  /// Whether a user may point their credential at a custom `baseURL`
+  /// (`openai-compatible` requires one). Off by default because the server
+  /// would open outbound connections to a user-chosen host.
+  public var allowCustomBaseURL: Bool?
+  /// Upper bound on provider round trips per chat turn.
+  public var maxToolRounds: Int?
+
+  public init(enabled: Bool? = nil, allowCustomBaseURL: Bool? = nil, maxToolRounds: Int? = nil) {
+    self.enabled = enabled
+    self.allowCustomBaseURL = allowCustomBaseURL
+    self.maxToolRounds = maxToolRounds
+  }
+
+  public var isEnabled: Bool { enabled ?? true }
+  public var customBaseURLAllowed: Bool { allowCustomBaseURL ?? false }
+  public var resolvedMaxToolRounds: Int {
+    let rounds = maxToolRounds ?? Self.defaultMaxToolRounds
+    return min(max(rounds, 1), Self.maximumConfigurableToolRounds)
+  }
+}
+
+public extension Optional where Wrapped == KaibaAIConfiguration {
+  /// The personal-agent settings with defaults applied even when `ai` or
+  /// `ai.userAgent` is absent from `config.json`.
+  var resolvedUserAgent: KaibaUserAgentConfiguration {
+    self?.userAgent ?? KaibaUserAgentConfiguration()
   }
 }
 

@@ -113,8 +113,12 @@ public actor KaibaServerRuntime {
       executionMode: .served
     )
     let agentReplyStreamHub = AgentReplyStreamHub()
+    let userAgentConfiguration = aiConfiguration.resolvedUserAgent
     var dispatcher: KaibaAutoActionDispatcher?
-    if let invoker {
+    // A dispatcher exists whenever any runtime can answer a chat turn: the
+    // server gateway, or a user's own credential through the personal agent
+    // (`design-docs/specs/user-agent-tools.md`, UA5).
+    if invoker != nil || userAgentConfiguration.isEnabled {
       dispatcher = KaibaAutoActionDispatcher(
         service: try NoteService(driver: driver),
         invoker: invoker,
@@ -122,7 +126,10 @@ public actor KaibaServerRuntime {
         model: aiConfiguration?.agent?.model,
         translateProvider: aiConfiguration?.translate?.provider,
         translateModel: aiConfiguration?.translate?.model,
-        streamPublisher: AgentReplyStreamHubPublisher(hub: agentReplyStreamHub)
+        streamPublisher: AgentReplyStreamHubPublisher(hub: agentReplyStreamHub),
+        userAgentRuntime: userAgentConfiguration.isEnabled
+          ? UserAgentRuntimeFactory(configuration: userAgentConfiguration)
+          : nil
       )
     }
     let service = try NoteService(
@@ -169,7 +176,8 @@ public actor KaibaServerRuntime {
         agentModelCatalog: agentModelCatalog(
           configuration: aiConfiguration,
           environment: config.environment
-        )
+        ),
+        userAgentConfiguration: userAgentConfiguration
       ),
       s3Profiles: s3Profiles
     )

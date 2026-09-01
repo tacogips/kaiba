@@ -547,7 +547,10 @@ public extension NoteService {
         turns: turns,
         contextMarkdown: subjectSnapshot.markdown,
         provider: provider,
-        model: state.model ?? model
+        model: state.model ?? model,
+        // An edit reply is the replacement body itself; a runtime with tools
+        // must not also rewrite the note (or anything else) behind it.
+        allowsTools: editSubjectNoteId == nil
       )
       let reply: AgentInvocationResult
       try await admitAutoActionProviderInvocation()

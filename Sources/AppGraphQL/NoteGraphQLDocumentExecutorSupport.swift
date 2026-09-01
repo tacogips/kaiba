@@ -112,6 +112,10 @@ let supportedNoteGraphQLFields: Set<String> = [
   "addNoteComment",
   "addNotebookComment",
   "setAppSetting",
+  "setUserAgentCredential",
+  "setUserAgentCredentialEnabled",
+  "clearUserAgentCredential",
+  "userAgentCredential",
   "linkNotes",
   "attachNoteFile",
   "configureNoteAutoAction",
@@ -164,6 +168,7 @@ let noteGraphQLQueryFields: Set<String> = [
   "agentModels",
   "agenticSearch",
   "appSetting",
+  "userAgentCredential",
   "actionHistory",
   "undoState"
 ]
@@ -306,6 +311,10 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "agenticSearch": "AgenticSearchPayload",
   "appSetting": "AppSettingPayload",
   "setAppSetting": "AppSettingPayload",
+  "userAgentCredential": "UserAgentCredentialPayload",
+  "setUserAgentCredential": "UserAgentCredentialPayload",
+  "setUserAgentCredentialEnabled": "UserAgentCredentialPayload",
+  "clearUserAgentCredential": "UserAgentCredentialPayload",
   "actionHistory": "ActionHistoryPayload",
   "undoState": "UndoStatePayload",
   "undoAction": "UndoRedoPayload",
@@ -392,6 +401,21 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "result": "ControlPlaneResult",
     "key": nil,
     "valueJSON": nil
+  ],
+  "UserAgentCredentialPayload": [
+    "result": "ControlPlaneResult",
+    "featureEnabled": nil,
+    "customBaseURLAllowed": nil,
+    "providers": nil,
+    "credential": "UserAgentCredentialSummary"
+  ],
+  "UserAgentCredentialSummary": [
+    "provider": nil,
+    "keyHint": nil,
+    "baseURL": nil,
+    "defaultModel": nil,
+    "enabled": nil,
+    "updatedAt": nil
   ],
   "ActionHistoryPayload": [
     "result": "ControlPlaneResult",

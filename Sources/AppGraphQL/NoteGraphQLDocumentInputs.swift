@@ -104,6 +104,22 @@ public struct GraphQLSetAppSettingInput: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLSetUserAgentCredentialInput: Codable, Equatable, Sendable {
+  public var provider: String
+  public var apiKey: String
+  public var defaultModel: String
+  public var baseURL: String?
+  public var enabled: Bool?
+
+  public init(provider: String, apiKey: String, defaultModel: String, baseURL: String? = nil, enabled: Bool? = nil) {
+    self.provider = provider
+    self.apiKey = apiKey
+    self.defaultModel = defaultModel
+    self.baseURL = baseURL
+    self.enabled = enabled
+  }
+}
+
 public struct GraphQLLinkNotesInput: Codable, Equatable, Sendable {
   public var fromNoteId: NoteID
   public var toNoteId: NoteID

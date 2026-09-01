@@ -727,6 +727,21 @@ private let schemaStatements = [
   ) STRICT
   """,
   "CREATE INDEX IF NOT EXISTS idx_api_clients_user ON api_clients(user_id)",
+  // One personal-agent provider credential per user
+  // (`design-docs/specs/user-agent-tools.md`, UA1). The key is stored as
+  // given and is never selected by any caller-facing read path.
+  """
+  CREATE TABLE IF NOT EXISTS user_agent_credentials (
+    user_id TEXT PRIMARY KEY REFERENCES users(user_id),
+    provider TEXT NOT NULL CHECK (provider IN ('anthropic','openai','openrouter','openai-compatible')),
+    api_key TEXT NOT NULL,
+    base_url TEXT,
+    default_model TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  ) STRICT
+  """,
   """
   CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
     title, body, tags,

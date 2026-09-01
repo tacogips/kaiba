@@ -19,6 +19,8 @@ import type {
   NoteTag,
   NoteTagClass,
   QueryPayload,
+  SetUserAgentCredentialInput,
+  UserAgentCredentialState,
   TagComment,
   TagDetail,
 } from './types'
@@ -467,6 +469,57 @@ export class NoteGraphQLClient {
     }
   }
 
+  /** The signed-in user's personal-agent credential state. `credential` is
+   * null when none is stored; `featureEnabled` false means the server has
+   * turned personal agents off. */
+  async userAgentCredential(): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ userAgentCredential: UserAgentCredentialState & { result: ControlResult } }>(
+      'UserAgentCredential', `
+      query UserAgentCredential {
+        userAgentCredential {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, {})
+    return unwrapUserAgentCredential(data.userAgentCredential, 'userAgentCredential')
+  }
+
+  async setUserAgentCredential(input: SetUserAgentCredentialInput): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ setUserAgentCredential: UserAgentCredentialState & { result: ControlResult } }>(
+      'SetUserAgentCredential', `
+      mutation SetUserAgentCredential($input: SetUserAgentCredentialInput!) {
+        setUserAgentCredential(input: $input) {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, { input })
+    return unwrapUserAgentCredential(data.setUserAgentCredential, 'setUserAgentCredential')
+  }
+
+  async setUserAgentCredentialEnabled(enabled: boolean): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ setUserAgentCredentialEnabled: UserAgentCredentialState & { result: ControlResult } }>(
+      'SetUserAgentCredentialEnabled', `
+      mutation SetUserAgentCredentialEnabled($enabled: Boolean!) {
+        setUserAgentCredentialEnabled(enabled: $enabled) {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, { enabled })
+    return unwrapUserAgentCredential(data.setUserAgentCredentialEnabled, 'setUserAgentCredentialEnabled')
+  }
+
+  async clearUserAgentCredential(): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ clearUserAgentCredential: UserAgentCredentialState & { result: ControlResult } }>(
+      'ClearUserAgentCredential', `
+      mutation ClearUserAgentCredential {
+        clearUserAgentCredential {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, {})
+    return unwrapUserAgentCredential(data.clearUserAgentCredential, 'clearUserAgentCredential')
+  }
+
   /** Queues AI tag extraction for one note or a whole notebook; the returned
    * status is "queued" or "agent-unavailable". */
   async requestTagExtraction(subject: { noteId: NoteId } | { notebookId: NotebookId }): Promise<string> {
@@ -778,5 +831,27 @@ async function parseJSON<T>(response: Response): Promise<T> {
     return JSON.parse(text) as T
   } catch {
     throw new NoteTransportError('The server returned invalid JSON.', 'http', response.status)
+  }
+}
+
+const userAgentCredentialSelection = `
+          result { accepted status diagnostics }
+          featureEnabled
+          customBaseURLAllowed
+          providers
+          credential { provider keyHint baseURL defaultModel enabled updatedAt }
+`
+
+function unwrapUserAgentCredential(
+  payload: (UserAgentCredentialState & { result: ControlResult }) | undefined,
+  field: string,
+): UserAgentCredentialState {
+  if (!payload) throw new NoteTransportError(`GraphQL response omitted ${field}.`, 'graphql')
+  ensureAccepted(payload.result)
+  return {
+    featureEnabled: payload.featureEnabled,
+    customBaseURLAllowed: payload.customBaseURLAllowed,
+    providers: payload.providers,
+    credential: payload.credential ?? null,
   }
 }

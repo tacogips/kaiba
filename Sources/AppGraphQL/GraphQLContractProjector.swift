@@ -46,6 +46,7 @@ public enum GraphQLContractProjector {
     agentModels: AgentModelsPayload!
     agenticSearch(query: String!, notebookId: String, limit: Int): AgenticSearchPayload!
     appSetting(key: String!): AppSettingPayload!
+    userAgentCredential: UserAgentCredentialPayload!
     actionHistory(limit: Int, beforeSeq: Int): ActionHistoryPayload!
     undoState: UndoStatePayload!
   }
@@ -68,6 +69,9 @@ public enum GraphQLContractProjector {
     addNoteComment(input: AddNoteCommentInput!): NoteMutationPayload!
     addNotebookComment(input: AddNotebookCommentInput!): NoteMutationPayload!
     setAppSetting(input: SetAppSettingInput!): AppSettingPayload!
+    setUserAgentCredential(input: SetUserAgentCredentialInput!): UserAgentCredentialPayload!
+    setUserAgentCredentialEnabled(enabled: Boolean!): UserAgentCredentialPayload!
+    clearUserAgentCredential: UserAgentCredentialPayload!
     linkNotes(input: LinkNotesInput!): NoteMutationPayload!
     attachNoteFile(input: AttachNoteFileInput!): NoteMutationPayload!
     configureNoteAutoAction(input: ConfigureNoteAutoActionInput!): NoteMutationPayload!

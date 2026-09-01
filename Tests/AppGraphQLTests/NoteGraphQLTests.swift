@@ -800,6 +800,7 @@ final class NoteGraphQLTests: XCTestCase {
       "agentModels",
       "agenticSearch",
       "appSetting",
+      "userAgentCredential",
       "actionHistory",
       "undoState"
     ]
@@ -822,6 +823,9 @@ final class NoteGraphQLTests: XCTestCase {
       "addNoteComment",
       "addNotebookComment",
       "setAppSetting",
+      "setUserAgentCredential",
+      "setUserAgentCredentialEnabled",
+      "clearUserAgentCredential",
       "linkNotes",
       "attachNoteFile",
       "configureNoteAutoAction",

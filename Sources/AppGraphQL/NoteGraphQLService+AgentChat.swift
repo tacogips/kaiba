@@ -54,6 +54,16 @@ public extension GraphQLNoteGraphQLService {
   /// Discovery failure is non-fatal: the configured model remains the
   /// server-authoritative fallback and the status reports the degradation.
   func agentModels() async -> GraphQLAgentModelsResult {
+    // A user with an enabled personal credential chats through their own
+    // provider, so their default model is the configured model for them
+    // (`design-docs/specs/user-agent-tools.md`, UA5). No discovery runs.
+    if let personal = personalAgentModel() {
+      return GraphQLAgentModelsResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        models: [GraphQLAgentModelDTO(modelId: personal)],
+        discoveryAvailable: false, configuredModel: personal
+      )
+    }
     let configured = agentModel?.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let configured, !configured.isEmpty else {
       return GraphQLAgentModelsResult(
@@ -123,7 +133,7 @@ public extension GraphQLNoteGraphQLService {
       let turn = try service.appendPendingAgentChatTurn(
         conversationNotebookId: conversationNotebookId,
         userMarkdown: input.userMarkdown,
-        agentAvailable: service.autoActionDispatcher != nil,
+        agentAvailable: chatAgentAvailable(),
         idempotencyKey: input.idempotencyKey,
         model: selectedModel,
         mode: mode,
@@ -284,5 +294,135 @@ public extension GraphQLNoteGraphQLService {
       "tsv": "text/tab-separated-values", "json": "application/json",
       "xml": "application/xml", "yaml": "application/yaml", "yml": "application/x-yaml"
     ][extensionName ?? ""] ?? mediaType
+  }
+}
+
+// MARK: - Personal agent credential (design-docs/specs/user-agent-tools.md, UA7)
+
+public extension GraphQLNoteGraphQLService {
+  func userAgentCredential() async -> GraphQLUserAgentCredentialResult {
+    guard userAgentConfiguration.isEnabled else {
+      return userAgentCredentialResult(status: "feature-disabled", accepted: true, credential: nil)
+    }
+    do {
+      let summary = try service.userAgentCredentialSummary()
+      return userAgentCredentialResult(status: "ok", accepted: true, credential: summary)
+    } catch {
+      return GraphQLUserAgentCredentialResult(
+        result: graphQLNoteResult(for: error),
+        featureEnabled: true,
+        customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed
+      )
+    }
+  }
+
+  func setUserAgentCredential(_ input: GraphQLSetUserAgentCredentialInput) async -> GraphQLUserAgentCredentialResult {
+    guard userAgentConfiguration.isEnabled else {
+      return userAgentCredentialResult(status: "feature-disabled", accepted: false, credential: nil)
+    }
+    guard let provider = UserAgentProvider(rawValue: input.provider.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+      return GraphQLUserAgentCredentialResult(
+        result: GraphQLControlPlaneResult(
+          accepted: false,
+          status: "invalid_request",
+          diagnostics: ["provider must be one of \(UserAgentProvider.allCases.map(\.rawValue).joined(separator: ", "))"]
+        ),
+        featureEnabled: true,
+        customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed
+      )
+    }
+    do {
+      let summary = try service.setUserAgentCredential(
+        UserAgentCredentialInput(
+          provider: provider,
+          apiKey: input.apiKey,
+          defaultModel: input.defaultModel,
+          baseURL: input.baseURL,
+          enabled: input.enabled ?? true
+        ),
+        customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed
+      )
+      return userAgentCredentialResult(status: "ok", accepted: true, credential: summary)
+    } catch {
+      return GraphQLUserAgentCredentialResult(
+        result: graphQLNoteResult(for: error),
+        featureEnabled: true,
+        customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed
+      )
+    }
+  }
+
+  func setUserAgentCredentialEnabled(_ enabled: Bool) async -> GraphQLUserAgentCredentialResult {
+    guard userAgentConfiguration.isEnabled else {
+      return userAgentCredentialResult(status: "feature-disabled", accepted: false, credential: nil)
+    }
+    do {
+      guard let summary = try service.setUserAgentCredentialEnabled(enabled) else {
+        return userAgentCredentialResult(status: "not_found", accepted: false, credential: nil)
+      }
+      return userAgentCredentialResult(status: "ok", accepted: true, credential: summary)
+    } catch {
+      return GraphQLUserAgentCredentialResult(
+        result: graphQLNoteResult(for: error),
+        featureEnabled: true,
+        customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed
+      )
+    }
+  }
+
+  func clearUserAgentCredential() async -> GraphQLUserAgentCredentialResult {
+    guard userAgentConfiguration.isEnabled else {
+      return userAgentCredentialResult(status: "feature-disabled", accepted: false, credential: nil)
+    }
+    do {
+      _ = try service.clearUserAgentCredential()
+      return userAgentCredentialResult(status: "ok", accepted: true, credential: nil)
+    } catch {
+      return GraphQLUserAgentCredentialResult(
+        result: graphQLNoteResult(for: error),
+        featureEnabled: true,
+        customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed
+      )
+    }
+  }
+
+  /// A turn is `pending` only when some runtime can answer it. The production
+  /// dispatcher knows both runtimes; any other dispatcher (tests, embedders)
+  /// is trusted to answer.
+  internal func chatAgentAvailable() -> Bool {
+    guard let dispatcher = service.autoActionDispatcher else {
+      return false
+    }
+    guard let production = dispatcher as? KaibaAutoActionDispatcher else {
+      return true
+    }
+    return production.canAnswerChat(for: service)
+  }
+
+  /// The acting user's personal-agent model when they chat through their own
+  /// credential; nil otherwise (including when the feature is off).
+  internal func personalAgentModel() -> String? {
+    guard userAgentConfiguration.isEnabled,
+      service.actingUserId != nil,
+      !service.isUnauthenticatedPrincipal,
+      let summary = try? service.userAgentCredentialSummary(),
+      summary.enabled
+    else {
+      return nil
+    }
+    return summary.defaultModel
+  }
+
+  private func userAgentCredentialResult(
+    status: String,
+    accepted: Bool,
+    credential: UserAgentCredentialSummary?
+  ) -> GraphQLUserAgentCredentialResult {
+    GraphQLUserAgentCredentialResult(
+      result: GraphQLControlPlaneResult(accepted: accepted, status: status),
+      featureEnabled: userAgentConfiguration.isEnabled,
+      customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed,
+      credential: credential
+    )
   }
 }

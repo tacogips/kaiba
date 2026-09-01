@@ -101,6 +101,11 @@ type AgentConversation { notebookId: String!, title: String!, updatedAt: String!
 # note store's sqlite so preferences follow the store across clients.
 type AppSettingPayload { result: ControlPlaneResult!, key: String!, valueJSON: String }
 input SetAppSettingInput { key: String!, valueJSON: String! }
+# Personal agent credential (design-docs/specs/user-agent-tools.md). The key
+# is write-only; the summary carries its last four characters as keyHint.
+type UserAgentCredentialSummary { provider: String!, keyHint: String!, baseURL: String, defaultModel: String!, enabled: Boolean!, updatedAt: String! }
+type UserAgentCredentialPayload { result: ControlPlaneResult!, featureEnabled: Boolean!, customBaseURLAllowed: Boolean!, providers: [String!]!, credential: UserAgentCredentialSummary }
+input SetUserAgentCredentialInput { provider: String!, apiKey: String!, defaultModel: String!, baseURL: String, enabled: Boolean }
 # Per-actor action history and undo/redo
 # (design-docs/specs/action-history-undo.md). Entries are delta-only on the
 # server; clients see the recorded display title, never the payload.

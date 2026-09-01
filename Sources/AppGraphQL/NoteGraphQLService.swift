@@ -28,6 +28,9 @@ public struct GraphQLNoteGraphQLService: Sendable {
   /// Shared by copies of this request service so concurrent model queries use
   /// one bounded catalog refresh instead of each starting a gateway process.
   public var agentModelCatalogCache: AgentModelCatalogCache
+  /// Personal-agent policy (`design-docs/specs/user-agent-tools.md`): gates
+  /// the credential surface and the per-user model reported by `agentModels`.
+  public var userAgentConfiguration: KaibaUserAgentConfiguration
 
   public init(
     service: NoteService,
@@ -35,7 +38,8 @@ public struct GraphQLNoteGraphQLService: Sendable {
     agentProvider: String? = nil,
     agentModel: String? = nil,
     agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)? = nil,
-    agentModelCatalogCache: AgentModelCatalogCache = AgentModelCatalogCache()
+    agentModelCatalogCache: AgentModelCatalogCache = AgentModelCatalogCache(),
+    userAgentConfiguration: KaibaUserAgentConfiguration = KaibaUserAgentConfiguration()
   ) {
     self.service = service
     self.agentInvoker = agentInvoker
@@ -43,6 +47,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     self.agentModel = agentModel
     self.agentModelCatalog = agentModelCatalog
     self.agentModelCatalogCache = agentModelCatalogCache
+    self.userAgentConfiguration = userAgentConfiguration
   }
 
   public func note(noteId: NoteID) async -> GraphQLNoteQueryResult<GraphQLNoteDTO> {
