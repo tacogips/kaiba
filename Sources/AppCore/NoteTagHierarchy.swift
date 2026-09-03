@@ -26,16 +26,37 @@ func expandedTagFilterIds(
   ).compactMap { $0.identifier("tag_id", as: TagID.self) }
 }
 
-func expandedLegacyTagFilterIds(
-  _ names: [String],
+/// Name-based variant for the `notes` and `searchNotes` filters. An ambiguous
+/// name is rejected; an unknown name yields no ids, so the caller answers with
+/// an empty result rather than silently dropping the filter.
+func expandedTagFilterIds(
+  names: [String],
   in database: SQLiteDatabase
 ) throws -> [TagID] {
-  var roots: [TagID] = []
-  for name in orderedUnique(names) {
-    guard let tag = try findTag(name: name, in: database) else { return [] }
-    roots.append(tag.tagId)
-  }
+  guard let roots = try resolveTagIds(named: names, in: database) else { return [] }
   return try expandedTagFilterIds(roots, in: database)
+}
+
+/// Resolves tag names to ids in input order. Throws for an ambiguous name and
+/// returns nil when any name is unknown.
+func resolveTagIds(named names: [String], in database: SQLiteDatabase) throws -> [TagID]? {
+  var ids: [TagID] = []
+  for name in orderedUnique(names) {
+    guard let tag = try findTag(name: name, in: database) else { return nil }
+    ids.append(tag.tagId)
+  }
+  return ids
+}
+
+extension NoteService {
+  /// Resolves tag names for a caller that still speaks in names (the CLI's
+  /// `notebook list --tag`). Ambiguous names throw; nil means at least one
+  /// name is unknown and the caller should return nothing.
+  public func tagIds(named names: [String]) throws -> [TagID]? {
+    try driver.withDatabase { database in
+      try resolveTagIds(named: names, in: database)
+    }
+  }
 }
 
 func canonicalTagFilterGroups<Element: Hashable & Comparable>(

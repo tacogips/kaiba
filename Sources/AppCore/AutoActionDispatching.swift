@@ -38,8 +38,12 @@ public struct NoteAutoActionEvent: Codable, Equatable, Sendable {
   /// The request principal that caused this work. Dispatchers run later using
   /// their own service value, so they must not silently regain the unscoped
   /// operator view while producing context or a reply for a user request.
+  /// `originatingUserId` is nil for the unscoped local operator (the CLI,
+  /// internal bootstrap paths). The flag is required, so no event can be
+  /// built or stored without saying which kind of principal queued it; a
+  /// stored row that lacks it fails to decode and is cancelled in place.
   public var originatingUserId: UserID?
-  public var originatingIsUnauthenticatedPrincipal: Bool?
+  public var originatingIsUnauthenticatedPrincipal: Bool
 
   public init(
     trigger: NoteAutoActionTrigger,
@@ -47,8 +51,8 @@ public struct NoteAutoActionEvent: Codable, Equatable, Sendable {
     noteId: NoteID? = nil,
     noteBodyMarkdown: String? = nil,
     originatingActionId: AutoActionID? = nil,
-    originatingUserId: UserID? = nil,
-    originatingIsUnauthenticatedPrincipal: Bool? = nil
+    originatingUserId: UserID?,
+    originatingIsUnauthenticatedPrincipal: Bool
   ) {
     self.trigger = trigger
     self.notebookId = notebookId
@@ -233,7 +237,7 @@ public extension NoteService {
         guard autoActionDispatcher != nil else {
           return []
         }
-        return try db.query(
+        let rows = try db.query(
           """
           SELECT dispatch_id, action_id, action_trigger, workflow_id,
             CASE WHEN filter_json IS NULL THEN NULL ELSE json(filter_json) END AS filter_json,
@@ -256,7 +260,16 @@ public extension NoteService {
             .text(finalAutoActionReconciliationMarker),
             .int(Int64(limit))
           ]
-        ).map { try queuedAutoActionDispatch(from: $0) }
+        )
+        var queued: [QueuedAutoActionDispatch] = []
+        for row in rows {
+          do {
+            queued.append(try queuedAutoActionDispatch(from: row))
+          } catch {
+            try cancelUndecodableAutoActionDispatch(row: row, error: error, in: db)
+          }
+        }
+        return queued
       }
     }
     dispatchQueuedAutoActions(queued)
@@ -374,6 +387,28 @@ extension NoteService {
     }
   }
 
+  /// Builds the event for work this service value is about to queue, stamped
+  /// with the principal of the request that caused it. Every outbox row is
+  /// written through this so a dispatcher can always re-scope to that
+  /// principal instead of running as the unscoped operator.
+  func makeAutoActionEvent(
+    trigger: NoteAutoActionTrigger,
+    notebookId: NotebookID? = nil,
+    noteId: NoteID? = nil,
+    noteBodyMarkdown: String? = nil,
+    originatingActionId: AutoActionID? = nil
+  ) -> NoteAutoActionEvent {
+    NoteAutoActionEvent(
+      trigger: trigger,
+      notebookId: notebookId,
+      noteId: noteId,
+      noteBodyMarkdown: noteBodyMarkdown,
+      originatingActionId: originatingActionId,
+      originatingUserId: actingUserId,
+      originatingIsUnauthenticatedPrincipal: isUnauthenticatedPrincipal
+    )
+  }
+
   func enqueueAutoActions(
     for event: NoteAutoActionEvent,
     in database: SQLiteDatabase
@@ -385,10 +420,6 @@ extension NoteService {
     guard event.originatingActionId == nil else {
       return []
     }
-    let event = event.withOriginatingPrincipal(
-      userId: actingUserId,
-      isUnauthenticatedPrincipal: isUnauthenticatedPrincipal
-    )
     let actions = try matchingAutoActions(for: event, in: database)
     var queued: [QueuedAutoActionDispatch] = []
     for action in actions {
@@ -437,14 +468,13 @@ extension NoteService {
     for dispatch in queued {
       let admission = agentExecutionAdmission
       let principalId: String
-      if dispatch.record.event.originatingIsUnauthenticatedPrincipal == true {
+      if dispatch.record.event.originatingIsUnauthenticatedPrincipal {
         principalId = "unauthenticated:\((dispatch.record.event.originatingUserId ?? NoteStoreSchema.defaultUserId).rawValue)"
       } else if let userId = dispatch.record.event.originatingUserId {
         principalId = "user:\(userId.rawValue)"
       } else {
-        // Legacy records are rejected by the dispatcher, but still consume a
-        // bounded slot while that safe failure is recorded.
-        principalId = "legacy"
+        // The unscoped local operator (the CLI, internal bootstrap paths).
+        principalId = "operator"
       }
       guard let admissionLease = admission.acquire(principalId: principalId) else {
         // Do not claim a durable lease before capacity is available. The row
@@ -597,57 +627,37 @@ extension NoteService {
   }
 }
 
-extension NoteAutoActionEvent {
-  func withOriginatingPrincipal(
-    userId: UserID?,
-    isUnauthenticatedPrincipal: Bool
-  ) -> NoteAutoActionEvent {
-    var event = self
-    if event.originatingUserId == nil {
-      event.originatingUserId = userId
-    }
-    if event.originatingIsUnauthenticatedPrincipal == nil {
-      event.originatingIsUnauthenticatedPrincipal = isUnauthenticatedPrincipal
-    }
-    return event
-  }
-}
-
 private extension NoteService {
-  func matchingAutoActions(for event: NoteAutoActionEvent) throws -> [AutoAction] {
-    try driver.withDatabase { database in
-      try matchingAutoActions(for: event, in: database)
+  /// A pending row whose stored event cannot be decoded (for example one that
+  /// lacks the originating principal) can never be dispatched safely. It is
+  /// cancelled in place with the decode failure as its reason, so the rest of
+  /// the pass proceeds and no dispatcher ever runs it as an unscoped stand-in.
+  func cancelUndecodableAutoActionDispatch(
+    row: SQLiteRow,
+    error: Error,
+    in database: SQLiteDatabase
+  ) throws {
+    guard let dispatchId = row.identifier("dispatch_id", as: AutoActionDispatchID.self) else {
+      throw error
     }
-  }
-
-  func matchingAutoActions(for event: NoteAutoActionEvent, in database: SQLiteDatabase) throws -> [AutoAction] {
-    let actions = try database.query(
+    try database.execute(
       """
-      SELECT action_id, trigger, workflow_id,
-        CASE WHEN filter_json IS NULL THEN NULL ELSE json(filter_json) END AS filter_json,
-        enabled, position, created_at
-      FROM auto_actions
-      WHERE enabled = 1 AND trigger = ?
-      ORDER BY position, action_id
+      UPDATE auto_action_dispatches
+      SET status = ?,
+        lease_token = NULL,
+        leased_at = NULL,
+        last_error = ?,
+        updated_at = ?
+      WHERE dispatch_id = ? AND status = ?
       """,
-      bindings: [.text(event.trigger.rawValue)]
-    ).map(autoAction(from:))
-    var matching: [AutoAction] = []
-    for action in actions {
-      do {
-        if try autoAction(action, matches: event, in: database) {
-          matching.append(action)
-        }
-      } catch {
-        autoActionDiagnosticRecorder?.record(NoteAutoActionDiagnostic(
-          code: .filterEvaluationFailed,
-          actionId: action.actionId,
-          trigger: action.trigger,
-          message: "skipped auto action because filter_json could not be evaluated: \(error)"
-        ))
-      }
-    }
-    return matching
+      bindings: [
+        .text(AutoActionDispatchStatus.cancelled.rawValue),
+        .text("auto-action dispatch row could not be decoded: \(error)"),
+        .text(NoteStoreClock.system.now()),
+        .id(dispatchId),
+        .text(AutoActionDispatchStatus.pending.rawValue)
+      ]
+    )
   }
 
   /// Atomically claims a pending row: bumps the attempt count, marks it
@@ -768,46 +778,35 @@ private extension NoteService {
 }
 
 extension NoteService {
-  /// Persists a distinct cancellation record so readers cannot mistake a
-  /// safety stop for successful provider work. The base row stays dispatched
-  /// for compatibility with existing stores whose status CHECK pre-dates the
-  /// cancellation outcome; list APIs project the joined row as `.cancelled`.
+  /// Records a terminal safety stop against the row this attempt still owns.
+  /// Keyed on the lease token so a superseded attempt writes nothing. The
+  /// reason lands in `last_error`, so readers never mistake a cancellation for
+  /// successful provider work.
   func markAutoActionDispatchCancelled(
     dispatchId: AutoActionDispatchID,
     leaseToken: String,
     reason: String
   ) throws {
     try driver.withDatabase { database in
-      try database.transaction { db in
-        let cancelledAt = NoteStoreClock.system.now()
-        let changedRows = try db.executeAndReturnChangedRowCount(
-          """
-          UPDATE auto_action_dispatches
-          SET status = ?,
-            lease_token = NULL,
-            leased_at = NULL,
-            last_error = NULL,
-            updated_at = ?
-          WHERE dispatch_id = ? AND status = ? AND lease_token = ?
-          """,
-          bindings: [
-            .text(AutoActionDispatchStatus.dispatched.rawValue),
-            .text(cancelledAt),
-            .id(dispatchId),
-            .text(AutoActionDispatchStatus.inFlight.rawValue),
-            .text(leaseToken)
-          ]
-        )
-        guard changedRows == 1 else { return }
-        try db.execute(
-          """
-          INSERT INTO auto_action_dispatch_cancellations (dispatch_id, reason, cancelled_at)
-          VALUES (?, ?, ?)
-          ON CONFLICT(dispatch_id) DO NOTHING
-          """,
-          bindings: [.id(dispatchId), .text(reason), .text(cancelledAt)]
-        )
-      }
+      try database.execute(
+        """
+        UPDATE auto_action_dispatches
+        SET status = ?,
+          lease_token = NULL,
+          leased_at = NULL,
+          last_error = ?,
+          updated_at = ?
+        WHERE dispatch_id = ? AND status = ? AND lease_token = ?
+        """,
+        bindings: [
+          .text(AutoActionDispatchStatus.cancelled.rawValue),
+          .text(reason),
+          .text(NoteStoreClock.system.now()),
+          .id(dispatchId),
+          .text(AutoActionDispatchStatus.inFlight.rawValue),
+          .text(leaseToken)
+        ]
+      )
     }
   }
 }
@@ -875,86 +874,6 @@ func autoActionDispatchAttempt(from row: SQLiteRow) throws -> AutoActionDispatch
     createdAt: createdAt,
     updatedAt: updatedAt
   )
-}
-
-private struct AutoActionFilter: Decodable {
-  var noteTags: [String]?
-  var notebookKindTag: String?
-}
-
-private func validateAutoActionFilterJSON(_ filterJSON: String?) throws {
-  guard let filterJSON else {
-    return
-  }
-  guard let filterData = filterJSON.data(using: .utf8) else {
-    throw NoteServiceError.invalidInput("auto action filter JSON must be UTF-8")
-  }
-  do {
-    _ = try JSONDecoder().decode(AutoActionFilter.self, from: filterData)
-  } catch {
-    throw NoteServiceError.invalidInput("invalid auto action filter JSON: \(error)")
-  }
-}
-
-private func autoAction(_ action: AutoAction, matches event: NoteAutoActionEvent, in database: SQLiteDatabase) throws -> Bool {
-  guard let filterJSON = action.filterJSON else {
-    return true
-  }
-  guard let filterData = filterJSON.data(using: .utf8) else {
-    return false
-  }
-  let filter = try JSONDecoder().decode(AutoActionFilter.self, from: filterData)
-  if let requiredNoteTags = filter.noteTags, !requiredNoteTags.isEmpty {
-    guard let noteId = event.noteId else {
-      return false
-    }
-    let noteTags = try noteTagNames(noteId: noteId, in: database)
-    guard Set(requiredNoteTags).isSubset(of: Set(noteTags)) else {
-      return false
-    }
-  }
-  if let notebookKindTag = filter.notebookKindTag {
-    guard let notebookId = try eventNotebookId(event, in: database) else {
-      return false
-    }
-    guard let kindTag = try findNonFolderTag(name: notebookKindTag, in: database),
-          kindTag.classId == .documentKind,
-          try notebookTagAssignment(
-            notebookId: notebookId,
-            tagId: kindTag.tagId,
-            in: database
-          ) != nil else {
-      return false
-    }
-  }
-  return true
-}
-
-private func eventNotebookId(_ event: NoteAutoActionEvent, in database: SQLiteDatabase) throws -> NotebookID? {
-  if let notebookId = event.notebookId {
-    return notebookId
-  }
-  guard let noteId = event.noteId else {
-    return nil
-  }
-  let rows = try database.query(
-    "SELECT notebook_id FROM notes WHERE note_id = ? LIMIT 1",
-    bindings: [.id(noteId)]
-  )
-  return rows.first?.identifier("notebook_id", as: NotebookID.self)
-}
-
-private func noteTagNames(noteId: NoteID, in database: SQLiteDatabase) throws -> [String] {
-  try database.query(
-    """
-    SELECT t.name
-    FROM note_tags nt
-    INNER JOIN tags t ON t.tag_id = nt.tag_id
-    WHERE nt.note_id = ?
-    ORDER BY t.name
-    """,
-    bindings: [.id(noteId)]
-  ).compactMap { $0["name"] }
 }
 
 func requireAutoAction(actionId: AutoActionID, in database: SQLiteDatabase) throws -> AutoAction {

@@ -32,7 +32,6 @@ Tags become first-class navigation subjects in the chatbook web UI:
 
 - Extends `web-chatbook-ui.md` (right pane, reader) and the domain
   model in `kaiba-note.md` (D6/D7 tags, K12 conversation notebooks).
-- Implementation plan: `impl-plans/completed/tag-detail-pane.md`.
 
 ## Design Decisions
 

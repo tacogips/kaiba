@@ -118,7 +118,7 @@ final class NoteHierarchyProgressTests: NoteTestCase {
       ])
     )
     XCTAssertEqual(
-      Set(try service.listNotebooks(tagFilter: [parent.name]).map(\.notebookId)),
+      Set(try service.listNotebooks(tagFilterIdGroups: [[parent.tagId]]).map(\.notebookId)),
       Set([parentNote.notebookId, childNote.notebookId, grandchildNote.notebookId])
     )
     XCTAssertEqual(
@@ -162,10 +162,10 @@ final class NoteHierarchyProgressTests: NoteTestCase {
     )
     XCTAssertEqual(try service.listNotes(tagFilter: [leaf.name]).map(\.noteId), [leafNote.noteId])
     XCTAssertTrue(try service.listNotes(tagFilter: ["unknown-tag"]).isEmpty)
-    XCTAssertTrue(try service.listNotebooks(tagFilter: ["unknown-tag"]).isEmpty)
+    XCTAssertTrue(try service.listNotebooks(tagFilterIdGroups: [[TagID("unknown-tag")]]).isEmpty)
   }
 
-  func testLegacyNoteFiltersRejectAmbiguousFolderNamesBeforeIdExpansion() throws {
+  func testNameBasedNoteFiltersRejectAmbiguousFolderNamesBeforeIdExpansion() throws {
     let service = try NoteService(driver: makeNoteDriver())
     let work = try service.defineTag(name: "Work", classId: TagClassID("folder"))
     let archive = try service.defineTag(name: "Archive", classId: TagClassID("folder"))
@@ -205,14 +205,14 @@ final class NoteHierarchyProgressTests: NoteTestCase {
     ] {
       XCTAssertThrowsError(try operation()) { error in
         guard case let NoteServiceError.invalidInput(message) = error else {
-          return XCTFail("expected ambiguous legacy filter failure, got \(error)")
+          return XCTFail("expected ambiguous name filter failure, got \(error)")
         }
         XCTAssertTrue(message.contains("ambiguous"))
       }
     }
   }
 
-  func testGroupedNotebookFiltersIntersectExpandedUnionsAndPreserveFlatCompatibility() throws {
+  func testGroupedNotebookFiltersIntersectExpandedUnions() throws {
     let service = try NoteService(driver: makeNoteDriver())
     let folder = try service.defineTag(name: "Work", classId: TagClassID("folder"))
     let child = try service.defineTag(
@@ -242,46 +242,35 @@ final class NoteHierarchyProgressTests: NoteTestCase {
       provenance: .human
     )
 
+    // Groups intersect; members of a group union, and a folder reaches its
+    // descendants.
     XCTAssertEqual(
       try service.listNotebooks(
-        tagFilterGroups: [[folder.name], [urgent.name]]
+        tagFilterIdGroups: [[folder.tagId], [urgent.tagId]]
       ).map(\.notebookId),
       [launchUrgent.notebookId]
     )
     XCTAssertEqual(
       Set(try service.listNotebooks(
-        tagFilterGroups: [[folder.name], [urgent.name, normal.name]]
+        tagFilterIdGroups: [[folder.tagId], [urgent.tagId, normal.tagId]]
       ).map(\.notebookId)),
       Set([launchUrgent.notebookId, workNormal.notebookId])
     )
-    XCTAssertTrue(
-      try service.listNotebooks(tagFilterGroups: [[folder.name], ["unknown"]]).isEmpty
-    )
-    XCTAssertTrue(try service.listNotebooks(tagFilterGroups: [[]]).isEmpty)
-    XCTAssertTrue(
-      try service.listNotebooks(tagFilterGroups: [[], [urgent.name]]).isEmpty
-    )
     XCTAssertEqual(
-      Set(try service.listNotebooks(tagFilter: [urgent.name]).map(\.notebookId)),
+      Set(try service.listNotebooks(tagFilterIdGroups: [[urgent.tagId]]).map(\.notebookId)),
       Set([launchUrgent.notebookId, urgentOnly.notebookId])
     )
-    XCTAssertEqual(
-      try service.listNotebooks(
-        tagFilter: [normal.name],
-        tagFilterGroups: [[urgent.name]]
-      ).map(\.notebookId).sorted(),
-      [launchUrgent.notebookId, urgentOnly.notebookId].sorted()
-    )
-    XCTAssertEqual(
-      try service.listNotebooks(
-        tagFilter: [normal.name],
-        tagFilterGroups: [[normal.name]],
-        tagFilterIdGroups: [[folder.tagId], [urgent.tagId]]
-      ).map(\.notebookId),
-      [launchUrgent.notebookId]
-    )
+    // An unknown id makes its group unsatisfiable; empty groups are ignored.
     XCTAssertTrue(
       try service.listNotebooks(tagFilterIdGroups: [[folder.tagId], [TagID("unknown-id")]]).isEmpty
+    )
+    XCTAssertEqual(
+      try service.listNotebooks(tagFilterIdGroups: [[]]).count,
+      try service.listNotebooks().count
+    )
+    XCTAssertEqual(
+      Set(try service.listNotebooks(tagFilterIdGroups: [[], [urgent.tagId]]).map(\.notebookId)),
+      Set([launchUrgent.notebookId, urgentOnly.notebookId])
     )
   }
 
@@ -296,16 +285,6 @@ final class NoteHierarchyProgressTests: NoteTestCase {
       provenance: .human
     )
 
-    XCTAssertTrue(
-      try service.listNotebooks(
-        tagFilterGroups: [[work.name, work.name], [work.name], []]
-      ).isEmpty
-    )
-    XCTAssertTrue(
-      try service.listNotebooks(
-        tagFilterGroups: [["unknown"], [work.name]]
-      ).isEmpty
-    )
     XCTAssertEqual(
       try service.listNotebooks(
         tagFilterIdGroups: [[work.tagId, work.tagId], [work.tagId], []]
@@ -313,36 +292,6 @@ final class NoteHierarchyProgressTests: NoteTestCase {
       [notebook.notebookId]
     )
 
-    XCTAssertThrowsError(
-      try service.listNotebooks(
-        tagFilterGroups: Array(
-          repeating: [work.name],
-          count: NoteService.maximumNotebookTagFilterGroups + 1
-        )
-      )
-    ) { error in
-      XCTAssertEqual(
-        error as? NoteServiceError,
-        .invalidInput(
-          "tagFilterGroups supports at most \(NoteService.maximumNotebookTagFilterGroups) groups"
-        )
-      )
-    }
-    XCTAssertThrowsError(
-      try service.listNotebooks(
-        tagFilterGroups: [Array(
-          repeating: work.name,
-          count: NoteService.maximumNotebookTagFilterNames + 1
-        )]
-      )
-    ) { error in
-      XCTAssertEqual(
-        error as? NoteServiceError,
-        .invalidInput(
-          "tagFilterGroups supports at most \(NoteService.maximumNotebookTagFilterNames) tag names"
-        )
-      )
-    }
     XCTAssertThrowsError(
       try service.listNotebooks(
         tagFilterIdGroups: Array(
@@ -398,19 +347,6 @@ final class NoteHierarchyProgressTests: NoteTestCase {
     }
 
     XCTAssertThrowsError(
-      try service.listNotebooks(tagFilterGroups: [[root.name]])
-    ) { error in
-      XCTAssertEqual(
-        error as? NoteServiceError,
-        .invalidInput(
-          """
-          tagFilterGroups expands to at most \
-          \(NoteService.maximumExpandedNotebookTagFilterNames) tag names
-          """
-        )
-      )
-    }
-    XCTAssertThrowsError(
       try service.listNotebooks(tagFilterIdGroups: [[root.tagId]])
     ) { error in
       XCTAssertEqual(
@@ -419,43 +355,6 @@ final class NoteHierarchyProgressTests: NoteTestCase {
           """
           tagFilterIdGroups expands to at most \
           \(NoteService.maximumExpandedNotebookTagFilterNames) tag IDs
-          """
-        )
-      )
-    }
-  }
-
-  func testLegacyNotebookFilterRejectsOversizedDescendantExpansion() throws {
-    let driver = try makeNoteDriver()
-    let service = try NoteService(driver: driver)
-    let root = try service.defineTag(name: "Root", classId: TagClassID("folder"))
-    try driver.withDatabase { database in
-      try database.transaction { transaction in
-        for index in 0..<NoteService.maximumExpandedNotebookTagFilterNames {
-          try transaction.execute(
-            """
-            INSERT INTO tags (tag_id, name, class_id, parent_tag_id, is_system, created_at)
-            VALUES (?, ?, 'folder', ?, 0, '2026-07-27T00:00:00Z')
-            """,
-            bindings: [
-              .text("legacy-child-\(index)"),
-              .text("Legacy Child \(index)"),
-              .id(root.tagId)
-            ]
-          )
-        }
-      }
-    }
-
-    XCTAssertThrowsError(
-      try service.listNotebooks(tagFilter: [root.name])
-    ) { error in
-      XCTAssertEqual(
-        error as? NoteServiceError,
-        .invalidInput(
-          """
-          tagFilterGroups expands to at most \
-          \(NoteService.maximumExpandedNotebookTagFilterNames) tag names
           """
         )
       )

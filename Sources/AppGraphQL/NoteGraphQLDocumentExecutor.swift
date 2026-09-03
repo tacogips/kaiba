@@ -233,8 +233,6 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.notebooks(
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
         offset: validatedOffset(try optionalInt("offset", variables: variables)),
-        tagFilter: try optionalStringArray("tagFilter", variables: variables) ?? [],
-        tagFilterGroups: try optionalStringArrayArray("tagFilterGroups", variables: variables) ?? [],
         tagFilterIdGroups: try optionalIdentifierArrayArray("tagFilterIdGroups", as: TagID.self, variables: variables) ?? [],
         sort: try optionalString("sort", variables: variables),
         createdAfter: try optionalString("createdAfter", variables: variables),

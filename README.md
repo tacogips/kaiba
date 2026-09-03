@@ -26,7 +26,7 @@ The local note store lives at `~/.kaiba/note-store.sqlite`, with attachments
 under `~/.kaiba/files/` (override the root with `--note-root` or
 `KAIBA_NOTE_ROOT`). Kaiba configuration lives at
 `~/.config/kaiba/config.json` (override with `--config` or
-`KAIBA_CONFIG_PATH`). No Riela path or environment variable is consulted.
+`KAIBA_CONFIG_PATH`).
 See `design-docs/specs/command.md` for the full CLI
 and `design-docs/specs/kaiba-note.md` for the design.
 

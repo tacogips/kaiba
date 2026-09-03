@@ -11,7 +11,6 @@ Accepted
   `AgentStreamingInvoking` seams; it does not change the gateway adapter.
 - Ownership rules consumed unchanged: `design-docs/specs/multi-user.md`,
   `design-docs/specs/library.md`.
-- Implementation plan: `impl-plans/completed/user-agent-tools.md`.
 
 ## Problem
 

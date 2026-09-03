@@ -49,7 +49,8 @@ final class NoteServiceMemoKindTagTests: NoteTestCase {
       bodyMarkdown: "# Memo\nBody"
     )
 
-    let filtered = try service.listNotebooks(tagFilter: ["notebook-kind:user-memo"])
+    let memoKindTagIds = try XCTUnwrap(try service.tagIds(named: ["notebook-kind:user-memo"]))
+    let filtered = try service.listNotebooks(tagFilterIdGroups: [memoKindTagIds])
 
     XCTAssertEqual(filtered.map(\.notebookId), [memo.notebookId])
   }

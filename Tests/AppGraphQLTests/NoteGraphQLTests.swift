@@ -152,10 +152,14 @@ final class NoteGraphQLTests: XCTestCase {
     let importedId = try XCTUnwrap(imported.notebook?.notebookId)
     let memoId = try XCTUnwrap(memo.notebook?.notebookId)
 
-    let importedList = await service.notebooks(tagFilter: ["notebook-kind:imported-material"])
+    let importedList = await service.notebooks(
+      tagFilterIdGroups: [[try tagId(named: "notebook-kind:imported-material", in: service)]]
+    )
     XCTAssertEqual(importedList.value?.map(\.notebookId), [importedId])
 
-    let memoList = await service.notebooks(tagFilter: ["notebook-kind:user-memo"])
+    let memoList = await service.notebooks(
+      tagFilterIdGroups: [[try tagId(named: "notebook-kind:user-memo", in: service)]]
+    )
     XCTAssertEqual(memoList.value?.map(\.notebookId), [memoId])
 
     let tagged = await service.applyNotebookTags(GraphQLApplyNotebookTagsInput(
@@ -166,7 +170,9 @@ final class NoteGraphQLTests: XCTestCase {
     ))
     XCTAssertEqual(tagged.notebook?.tags.map(\.tag.name).sorted(), ["active-project", "notebook-kind:user-memo"])
 
-    let activeList = await service.notebooks(tagFilter: ["active-project"])
+    let activeList = await service.notebooks(
+      tagFilterIdGroups: [[try tagId(named: "active-project", in: service)]]
+    )
     XCTAssertEqual(activeList.value?.map(\.notebookId), [memoId])
 
     let untagged = await service.removeNotebookTag(
@@ -279,13 +285,14 @@ final class NoteGraphQLTests: XCTestCase {
     let notebook = try objectValue(notebookPayload["notebook"], field: "createNotebook.notebook")
     let notebookId = NotebookID(try stringValue(notebook["notebookId"], field: "notebook.notebookId"))
 
+    let documentKindTagId = try tagId(named: "notebook-kind:document-test", in: service)
     let filteredNotebooks = await executor.execute(GraphQLDocumentRequest(
       query: """
-      query Notebooks($tagFilter: [String!]) {
-        notebooks(tagFilter: $tagFilter) { result { accepted } value { notebookId title } }
+      query Notebooks($tagFilterIdGroups: [[String!]!]) {
+        notebooks(tagFilterIdGroups: $tagFilterIdGroups) { result { accepted } value { notebookId title } }
       }
       """,
-      variables: ["tagFilter": .array([.string("notebook-kind:document-test")])],
+      variables: ["tagFilterIdGroups": .array([.array([.string(documentKindTagId.rawValue)])])],
       operationName: "Notebooks"
     ))
     let notebookList = try graphQLPayload(filteredNotebooks.body, field: "notebooks")
@@ -739,10 +746,8 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertTrue(schema.contains("enum NoteListSort { createdAtDesc createdAtAsc updatedAtDesc title }"))
     XCTAssertTrue(normalizedSchema.contains(
       """
-      notebooks( limit: Int, offset: Int, tagFilter: [String!], \
-      tagFilterGroups: [[String!]!], tagFilterIdGroups: [[String!]!], \
-      sort: NoteListSort, createdAfter: String, \
-      createdBefore: String ): NotebooksQueryPayload!
+      notebooks( limit: Int, offset: Int, tagFilterIdGroups: [[String!]!], \
+      sort: NoteListSort, createdAfter: String, createdBefore: String ): NotebooksQueryPayload!
       """
     ))
     XCTAssertTrue(schema.contains("notes(limit: Int, offset: Int, notebookId: String, tagFilter: [String!]): NotesQueryPayload!"))
@@ -1040,4 +1045,10 @@ private final class InMemoryNoteGraphQLS3HTTPClient: S3HTTPClient, @unchecked Se
     defer { lock.unlock() }
     return recordedMethods
   }
+}
+
+/// Resolves a tag name to its id for `notebooks(tagFilterIdGroups:)`, the way
+/// a client does before filtering the catalog.
+private func tagId(named name: String, in service: GraphQLNoteGraphQLService) throws -> TagID {
+  try XCTUnwrap(try service.service.tagIds(named: [name])?.first)
 }

@@ -655,7 +655,7 @@ final class AgentChatTests: NoteTestCase {
     XCTAssertFalse(request.contextMarkdown?.contains("Bob private context") == true)
   }
 
-  func testRecoveredLegacyQueuedReplyFailsClosedWithoutPrincipalMetadata() async throws {
+  func testQueuedReplyWithoutPrincipalMetadataIsCancelledWithoutProviderInvocation() async throws {
     let bare = try makeService()
     let subject = try bare.createNote(bodyMarkdown: "# Subject\nPrivate context")
     let conversation = try bare.startAgentConversation(subjectNoteId: subject.noteId)
@@ -665,12 +665,13 @@ final class AgentChatTests: NoteTestCase {
       agentAvailable: true
     )
     let dispatchId = AutoActionDispatchID.generate()
-    let legacyEventJSON = """
+    // A stored event must name its originating principal; this one does not.
+    let eventJSONWithoutPrincipal = """
     {"noteId":"\(turn.noteId.rawValue)","trigger":"note-created"}
     """
     try bare.driver.withDatabase { database in
       // The fixture creates its own normal auto-action rows. They are not part
-      // of the simulated pre-upgrade recovery record.
+      // of the corrupt-row scenario.
       try database.execute(
         "UPDATE auto_action_dispatches SET status = 'dispatched' WHERE status = 'pending'"
       )
@@ -688,7 +689,7 @@ final class AgentChatTests: NoteTestCase {
           .text(NoteAutoActionTrigger.noteCreated.rawValue),
           .id(NoteStoreSchema.agentChatReplyWorkflowId),
           .text("2026-08-30T00:00:00Z"),
-          .text(legacyEventJSON),
+          .text(eventJSONWithoutPrincipal),
           .text("2026-08-30T00:00:00Z"),
           .text("2026-08-30T00:00:00Z")
         ]
@@ -698,14 +699,23 @@ final class AgentChatTests: NoteTestCase {
     let invoker = CapturingChatInvoker()
     let dispatcher = KaibaAutoActionDispatcher(service: bare, invoker: invoker)
     let recovered = try NoteService(driver: bare.driver, autoActionDispatcher: dispatcher)
-    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(), 1)
+    // The undecodable row is cancelled in place; nothing is queued for it.
+    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(), 0)
     await recovered.drainAutoActionDispatches()
 
     let capturedRequest = await invoker.latestRequest()
     XCTAssertNil(capturedRequest)
-    let attempt = try XCTUnwrap(try recovered.listAutoActionDispatchAttempts().first)
-    XCTAssertEqual(attempt.status, .pending)
-    XCTAssertTrue(attempt.lastError?.contains("lacks originating principal metadata") == true)
+    let row = try XCTUnwrap(try bare.driver.withDatabase { database in
+      try database.query(
+        "SELECT status, last_error, attempt_count FROM auto_action_dispatches WHERE dispatch_id = ?",
+        bindings: [.id(dispatchId)]
+      ).first
+    })
+    XCTAssertEqual(row["status"], AutoActionDispatchStatus.cancelled.rawValue)
+    XCTAssertEqual(row["attempt_count"], "0")
+    XCTAssertTrue(row.string("last_error").contains("could not be decoded"))
+    XCTAssertTrue(row.string("last_error").contains("originatingIsUnauthenticatedPrincipal"))
+    XCTAssertEqual(NoteService.chatTurnState(of: try bare.getNote(turn.noteId))?.status, .pending)
   }
 
   func testListAgentConversationsFindsBySubject() throws {

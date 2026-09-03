@@ -2,8 +2,8 @@ import Foundation
 
 /// Reconciles the AI auto-actions with configuration at serve startup
 /// (`design-docs/specs/ai-agent-integration.md`, AI4). `seedAutoActions` only
-/// runs on fresh stores, so the idempotent `configureAutoAction` upsert is the
-/// mechanism that keeps existing stores in sync with `config.json`.
+/// runs when the store is created, so the idempotent `configureAutoAction`
+/// upsert is what keeps a running store in sync with `config.json`.
 public enum AIAutoActionReconciliation {
   public static let taggingActions: [(actionId: AutoActionID, trigger: NoteAutoActionTrigger)] = [
     (AutoActionID("default-ai-tagging-note-created"), .noteCreated),

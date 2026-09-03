@@ -136,7 +136,7 @@ final class NoteGraphQLNotebookReadOnlyTests: XCTestCase {
     try assertReservedLongTermMemoryRejection(applyTagId)
 
     XCTAssertEqual(
-      try service.service.listNotebooks(tagFilter: [reservedTag]).map(\.notebookId),
+      try service.service.listNotebooks(tagFilterIdGroups: [[reservedTagId]]).map(\.notebookId),
       [canonical.notebookId]
     )
     let reopened = try NoteService(driver: service.service.driver)

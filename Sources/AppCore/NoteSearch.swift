@@ -141,7 +141,7 @@ func searchNotesInDatabase(
   offset: Int,
   in database: SQLiteDatabase
 ) throws -> [NoteSearchResult] {
-  let expandedTagFilterIds = try expandedLegacyTagFilterIds(tagFilter, in: database)
+  let expandedTagFilterIds = try expandedTagFilterIds(names: tagFilter, in: database)
   guard tagFilter.isEmpty || !expandedTagFilterIds.isEmpty else {
     return []
   }

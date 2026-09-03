@@ -47,7 +47,7 @@ public extension NoteService {
     case .note(let noteId):
       let note = try getNote(noteId)
       trigger = .noteUpdated
-      event = NoteAutoActionEvent(
+      event = makeAutoActionEvent(
         trigger: trigger,
         notebookId: note.notebookId,
         noteId: noteId
@@ -55,7 +55,7 @@ public extension NoteService {
     case .notebook(let notebookId):
       _ = try getNotebook(notebookId)
       trigger = .notebookCreated
-      event = NoteAutoActionEvent(trigger: trigger, notebookId: notebookId)
+      event = makeAutoActionEvent(trigger: trigger, notebookId: notebookId)
     }
     guard autoActionDispatcher != nil else {
       return false
@@ -83,15 +83,12 @@ extension NoteService {
   /// Direct single-dispatch insert used by manual requests; mirrors the row
   /// shape written by `enqueueAutoActions` without requiring an enabled
   /// `auto_actions` row (a manual request must work even when autoTag is off).
+  /// The event carries its originating principal already (`makeAutoActionEvent`).
   func enqueueManualAutoActionDispatch(
     action: AutoAction,
     event: NoteAutoActionEvent,
     in database: SQLiteDatabase
   ) throws -> QueuedAutoActionDispatch {
-    let event = event.withOriginatingPrincipal(
-      userId: actingUserId,
-      isUnauthenticatedPrincipal: isUnauthenticatedPrincipal
-    )
     let dispatchId = AutoActionDispatchID.generate()
     let now = NoteStoreClock.system.now()
     let encoder = JSONEncoder()

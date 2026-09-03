@@ -1,65 +1,19 @@
 extension NoteService {
+  /// Lists notebooks visible to this service value. `tagFilterIdGroups` is a
+  /// conjunction of disjunctions: a notebook matches when, for every group, it
+  /// carries at least one of the group's tags or their descendants. Empty
+  /// groups are ignored; an unknown id fails closed to an empty list.
   public func listNotebooks(
     limit: Int = 50,
     offset: Int = 0,
-    tagFilter: [String] = [],
-    tagFilterGroups: [[String]] = [],
     tagFilterIdGroups: [[TagID]] = [],
     sort: NoteListSort = .createdAtDesc,
     createdAfter: String? = nil,
     createdBefore: String? = nil
   ) throws -> [Notebook] {
     try driver.withDatabase { database in
-      let normalizedIdGroups = canonicalTagFilterGroups(tagFilterIdGroups, discardingEmpty: true)
-      let usesIdGroups = !normalizedIdGroups.isEmpty
-      let nameGroups = canonicalTagFilterGroups(tagFilterGroups, discardingEmpty: false)
-      let requestedNameGroups = nameGroups.isEmpty
-        ? (tagFilter.isEmpty ? [] : [orderedUnique(tagFilter).sorted()])
-        : nameGroups
-      // Both filter shapes are bounded by the same limits; only the element
-       // type differs, so the check runs over the group sizes alone.
-      let rawBoundedGroupSizes = usesIdGroups
-        ? tagFilterIdGroups.filter { !$0.isEmpty }.map(\.count)
-        : tagFilterGroups.map(\.count)
-      if !rawBoundedGroupSizes.isEmpty {
-        let fieldName = usesIdGroups ? "tagFilterIdGroups" : "tagFilterGroups"
-        guard rawBoundedGroupSizes.count <= Self.maximumNotebookTagFilterGroups else {
-          throw NoteServiceError.invalidInput(
-            "\(fieldName) supports at most \(Self.maximumNotebookTagFilterGroups) groups"
-          )
-        }
-        var inputCount = 0
-        for groupSize in rawBoundedGroupSizes {
-          guard groupSize <= Self.maximumNotebookTagFilterNames - inputCount else {
-            throw NoteServiceError.invalidInput(
-              "\(fieldName) supports at most \(Self.maximumNotebookTagFilterNames) " +
-                (usesIdGroups ? "tag IDs" : "tag names")
-            )
-          }
-          inputCount += groupSize
-        }
-      }
-      if !usesIdGroups, !tagFilterGroups.isEmpty, nameGroups.isEmpty {
-        return []
-      }
-      var expandedGroups: [[TagID]] = []
-      var expandedIdentityCount = 0
-      let boundedGroupExpansions: [[TagID]] = try usesIdGroups
-        ? normalizedIdGroups.map { try expandedTagFilterIds($0, in: database) }
-        : requestedNameGroups.map { try expandedLegacyTagFilterIds($0, in: database) }
-      for expandedGroup in boundedGroupExpansions {
-        guard !expandedGroup.isEmpty else { return [] }
-        guard expandedGroup.count
-          <= Self.maximumExpandedNotebookTagFilterNames - expandedIdentityCount else {
-          throw NoteServiceError.invalidInput(
-            "\(usesIdGroups ? "tagFilterIdGroups" : "tagFilterGroups") expands to at most " +
-              "\(Self.maximumExpandedNotebookTagFilterNames) " +
-              (usesIdGroups ? "tag IDs" : "tag names")
-          )
-        }
-        expandedIdentityCount += expandedGroup.count
-        expandedGroups.append(expandedGroup)
-      }
+      let expandedGroups = try expandedNotebookTagFilterGroups(tagFilterIdGroups, in: database)
+      guard let expandedGroups else { return [] }
       var predicates: [String] = []
       var bindings: [SQLiteValue] = []
       for expandedGroup in expandedGroups {
@@ -118,5 +72,47 @@ extension NoteService {
       try enrichNotebookListMetadata(&notebooks, in: database)
       return notebooks
     }
+  }
+}
+
+private extension NoteService {
+  /// Bounds the request before touching the store, then expands every group to
+  /// its descendant closure. Returns nil when a group matches nothing, which
+  /// makes the whole filter unsatisfiable.
+  func expandedNotebookTagFilterGroups(
+    _ tagFilterIdGroups: [[TagID]],
+    in database: SQLiteDatabase
+  ) throws -> [[TagID]]? {
+    let boundedGroupSizes = tagFilterIdGroups.filter { !$0.isEmpty }.map(\.count)
+    guard boundedGroupSizes.count <= Self.maximumNotebookTagFilterGroups else {
+      throw NoteServiceError.invalidInput(
+        "tagFilterIdGroups supports at most \(Self.maximumNotebookTagFilterGroups) groups"
+      )
+    }
+    var inputCount = 0
+    for groupSize in boundedGroupSizes {
+      guard groupSize <= Self.maximumNotebookTagFilterNames - inputCount else {
+        throw NoteServiceError.invalidInput(
+          "tagFilterIdGroups supports at most \(Self.maximumNotebookTagFilterNames) tag IDs"
+        )
+      }
+      inputCount += groupSize
+    }
+    var expandedGroups: [[TagID]] = []
+    var expandedIdentityCount = 0
+    for group in canonicalTagFilterGroups(tagFilterIdGroups, discardingEmpty: true) {
+      let expandedGroup = try expandedTagFilterIds(group, in: database)
+      guard !expandedGroup.isEmpty else { return nil }
+      guard expandedGroup.count
+        <= Self.maximumExpandedNotebookTagFilterNames - expandedIdentityCount else {
+        throw NoteServiceError.invalidInput(
+          "tagFilterIdGroups expands to at most " +
+            "\(Self.maximumExpandedNotebookTagFilterNames) tag IDs"
+        )
+      }
+      expandedIdentityCount += expandedGroup.count
+      expandedGroups.append(expandedGroup)
+    }
+    return expandedGroups
   }
 }

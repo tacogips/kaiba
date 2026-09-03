@@ -151,18 +151,15 @@ The design carries a fixed TTL (default 30 days) with no idle timeout and no
 refresh. Whether a personal note server needs sliding expiry is unresolved.
 
 **Impact**: Browser-session storage remains deferred. It does not block the
-JWT-based process credential, pending-login handoff, or multi-user TASK-M06
-through TASK-M10; any future `auth_sessions` task must resolve this policy
-before implementation.
+JWT-based process credential or the pending-login handoff; any future
+`auth_sessions` task must resolve this policy before implementation.
 
 ### P9: How is `auth_login_requests` rolled out?
 
-**Status**: Pending; not part of multi-user TASK-M06 through TASK-M10.
+**Status**: Decided by the no-backward-compatibility policy.
 
-The current workflow must keep `NoteStoreSchema.currentVersion = 17`, and its
-implementation needs no new table. A later browser-login task cannot silently
-add `auth_login_requests` to the version-17 create schema: an already-created
-version-17 store would pass the version check while lacking the table. Decide
-whether that later release increments the fresh-schema version and requires
-store recreation, or introduces the project's first migration. TASK-402 in
-`impl-plans/active/note-api-auth.md` remains blocked on this rollout choice.
+Kaiba carries no migrations and backward compatibility is not a requirement.
+A later browser-login release that adds `auth_login_requests` increments
+`NoteStoreSchema.currentVersion` and requires store recreation; it must not
+add the table to the existing version's create schema, because an
+already-created store would pass the version check while lacking the table.

@@ -6,25 +6,9 @@ Accepted
 
 ## Traceability
 
-- Workflow issue: `direct-workflow:comm-002100`
-- Composition reference: the user's desktop screenshot
-  `Screenshot 2026-08-12 at 21.13.56.png` (kept outside the repository)
 - Agent contract references:
   `Sources/AppCore/AgentInvoking.swift` and
   `Sources/AppCore/AgentGatewayCLIInvoker.swift`
-
-## Issue Scope: `direct-workflow:comm-002100`
-
-- **In scope:** AI10-AI11 and only the minimum GraphQL, service, persistence,
-  prompt-construction, model-catalog, and adapter integration necessary for
-  the right-pane model selector and bounded agent-turn attachments.
-- **Out of scope:** AI1-AI9 except where their existing contracts are consumed
-  unchanged, plus auto-tagging, translation, search, provider selection,
-  runtime replacement, and other AI feature expansion.
-- The existing `AgentInvoking`, `AgentStreamingInvoking`, outbox, persisted-turn,
-  and change-feed flows are compatibility boundaries. This issue may carry the
-  snapshotted model and validated attachment context through them but must not
-  redesign those flows.
 
 ## Summary
 

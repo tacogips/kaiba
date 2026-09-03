@@ -9,11 +9,10 @@ explicit user answer; flag any that should change.
 
 ## Decided by default (confirm or override)
 
-1. **No schema version bump** (U1). The log table is added through the
-   idempotent DDL list like `app_settings` was, so existing v15 stores
-   keep opening. Alternative was bumping to v16 under the
-   no-backcompat policy, which would have rejected every existing
-   store.
+1. **Part of the base schema** (U1). The log table is one of the base
+   create statements in `NoteStoreSchema`. Kaiba carries no migrations
+   and backward compatibility is not a requirement, so any change to the
+   create schema bumps `currentVersion` and stores are recreated.
 2. **History is linear per actor, not per library** (U11). The CLI,
    unauthenticated note-API callers, and the default user share one
    history. Per-(actor, library) scoping like xxip's per-workspace undo

@@ -224,7 +224,7 @@ final class AgentChatGraphQLTests: XCTestCase {
     // Simulate a pre-existing or non-GraphQL forged row: sending a turn must
     // still fail before it can queue unscoped reply generation.
     let forged = try service.service.scoped(to: alice.userId).createNotebook(
-      title: "Forged legacy conversation",
+      title: "Forged conversation",
       kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
       metaJSON: forgedMetaJSON
     )

@@ -371,15 +371,13 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     return .cancelled("auto-action originating account is unavailable")
   }
 
-  /// Every recovered workflow must retain the request principal that queued
-  /// it. An operator dispatcher is intentionally unscoped, so accepting a
-  /// legacy row here would let any AI workflow recover broader access after an
-  /// upgrade. Disabled accounts are terminal: no provider call or mutation is
-  /// safe once the account is unavailable.
+  /// Every recovered workflow runs as the request principal that queued it.
+  /// An operator dispatcher is intentionally unscoped, so the event's stored
+  /// principal (required at the type level) is the only thing that keeps an
+  /// AI workflow from recovering broader access than the request had. Disabled
+  /// accounts are terminal: no provider call or mutation is safe once the
+  /// account is unavailable.
   private func resolveDispatchService(for event: NoteAutoActionEvent) -> PrincipalResolution {
-    guard let isUnauthenticatedPrincipal = event.originatingIsUnauthenticatedPrincipal else {
-      return .outcome(.failed("auto-action event lacks originating principal metadata"))
-    }
     if let originatingUserId = event.originatingUserId {
       do {
         guard let user = try service.user(id: originatingUserId), user.disabledAt == nil else {
@@ -391,7 +389,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     }
     return .service(service
       .scoped(to: event.originatingUserId)
-      .unauthenticated(isUnauthenticatedPrincipal))
+      .unauthenticated(event.originatingIsUnauthenticatedPrincipal))
   }
 
   /// A disabled principal is a permanent stop, not a retryable provider

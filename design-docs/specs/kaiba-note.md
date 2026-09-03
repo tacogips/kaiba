@@ -39,9 +39,6 @@ Kaiba ships as:
 - `riela/design-docs/riela-note-design.md` — original requirements memo.
 - `riela/design-docs/specs/design-riela-note.md` — accepted design
   (D1–D19); the data model and service semantics below follow it.
-- `riela/impl-plans/active/riela-note.md` and the completed
-  `riela-note-*` plans — implementation history; the extracted code is
-  the accepted, test-covered implementation.
 - `riela/Sources/RielaNote/`, `riela/Sources/RielaSQLite/`,
   `riela/Tests/RielaNoteTests/` — the vendored sources and tests.
 
@@ -167,10 +164,11 @@ Kept unchanged; see `design-riela-note.md` for full rationale:
 The schema is defined by `NoteStoreSchema.swift` and includes hierarchical
 tags, the auto-action outbox, and API-client registry tables.
 Database file: `<note-root>/note-store.sqlite`, WAL mode, FTS5 required.
-Kaiba carries no migration machinery: fresh stores are created directly
-at the current schema version, stores already at the current version are
-validated and reused, and older or newer stores are rejected up front
-with a versioned error.
+Kaiba carries no migration machinery and backward compatibility is not a
+requirement: fresh stores are created directly at the current schema
+version, stores already at the current version are reused after the
+foreign-key integrity checks, and older or newer stores are rejected up
+front with a versioned error.
 
 ## CLI Surface
 

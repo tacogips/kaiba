@@ -104,7 +104,7 @@ public extension NoteService {
       position: 0,
       createdAt: NoteStoreClock.system.now()
     )
-    let event = NoteAutoActionEvent(
+    let event = makeAutoActionEvent(
       trigger: .notebookCreated,
       notebookId: notebook.notebookId
     )
@@ -422,8 +422,8 @@ public extension NoteService {
   }
 
   /// A durable source token changes whenever an action affects the source
-  /// notebook. Equality, rather than ordering, also fails safely for legacy
-  /// or corrupted metadata values.
+  /// notebook. Equality, rather than ordering, also fails safely for
+  /// corrupted metadata values.
   static func translationSourceRevisionAdvanced(_ current: Int64, beyond expected: Int64) -> Bool {
     current != expected
   }
@@ -581,7 +581,7 @@ public extension NoteService {
           in: db
         )
         let dispatches = try enqueueAutoActions(
-          for: NoteAutoActionEvent(
+          for: makeAutoActionEvent(
             trigger: .noteCreated,
             notebookId: translationNotebookId,
             noteId: noteId,

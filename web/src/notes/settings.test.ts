@@ -11,7 +11,7 @@ describe('web settings parsing', () => {
     expect(parseWebSettings(serializeWebSettings({ fontScale: 1.3 }))).toEqual({ fontScale: 1.3 })
   })
 
-  test('preserves a selected agent model while accepting older setting documents', () => {
+  test('preserves a selected agent model and accepts a document without one', () => {
     expect(parseWebSettings(serializeWebSettings({ fontScale: 1.3, agentModel: 'openai/gpt-5-mini' })))
       .toEqual({ fontScale: 1.3, agentModel: 'openai/gpt-5-mini' })
     expect(parseWebSettings('{"fontScale":1.1}').agentModel).toBeUndefined()

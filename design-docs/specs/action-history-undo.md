@@ -33,18 +33,13 @@ Accepted (2026-08-21). Initial implementation.
   (`design-docs/specs/design-event-log.md` there). Kaiba adopts its
   log-derived undo state and link columns, and deliberately diverges
   where noted in U2, U4, U7, U9.
-- Implementation plan: `impl-plans/completed/action-history-undo.md`.
 - User decisions: `design-docs/user-qa/action-history-undo.md`.
 
 ## Design Decisions
 
-- **U1 — One additive append-only table, no schema version bump.**
-  `note_action_log` is created by the idempotent base statement list in
-  `NoteStoreSchema`, exactly like `app_settings` was ("App settings in
-  sqlite", `design-docs/specs/kaiba-migration-history.md`): fresh and
-  existing v15 stores both gain it at `prepare`, and a store touched by
-  this build still opens under the previous build. `currentVersion`
-  stays 15.
+- **U1 — One append-only table.** `note_action_log` is part of the base
+  statement list in `NoteStoreSchema`, created at `prepare` together with
+  every other table; it needs no separate step.
 
 - **U2 — Recording is transactional and mandatory.** Each recorded
   mutation inserts its log row inside the same

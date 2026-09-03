@@ -1,7 +1,6 @@
 import type { NoteId, NotebookId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
 import { formatTimestamp } from '../notes/format'
-import { NoteTransportError } from '../notes/client'
 import { MarkdownBody } from './Markdown'
 import { errorMessage, useApp, type AppStore } from '../state/appStore'
 import {
@@ -64,18 +63,10 @@ export interface MemoTabProps {
   emptyMessage?: string
 }
 
-/** Immediate discovery attempts before a transport failure is reported; a
- * schema rejection is conclusive on the first try. The budget is small on
- * purpose: real outages outlast any immediate retry, so recovery comes from
- * re-running on `catalogRevision` rather than from more attempts here. */
-const catalogDiscoveryAttempts = 3
-
-/** Shown when discovery cannot reach the catalog. The banner is retired by
- * `load()`'s unconditional `setError('')`, which re-runs on the same
- * `catalogRevision` bump that re-runs discovery — so no separate clear is
- * needed here, and adding one would be a line no test can pin. */
-const catalogUnreachableMessage =
-  'Could not load the agent model catalog. Model, attachment and note edit options stay unavailable until it loads.'
+/** Shown when the model catalog query fails. It is a transport error, not a
+ * capability signal: the controls stay usable and the server validates the
+ * send. The banner is retired by the next successful discovery. */
+const catalogUnreachableMessage = 'Could not load the agent model catalog.'
 
 export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const app = props.app ?? useApp()
@@ -90,16 +81,13 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const [noteEdit, setNoteEdit] = createSignal(false)
   const [attachments, setAttachments] = createSignal<File[]>([])
   const [models, setModels] = createSignal<AgentModel[]>([])
-  // Whether the server answered `agentModels` at all. An older server has no
-  // such field, so the query rejects and every composer extension rests.
-  const [catalogAvailable, setCatalogAvailable] = createSignal(false)
-  // Discovery re-runs on this counter so a transport blip gets another chance
-  // instead of condemning a capable server for the whole session.
-  const [catalogAttempt, setCatalogAttempt] = createSignal(0)
   const [newConversation, setNewConversation] = createSignal(false)
   const [newConversationBoundary, setNewConversationBoundary] = createSignal(false)
   const [activeConversationId, setActiveConversationId] = createSignal<NotebookId>()
   const [configuredModel, setConfiguredModel] = createSignal<string | null>()
+  // Kept apart from `error` so a timeline reload cannot wipe the report
+  // before the user sees it; only a successful discovery retires it.
+  const [catalogError, setCatalogError] = createSignal('')
   const [error, setError] = createSignal('')
   const [streamTurnId, setStreamTurnId] = createSignal<NoteId>()
   const [streamText, setStreamText] = createSignal('')
@@ -136,7 +124,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const conversationIds = createMemo(() =>
     conversations().map((conversation) => conversation.notebookId).join('\n'))
   const extensionControlsEnabled = createMemo(() =>
-    agentComposerExtensionsEnabled(catalogAvailable(), memoOnly(), busy()))
+    agentComposerExtensionsEnabled(memoOnly(), busy()))
   // Mirrors the server's updateNoteBody gate: the note's own flag and its
   // notebook's flag must both be clear (imported documents lock the notebook).
   const noteEditAvailable = createMemo(() =>
@@ -148,58 +136,26 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     if (noteEdit() && !noteEditAvailable()) setNoteEdit(false)
   })
 
+  // Model discovery populates the picker. It re-runs when the app's own
+  // catalog reload succeeds (`catalogRevision` is bumped only on success), so a
+  // failed request gets another chance once the server is reachable again.
   createEffect(() => {
-    const attempt = catalogAttempt()
-    // Re-run discovery when the app's own catalog reload succeeds. The store
-    // increments `catalogRevision` only on success, so it is a genuine
-    // server-is-reachable-again signal rather than a timer — and it is the same
-    // trigger the reload effect below already uses. Without it the immediate
-    // attempt budget, which any real outage outlives, would be the only chance
-    // the session ever gets.
     void app.state.catalogRevision
-    // Runs can overlap once discovery is re-runnable: `catalogRevision` is
-    // bumped by a debounced refresh, so a slow request can settle after a newer
-    // one. Same guard idiom as `load()` below.
+    // Runs can overlap: `catalogRevision` is bumped by a debounced refresh, so
+    // a slow request can settle after a newer one. Same guard idiom as `load()`.
     const requested = ++catalogGeneration
     void app.client.agentModels().then((catalog) => {
       if (requested !== catalogGeneration) return
-      // The query answering is the capability signal, not `discoveryAvailable`:
-      // a vendor that cannot enumerate models still accepts the extension
-      // fields, and the configured model stays the fallback.
-      setCatalogAvailable(true)
       setModels(catalog.models)
       setConfiguredModel(catalog.configuredModel)
-      // The budget is per outage, not per session: a success earns the next
-      // outage a fresh set of immediate attempts.
-      setCatalogAttempt(0)
-    }).catch((discoveryError: unknown) => {
+      setCatalogError('')
+    }).catch(() => {
       if (requested !== catalogGeneration) return
-      setCatalogAvailable(false)
-      // Only a schema-level rejection proves the server predates the composer
-      // extensions. A network or HTTP failure says nothing about capability, so
-      // treating it as an older server would rest every control for the rest of
-      // the session against a server that understands them perfectly well.
-      if (discoveryError instanceof NoteTransportError && discoveryError.kind !== 'graphql') {
-        // Deliberately NOT clearing `models` here. A retryable blip must leave
-        // the catalog intact, or the normalization effect below re-derives the
-        // selection from an empty list and silently overwrites — and persists —
-        // the model the user chose.
-        if (attempt + 1 < catalogDiscoveryAttempts) {
-          setCatalogAttempt(attempt + 1)
-          return
-        }
-        setError(catalogUnreachableMessage)
-        return
-      }
-      // Older server: the catalog is genuinely gone, so clear it.
-      setModels([])
-      // Older server. The controls rest by design, and anything staged before
-      // discovery settled is dropped rather than silently withheld on send —
-      // with an explanation, so files never vanish unannounced.
-      if (attachments().length > 0) {
-        setError('This server does not accept attachments, so the staged files were removed.')
-      }
-      setAttachments([])
+      // Report the failure and keep whatever catalog is already known. Clearing
+      // `models` would make the normalization effect below re-derive the
+      // selection from an empty list and silently overwrite the persisted
+      // model the user chose. Staged attachments are untouched as well.
+      setCatalogError(catalogUnreachableMessage)
     })
   })
 
@@ -367,70 +323,27 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   ) => {
     const body = userMarkdown.trim()
     if (!body || busy()) return
-    // Guard the EFFECTIVE request, not one call site. Both paths can carry an
-    // extension the capability gate cannot withdraw at the control: retry takes
-    // noteEdit from the persisted turn rather than the toggle, and a direct send
-    // carries whatever the toggle latched before availability flipped true ->
-    // false (nothing resets it) plus any chip the transport branch deliberately
-    // kept. Withholding those fields silently would let the server answer an
-    // edit request as a plain memo — the masquerade web-chatbook-ui.md:254-257
-    // forbids — or drop a file the user can still see staged. Refuse instead,
-    // which preserves both the toggle and the chips for when the catalog returns.
-    // Read availability ONCE and reuse that single value for both the guards
-    // and the builder below. The builder runs after two awaits, and discovery
-    // (which re-runs on every `catalogRevision` bump and is not gated on
-    // `busy()`) can flip availability true -> false inside that window. Re-reading
-    // it there would let a request the guard already admitted go out with its
-    // extension fields quietly withheld — the same masquerade the guard exists to
-    // prevent. Captured, the request is atomically either fully extended or
-    // refused; if the server does turn out to be old mid-send it rejects the
-    // extension field loudly, which is the intended failure mode.
-    // WIDENED 2026-08-30 from three captures to every REACTIVE value the builder
-    // reads. The earlier set was drawn around the three fields the capability
-    // gate refuses on; Step 7 then reproduced two more post-await reads the
-    // narrower set left exposed — the selected model, and the conversation
-    // routing. The property being defended is not "the gated fields are stable"
-    // but "the request the guard admits is the request that goes out".
-    // Stated exactly, because the looser form is false one line below:
-    // THE BUILDER READS NO SIGNAL AND NO STORE FIELD. Every argument that CAN be
-    // captured pre-guard is captured here. TWO cannot, and both are named rather
-    // than papered over: `idempotencyKey` is deliberately minted fresh at the
-    // call, and `subject` may not exist until `ensureSubject` resolves inside the
-    // await window. Neither reads reactive state, so neither can change the
-    // request between admission and the wire — which is the property that
-    // matters.
-    const extensionsAvailable = catalogAvailable()
+    // Every reactive value the request builder needs is captured here, before
+    // the awaits below, so the request that goes out is the one the user
+    // submitted. Effects that are not gated on `busy()` can fire inside the
+    // await window: the read-only effect clears `noteEdit()` when the note
+    // stops being editable, and a successful re-discovery can re-normalize the
+    // persisted model. The two non-captures are `idempotencyKey` (minted fresh
+    // at the call on purpose) and `subject` (which may only exist once
+    // `ensureSubject` resolves); neither reads reactive state.
     const effectiveNoteEdit = retry ? retry.noteEdit : noteEdit()
     // Captured, so a mid-send mutation of `attachments()` cannot change what
     // this request uploads. The chip-remove button is gated on `busy()` for the
     // matching reason: a withdrawal this capture cannot honour must not be
     // accepted, or the composer would confirm a removal the wire ignored.
     const stagedAttachments = retry ? [] : attachments()
-    const effectiveAttachments = stagedAttachments.length
-    // `agentModel` is re-derived by the normalization effect whenever `models`
-    // changes, and the discovery `.catch` clears `models` on an older-server
-    // verdict. Re-read at the builder, an in-flight request would silently carry
-    // `configuredModel` instead of the model the composer displayed when the
-    // user pressed send.
     const effectiveModel = app.state.settings.agentModel
-    // Before the New chat button carried `disabled={busy()}`, one click during
-    // the await window rerouted an already-submitted message into a new
-    // conversation and half-applied its reset — chips cleared in the composer
-    // while the same chips still rode out on the wire. The capture below settles
-    // the request; the button's gate is what keeps the click from being accepted
-    // and then discarded. `startNewChat` itself is still an ungated closure, so
-    // that half rests on the DOM binding rather than on this function.
+    // The New chat button is gated on `busy()` so a click during the await
+    // window cannot reroute an already-submitted message; the captures settle
+    // the request itself in one direction.
     const effectiveConversations = retry ? [] : conversations()
     const effectiveConversationId = retry ? retry.conversationId : activeConversationId()
     const effectiveNewConversation = retry ? false : newConversation()
-    if (!extensionsAvailable && effectiveNoteEdit) {
-      setError('Note edit mode is unavailable until the agent model catalog loads, so this note edit was not sent.')
-      return
-    }
-    if (!extensionsAvailable && effectiveAttachments > 0) {
-      setError('Attachments are unavailable until the agent model catalog loads, so this message was not sent. The staged files were kept.')
-      return
-    }
     let current = subject()
     if (!current && !props.ensureSubject) return
     setBusy(true)
@@ -439,11 +352,8 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
       current = current ?? await props.ensureSubject?.()
       if (!current) return
       const attachmentInputs = await Promise.all(stagedAttachments.map(fileToAttachment))
-      // Nothing below reads a signal or a store field, which is what makes
-      // "admitted" and "sent" the same request rather than two requests
-      // separated by two awaits. Every reactive value is a pre-guard capture;
-      // the two non-captures are `idempotencyKey` (minted fresh here on purpose)
-      // and `subject` (resolved by `ensureSubject` above when the note had none).
+      // Nothing below reads a signal or a store field: every reactive value is
+      // one of the captures above.
       const result = await app.client.sendAgentChatMessage(buildAgentChatComposerRequest({
         subject: current,
         conversations: effectiveConversations,
@@ -453,7 +363,6 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         idempotencyKey: newIdempotencyKey(),
         selectedModel: effectiveModel,
         noteEdit: effectiveNoteEdit,
-        extensionsAvailable,
         attachments: attachmentInputs,
       }))
       if (!retry) {
@@ -592,7 +501,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
             <button
               type="button"
               class="secondary"
-              disabled={busy() || (turn.mode === 'edit' && !catalogAvailable())}
+              disabled={busy()}
               onClick={() => void send(turn.userMarkdown, {
                 conversationId: entry.conversationId,
                 noteEdit: turn.mode === 'edit',
@@ -619,6 +528,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
             Agent runtime not configured. Sent messages are saved and answered once an agent is available.
           </p>
         </Show>
+        <Show when={catalogError()}><p class="note-inline-error" role="alert">{catalogError()}</p></Show>
         <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
 
         <div class="chat-transcript" aria-label="Memo timeline" aria-busy={Boolean(streamTurnId())}>
@@ -650,7 +560,6 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           models={models()}
           selectedModel={app.state.settings.agentModel}
           extensionsEnabled={extensionControlsEnabled()}
-          catalogAvailable={catalogAvailable()}
           onStageFiles={stageFiles}
           onToggleMemoOnly={() => {
             const outcome = memoOnlyToggleResult(memoOnly(), attachments().length, noteEdit())
@@ -689,10 +598,6 @@ export interface MemoComposerControlsProps {
   models: readonly AgentModel[]
   selectedModel?: string
   extensionsEnabled: boolean
-  /** Whether the server answered the composer-extension catalog. Required so
-   * every call site states its answer instead of inheriting a default that
-   * would fail open against an older server. */
-  catalogAvailable: boolean
   onStageFiles(files: FileList | null): void | Promise<void>
   onToggleMemoOnly(): void
   onToggleNoteEdit(): void
@@ -734,8 +639,8 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         aria-pressed={noteEditAttributes().ariaPressed}
         aria-label={noteEditAttributes().ariaLabel}
         title={props.canNoteEdit || props.noteEdit ? noteEditAttributes().title : 'Note edit mode requires a writable note'}
-        aria-disabled={(!props.catalogAvailable && !props.noteEdit) || (!props.canNoteEdit && !props.noteEdit)}
-        disabled={props.busy || (!props.catalogAvailable && !props.noteEdit) || (!props.canNoteEdit && !props.noteEdit)}
+        aria-disabled={!props.canNoteEdit && !props.noteEdit}
+        disabled={props.busy || (!props.canNoteEdit && !props.noteEdit)}
         onClick={props.onToggleNoteEdit}
       >✎</button>
       <div class="composer-main">

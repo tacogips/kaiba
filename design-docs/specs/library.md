@@ -1,6 +1,6 @@
 # Libraries
 
-**Status**: Implemented (schema 14)
+**Status**: Implemented
 **Related**: `design-docs/specs/multi-user.md`, `design-docs/specs/note-api-auth.md`,
 `design-docs/specs/command.md`
 
@@ -27,9 +27,9 @@ State before this work, kept for the reasoning it explains.
 - `kaiba serve` decides authentication once for the process:
   `--allow-unauthenticated` installs no authenticator, otherwise a QR client
   registration authenticator is installed (`ServeCommand.swift:136`).
-- The store carries no migrations. `requireSupportedVersion`
-  (`NoteStoreSchema.swift:178`) rejects a store older *or* newer than
-  `currentVersion`, which was 11 at the time.
+- The store carries no migrations. `requireSupportedVersion` in
+  `NoteStoreSchema.swift` rejects a store older *or* newer than
+  `currentVersion`.
 - Credentials are never written to `~/.config/kaiba/config.json`; the config
   names environment variables (`authTokenEnvironmentVariable`,
   `accessKeyIdEnvironmentVariable`) and the value arrives through the process
@@ -213,10 +213,10 @@ kaiba-side change.
 
 ## Schema Consequence
 
-`libraries`, `library_members`, and `notebooks.library_id` are schema 14. The store carries no
-migrations, and that policy is kept: an older store is refused with
+`libraries`, `library_members`, and `notebooks.library_id` are part of the base
+schema. The store carries no migrations: an older store is refused with
 `unsupportedLegacyVersion` and is recreated rather than upgraded. Backward
-compatibility was explicitly not required for this change.
+compatibility is not a requirement.
 
 `notebooks.library_id` is `NOT NULL ... DEFAULT 'library-default'`. The default
 is not decoration: the internal paths that create notebooks — long-term memory

@@ -94,7 +94,7 @@ off on the grounds that sharing has not arrived.
 
 ### Should `/note/agent-stream` and `/note/events` be scoped now?
 
-**Status**: Done — TASK-408 shipped with the completed multi-user plan.
+**Status**: Done.
 
 Both routes now enter a request-scoped `NoteService`: agent streaming resolves
 the requested turn through `requireNote` before polling, and event polling

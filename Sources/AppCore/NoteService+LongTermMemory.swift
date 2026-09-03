@@ -195,7 +195,7 @@ extension NoteService {
           )
           notes.append(try requireNote(noteId, in: db))
           dispatches.append(contentsOf: try enqueueAutoActions(
-            for: NoteAutoActionEvent(
+            for: makeAutoActionEvent(
               trigger: .noteCreated,
               notebookId: notebookId,
               noteId: noteId,

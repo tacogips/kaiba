@@ -230,13 +230,10 @@ already has `email` with a unique partial index, `display_name`, `created_at`,
   `auth_sessions` would add is revoking one browser without disabling the
   person.
 
-Neither new table is part of multi-user TASK-M06 through TASK-M10. That work
-must keep `NoteStoreSchema.currentVersion = 17`. Before a later task adds
-`auth_login_requests`, it must resolve the schema rollout in P9: silently
-changing the version-17 create schema would leave already-created version-17
-stores without the table, while incrementing the version follows the current
-fresh-schema policy but requires store recreation. `auth_sessions` is further
-deferred on the P6 expiry decision.
+Neither table exists yet. When a later release adds `auth_login_requests` it
+increments `NoteStoreSchema.currentVersion` and requires store recreation
+(P9); Kaiba carries no migrations. `auth_sessions` is further deferred on the
+P6 expiry decision.
 
 Raw codes, approval tokens, poll secrets, and session tokens are never
 persisted server-side or logged, and are returned only through the single
@@ -585,8 +582,7 @@ JWT to `kaiba-note-bearer`. Approval pages never receive or persist the JWT.
   per-account library membership is enforced on raw bytes exactly as the
   GraphQL executor enforces it. Ownership enforcement and the default-user
   fallback for an unauthenticated host are designed in
-  `design-docs/specs/multi-user.md` and remain open until TASK-M06 passes its
-  authenticated-host, unauthenticated-host, and orphan-blob tests.
+  `design-docs/specs/multi-user.md`.
 - Store-wide file maintenance (`migrateAllNoteFiles`, `reclaimNoteFileStorage`)
   is refused to non-admin clients: only the unscoped local operator or an acting
   admin may sweep or migrate blobs across every library.
@@ -612,7 +608,7 @@ JWT to `kaiba-note-bearer`. Approval pages never receive or persist the JWT.
   knows `requestId`.
 - 401 bodies keep their current shape (`error` plus a GraphQL `errors` array)
   so existing clients are unaffected.
-- `POST /note/agent-token` is owned by multi-user TASK-M08. It mints only for
+- `POST /note/agent-token` mints only for
   the authenticated `NoteAPIAuthenticatedClient.userId`, accepts no account id
   from the caller, bounds TTL, re-reads account state, and refuses requests on
   every unauthenticated host, including `--allow-unauthenticated`. The token is

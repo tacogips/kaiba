@@ -262,6 +262,7 @@ final class KaibaAutoActionDispatcherTests: NoteTestCase {
         trigger: trigger,
         notebookId: notebookId,
         noteId: noteId,
+        originatingUserId: nil,
         originatingIsUnauthenticatedPrincipal: false
       )
     )

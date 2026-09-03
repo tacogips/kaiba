@@ -98,20 +98,13 @@ extension NoteService {
           try db.execute(
             """
             UPDATE auto_action_dispatches
-            SET status = ?, lease_token = NULL, leased_at = NULL, last_error = NULL, updated_at = ?
+            SET status = ?, lease_token = NULL, leased_at = NULL, last_error = ?, updated_at = ?
             WHERE dispatch_id = ? AND status = ? AND attempt_count >= ?
             """,
             bindings: [
-              .text(AutoActionDispatchStatus.dispatched.rawValue), .text(now), .id(dispatchId),
+              .text(AutoActionDispatchStatus.cancelled.rawValue), .text(reason), .text(now), .id(dispatchId),
               .text(AutoActionDispatchStatus.inFlight.rawValue), .int(Int64(maximumAutoActionDispatchAttempts))
             ]
-          )
-          try db.execute(
-            """
-            INSERT INTO auto_action_dispatch_cancellations (dispatch_id, reason, cancelled_at)
-            VALUES (?, ?, ?) ON CONFLICT(dispatch_id) DO NOTHING
-            """,
-            bindings: [.id(dispatchId), .text(reason), .text(now)]
           )
         }
         return reclaimed + exhausted.count

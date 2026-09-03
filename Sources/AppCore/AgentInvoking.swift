@@ -76,8 +76,8 @@ public enum AgentInvocationError: Error, Equatable, Sendable {
 
 /// The agent runtime seam (`design-docs/specs/ai-agent-integration.md`, AI1).
 /// No streaming: the HTTP server writes single responses, so results land via
-/// persistence plus the change feed. The concrete implementation arrives with
-/// the agent-gateway adapter (`impl-plans/active/agent-gateway-adapter.md`).
+/// persistence plus the change feed. The concrete implementation is the
+/// agent-gateway adapter (`design-docs/specs/ai-agent-integration.md`).
 public protocol AgentInvoking: Sendable {
   func invoke(_ request: AgentInvocationRequest) async throws -> AgentInvocationResult
 }

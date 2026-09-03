@@ -165,12 +165,6 @@ public actor NoteChangeFeed {
       ?? NoteChangeFeedPoll(revision: since, events: [], resync: false)
   }
 
-  /// Kept for source compatibility with callers that previously restored a
-  /// consumed poll after post-poll authentication failed. Delivery is now
-  /// retained until its successor is used, so there is nothing to restore.
-  public func restoreUndeliveredPoll(_: NoteChangeFeedPoll) {
-  }
-
   private func prepareVisiblePoll(cursor: String) throws -> NoteChangeFeedPoll? {
     guard var state = cursors[cursor] else {
       return nil

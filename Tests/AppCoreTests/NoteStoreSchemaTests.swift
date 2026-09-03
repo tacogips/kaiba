@@ -86,7 +86,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
-  func testPrepareRejectsLegacySchemaVersion() throws {
+  func testPrepareRejectsOlderSchemaVersion() throws {
     let driver = try makeNoteDriver()
     try driver.withDatabase { database in
       try database.execute(
@@ -229,42 +229,6 @@ final class NoteStoreSchemaTests: NoteTestCase {
     let secondDatabase = try driver.withDatabase { ObjectIdentifier($0) }
 
     XCTAssertEqual(firstDatabase, secondDatabase)
-  }
-
-  func testPrepareRebuildsLegacyUnicodeFTSAsTrigram() throws {
-    let driver = try makeNoteDriver()
-    let service = try NoteService(driver: driver)
-    let note = try service.createNote(bodyMarkdown: "# 日本語ノート\nこれは日本語検索の検証です")
-    try driver.withDatabase { database in
-      try database.execute("DROP TABLE note_fts")
-      try database.execute("""
-        CREATE VIRTUAL TABLE note_fts USING fts5(
-          title, body, tags,
-          content='',
-          tokenize='unicode61'
-        )
-        """)
-      try database.execute("DELETE FROM note_fts_map")
-      try database.execute(
-        "INSERT INTO note_fts(rowid, title, body, tags) VALUES (1, ?, ?, '')",
-        bindings: [.text(note.title ?? ""), .text(note.bodyMarkdown)]
-      )
-      try database.execute(
-        "INSERT INTO note_fts_map (fts_rowid, note_id) VALUES (1, ?)",
-        bindings: [.id(note.noteId)]
-      )
-    }
-
-    try NoteStoreSchema.prepare(on: driver)
-
-    try driver.withDatabase { database in
-      let ftsSchema = try database.query(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'note_fts' LIMIT 1"
-      ).first?["sql"]
-      XCTAssertTrue(ftsSchema?.contains("tokenize='trigram'") == true)
-      try database.execute("INSERT INTO note_fts(note_fts) VALUES('integrity-check')")
-    }
-    XCTAssertEqual(try service.searchNotes(query: "日本語検索").map(\.note.noteId), [note.noteId])
   }
 
   func testTagPartialIndexesEnforceParentScopedFolderAndNonFolderUniqueness() throws {

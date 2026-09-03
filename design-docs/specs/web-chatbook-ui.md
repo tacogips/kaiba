@@ -6,29 +6,10 @@ Accepted
 
 ## Traceability
 
-- Workflow issue: `direct-workflow:comm-002100`
-- Composition reference: the user's desktop screenshot
-  `Screenshot 2026-08-12 at 21.13.56.png` (kept outside the repository)
 - Repository guidance: `AGENTS.md`
 - Verification-gate definition: `design-docs/specs/tauri-client-apps.md`
 - Open user decision: `design-docs/user-qa/web-chatbook-ui.md`
   (automating the browser-runtime composer checks)
-
-## Issue Scope: `direct-workflow:comm-002100`
-
-This issue implements only the right-pane agent memo/chat composer and its
-attachment contracts:
-
-- **In scope:** W9-W12, the right-pane and Memo-pane behavior needed by those
-  decisions, their client/server contract integration, responsive light/dark
-  styling, and the focused tests and documentation required by the intake.
-- **Out of scope:** W1-W8, W13, header search, left-pane or center-reader
-  changes, broader routing or application-shell redesign, and unrelated
-  parity work. Those pre-existing decisions remain context for compatibility;
-  this issue does not authorize implementing or revising them.
-- Existing conversations, memos, pane behavior, streaming, and file storage
-  are integration boundaries to preserve, not invitations to broaden the
-  feature.
 
 ## Summary
 
@@ -153,8 +134,8 @@ original per-note reader + separate Memos/Chat tabs described below.)
   selector lists models advertised for the server's configured agent
   provider, with the configured model as the fallback when discovery is
   unavailable. Selection is stored in the existing SQLite-backed `web`
-  app-settings document as `agentModel`; defensive parsing preserves
-  older documents. Every agent send includes the selected model. Memo-only
+  app-settings document as `agentModel`; defensive parsing tolerates a
+  document without a selection. Every agent send includes the selected model. Memo-only
   submissions do not invoke a model, but retain the selection for the next
   agent send. The provider is not selectable in this pane.
 - **W12 — Composer attachments are bounded agent-turn context.** The
@@ -212,9 +193,9 @@ original per-note reader + separate Memos/Chat tabs described below.)
   Attachments are discovered lazily per mounted note via the `noteFiles`
   GraphQL query; bytes come from `GET /files/<fileId>` fetched with the
   bearer header into object URLs, because an `img src` cannot carry
-  Authorization. An older server without `noteFiles` leaves notes
-  without arrows. Ordering/stepping logic lives DOM-free in
-  `notes/noteImages.ts` with tests.
+  Authorization. A failed `noteFiles` lookup leaves that note without
+  arrows. Ordering/stepping logic lives DOM-free in `notes/noteImages.ts`
+  with tests.
 
 ## Composer Data Flow and Rollout
 
@@ -240,10 +221,14 @@ original per-note reader + separate Memos/Chat tabs described below.)
    later turns reconstruct the same ordering from persisted positions.
 4. Memo-only submission uses the existing note/notebook comment mutation.
    It does not send model or attachment fields.
-5. Deploy server/core contract support before enabling the web controls.
-   A web client receiving an unavailable catalog shows only the configured
-   model; an older server must leave model and attachment controls disabled
-   rather than sending unsupported fields.
+5. The client and server ship together, so the client assumes the server it
+   was built with and never probes for capabilities. A catalog whose
+   `discoveryAvailable` is false shows only the configured model. A failed
+   `agentModels` request is a reported transport error, not a capability
+   signal: the client reports it once, keeps any catalog it already knows,
+   keeps staged attachments, leaves the model, attachment, and note edit
+   controls usable, and retries discovery on the next successful catalog
+   reload. The server validates every field on the send.
 6. The composer's note edit toggle sends `mode: "edit"` on the agent
    submission. It is enabled only for a note subject whose own read-only
    flag and whose notebook's flag are both clear (the client mirror of the
@@ -251,11 +236,10 @@ original per-note reader + separate Memos/Chat tabs described below.)
    drops automatically when the subject changes or stops being writable,
    and is mutually exclusive with memo-only. The mode is per turn, so a
    conversation started in memo mode can switch to edit mid-thread and the
-   prior turns ground the edit. Like model/attachments, the field is only
-   sent when the composer-extension catalog is available — an older server
-   would silently answer as a memo, which must never masquerade as an
-   applied edit. Turns whose meta records `mode: "edit"` render a
-   "Note edit" badge in the timeline.
+   prior turns ground the edit. Like model/attachments, the field is sent
+   whenever the toggle is on, including on a retry of a failed edit turn, so
+   a plain memo answer can never masquerade as an applied edit. Turns whose
+   meta records `mode: "edit"` render a "Note edit" badge in the timeline.
 
 The 1 MiB aggregate limit deliberately stays below
 `KaibaHTTPRequestParser.maximumBodyBytes` after base64 and JSON overhead.
@@ -311,9 +295,9 @@ Gate-enforced, as DOM-free logic tests per repo convention: `router.test.ts`,
 reducer including unavailable/pending/failed), `paneState.test.ts` (fold/tab
 persistence), plus focused composer tests for Enter/Shift+Enter/IME handling,
 memo-only accessibility and blocking, model fallback/persistence, new-chat
-conversation intent, attachment validation/removal, and older-server capability
-fallback. Composer behavior expressible as pure state or encoding logic belongs
-here, not in manual smoke.
+conversation intent, attachment validation/removal, and reported-not-gated
+model discovery failure. Composer behavior expressible as pure state or encoding
+logic belongs here, not in manual smoke.
 
 Browser-runtime checks, manual and outside the gate: `kaiba serve --web-root
 web/dist`, deep-link `#/note/<id>`, fold both panes, TOC scroll-sync, memo add

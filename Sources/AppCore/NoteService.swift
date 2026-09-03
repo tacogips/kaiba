@@ -229,7 +229,7 @@ public struct NoteService: Sendable {
       in: db
     )
     let dispatches = try enqueueAutoActions(
-      for: NoteAutoActionEvent(
+      for: makeAutoActionEvent(
         trigger: .notebookCreated,
         notebookId: notebook.notebookId,
         originatingActionId: originatingActionId
@@ -422,7 +422,7 @@ public struct NoteService: Sendable {
         var dispatches: [QueuedAutoActionDispatch] = []
         if let createdNotebookId {
           dispatches.append(contentsOf: try enqueueAutoActions(
-            for: NoteAutoActionEvent(
+            for: makeAutoActionEvent(
               trigger: .notebookCreated,
               notebookId: createdNotebookId,
               originatingActionId: originatingActionId
@@ -431,7 +431,7 @@ public struct NoteService: Sendable {
           ))
         }
         dispatches.append(contentsOf: try enqueueAutoActions(
-          for: NoteAutoActionEvent(
+          for: makeAutoActionEvent(
             trigger: .noteCreated,
             notebookId: note.notebookId,
             noteId: note.noteId,
@@ -612,7 +612,7 @@ public struct NoteService: Sendable {
       in: db
     )
     var dispatches = try enqueueAutoActions(
-      for: NoteAutoActionEvent(
+      for: makeAutoActionEvent(
         trigger: .notebookCreated,
         notebookId: ingestResult.notebook.notebookId,
         originatingActionId: originatingActionId
@@ -621,7 +621,7 @@ public struct NoteService: Sendable {
     )
     for note in ingestResult.notes {
       dispatches.append(contentsOf: try enqueueAutoActions(
-        for: NoteAutoActionEvent(
+        for: makeAutoActionEvent(
           trigger: .noteCreated,
           notebookId: ingestResult.notebook.notebookId,
           noteId: note.noteId,
@@ -749,7 +749,7 @@ public struct NoteService: Sendable {
     tagFilter: [String] = []
   ) throws -> [Note] {
     try driver.withDatabase { database in
-      let expandedTagFilterIds = try expandedLegacyTagFilterIds(tagFilter, in: database)
+      let expandedTagFilterIds = try expandedTagFilterIds(names: tagFilter, in: database)
       guard tagFilter.isEmpty || !expandedTagFilterIds.isEmpty else {
         return []
       }
@@ -911,7 +911,7 @@ public struct NoteService: Sendable {
       )
     }
     let dispatches = try enqueueAutoActions(
-      for: NoteAutoActionEvent(
+      for: makeAutoActionEvent(
         trigger: .noteUpdated,
         notebookId: note.notebookId,
         noteId: note.noteId,

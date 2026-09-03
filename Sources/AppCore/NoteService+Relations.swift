@@ -315,7 +315,7 @@ public extension NoteService {
         let dispatches: [QueuedAutoActionDispatch]
         if appendResult.inserted {
           dispatches = try enqueueAutoActions(
-            for: NoteAutoActionEvent(
+            for: makeAutoActionEvent(
               trigger: .noteCreated,
               notebookId: appendResult.note.notebookId,
               noteId: appendResult.note.noteId,
@@ -394,7 +394,7 @@ public extension NoteService {
         let notebook = try requireNotebook(notebookId, in: db)
         let saved = SavedConversation(notebook: notebook, notes: notes)
         var dispatches = try enqueueAutoActions(
-          for: NoteAutoActionEvent(
+          for: makeAutoActionEvent(
             trigger: .notebookCreated,
             notebookId: notebook.notebookId,
             originatingActionId: originatingActionId
@@ -403,7 +403,7 @@ public extension NoteService {
         )
         for note in notes {
           dispatches.append(contentsOf: try enqueueAutoActions(
-            for: NoteAutoActionEvent(
+            for: makeAutoActionEvent(
               trigger: .noteCreated,
               notebookId: notebook.notebookId,
               noteId: note.noteId,

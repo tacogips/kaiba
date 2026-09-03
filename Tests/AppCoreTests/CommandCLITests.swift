@@ -201,6 +201,58 @@ private func noteId(fromJSON output: String) throws -> NoteID {
   #expect(!(try run(["notebook", "list"], root: root)).contains(notebookId))
 }
 
+@Test func cliNotebookListTagFilterResolvesNamesThroughTheHierarchy() throws {
+  let root = try makeTempRoot()
+  let service = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root))
+  let work = try service.defineTag(name: "Work", classId: TagClassID("folder"))
+  let launch = try service.defineTag(
+    name: "Launch",
+    classId: TagClassID("folder"),
+    parentTagId: work.tagId
+  )
+  let archive = try service.defineTag(name: "Archive", classId: TagClassID("folder"))
+  _ = try service.defineTag(name: "Shared", classId: TagClassID("folder"), parentTagId: work.tagId)
+  _ = try service.defineTag(name: "Shared", classId: TagClassID("folder"), parentTagId: archive.tagId)
+  let launchPlan = try service.createNotebook(title: "Launch plan")
+  try service.applyNotebookTags(
+    notebookId: launchPlan.notebookId,
+    tags: [launch.name],
+    provenance: .human
+  )
+  let archived = try service.createNotebook(title: "Archived")
+  try service.applyNotebookTags(
+    notebookId: archived.notebookId,
+    tags: [archive.name],
+    provenance: .human
+  )
+  let untagged = try service.createNotebook(title: "Untagged")
+
+  // A folder name reaches its descendants.
+  let filtered = try run(["notebook", "list", "--tag", "Work"], root: root)
+  #expect(filtered.contains(launchPlan.notebookId.rawValue))
+  #expect(!filtered.contains(archived.notebookId.rawValue))
+  #expect(!filtered.contains(untagged.notebookId.rawValue))
+
+  // Repeated --tag values form one OR group.
+  let either = try run(["notebook", "list", "--tag", "Launch", "--tag", "Archive"], root: root)
+  #expect(either.contains(launchPlan.notebookId.rawValue))
+  #expect(either.contains(archived.notebookId.rawValue))
+  #expect(!either.contains(untagged.notebookId.rawValue))
+
+  // An unknown name matches nothing, in both output modes.
+  #expect(try run(["notebook", "list", "--tag", "missing"], root: root) == "No notebooks.")
+  let missingJSON = try run(["notebook", "list", "--tag", "missing", "--output", "json"], root: root)
+  #expect(try JSONValue(parsing: missingJSON) == .array([]))
+
+  // An ambiguous name is rejected rather than resolved to either folder.
+  do {
+    _ = try run(["notebook", "list", "--tag", "Shared"], root: root)
+    Issue.record("expected the ambiguous tag name to be rejected")
+  } catch let error as NoteServiceError {
+    #expect(error == .invalidInput("tag name is ambiguous: Shared"))
+  }
+}
+
 @Test func cliFileExportWritesContent() throws {
   let root = try makeTempRoot()
   let id = try noteId(fromJSON: try run(

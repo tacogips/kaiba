@@ -53,7 +53,7 @@ final class NoteServiceTests: NoteTestCase {
       provenance: .human
     )) { error in
       guard case let .invalidInput(message)? = error as? NoteServiceError else {
-        return XCTFail("expected ambiguous legacy lookup, got \(error)")
+        return XCTFail("expected ambiguous name lookup, got \(error)")
       }
       XCTAssertTrue(message.contains("ambiguous"))
     }
@@ -586,13 +586,16 @@ final class NoteServiceTests: NoteTestCase {
       kindTagName: "notebook-kind:user-memo"
     )
 
-    XCTAssertEqual(try service.listNotebooks(tagFilter: ["notebook-kind:imported-material"]).map(\.notebookId), [
+    let importedKindTagIds = try XCTUnwrap(try service.tagIds(named: ["notebook-kind:imported-material"]))
+    let memoKindTagIds = try XCTUnwrap(try service.tagIds(named: ["notebook-kind:user-memo"]))
+    XCTAssertEqual(try service.listNotebooks(tagFilterIdGroups: [importedKindTagIds]).map(\.notebookId), [
       imported.notebookId
     ])
-    XCTAssertEqual(try service.listNotebooks(tagFilter: ["notebook-kind:user-memo"]).map(\.notebookId), [
+    XCTAssertEqual(try service.listNotebooks(tagFilterIdGroups: [memoKindTagIds]).map(\.notebookId), [
       memo.notebookId
     ])
-    XCTAssertTrue(try service.listNotebooks(tagFilter: ["notebook-kind:missing"]).isEmpty)
+    XCTAssertNil(try service.tagIds(named: ["notebook-kind:missing"]))
+    XCTAssertTrue(try service.listNotebooks(tagFilterIdGroups: [[TagID("notebook-kind:missing")]]).isEmpty)
   }
 
   func testNotebookTagsCanBeAppliedAndRemovedAfterCreation() throws {
@@ -606,7 +609,11 @@ final class NoteServiceTests: NoteTestCase {
       assignedBy: "tester"
     )
     XCTAssertEqual(tagged.tags.map(\.tag.name), ["active-project"])
-    XCTAssertEqual(try service.listNotebooks(tagFilter: ["active-project"]).map(\.notebookId), [notebook.notebookId])
+    let activeProjectTagIds = try XCTUnwrap(tagged.tags.first.map { [$0.tag.tagId] })
+    XCTAssertEqual(
+      try service.listNotebooks(tagFilterIdGroups: [activeProjectTagIds]).map(\.notebookId),
+      [notebook.notebookId]
+    )
 
     XCTAssertThrowsError(try service.removeNotebookTag(
       notebookId: notebook.notebookId,
@@ -622,7 +629,7 @@ final class NoteServiceTests: NoteTestCase {
       removedBy: .human
     )
     XCTAssertTrue(untagged.tags.isEmpty)
-    XCTAssertTrue(try service.listNotebooks(tagFilter: ["active-project"]).isEmpty)
+    XCTAssertTrue(try service.listNotebooks(tagFilterIdGroups: [activeProjectTagIds]).isEmpty)
   }
 
   func testSystemNotebookKindTagsRemainProtectedAfterCreation() throws {

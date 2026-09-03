@@ -4,11 +4,11 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
   case unsupportedFutureVersion(found: Int, supported: Int)
   case unsupportedLegacyVersion(found: Int, required: Int)
   case systemTagCollision(name: String)
-  case migrationInvariant(String)
+  case storeInvariant(String)
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 17
+  public static let currentVersion = 18
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -60,10 +60,8 @@ public enum NoteStoreSchema {
       }
       try seedDefaultUser(in: db)
       try seedDefaultLibrary(in: db)
-      try validateCurrentSchema(in: db)
       try requireForeignKeysEnabled(in: db)
       try requireForeignKeyIntegrity(in: db)
-      try ensureNoteFTSUsesTrigram(in: db)
       try seedTagClasses(in: db)
       try seedNotebookKindTags(in: db)
       if isFirstSchemaCreation {
@@ -206,9 +204,10 @@ public enum NoteStoreSchema {
     )
   }
 
-  /// Stores are either fresh (created directly at `currentVersion`) or already
-  /// at `currentVersion`. Kaiba carries no migrations, so older stores and
-  /// stores written by a newer kaiba are both rejected up front.
+  /// Kaiba carries no migrations and backward compatibility is not a
+  /// requirement: a store is either created fresh at `currentVersion` or is
+  /// already at it. Any other version is rejected up front, and the operator
+  /// recreates the store rather than upgrading it.
   private static func requireSupportedVersion(in database: SQLiteDatabase) throws {
     guard let newest = try appliedSchemaVersions(in: database).max() else {
       return
@@ -242,22 +241,11 @@ public enum NoteStoreSchema {
     )
   }
 
-  private static func ensureNoteFTSUsesTrigram(in database: SQLiteDatabase) throws {
-    let rows = try database.query(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'note_fts' LIMIT 1"
-    )
-    let createSQL = rows.first?["sql"] ?? ""
-    guard !createSQL.lowercased().contains("tokenize='trigram'") else {
-      return
-    }
-    try rebuildNoteFTS(in: database)
-  }
-
   /// Drops and re-derives the whole search index from `notes`. The FTS table
   /// is contentless, so a drifted index cannot be patched row by row — the
   /// stale entries carry no recoverable payload for the 'delete' command —
-  /// and a full rebuild is the one repair that is always correct. Shared by
-  /// the tokenizer upgrade above and `NoteService.checkStore(repair:)`.
+  /// and a full rebuild is the one repair that is always correct. Used by
+  /// `NoteService.checkStore(repair:)`.
   static func rebuildNoteFTS(in database: SQLiteDatabase) throws {
     try database.execute("DROP TABLE IF EXISTS note_fts")
     try database.execute("""
@@ -274,75 +262,6 @@ public enum NoteStoreSchema {
     }
   }
 
-  private static func validateCurrentSchema(in database: SQLiteDatabase) throws {
-    guard try hasCurrentTagSchema(in: database) else {
-      throw NoteStoreSchemaError.migrationInvariant("tag table or indexes are incomplete")
-    }
-  }
-
-  private static func hasCurrentTagSchema(in database: SQLiteDatabase) throws -> Bool {
-    let tableSQL = try database.query(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tags'"
-    ).first?["sql"].map(normalizedSchemaSQL) ?? ""
-    let requiredTableFragments = [
-      "tag_idtextprimarykey",
-      "nametextnotnull",
-      "class_idtextreferencestag_classes(class_id)",
-      "parent_tag_idtextreferencestags(tag_id)",
-      "is_systemintegernotnulldefault0",
-      "created_attextnotnull"
-    ]
-    guard requiredTableFragments.allSatisfy(tableSQL.contains),
-          !tableSQL.contains("nametextnotnullunique"),
-          !tableSQL.contains("unique(name)") else {
-      return false
-    }
-    return try hasTagIndex(
-      "idx_tags_non_folder_name_unique",
-      columns: ["name"],
-      predicate: "whereclass_idisnullorclass_id<>'folder'",
-      in: database
-    ) && hasTagIndex(
-      "idx_tags_root_folder_name_unique",
-      columns: ["name"],
-      predicate: "whereclass_id='folder'andparent_tag_idisnull",
-      in: database
-    ) && hasTagIndex(
-      "idx_tags_nested_folder_parent_name_unique",
-      columns: ["parent_tag_id", "name"],
-      predicate: "whereclass_id='folder'andparent_tag_idisnotnull",
-      in: database
-    )
-  }
-
-  private static func hasTagIndex(
-    _ name: String,
-    columns: [String],
-    predicate: String,
-    in database: SQLiteDatabase
-  ) throws -> Bool {
-    guard let index = try database.query("PRAGMA index_list(tags)")
-      .first(where: { $0["name"] == name }),
-      index["unique"] == "1",
-      index["partial"] == "1" else {
-      return false
-    }
-    let actualColumns = try database.query("PRAGMA index_info(\(name))")
-      .compactMap { $0["name"] }
-    guard actualColumns == columns else {
-      return false
-    }
-    let sql = try database.query(
-      "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
-      bindings: [.text(name)]
-    ).first?["sql"].map(normalizedSchemaSQL) ?? ""
-    return sql.contains(predicate)
-  }
-
-  private static func normalizedSchemaSQL(_ sql: String) -> String {
-    sql.lowercased().filter { !$0.isWhitespace }
-  }
-
   private static func createTagIndexes(in database: SQLiteDatabase) throws {
     for statement in tagIndexStatements {
       try database.execute(statement)
@@ -351,13 +270,13 @@ public enum NoteStoreSchema {
 
   private static func requireForeignKeysEnabled(in database: SQLiteDatabase) throws {
     guard try database.query("PRAGMA foreign_keys").first?["foreign_keys"] == "1" else {
-      throw NoteStoreSchemaError.migrationInvariant("foreign-key enforcement is disabled")
+      throw NoteStoreSchemaError.storeInvariant("foreign-key enforcement is disabled")
     }
   }
 
   private static func requireForeignKeyIntegrity(in database: SQLiteDatabase) throws {
     guard try database.query("PRAGMA foreign_key_check").isEmpty else {
-      throw NoteStoreSchemaError.migrationInvariant("foreign-key integrity check failed")
+      throw NoteStoreSchemaError.storeInvariant("foreign-key integrity check failed")
     }
   }
 }
@@ -711,7 +630,6 @@ private let schemaStatements = [
   """,
   autoActionDispatchesTableStatement,
   autoActionDispatchesStatusIndexStatement,
-  autoActionCancellationTableStatement,
   noteActionLogTableStatement,
   noteActionLogActorIndexStatement,
   noteActionLogEntityIndexStatement,
@@ -789,7 +707,7 @@ private let autoActionDispatchesTableStatement = """
     action_position INTEGER NOT NULL,
     action_created_at TEXT NOT NULL,
     event_json BLOB NOT NULL CHECK (json_valid(event_json, 8)),
-    status TEXT NOT NULL CHECK (status IN ('pending','in_flight','dispatched')),
+    status TEXT NOT NULL CHECK (status IN ('pending','in_flight','dispatched','cancelled')),
     attempt_count INTEGER NOT NULL DEFAULT 0,
     lease_token TEXT,
     leased_at TEXT,
@@ -802,24 +720,10 @@ private let autoActionDispatchesTableStatement = """
 private let autoActionDispatchesStatusIndexStatement =
   "CREATE INDEX IF NOT EXISTS idx_auto_action_dispatches_status ON auto_action_dispatches(status, created_at)"
 
-/// An explicit terminal cancellation outcome for dispatch rows. The original
-/// dispatch status remains compatible with existing stores; readers project a
-/// joined cancellation as `.cancelled` rather than conflating it with a
-/// successful provider dispatch.
-private let autoActionCancellationTableStatement = """
-  CREATE TABLE IF NOT EXISTS auto_action_dispatch_cancellations (
-    dispatch_id TEXT PRIMARY KEY REFERENCES auto_action_dispatches(dispatch_id),
-    reason TEXT NOT NULL,
-    cancelled_at TEXT NOT NULL
-  ) STRICT, WITHOUT ROWID
-  """
-
 /// Append-only per-actor action history behind undo/redo
-/// (`design-docs/specs/action-history-undo.md`). Added through this idempotent
-/// list on purpose (U1): existing stores gain it at `prepare` without a
-/// version bump, the same way `app_settings` arrived. `AUTOINCREMENT` keeps
-/// `seq` monotonic across retention pruning, and `action` carries no CHECK so
-/// an older build can still read rows written by a newer one.
+/// (`design-docs/specs/action-history-undo.md`). `AUTOINCREMENT` keeps `seq`
+/// monotonic across retention pruning. `action` carries no CHECK: the set of
+/// action names is owned by the code that writes them, not by the schema.
 private let noteActionLogTableStatement = """
   CREATE TABLE IF NOT EXISTS note_action_log (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,

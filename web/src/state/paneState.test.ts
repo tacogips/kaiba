@@ -47,16 +47,12 @@ describe('pane state persistence', () => {
     expect(parsePaneState('not json')).toEqual(defaultPaneState)
     expect(parsePaneState('null')).toEqual(defaultPaneState)
     expect(parsePaneState('[]')).toEqual(defaultPaneState)
-    expect(parsePaneState(serializePaneState(folded).replace('"contents"', '"removed-tab"')))
+    expect(parsePaneState(serializePaneState(folded).replace('"contents"', '"unknown-tab"')))
       .toEqual({ ...folded, leftTab: defaultPaneState.leftTab })
+    expect(parsePaneState('{"rightTab":"unknown"}').rightTab).toBe(defaultPaneState.rightTab)
     expect(parsePaneState('{"leftOpen":false}'))
       .toEqual({ ...defaultPaneState, leftOpen: false })
     expect(parsePaneState('{"rightOpen":"yes"}')).toEqual(defaultPaneState)
-  })
-
-  test('pre-merge tab names land on the unified memo tab', () => {
-    expect(parsePaneState('{"rightTab":"unknown"}').rightTab).toBe('memo')
-    expect(parsePaneState('{"rightTab":"chat"}').rightTab).toBe('memo')
   })
 
   test('drag-resized pane widths persist, clamp, and ignore junk', () => {

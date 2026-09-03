@@ -7,7 +7,7 @@ import Darwin
 #endif
 
 /// `AgentInvoking` adapter over the `agent-gateway` ACP CLI
-/// (`impl-plans/active/agent-gateway-adapter.md`). Each invocation spawns
+/// (`design-docs/specs/ai-agent-integration.md`). Each invocation spawns
 /// `agent-gateway client --vendor <v> --model <m> --system <s> --prompt -`,
 /// writes the flattened prompt to stdin, and reads the ACP JSONL stream from
 /// stdout; the `session/prompt` response's `_meta.agentGateway.resultText` is

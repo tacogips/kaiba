@@ -207,8 +207,8 @@ public struct KaibaTranslateConfiguration: Codable, Equatable, Sendable {
 }
 
 public struct KaibaAgentBackendConfiguration: Codable, Equatable, Sendable {
-  /// The only recognized backend today; the concrete invoker arrives with the
-  /// agent-gateway adapter (impl-plans/active/agent-gateway-adapter.md).
+  /// The only recognized backend today, served by the agent-gateway adapter
+  /// (`design-docs/specs/ai-agent-integration.md`).
   public static let agentGatewayCLIBackend = "agent-gateway-cli"
 
   public var backend: String

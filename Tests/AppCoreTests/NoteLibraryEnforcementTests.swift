@@ -331,7 +331,7 @@ final class NoteLibraryEnforcementTests: NoteTestCase {
     XCTAssertTrue(try service.proposeLinks(noteId: bobNote.noteId).contains { $0.targetNote.noteId == aliceCandidate.noteId })
   }
 
-  func testSeededAdminSearchCommentsPreservesNoteAnchoredLegacyRows() throws {
+  func testSeededAdminSearchCommentsScopesNoteAnchoredRowsWithoutNotebookId() throws {
     let service = try makeService()
     let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
     let seededAdmin = service.scoped(to: NoteStoreSchema.defaultUserId)
@@ -349,18 +349,18 @@ final class NoteLibraryEnforcementTests: NoteTestCase {
           VALUES (?, ?, NULL, ?, ?, ?)
           """,
           bindings: [
-            .id(commentId), .id(noteId), .text("legacy anchored memo"), .text("test"), .text(now)
+            .id(commentId), .id(noteId), .text("note anchored memo"), .text("test"), .text(now)
           ]
         )
       }
     }
 
-    let scoped = try seededAdmin.searchComments(query: "legacy anchored memo")
+    let scoped = try seededAdmin.searchComments(query: "note anchored memo")
     XCTAssertEqual(scoped.map(\.commentId), [ownCommentId])
     XCTAssertEqual(scoped.first?.noteId, ownNote.noteId)
     XCTAssertNil(scoped.first?.notebookId)
     XCTAssertEqual(
-      Set(try service.searchComments(query: "legacy anchored memo").map(\.commentId)),
+      Set(try service.searchComments(query: "note anchored memo").map(\.commentId)),
       Set([ownCommentId, foreignCommentId])
     )
   }

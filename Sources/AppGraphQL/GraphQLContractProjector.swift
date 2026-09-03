@@ -14,14 +14,8 @@ public enum GraphQLContractProjector {
     note(noteId: String!): NoteQueryPayload!
     notebook(notebookId: String!): NotebookQueryPayload!
     notebooks(
-      limit: Int,
-      offset: Int,
-      tagFilter: [String!],
-      tagFilterGroups: [[String!]!],
-      tagFilterIdGroups: [[String!]!],
-      sort: NoteListSort,
-      createdAfter: String,
-      createdBefore: String
+      limit: Int, offset: Int, tagFilterIdGroups: [[String!]!],
+      sort: NoteListSort, createdAfter: String, createdBefore: String
     ): NotebooksQueryPayload!
     libraries: NoteLibrariesQueryPayload!
     notes(limit: Int, offset: Int, notebookId: String, tagFilter: [String!]): NotesQueryPayload!

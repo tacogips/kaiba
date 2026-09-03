@@ -65,8 +65,6 @@ public struct GraphQLNoteGraphQLService: Sendable {
   public func notebooks(
     limit: Int = 50,
     offset: Int = 0,
-    tagFilter: [String] = [],
-    tagFilterGroups: [[String]] = [],
     tagFilterIdGroups: [[TagID]] = [],
     sort: String? = nil,
     createdAfter: String? = nil,
@@ -76,8 +74,6 @@ public struct GraphQLNoteGraphQLService: Sendable {
       try service.listNotebooks(
         limit: limit,
         offset: offset,
-        tagFilter: tagFilter,
-        tagFilterGroups: tagFilterGroups,
         tagFilterIdGroups: tagFilterIdGroups,
         sort: try graphQLNoteListSort(sort),
         createdAfter: createdAfter,

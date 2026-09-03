@@ -37,7 +37,7 @@ extension AppCommand {
 
   private func runNotebookList(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
-    let tagFilter = try cursor.extractOptionValues("--tag")
+    let tagNames = try cursor.extractOptionValues("--tag")
     let sort = try cursor.extractSort()
     let createdAfter = try cursor.extractOption("--created-after")
     let createdBefore = try cursor.extractOption("--created-before")
@@ -47,14 +47,27 @@ extension AppCommand {
     try cursor.finish()
 
     let service = try makeService(context)
+    // `--tag` values form one OR group: a notebook matches when it carries any
+    // of the named tags or their descendants. An unknown name matches nothing.
+    var tagFilterIdGroups: [[TagID]] = []
+    if !tagNames.isEmpty {
+      guard let tagIds = try service.tagIds(named: tagNames) else {
+        return try renderNotebookList([], output: output)
+      }
+      tagFilterIdGroups = [tagIds]
+    }
     let notebooks = try service.listNotebooks(
       limit: limit,
       offset: offset,
-      tagFilter: tagFilter,
+      tagFilterIdGroups: tagFilterIdGroups,
       sort: sort,
       createdAfter: createdAfter,
       createdBefore: createdBefore
     )
+    return try renderNotebookList(notebooks, output: output)
+  }
+
+  private func renderNotebookList(_ notebooks: [Notebook], output: OutputMode) throws -> String {
     switch output {
     case .json:
       return try renderJSON(notebooks.map(jsonObject))

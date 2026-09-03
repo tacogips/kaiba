@@ -12,22 +12,20 @@ as a single default user.
 
 ## Current State
 
-The identity foundation has shipped at `NoteStoreSchema.currentVersion = 17`:
-the `users` table and seeded default admin, notebook ownership and attribution
-columns, per-user API clients, JWT issuance and verification, catalog scoping,
-CLI `--jwt` / `--jwt-env`, and per-request GraphQL service scoping. The schema
-is fresh-schema-only: older versions are rejected with
-`unsupportedLegacyVersion`, and there is no migration path.
+The identity foundation has shipped: the `users` table and seeded default
+admin, notebook ownership and attribution columns, per-user API clients, JWT
+issuance and verification, catalog scoping, CLI `--jwt` / `--jwt-env`, and
+per-request GraphQL service scoping. The schema is fresh-schema-only: a store
+at any other `NoteStoreSchema.currentVersion` is rejected with
+`unsupportedLegacyVersion` or `unsupportedFutureVersion`, and there is no
+migration path.
 
 The delivered boundary is narrower but security-critical: by-id and bulk reads
 carry ownership checks, file-byte delivery uses GraphQL's default-user fallback,
 the API exposes notebook ownership and attribution, and authenticated callers
-can mint short-lived agent tokens only for themselves. This is TASK-M06 through
-TASK-M08 in `impl-plans/completed/multi-user.md`; it keeps
-`NoteStoreSchema.currentVersion` at 17. `NoteStoreSchema.prepare` also creates
-`auto_action_dispatch_cancellations` idempotently for version-17 stores, so
-safety cancellations retain their distinct terminal outcome without a
-versioned migration.
+can mint short-lived agent tokens only for themselves. Safety cancellations of
+queued AI work are a distinct terminal dispatch status (`cancelled`) so they
+are never mistaken for successful provider work.
 
 ## Design
 
@@ -404,12 +402,10 @@ The GraphQL contract exposes them as nullable `String` — three fields on
 Existing selections keep working because a GraphQL client asks for the fields
 it wants; adding a field to a type breaks nothing that did not ask for it.
 
-**No versioned migration is required.** All three columns already exist at
-`NoteStoreSchema.currentVersion = 17`, and the token route adds no table. The
-prepare-time `auto_action_dispatch_cancellations` table is an intentional
-idempotent version-17 compatibility addition, not a version bump. Under the
-fresh-schema policy a version bump would refuse every existing store
-(`unsupportedLegacyVersion`), so this work must land without one.
+**Schema changes bump the version.** Kaiba carries no migrations: any change
+to the create schema increments `NoteStoreSchema.currentVersion`, and a store
+created at another version is refused and recreated. Backward compatibility
+with existing stores is not a requirement.
 
 Attribution is exposed **after** ownership enforcement is in place, never
 before. The fields name accounts, and publishing an account id on a read path
@@ -479,10 +475,7 @@ Deliberately still open, and recorded rather than quietly closed:
   memory and agent chat — which run unscoped, where the acting user and the
   notebook owner are the same account. Sharing is a Non-Goal, so the two values
   cannot diverge today; when sharing lands, those sites must switch to the
-  acting user. The item stays open until then. In the plan this is **TASK-M03's
-  third completion criterion** (`impl-plans/completed/multi-user.md:70`) — not
-  TASK-M04, whose criteria are all met — and it stays unchecked when the plan
-  is reconciled.
+  acting user. The item stays open until then.
 - **Per-user long-term memory.** See the internal-only boundary above.
 
 Implemented tag-detail library scope: `listTagComments`, both
@@ -493,8 +486,7 @@ protected comments and counts.
 
 This surface is security-bearing and is the yardstick for adversarial review:
 ownership boundaries, principal-bound token issuance and validation, and stream
-authorization. Review and acceptance state is tracked in `progress.json`, not
-here.
+authorization.
 
 ## Verification
 

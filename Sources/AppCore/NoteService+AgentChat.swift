@@ -334,7 +334,7 @@ public extension NoteService {
         try refreshFTS(noteId: noteId, previous: nil, in: db)
         let note = try requireNote(noteId, in: db)
         let dispatches = try enqueueAutoActions(
-          for: NoteAutoActionEvent(
+          for: makeAutoActionEvent(
             trigger: .noteCreated,
             notebookId: conversationNotebookId,
             noteId: noteId,

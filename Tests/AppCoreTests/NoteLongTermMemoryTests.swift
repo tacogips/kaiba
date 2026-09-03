@@ -66,7 +66,7 @@ final class NoteLongTermMemoryTests: NoteTestCase {
     }
 
     XCTAssertEqual(
-      try service.listNotebooks(tagFilter: [reservedTag]).map(\.notebookId),
+      try service.listNotebooks(tagFilterIdGroups: [[reservedTagId]]).map(\.notebookId),
       [canonical.notebookId]
     )
     let reopened = try NoteService(driver: driver)

@@ -737,13 +737,13 @@ final class AutoActionTests: NoteTestCase {
     }
   }
 
-  func testLegacyMalformedAutoActionFilterDoesNotSuppressOtherDispatches() async throws {
+  func testMalformedAutoActionFilterDoesNotSuppressOtherDispatches() async throws {
     let dispatcher = RecordingAutoActionDispatcher()
     let diagnostics = RecordingNoteAutoActionDiagnostics()
     let service = try makeService(autoActionDispatcher: dispatcher, autoActionDiagnosticRecorder: diagnostics)
-    try insertLegacyAutoAction(
+    try insertMalformedAutoAction(
       service: service,
-      actionId: AutoActionID("legacy-bad-filter"),
+      actionId: AutoActionID("bad-filter"),
       filterJSON: #"{"noteTags":"dispatch-me"}"#,
       position: -10
     )
@@ -767,7 +767,7 @@ final class AutoActionTests: NoteTestCase {
       Set(dispatchedActionIds),
       Set([AutoActionID("default-ai-tagging-note-created"), AutoActionID("good-filtered")])
     )
-    XCTAssertEqual(diagnostics.records().map(\.actionId), [AutoActionID("legacy-bad-filter")])
+    XCTAssertEqual(diagnostics.records().map(\.actionId), [AutoActionID("bad-filter")])
     XCTAssertEqual(diagnostics.records().first?.code, .filterEvaluationFailed)
     XCTAssertTrue(diagnostics.records().first?.message.contains("filter_json") == true)
   }
@@ -787,7 +787,7 @@ private func makeService(
   return service
 }
 
-private func insertLegacyAutoAction(
+private func insertMalformedAutoAction(
   service: NoteService,
   actionId: AutoActionID,
   filterJSON: String,
@@ -803,7 +803,7 @@ private func insertLegacyAutoAction(
       bindings: [
         .id(actionId),
         .text(NoteAutoActionTrigger.noteCreated.rawValue),
-        .text("legacy-workflow"),
+        .text("bad-filter-workflow"),
         .text(filterJSON),
         .int(Int64(position)),
         .text("2026-07-04T00:00:00Z")
