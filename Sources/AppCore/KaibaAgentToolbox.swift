@@ -87,8 +87,17 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
   private func searchNotes(_ input: KaibaAgentToolInput) throws -> JSONValue {
     let query = try input.requiredString("query")
     let notebookId = try input.optionalIdentifier("notebook_id", as: NotebookID.self)
+    let tagFilter = try input.optionalStringArray("tags")
+    let includeLinked = try input.optionalBool("include_linked", default: false)
     let limit = try input.optionalInt("limit", default: 10, range: 1...50)
-    let results = try service.searchNotes(query: query, notebookId: notebookId, limit: limit)
+    let results = try service.searchNotes(
+      query: query,
+      tagFilter: tagFilter,
+      notebookId: notebookId,
+      includeLinked: includeLinked,
+      depth: 1,
+      limit: limit
+    )
     return .object([
       "query": .string(query),
       "results": .array(results.map { result in
@@ -98,6 +107,8 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
           "title": result.note.title.map(JSONValue.string) ?? .null,
           "snippet": .string(result.snippet),
           "updated_at": .string(result.note.updatedAt),
+          "term_coverage": .number(result.termCoverage),
+          "is_linked_neighbor": .bool(result.isLinkedNeighbor),
           "tags": Self.tagNames(result.note.tags)
         ])
       })
@@ -375,6 +386,36 @@ struct KaibaAgentToolInput {
     }
     let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : string
+  }
+
+  func optionalBool(_ key: String, default defaultValue: Bool) throws -> Bool {
+    guard let present = object[key], !present.isNull else {
+      return defaultValue
+    }
+    guard let flag = present.asBool else {
+      throw AgentToolError.invalidInput("\(key) must be a boolean")
+    }
+    return flag
+  }
+
+  /// Non-empty trimmed strings; an absent or null key yields an empty list.
+  func optionalStringArray(_ key: String) throws -> [String] {
+    guard let present = object[key], !present.isNull else {
+      return []
+    }
+    guard let items = present.asArray else {
+      throw AgentToolError.invalidInput("\(key) must be an array of strings")
+    }
+    return try items.map { item in
+      guard let value = item.asString else {
+        throw AgentToolError.invalidInput("\(key) entries must be strings")
+      }
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else {
+        throw AgentToolError.invalidInput("\(key) entries must not be empty")
+      }
+      return trimmed
+    }
   }
 
   func optionalInt(_ key: String, default defaultValue: Int, range: ClosedRange<Int>) throws -> Int {

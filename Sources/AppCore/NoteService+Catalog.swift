@@ -93,6 +93,12 @@ public extension NoteService {
               .id(existing.tagId)
             ]
           )
+          // The contextual index column carries tag ancestry
+          // (`design-docs/specs/note-retrieval-fusion.md`, RF1), so a
+          // reparent must re-derive it for every note under the moved tag.
+          if let normalizedParentTagId, normalizedParentTagId != existing.parentTagId {
+            try refreshFTSForNotesUnderTag(existing.tagId, in: db)
+          }
           return try requireTag(id: existing.tagId, in: db)
         }
         do {

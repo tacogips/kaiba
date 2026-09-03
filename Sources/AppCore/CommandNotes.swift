@@ -203,7 +203,10 @@ extension AppCommand {
       }
       var lines = results.map { result in
         let linked = result.isLinkedNeighbor ? "  [linked]" : ""
-        return renderNoteLine(result.note) + linked + "\n    \(result.snippet)"
+        let partial = result.termCoverage < 1
+          ? "  [partial \(Int((result.termCoverage * 100).rounded()))%]"
+          : ""
+        return renderNoteLine(result.note) + linked + partial + "\n    \(result.snippet)"
       }
       lines.append(contentsOf: memoMatches.map { memo in
         let anchor = memo.noteId.map { "note \($0)" }

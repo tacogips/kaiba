@@ -7,7 +7,10 @@ tags with world-model classes (`person`, `year`, `event`, `topic`, ...),
 tag hierarchies, and provenance tracking (human vs AI vs system). Notes
 can be linked to each other, commented on, marked read-only, and carry
 content-addressed file attachments (local by default, migratable to
-S3-compatible storage). Search is SQLite FTS5 with tag/class filters.
+S3-compatible storage). Search is SQLite FTS5 with tag/class filters,
+contextual indexing, relaxed multi-term matching with rank fusion, and
+graph expansion ranked by personalized PageRank
+(`design-docs/specs/note-retrieval-fusion.md`).
 
 ## Quick Start
 

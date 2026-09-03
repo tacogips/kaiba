@@ -58,6 +58,11 @@ final class NoteGraphQLTests: XCTestCase {
     let search = await service.searchNotes(query: "Alpha", tagFilter: ["research"])
     XCTAssertEqual(search.result.status, "ok")
     XCTAssertEqual(search.value?.map(\.note.noteId), [noteId])
+    XCTAssertEqual(search.value?.map(\.termCoverage), [1])
+
+    let relaxed = await service.searchNotes(query: "Alpha zzzmissing", tagFilter: ["research"])
+    XCTAssertEqual(relaxed.value?.map(\.note.noteId), [noteId])
+    XCTAssertEqual(relaxed.value?.map(\.termCoverage), [0.5])
 
     let tagged = await service.applyTags(
       noteId: noteId,
@@ -764,6 +769,7 @@ final class NoteGraphQLTests: XCTestCase {
     XCTAssertTrue(schema.contains("removeNotebookTag(notebookId: String!, tagName: String!, provenance: String)"))
     XCTAssertTrue(schema.contains("searchNotes("))
     XCTAssertTrue(schema.contains("includeLinked: Boolean, depth: Int"))
+    XCTAssertTrue(schema.contains("isLinkedNeighbor: Boolean!, termCoverage: Float!"))
     XCTAssertTrue(schema.contains("noteGraphNeighbors(noteIds: [String!]!, depth: Int, limit: Int)"))
     XCTAssertTrue(schema.contains("proposeNoteLinks(noteId: String!, limit: Int)"))
     XCTAssertTrue(schema.contains("configureNoteAutoAction(input: ConfigureNoteAutoActionInput!)"))

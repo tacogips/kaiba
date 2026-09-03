@@ -938,13 +938,7 @@ func promoteCommentNotebookTitle(explicit: String?, commentBody: String) -> Stri
 
 func deleteNoteRows(noteId: NoteID, in database: SQLiteDatabase) throws {
   if let previous = try ftsPayload(noteId: noteId, in: database) {
-    try database.execute(
-      """
-      INSERT INTO note_fts(note_fts, rowid, title, body, tags)
-      VALUES('delete', ?, ?, ?, ?)
-      """,
-      bindings: [.int(previous.rowId), .text(previous.title), .text(previous.body), .text(previous.tags)]
-    )
+    try deleteFTSEntry(previous, in: database)
   }
   try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.id(noteId)])
   try database.execute("DELETE FROM note_tags WHERE note_id = ?", bindings: [.id(noteId)])

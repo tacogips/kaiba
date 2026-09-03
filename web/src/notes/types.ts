@@ -199,6 +199,8 @@ export interface NoteSearchResult {
   rank: number
   matchedTags: NoteTag[]
   isLinkedNeighbor: boolean
+  /** 1 when every query term matched; a fraction for a relaxed (partial) hit. */
+  termCoverage: number
 }
 
 export interface QueryPayload<T> {

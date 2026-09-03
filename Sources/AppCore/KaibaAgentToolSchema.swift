@@ -8,11 +8,19 @@ enum KaibaAgentToolSchema {
     AgentToolDefinition(
       name: "search_notes",
       description: "Full-text search over the notes the user can see. Returns note ids, titles, "
-        + "snippets, and tags. Use get_note to read a full body.",
+        + "snippets, tags, and term_coverage (1.0 = every query word matched; lower = partial "
+        + "match, weaker evidence). Notes matching every word come first. Run several short, "
+        + "focused queries (synonyms, sub-questions, entity or tag names) rather than one long "
+        + "query, and read term_coverage before trusting a hit. Set include_linked for "
+        + "'related to' questions to also get notes linked to or sharing rare tags with the "
+        + "hits (is_linked_neighbor = true). Use get_note to read a full body.",
       inputSchema: object(
         properties: [
           "query": string("Search text. Plain words work best."),
           "notebook_id": string("Restrict the search to one notebook."),
+          "tags": array(string("Tag name."), description: "Only notes carrying any of these tags "
+            + "(child tags of a named tag count)."),
+          "include_linked": boolean("Also return graph neighbours of the hits, ranked after them."),
           "limit": integer("Maximum results, 1-50 (default 10).")
         ],
         required: ["query"]
@@ -174,5 +182,13 @@ enum KaibaAgentToolSchema {
 
   private static func integer(_ description: String) -> JSONValue {
     .object(["type": .string("integer"), "description": .string(description)])
+  }
+
+  private static func boolean(_ description: String) -> JSONValue {
+    .object(["type": .string("boolean"), "description": .string(description)])
+  }
+
+  private static func array(_ items: JSONValue, description: String) -> JSONValue {
+    .object(["type": .string("array"), "items": items, "description": .string(description)])
   }
 }

@@ -110,6 +110,7 @@ export function SearchView(): JSX.Element {
                 <span class="link-meta">
                   p.{result.note.noteNumber}
                   {result.isLinkedNeighbor ? ' · linked' : ''}
+                  {result.termCoverage < 1 ? ` · partial ${Math.round(result.termCoverage * 100)}%` : ''}
                 </span>
                 <span class="search-snippet">{result.snippet}</span>
               </button>

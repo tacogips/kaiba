@@ -520,22 +520,31 @@ public struct NoteAPIClient: Codable, Equatable, Sendable {
 public struct NoteSearchResult: Equatable, Sendable {
   public var note: Note
   public var snippet: String
+  /// Retriever-specific score: bm25 (lower is better) for a strict full-text
+  /// hit, a reciprocal-rank-fusion score for a relaxed hit, personalized
+  /// PageRank mass for a graph neighbour, and 1 for a substring fallback hit.
   public var rank: Double
   public var matchedTags: [Tag]
   public var isLinkedNeighbor: Bool
+  /// Fraction of the query's indexable terms the note matched: 1 for a full
+  /// match, `m/n` for a relaxed match
+  /// (`design-docs/specs/note-retrieval-fusion.md`, RF2).
+  public var termCoverage: Double
 
   public init(
     note: Note,
     snippet: String,
     rank: Double,
     matchedTags: [Tag],
-    isLinkedNeighbor: Bool = false
+    isLinkedNeighbor: Bool = false,
+    termCoverage: Double = 1
   ) {
     self.note = note
     self.snippet = snippet
     self.rank = rank
     self.matchedTags = matchedTags
     self.isLinkedNeighbor = isLinkedNeighbor
+    self.termCoverage = termCoverage
   }
 }
 

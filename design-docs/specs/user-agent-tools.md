@@ -155,7 +155,7 @@ therefore protects the agent without duplication. Tools:
 
 | tool | service call |
 | --- | --- |
-| `search_notes` | `searchNotes(query:notebookId:limit:)` |
+| `search_notes` | `searchNotes(query:tagFilter:notebookId:includeLinked:depth:limit:)`; `tags`, `include_linked`, `term_coverage`, `is_linked_neighbor` per `design-docs/specs/note-retrieval-fusion.md` RF5 |
 | `get_note` | `getNote` + `listComments` + `listLinks` |
 | `list_notebooks` | `listNotebooks(limit:offset:)` |
 | `get_notebook` | `getNotebook` + `listNotes(notebookId:limit:offset:)` |

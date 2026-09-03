@@ -219,7 +219,7 @@ private func noteMatchesGraphScope(
   return try !database.query(sql, bindings: bindings).isEmpty
 }
 
-private func appendGraphScopePredicates(
+func appendGraphScopePredicates(
   alias: String,
   scope: NoteSearchScope?,
   predicates: inout [String],
@@ -496,7 +496,7 @@ private func graphFTSMatchQuery(_ term: String) -> String {
   "\"\(term.replacingOccurrences(of: "\"", with: "\"\""))\""
 }
 
-private func graphNoteCount(scope: NoteSearchScope?, in database: SQLiteDatabase) throws -> Int {
+func graphNoteCount(scope: NoteSearchScope?, in database: SQLiteDatabase) throws -> Int {
   var predicates: [String] = []
   var bindings: [SQLiteValue] = []
   appendGraphScopePredicates(
@@ -513,7 +513,7 @@ private func graphNoteCount(scope: NoteSearchScope?, in database: SQLiteDatabase
   return Int(rows.first?["note_count"] ?? "") ?? 0
 }
 
-private func sharedTagWeight(noteCount: Int, tagNoteCount: Int) -> Double {
+func sharedTagWeight(noteCount: Int, tagNoteCount: Int) -> Double {
   let numerator = log(Double(noteCount + 1) / Double(tagNoteCount + 1))
   let denominator = log(Double(noteCount + 1))
   let idf = denominator > 0 ? numerator / denominator : 0

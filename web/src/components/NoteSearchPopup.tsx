@@ -113,6 +113,7 @@ export function NoteSearchPopup(props: {
               <span class="note-search-meta">
                 #{result.note.noteNumber}
                 <Show when={result.isLinkedNeighbor}><em> · linked neighbor</em></Show>
+                <Show when={result.termCoverage < 1}><em> · partial {Math.round(result.termCoverage * 100)}%</em></Show>
                 <For each={result.matchedTags}>{(tag) => <em> · {qualifiedTagLabel(props.tags, tag.tagId)}</em>}</For>
               </span>
             </button>

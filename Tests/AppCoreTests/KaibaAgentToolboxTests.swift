@@ -141,6 +141,41 @@ final class KaibaAgentToolboxTests: NoteTestCase {
     XCTAssertFalse(transcriptRead.isError)
   }
 
+  /// `design-docs/specs/note-retrieval-fusion.md`, RF5: the search tool can
+  /// filter by tag, reach graph neighbours, and reports term coverage.
+  func testSearchNotesHonoursTagsIncludeLinkedAndReportsCoverage() async throws {
+    let service = try makeService()
+    let tagged = try service.createNote(
+      bodyMarkdown: "# Tagged\nplanning session",
+      tags: [NoteTagInput(name: "keep", classId: TagClassID("topic"))]
+    )
+    _ = try service.createNote(bodyMarkdown: "# Untagged\nplanning session")
+    let neighbour = try service.createNote(
+      bodyMarkdown: "# Neighbour\ncontext only",
+      tags: [NoteTagInput(name: "keep", classId: TagClassID("topic"))]
+    )
+    _ = try service.linkNotes(from: tagged.noteId, to: neighbour.noteId)
+    let tools = KaibaAgentToolbox(service: service)
+
+    let search = try payload(await tools.execute(call("search_notes", [
+      "query": .string("planning session"),
+      "tags": .array([.string("keep")]),
+      "include_linked": .bool(true)
+    ])))
+    let results = try XCTUnwrap(search["results"]?.asArray)
+
+    XCTAssertEqual(results.map { $0["note_id"]?.asString }, [tagged.noteId.rawValue, neighbour.noteId.rawValue])
+    XCTAssertEqual(results.map { $0["is_linked_neighbor"]?.asBool }, [false, true])
+    XCTAssertEqual(results.first?["term_coverage"]?.asDouble, 1)
+
+    let partial = try payload(await tools.execute(call("search_notes", [
+      "query": .string("planning nonsenseterm")
+    ])))
+    let partialResults = try XCTUnwrap(partial["results"]?.asArray)
+    XCTAssertEqual(partialResults.count, 2)
+    XCTAssertEqual(partialResults.first?["term_coverage"]?.asDouble, 0.5)
+  }
+
   func testInvalidInputsAndUnknownToolsAreErrorResults() async throws {
     let tools = KaibaAgentToolbox(service: try makeService())
     let unknown = await tools.execute(call("drop_everything"))
@@ -154,6 +189,18 @@ final class KaibaAgentToolboxTests: NoteTestCase {
     let outOfRange = await tools.execute(call("search_notes", ["query": .string("x"), "limit": .integer(500)]))
     XCTAssertTrue(outOfRange.isError)
     XCTAssertTrue(outOfRange.content.contains("limit must be an integer in 1...50"))
+
+    let malformedSearchTags = await tools.execute(call("search_notes", [
+      "query": .string("x"), "tags": .string("keep")
+    ]))
+    XCTAssertTrue(malformedSearchTags.isError)
+    XCTAssertTrue(malformedSearchTags.content.contains("tags must be an array of strings"))
+
+    let malformedIncludeLinked = await tools.execute(call("search_notes", [
+      "query": .string("x"), "include_linked": .string("yes")
+    ]))
+    XCTAssertTrue(malformedIncludeLinked.isError)
+    XCTAssertTrue(malformedIncludeLinked.content.contains("include_linked must be a boolean"))
 
     let malformedTags = await tools.execute(call("create_note", [
       "body_markdown": .string("x"), "tags": .array([.integer(1)])

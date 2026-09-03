@@ -383,6 +383,7 @@ func jsonObject(_ result: NoteSearchResult) -> JSONObject {
   object["rank"] = .number(result.rank)
   object["matchedTags"] = .array(result.matchedTags.map { .object(jsonObject($0)) })
   object["isLinkedNeighbor"] = .bool(result.isLinkedNeighbor)
+  object["termCoverage"] = .number(result.termCoverage)
   return object
 }
 

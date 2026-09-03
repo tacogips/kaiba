@@ -151,7 +151,9 @@ Kept unchanged; see `design-riela-note.md` for full rationale:
   storage is normal (D8). The S3 client is signed HTTP (SigV4), no SDK.
 - Search is FTS5 (trigram) over title/body/tags with tag/class filters
   and a LIKE fallback for sub-trigram queries; results carry snippets,
-  rank, and linked-neighbor expansion (D13).
+  rank, and linked-neighbor expansion (D13). Contextual indexing, relaxed
+  multi-term matching, and PageRank-ordered neighbours are specified in
+  `design-docs/specs/note-retrieval-fusion.md`.
 - Note graph: explicit `note_links` rows with provenance; traversal
   utilities support bounded neighborhood expansion (graph-RAG
   primitive).

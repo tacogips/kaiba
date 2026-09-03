@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 18
+  public static let currentVersion = 19
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -250,7 +250,7 @@ public enum NoteStoreSchema {
     try database.execute("DROP TABLE IF EXISTS note_fts")
     try database.execute("""
       CREATE VIRTUAL TABLE note_fts USING fts5(
-        title, body, tags,
+        title, body, tags, context,
         content='',
         tokenize='trigram'
       )
@@ -660,17 +660,23 @@ private let schemaStatements = [
     updated_at TEXT NOT NULL
   ) STRICT
   """,
+  // `context` is the contextual breadcrumb (notebook title plus tag
+  // ancestors) from `design-docs/specs/note-retrieval-fusion.md`, RF1.
   """
   CREATE VIRTUAL TABLE IF NOT EXISTS note_fts USING fts5(
-    title, body, tags,
+    title, body, tags, context,
     content='',
     tokenize='trigram'
   )
   """,
+  // The context payload is stored beside the map row because the FTS table
+  // is contentless: a 'delete' must repeat the exact values that were
+  // inserted, and tag ancestry can change after indexing.
   """
   CREATE TABLE IF NOT EXISTS note_fts_map (
     fts_rowid INTEGER PRIMARY KEY,
-    note_id TEXT NOT NULL UNIQUE REFERENCES notes(note_id)
+    note_id TEXT NOT NULL UNIQUE REFERENCES notes(note_id),
+    context TEXT NOT NULL DEFAULT ''
   ) STRICT
   """
 ]

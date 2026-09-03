@@ -675,8 +675,15 @@ final class NoteServiceTests: NoteTestCase {
     XCTAssertEqual(result.notes.map(\.noteNumber), [10, 20])
     XCTAssertEqual(result.notes.map(\.readOnly), [true, true])
     XCTAssertEqual(result.notes.flatMap(\.tags).map(\.assignedBy), ["ingest-workflow", "ingest-workflow"])
-    XCTAssertEqual(try service.searchNotes(query: "Alpha OCR").map(\.note.noteId), [result.notes[0].noteId])
-    XCTAssertEqual(try service.searchNotes(query: "Beta OCR").map(\.note.noteId), [result.notes[1].noteId])
+    // Both pages are indexed: the page matching every term leads, and the
+    // other page follows as a relaxed hit on the shared "OCR" term
+    // (`design-docs/specs/note-retrieval-fusion.md`, RF2).
+    let alpha = try service.searchNotes(query: "Alpha OCR")
+    XCTAssertEqual(alpha.map(\.note.noteId), [result.notes[0].noteId, result.notes[1].noteId])
+    XCTAssertEqual(alpha.map(\.termCoverage), [1, 0.5])
+    let beta = try service.searchNotes(query: "Beta OCR")
+    XCTAssertEqual(beta.map(\.note.noteId), [result.notes[1].noteId, result.notes[0].noteId])
+    XCTAssertEqual(beta.map(\.termCoverage), [1, 0.5])
   }
 
   func testCreateNotebookWithNotesRejectsDuplicateExplicitPageNumbers() throws {

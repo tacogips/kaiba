@@ -5,6 +5,9 @@ struct FTSPayload {
   var title: String
   var body: String
   var tags: String
+  /// Contextual breadcrumb: notebook title and tag ancestors
+  /// (`design-docs/specs/note-retrieval-fusion.md`, RF1).
+  var context: String
 }
 
 struct NoteSearchGraphOptions {
@@ -197,7 +200,7 @@ func searchNotesInDatabase(
     return Array(expanded.dropFirst(requestedOffset).prefix(requestedLimit))
   }
   var sql = """
-    SELECT m.note_id, bm25(note_fts) AS rank
+    SELECT m.note_id, \(NoteSearchFusionPolicy.weightedBM25) AS rank
     FROM note_fts
     INNER JOIN note_fts_map m ON m.fts_rowid = note_fts.rowid
     INNER JOIN notes n ON n.note_id = m.note_id
@@ -270,6 +273,22 @@ func searchNotesInDatabase(
       rank: rank,
       matchedTags: note.tags.map(\.tag)
     )
+  }
+  // Relaxed stage (`design-docs/specs/note-retrieval-fusion.md`, RF2): notes
+  // matching only some of the query terms follow every strict hit, ordered
+  // by term coverage and fused per-term rank.
+  if results.count < fetchLimit {
+    let relaxed = try relaxedTermSearchResults(
+      query: query,
+      tagFilterIds: expandedTagFilterIds,
+      classFilter: classFilter,
+      scope: scope,
+      excludedNoteIds: Set(results.map(\.note.noteId)),
+      sort: sort,
+      limit: fetchLimit - results.count,
+      in: database
+    )
+    results.append(contentsOf: relaxed)
   }
   if shouldRunTextLikeFallback(query: query, ftsResultCount: results.count) {
     let fallback = try searchNotesByTextLike(
@@ -611,7 +630,16 @@ private func appendLinkedNeighborResults(
       isLinkedNeighbor: true
     )
   }
-  return directResults + neighbors.prefix(max(0, neighborLimit))
+  // Neighbours are ordered by the personalized PageRank mass they gather from
+  // the direct hits (`design-docs/specs/note-retrieval-fusion.md`, RF3); the
+  // direct hits keep their lexical order and always come first.
+  let ranked = try rankNeighborsByPersonalizedPageRank(
+    directResults: Array(directResults.prefix(NoteGraphPolicy.maximumSeedCount)),
+    neighbors: neighbors,
+    scope: scope,
+    in: database
+  )
+  return directResults + ranked.prefix(max(0, neighborLimit))
 }
 
 func noteSortOrderClause(alias: String, sort: NoteListSort) -> String {
@@ -640,7 +668,7 @@ func notebookSortOrderClause(alias: String, sort: NoteListSort) -> String {
   }
 }
 
-private func appendTagPredicates(
+func appendTagPredicates(
   alias: String,
   tagFilterIds: [TagID],
   classFilter: [String],
@@ -732,96 +760,6 @@ private func appendCreatedAtPredicates(
   }
 }
 
-func refreshFTS(noteId: NoteID, previous: FTSPayload?, in database: SQLiteDatabase) throws {
-  if let previous {
-    try database.execute(
-      """
-      INSERT INTO note_fts(note_fts, rowid, title, body, tags)
-      VALUES('delete', ?, ?, ?, ?)
-      """,
-      bindings: [
-        .int(previous.rowId),
-        .text(previous.title),
-        .text(previous.body),
-        .text(previous.tags)
-      ]
-    )
-    try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.id(noteId)])
-  }
-
-  let payload = try currentFTSPayload(noteId: noteId, rowId: previous?.rowId, in: database)
-  try database.execute(
-    "INSERT INTO note_fts(rowid, title, body, tags) VALUES (?, ?, ?, ?)",
-    bindings: [
-      .int(payload.rowId),
-      .text(payload.title),
-      .text(payload.body),
-      .text(payload.tags)
-    ]
-  )
-  try database.execute(
-    """
-    INSERT INTO note_fts_map (fts_rowid, note_id)
-    VALUES (?, ?)
-    ON CONFLICT(note_id) DO UPDATE SET fts_rowid = excluded.fts_rowid
-    """,
-    bindings: [.int(payload.rowId), .id(noteId)]
-  )
-}
-
-func ftsPayload(noteId: NoteID, in database: SQLiteDatabase) throws -> FTSPayload? {
-  let rows = try database.query(
-    """
-    SELECT m.fts_rowid, n.title, n.body_markdown, ifnull((
-        SELECT group_concat(ordered_tags.name, ' ')
-        FROM (
-          SELECT t.name
-          FROM note_tags nt
-          INNER JOIN tags t ON t.tag_id = nt.tag_id
-          WHERE nt.note_id = n.note_id
-          ORDER BY t.name
-        ) ordered_tags
-      ), '') AS tags
-    FROM note_fts_map m
-    INNER JOIN notes n ON n.note_id = m.note_id
-    WHERE m.note_id = ?
-    LIMIT 1
-    """,
-    bindings: [.id(noteId)]
-  )
-  guard let row = rows.first, let rowIdText = row["fts_rowid"], let rowId = Int64(rowIdText) else {
-    return nil
-  }
-  return FTSPayload(
-    rowId: rowId,
-    title: row["title"] ?? "",
-    body: row["body_markdown"] ?? "",
-    tags: row["tags"] ?? ""
-  )
-}
-
-private func currentFTSPayload(noteId: NoteID, rowId: Int64?, in database: SQLiteDatabase) throws -> FTSPayload {
-  // Internal FTS bookkeeping for a note the caller just wrote.
-  let note = try loadNote(noteId, in: database)
-  let ftsRowId: Int64
-  if let rowId {
-    ftsRowId = rowId
-  } else {
-    ftsRowId = try nextFTSRowId(in: database)
-  }
-  return FTSPayload(
-    rowId: ftsRowId,
-    title: note.title ?? "",
-    body: note.bodyMarkdown,
-    tags: note.tags.map(\.tag.name).joined(separator: " ")
-  )
-}
-
-private func nextFTSRowId(in database: SQLiteDatabase) throws -> Int64 {
-  let rows = try database.query("SELECT ifnull(max(fts_rowid), 0) + 1 AS next_rowid FROM note_fts_map")
-  return Int64(rows.first?["next_rowid"] ?? "") ?? 1
-}
-
 func snippet(from body: String, query: String) -> String {
   let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
   guard !normalizedQuery.isEmpty,
@@ -860,7 +798,7 @@ private func queryHasSubtrigramTerm(_ query: String) -> Bool {
   }
 }
 
-private func ftsTerms(from query: String) -> [String] {
+func ftsTerms(from query: String) -> [String] {
   query.unicodeScalars.split { scalar in
     !CharacterSet.alphanumerics.contains(scalar)
   }.map(String.init).filter { !$0.isEmpty }

@@ -251,6 +251,7 @@ public struct GraphQLNoteSearchResultDTO: Codable, Equatable, Sendable {
   public var rank: Double
   public var matchedTags: [GraphQLNoteTagDTO]
   public var isLinkedNeighbor: Bool
+  public var termCoverage: Double
 
   public init(result: NoteSearchResult) {
     note = GraphQLNoteDTO(note: result.note)
@@ -258,6 +259,7 @@ public struct GraphQLNoteSearchResultDTO: Codable, Equatable, Sendable {
     rank = result.rank
     matchedTags = result.matchedTags.map(GraphQLNoteTagDTO.init)
     isLinkedNeighbor = result.isLinkedNeighbor
+    termCoverage = result.termCoverage
   }
 }
 

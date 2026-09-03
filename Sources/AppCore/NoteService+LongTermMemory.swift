@@ -88,6 +88,7 @@ extension NoteService {
   public static let longTermMemoryAssociationLinkKind = "memory-association"
   public static let longTermMemoryAssignedBy = "kaiba-long-term-memory"
   static let longTermMemoryMaximumLimit = 100
+  public static let longTermMemoryDefaultRecencyWeight = 0.5
   static let longTermMemoryReservedTagPrefixes = ["notebook-kind:", "long-term-memory:"]
 
   @discardableResult
@@ -286,21 +287,32 @@ extension NoteService {
   /// Associations are deliberately not restricted to the long-term notebook:
   /// the `memory-source` edges written at append time are how a recalled memory
   /// leads back to the notes it was distilled from, and those live elsewhere.
+  /// `recencyWeight` blends a recency ranking into the lexical ranking of the
+  /// matched pool (`design-docs/specs/note-retrieval-fusion.md`, RF4). It
+  /// reorders near-ties toward the memory whose period ended most recently
+  /// and never adds a note the query did not match; 0 disables it.
   public func recallLongTermMemories(
     query: String,
     limit: Int = 20,
     includeAssociations: Bool = false,
-    associationDepth: Int = NoteGraphPolicy.associationMaxDepth
+    associationDepth: Int = NoteGraphPolicy.associationMaxDepth,
+    recencyWeight: Double = Self.longTermMemoryDefaultRecencyWeight
   ) throws -> [LongTermMemoryRecallResult] {
     try requireUnscopedLongTermMemoryAccess()
+    guard recencyWeight >= 0, recencyWeight.isFinite else {
+      throw NoteServiceError.invalidInput("recencyWeight must be a non-negative number")
+    }
     let boundedLimit = max(1, min(limit, Self.longTermMemoryMaximumLimit))
     return try driver.withDatabase { database in
       let notebookId = try requireLongTermMemoryNotebookId(in: database)
-      let direct = try longTermMemoryDirectHits(
+      let pool = try longTermMemoryDirectHits(
         query: query,
         notebookId: notebookId,
-        limit: boundedLimit,
+        limit: min(boundedLimit * 2, Self.longTermMemoryMaximumLimit),
         in: database
+      )
+      let direct = Array(
+        rerankLongTermMemoriesByRecency(pool, recencyWeight: recencyWeight).prefix(boundedLimit)
       )
       guard includeAssociations, !direct.isEmpty, direct.count < boundedLimit else {
         return direct
@@ -390,6 +402,50 @@ extension NoteService {
   }
 }
 
+/// Reciprocal rank fusion of the lexical order (position in `hits`) with a
+/// recency order keyed on the entry's `periodEnd`, falling back to
+/// `createdAt`. The lexical list keeps weight 1, so with the default weight a
+/// one-position recency gap cannot overturn a one-position lexical gap.
+func rerankLongTermMemoriesByRecency(
+  _ hits: [LongTermMemoryRecallResult],
+  recencyWeight: Double
+) -> [LongTermMemoryRecallResult] {
+  guard recencyWeight > 0, hits.count > 1 else {
+    return hits
+  }
+  let lexicalOrder = hits.map(\.note.noteId)
+  let recencyOrder = hits
+    .map { hit in (noteId: hit.note.noteId, key: longTermMemoryRecencyKey(hit.note)) }
+    .sorted { lhs, rhs in
+      if lhs.key != rhs.key { return lhs.key > rhs.key }
+      return lhs.noteId < rhs.noteId
+    }
+    .map(\.noteId)
+  let fused = reciprocalRankFusion(lists: [
+    (weight: 1, ids: lexicalOrder),
+    (weight: recencyWeight, ids: recencyOrder)
+  ])
+  let lexicalPosition = Dictionary(uniqueKeysWithValues: lexicalOrder.enumerated().map { ($1, $0) })
+  return hits.sorted { lhs, rhs in
+    let lhsScore = fused[lhs.note.noteId] ?? 0
+    let rhsScore = fused[rhs.note.noteId] ?? 0
+    if lhsScore != rhsScore { return lhsScore > rhsScore }
+    return (lexicalPosition[lhs.note.noteId] ?? 0) < (lexicalPosition[rhs.note.noteId] ?? 0)
+  }
+}
+
+/// ISO-8601 timestamps compare lexically; `periodEnd` wins over `createdAt`
+/// because a consolidated memory is dated by the window it covers.
+private func longTermMemoryRecencyKey(_ note: Note) -> String {
+  if let metaJSON = note.metaJSON,
+     let object = (try? JSONValue(parsing: metaJSON))?.asObject,
+     let periodEnd = object["periodEnd"]?.asString,
+     !periodEnd.isEmpty {
+    return periodEnd
+  }
+  return note.createdAt
+}
+
 private extension NoteService {
   func requireUnscopedLongTermMemoryAccess() throws {
     guard actingUserId == nil, !isUnauthenticatedPrincipal else {
@@ -420,7 +476,7 @@ private extension NoteService {
     if let matchQuery = ftsMatchQuery(from: query) {
       ranksByNoteId = try database.query(
         """
-        SELECT m.note_id, bm25(note_fts) AS rank
+        SELECT m.note_id, \(NoteSearchFusionPolicy.weightedBM25) AS rank
         FROM note_fts
         INNER JOIN note_fts_map m ON m.fts_rowid = note_fts.rowid
         INNER JOIN notes n ON n.note_id = m.note_id

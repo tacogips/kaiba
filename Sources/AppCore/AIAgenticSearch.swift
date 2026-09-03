@@ -95,32 +95,33 @@ public struct AIAgenticSearchService: Sendable {
     }
     // The grep pass runs the full query plus its content-bearing terms: a
     // question like "which note mentions pepper?" matches nothing verbatim,
-    // but "pepper" does.
-    var noteMatches: [NoteSearchResult] = []
-    var seenNoteIds = Set<NoteID>()
+    // but "pepper" does. The per-term lists are fused with reciprocal rank
+    // fusion (`design-docs/specs/note-retrieval-fusion.md`, RF5) so the note
+    // supported by the most terms leads the grounding document, and the full
+    // query also reaches linked notes, which are reported separately.
+    let grounding = try Self.groundingResults(
+      query: trimmed,
+      terms: Self.grepTerms(from: trimmed),
+      notebookId: notebookId,
+      limit: limit,
+      service: service
+    )
     var memoMatches: [NoteComment] = []
     var seenCommentIds = Set<CommentID>()
     for term in Self.grepTerms(from: trimmed) {
-      for match in try service.searchNotes(query: term, notebookId: notebookId, limit: limit)
-      where seenNoteIds.insert(match.note.noteId).inserted {
-        noteMatches.append(match)
-      }
       for memo in try service.searchComments(query: term, notebookId: notebookId, limit: 50)
       where seenCommentIds.insert(memo.commentId).inserted {
         memoMatches.append(memo)
       }
-      if noteMatches.count >= limit {
-        break
-      }
     }
-    noteMatches = Array(noteMatches.prefix(limit))
     let request = AgentInvocationRequest(
       purpose: .search,
       systemPrompt: Self.searchSystemPrompt(notebookId: notebookId),
       turns: [AgentInvocationTurn(role: .user, markdown: trimmed)],
       contextMarkdown: Self.grepContextMarkdown(
         query: trimmed,
-        noteMatches: noteMatches,
+        noteMatches: grounding.noteMatches,
+        relatedNotes: grounding.relatedNotes,
         memoMatches: memoMatches
       ),
       provider: provider,
@@ -128,6 +129,64 @@ public struct AIAgenticSearchService: Sendable {
     )
     let reply = try await invoker.invoke(request)
     return Result(answerMarkdown: reply.markdown)
+  }
+
+  struct GroundingResults: Equatable {
+    var noteMatches: [NoteSearchResult]
+    var relatedNotes: [NoteSearchResult]
+  }
+
+  /// Runs the full query (with linked expansion, RRF weight 2) and each
+  /// content term (weight 1), fuses the direct hits, and keeps graph-only
+  /// neighbours apart so the model can tell evidence from association.
+  static func groundingResults(
+    query: String,
+    terms: [String],
+    notebookId: NotebookID?,
+    limit: Int,
+    service: NoteService
+  ) throws -> GroundingResults {
+    var lists: [(weight: Double, ids: [NoteID])] = []
+    var resultsById: [NoteID: NoteSearchResult] = [:]
+    var relatedNotes: [NoteSearchResult] = []
+    for (index, term) in terms.enumerated() {
+      let isFullQuery = index == 0
+      let results = try service.searchNotes(
+        query: term,
+        notebookId: notebookId,
+        includeLinked: isFullQuery,
+        depth: 1,
+        limit: limit
+      )
+      var directIds: [NoteID] = []
+      for result in results {
+        if result.isLinkedNeighbor {
+          if resultsById[result.note.noteId] == nil,
+             !relatedNotes.contains(where: { $0.note.noteId == result.note.noteId }) {
+            relatedNotes.append(result)
+          }
+          continue
+        }
+        directIds.append(result.note.noteId)
+        if resultsById[result.note.noteId] == nil {
+          resultsById[result.note.noteId] = result
+        }
+      }
+      lists.append((weight: isFullQuery ? 2 : 1, ids: directIds))
+    }
+    let fused = reciprocalRankFusion(lists: lists)
+    let noteMatches = fused
+      .sorted { lhs, rhs in
+        if lhs.value != rhs.value { return lhs.value > rhs.value }
+        return lhs.key < rhs.key
+      }
+      .prefix(limit)
+      .compactMap { resultsById[$0.key] }
+    let matchedIds = Set(noteMatches.map(\.note.noteId))
+    return GroundingResults(
+      noteMatches: noteMatches,
+      relatedNotes: Array(relatedNotes.filter { !matchedIds.contains($0.note.noteId) }.prefix(limit))
+    )
   }
 
   /// The full query followed by its content-bearing words (question words and
@@ -160,6 +219,7 @@ public struct AIAgenticSearchService: Sendable {
   static func grepContextMarkdown(
     query: String,
     noteMatches: [NoteSearchResult],
+    relatedNotes: [NoteSearchResult] = [],
     memoMatches: [NoteComment]
   ) -> String {
     var sections = ["# Pre-computed grep results for: \(query)"]
@@ -168,10 +228,23 @@ public struct AIAgenticSearchService: Sendable {
     }
     if !noteMatches.isEmpty {
       let lines = noteMatches.map { match in
-        "- noteId: \(match.note.noteId) (notebook \(match.note.notebookId)) — "
-          + "\(match.note.title ?? "(untitled)")\n  \(match.snippet)"
+        let coverage = match.termCoverage < 1
+          ? " [partial match: \(Int((match.termCoverage * 100).rounded()))% of terms]"
+          : ""
+        return "- noteId: \(match.note.noteId) (notebook \(match.note.notebookId)) — "
+          + "\(match.note.title ?? "(untitled)")\(coverage)\n  \(match.snippet)"
       }
       sections.append("## Note matches\n\(lines.joined(separator: "\n"))")
+    }
+    if !relatedNotes.isEmpty {
+      let lines = relatedNotes.map { related in
+        "- noteId: \(related.note.noteId) (notebook \(related.note.notebookId)) — "
+          + "\(related.note.title ?? "(untitled)")\n  \(related.snippet)"
+      }
+      sections.append(
+        "## Related notes (reached through links or shared tags, not text matches)\n"
+          + lines.joined(separator: "\n")
+      )
     }
     if !memoMatches.isEmpty {
       let lines = memoMatches.map { memo in
