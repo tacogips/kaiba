@@ -41,13 +41,14 @@ extension KaibaGraphQLSchema {
       let implementors = objectTypes.filter { $0.interfaces.contains(interfaceName) }.map(\.name)
       types[index].possibleTypes = Array(Set(types[index].possibleTypes + implementors)).sorted()
     }
-    let references = queryFields.flatMap(Self.references(in:))
-      + mutationFields.flatMap(Self.references(in:))
-      + types.flatMap { type in
-        type.fields.flatMap(Self.references(in:))
-          + type.inputFields.map { $0.type.namedTypeName }
-          + type.interfaces + type.possibleTypes
-      }
+    var references: [String] = queryFields.flatMap(Self.references(in:))
+    references.append(contentsOf: mutationFields.flatMap(Self.references(in:)))
+    for type in types {
+      references.append(contentsOf: type.fields.flatMap(Self.references(in:)))
+      references.append(contentsOf: type.inputFields.map { $0.type.namedTypeName })
+      references.append(contentsOf: type.interfaces)
+      references.append(contentsOf: type.possibleTypes)
+    }
     let builtins = Set(["String", "Int", "Float", "Boolean", "ID"])
     let names = Set(types.map(\.name)).union(builtins)
     guard references.allSatisfy(names.contains) else {
@@ -230,14 +231,16 @@ extension KaibaGraphQLSchema {
   ) throws {
     let fields = queryFields + mutationFields + types.flatMap(\.fields)
     let inputValues = fields.flatMap(\.arguments) + types.flatMap(\.inputFields)
-    let identifiers = types.map(\.name)
-      + fields.map(\.name)
-      + inputValues.map(\.name)
-      + types.flatMap { $0.enumValues.map(\.name) }
-      + types.flatMap(\.interfaces)
-      + types.flatMap(\.possibleTypes)
-      + fields.map { $0.type.namedTypeName }
-      + inputValues.map { $0.type.namedTypeName }
+    var identifiers: [String] = types.map(\.name)
+    identifiers.append(contentsOf: fields.map(\.name))
+    identifiers.append(contentsOf: inputValues.map(\.name))
+    for type in types {
+      identifiers.append(contentsOf: type.enumValues.map(\.name))
+      identifiers.append(contentsOf: type.interfaces)
+      identifiers.append(contentsOf: type.possibleTypes)
+    }
+    identifiers.append(contentsOf: fields.map { $0.type.namedTypeName })
+    identifiers.append(contentsOf: inputValues.map { $0.type.namedTypeName })
     guard identifiers.allSatisfy(isGraphQLName) else {
       throw KaibaClientError.schemaUnavailable("schema contains an invalid GraphQL name")
     }

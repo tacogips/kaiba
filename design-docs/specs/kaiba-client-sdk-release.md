@@ -23,3 +23,11 @@ Verification on 2026-09-06 used Xcode's Swift toolchain: `swift test` passed
 808 XCTest tests and 123 Swift Testing tests after both fixes. The focused
 connection-capacity suite passed all four tests. SwiftLint passed on the release
 fixes; the full lint run retained three existing warnings and no errors.
+
+## 0.1.14 Linux compiler compatibility
+
+The Linux release build of 0.1.13 exceeded the compiler's type-checking budget
+on two chained schema-validation array expressions. Version 0.1.14 replaces
+those expressions with explicitly typed arrays and incremental appends, without
+changing validation rules. It remains a SwiftPM source release; the signed
+macOS installer assets are unchanged.
