@@ -31,3 +31,7 @@ on two chained schema-validation array expressions. Version 0.1.14 replaces
 those expressions with explicitly typed arrays and incremental appends, without
 changing validation rules. It remains a SwiftPM source release; the signed
 macOS installer assets are unchanged.
+
+The CI image also lacked the SQLite development headers required by
+`CKaibaSQLite3`. The Linux job now installs `libsqlite3-dev` and `pkg-config`
+before building the CLI.
