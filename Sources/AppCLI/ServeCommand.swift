@@ -160,8 +160,9 @@ struct ServeCommand {
     case .unauthenticated:
       print("auth=disabled (--allow-unauthenticated)")
     }
-    // The ready lines must reach pipes/log files before the long sleep.
-    fflush(stdout)
+    // Flush the ready lines without accessing Glibc's mutable stdout global
+    // from this asynchronous function.
+    fflush(nil)
     do {
       try await Task.sleep(nanoseconds: .max)
     } catch is CancellationError {

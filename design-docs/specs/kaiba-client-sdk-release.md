@@ -46,3 +46,5 @@ The runtime now guards that implementation on Linux, and `kaiba serve` reports
 an unsupported-platform error before creating a store. The Linux CI job checks
 this diagnostic and absence of store creation, as well as the CLI version.
 The portable SDK can still connect to a supported remote server from Linux.
+The ready-banner flush also avoids Glibc's mutable `stdout` global, which Swift
+6 rejects in an asynchronous function.
