@@ -518,12 +518,13 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     var argumentVector: [UnsafeMutablePointer<CChar>?] = argumentPointers + [nil]
     var processIdentifier: pid_t = 0
     let spawnResult = argumentVector.withUnsafeMutableBufferPointer { argumentBuffer in
-      posix_spawn(
+      guard let argumentAddress = argumentBuffer.baseAddress else { return EINVAL }
+      return posix_spawn(
         &processIdentifier,
         command,
         &fileActions,
         &attributes,
-        argumentBuffer.baseAddress,
+        argumentAddress,
         environ
       )
     }
@@ -626,13 +627,15 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     var processIdentifier: pid_t = 0
     let spawnResult = commandVector.withUnsafeMutableBufferPointer { commandBuffer in
       environmentVector.withUnsafeMutableBufferPointer { environmentBuffer in
-        posix_spawn(
+        guard let commandAddress = commandBuffer.baseAddress,
+          let environmentAddress = environmentBuffer.baseAddress else { return EINVAL }
+        return posix_spawn(
           &processIdentifier,
           binary,
           &fileActions,
           &attributes,
-          commandBuffer.baseAddress,
-          environmentBuffer.baseAddress
+          commandAddress,
+          environmentAddress
         )
       }
     }

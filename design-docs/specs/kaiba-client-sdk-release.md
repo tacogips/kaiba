@@ -35,3 +35,8 @@ macOS installer assets are unchanged.
 The CI image also lacked the SQLite development headers required by
 `CKaibaSQLite3`. The Linux job now installs `libsqlite3-dev` and `pkg-config`
 before building the CLI.
+
+The subsequent Linux compile exposed stricter non-null `posix_spawn` argument
+types and an oversized tag-comment binding expression. Explicit pointer guards
+and incremental binding construction preserve behavior across Darwin and Glibc.
+The affected process-invocation and tag-detail suites passed all 47 tests.

@@ -137,6 +137,14 @@ public extension NoteService {
       let pendingIngestPredicate = allowsPendingNotebookIngestAccess
         ? ""
         : " AND json_extract(nb2.meta_json, '$._kaibaNotebookIngest.state') IS NOT 'pending'"
+      var scopedBindings: [SQLiteValue] = tagBindings
+      if let actingUserId { scopedBindings.append(.id(actingUserId)) }
+      scopedBindings.append(contentsOf: libraryBindings)
+      scopedBindings.append(contentsOf: longTermMemoryBindings)
+      var bindings = scopedBindings
+      bindings.append(contentsOf: scopedBindings)
+      bindings.append(.int(Int64(limit)))
+      bindings.append(.int(Int64(offset)))
       let rows = try database.query(
         """
         SELECT c.comment_id, c.note_id, c.notebook_id, c.body_markdown, c.author, c.created_at,
@@ -157,9 +165,7 @@ public extension NoteService {
         ORDER BY c.created_at DESC, c.comment_id DESC
         LIMIT ? OFFSET ?
         """,
-        bindings: tagBindings + (actingUserId.map { [.id($0)] } ?? []) + libraryBindings + longTermMemoryBindings
-          + tagBindings + (actingUserId.map { [.id($0)] } ?? []) + libraryBindings + longTermMemoryBindings
-          + [.int(Int64(limit)), .int(Int64(offset))]
+        bindings: bindings
       )
       return try rows.map { row in
         guard let commentId = row.identifier("comment_id", as: CommentID.self),
