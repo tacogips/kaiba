@@ -238,6 +238,12 @@ public struct AppCommand: Sendable {
                  [--endpoint <url> [--api-key-env <VAR>]]
                  # send the document to a running kaiba server's POST /graphql
                  # instead; the API key is read from the named env variable
+      graphql schema --endpoint <url>
+                 (--api-key-env <VAR>|--allow-unauthenticated)
+                 [--allow-remote-unauthenticated] [--allow-insecure-http]
+                 [--filter <regex>] [--output text|json]
+                 # retrieve authenticated schema introspection; regex matches
+                 # root fields and types and includes forward type dependencies
       client     issue --name <n> [--user <user-id>] | list [--all]
                  | revoke <client-id>
                  # API keys accepted as bearer tokens by kaiba serve;

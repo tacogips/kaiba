@@ -23,6 +23,7 @@ struct NoteSearchScope {
   var reachableLibraryIds: [LibraryID]?
   var actingUserId: UserID?
   var excludesLongTermMemory: Bool
+  var excludesPendingNotebookIngests: Bool
   var createdAfter: String?
   var createdBefore: String?
 
@@ -31,6 +32,7 @@ struct NoteSearchScope {
     reachableLibraryIds: [LibraryID]? = nil,
     actingUserId: UserID? = nil,
     excludesLongTermMemory: Bool = false,
+    excludesPendingNotebookIngests: Bool = false,
     createdAfter: String? = nil,
     createdBefore: String? = nil
   ) {
@@ -38,9 +40,36 @@ struct NoteSearchScope {
     self.reachableLibraryIds = reachableLibraryIds
     self.actingUserId = actingUserId
     self.excludesLongTermMemory = excludesLongTermMemory
+    self.excludesPendingNotebookIngests = excludesPendingNotebookIngests
     self.createdAfter = createdAfter
     self.createdBefore = createdBefore
   }
+}
+
+func appendPendingNotebookIngestExclusionPredicate(
+  alias: String,
+  excludesPendingNotebookIngests: Bool,
+  predicates: inout [String]
+) {
+  guard excludesPendingNotebookIngests else { return }
+  predicates.append(
+    "\(alias).notebook_id NOT IN (SELECT notebook_id FROM notebooks " +
+      "WHERE json_extract(meta_json, '$._kaibaNotebookIngest.state') = 'pending')"
+  )
+}
+
+func appendPendingNotebookIngestExclusionPredicate(
+  alias: String,
+  excludesPendingNotebookIngests: Bool,
+  sql: inout String
+) {
+  var predicates: [String] = []
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: alias,
+    excludesPendingNotebookIngests: excludesPendingNotebookIngests,
+    predicates: &predicates
+  )
+  for predicate in predicates { sql += "\n  AND \(predicate)" }
 }
 
 func appendLongTermMemoryExclusionPredicate(
@@ -218,6 +247,11 @@ func searchNotesInDatabase(
     bindings: &bindings
   )
   appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, sql: &sql, bindings: &bindings)
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: "n",
+    excludesPendingNotebookIngests: scope.excludesPendingNotebookIngests,
+    sql: &sql
+  )
   if scope.excludesLongTermMemory, scope.actingUserId == nil {
     sql += "\n  AND n.notebook_id NOT IN (SELECT notebook_id FROM notebook_tags WHERE tag_id = ?)"
     bindings.append(.id(NoteStoreSchema.longTermMemoryNotebookKindTagId))
@@ -345,6 +379,11 @@ private func searchNotesByFilters(
     bindings: &bindings
   )
   appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, predicates: &predicates, bindings: &bindings)
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: "n",
+    excludesPendingNotebookIngests: scope.excludesPendingNotebookIngests,
+    predicates: &predicates
+  )
   if scope.excludesLongTermMemory, scope.actingUserId == nil {
     appendLongTermMemoryExclusionPredicate(
       alias: "n",
@@ -457,6 +496,11 @@ private func searchNotesByTextLike(
     bindings: &bindings
   )
   appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, predicates: &predicates, bindings: &bindings)
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: "n",
+    excludesPendingNotebookIngests: scope.excludesPendingNotebookIngests,
+    predicates: &predicates
+  )
   if scope.excludesLongTermMemory, scope.actingUserId == nil {
     appendLongTermMemoryExclusionPredicate(
       alias: "n",
@@ -582,6 +626,11 @@ private func appendLinkedNeighborResults(
     bindings: &bindings
   )
   appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, predicates: &predicates, bindings: &bindings)
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: "n",
+    excludesPendingNotebookIngests: scope.excludesPendingNotebookIngests,
+    predicates: &predicates
+  )
   if scope.excludesLongTermMemory, scope.actingUserId == nil {
     appendLongTermMemoryExclusionPredicate(
       alias: "n",

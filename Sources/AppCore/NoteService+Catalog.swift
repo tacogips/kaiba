@@ -132,13 +132,24 @@ public extension NoteService {
 
   func listTags() throws -> [Tag] {
     try driver.withDatabase { database in
-      try database.query(
+      let tags = try database.query(
         """
         SELECT tag_id, name, class_id, parent_tag_id, is_system, created_at
         FROM tags
         ORDER BY name, ifnull(parent_tag_id, ''), tag_id
         """
       ).map(noteCatalogTag(from:))
+      guard !allowsPendingNotebookIngestAccess else { return tags }
+      let hiddenTagIds = try database.query(
+        """
+        SELECT json(meta_json) AS meta_json
+        FROM notebooks
+        WHERE json_extract(meta_json, '$._kaibaNotebookIngest.state') = 'pending'
+        """
+      ).reduce(into: Set<TagID>()) { result, row in
+        result.formUnion(Self.pendingNotebookIngestCreatedTagIds(row["meta_json"] ?? nil))
+      }
+      return tags.filter { !hiddenTagIds.contains($0.tagId) }
     }
   }
 

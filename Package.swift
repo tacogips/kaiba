@@ -10,6 +10,7 @@ let package = Package(
   products: [
     .library(name: "AppCore", targets: ["AppCore"]),
     .library(name: "AppGraphQL", targets: ["AppGraphQL"]),
+    .library(name: "KaibaClient", targets: ["KaibaClient"]),
     .executable(name: "kaiba", targets: ["AppCLI"]),
     .executable(name: "KaibaApp", targets: ["KaibaApp"])
   ],
@@ -40,11 +41,13 @@ let package = Package(
         .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))
       ]
     ),
-    .target(name: "AppGraphQL", dependencies: ["AppCore"]),
+    .target(name: "KaibaClient"),
+    .target(name: "AppGraphQL", dependencies: ["AppCore", "KaibaClient"]),
+    .target(name: "KaibaCLIKit", dependencies: ["KaibaClient"]),
     .target(name: "AppServer", dependencies: ["AppCore", "AppGraphQL"]),
     .executableTarget(
       name: "AppCLI",
-      dependencies: ["AppCore", "AppGraphQL", "AppServer"]
+      dependencies: ["AppCore", "AppGraphQL", "AppServer", "KaibaClient", "KaibaCLIKit"]
     ),
     .executableTarget(
       name: "KaibaApp",
@@ -57,12 +60,14 @@ let package = Package(
     ),
     .testTarget(
       name: "AppGraphQLTests",
-      dependencies: ["AppGraphQL", "AppCore"]
+      dependencies: ["AppGraphQL", "AppCore", "KaibaClient"]
     ),
     .testTarget(
       name: "AppServerTests",
-      dependencies: ["AppServer", "AppGraphQL", "AppCore"]
-    )
+      dependencies: ["AppServer", "AppGraphQL", "AppCore", "KaibaClient"]
+    ),
+    .testTarget(name: "KaibaClientTests", dependencies: ["KaibaClient"]),
+    .testTarget(name: "KaibaCLIKitTests", dependencies: ["KaibaCLIKit", "KaibaClient"])
   ],
   swiftLanguageModes: [.v6]
 )

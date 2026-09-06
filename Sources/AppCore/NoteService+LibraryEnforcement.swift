@@ -19,6 +19,7 @@ import Foundation
 extension NoteService {
   func requireNotebook(_ notebookId: NotebookID, in db: SQLiteDatabase) throws -> Notebook {
     let notebook = try loadNotebook(notebookId, in: db)
+    try requireFinalizedNotebookIngest(notebook, subject: notebookId.rawValue)
     try requireLibraryReach(
       libraryId: notebook.libraryId,
       subject: notebookId.rawValue,
@@ -31,6 +32,8 @@ extension NoteService {
 
   func requireNote(_ noteId: NoteID, in db: SQLiteDatabase) throws -> Note {
     let note = try loadNote(noteId, in: db)
+    let notebook = try loadNotebook(note.notebookId, in: db)
+    try requireFinalizedNotebookIngest(notebook, subject: noteId.rawValue)
     try requireLibraryReach(
       notebookId: note.notebookId,
       subject: noteId.rawValue,
@@ -47,6 +50,8 @@ extension NoteService {
     // particular, a foreign read-only note must be indistinguishable from a
     // missing row, not report its read-only state to the caller.
     let note = try loadNote(noteId, in: db)
+    let notebook = try loadNotebook(note.notebookId, in: db)
+    try requireFinalizedNotebookIngest(notebook, subject: noteId.rawValue)
     try requireLibraryReach(
       notebookId: note.notebookId,
       subject: noteId.rawValue,
@@ -61,6 +66,7 @@ extension NoteService {
   func requireWritableNotebook(_ notebookId: NotebookID, in db: SQLiteDatabase) throws -> Notebook {
     // As with notes, do not reveal whether a foreign notebook is read-only.
     let notebook = try loadNotebook(notebookId, in: db)
+    try requireFinalizedNotebookIngest(notebook, subject: notebookId.rawValue)
     try requireLibraryReach(
       libraryId: notebook.libraryId,
       subject: notebookId.rawValue,
@@ -69,6 +75,12 @@ extension NoteService {
     )
     try requireNotebookOwnership(notebookId, subject: notebookId.rawValue, in: db)
     return try loadWritableNotebook(notebookId, in: db)
+  }
+
+  private func requireFinalizedNotebookIngest(_ notebook: Notebook, subject: String) throws {
+    guard !allowsPendingNotebookIngestAccess,
+          Self.isPendingNotebookIngestMetadata(notebook.metaJSON) else { return }
+    throw NoteServiceError.notFound("notebook or note not found: \(subject)")
   }
 
   /// Refuses a file whose owning note or notebook sits in a library this
@@ -80,7 +92,8 @@ extension NoteService {
     let rows = try db.query(
       """
       SELECT DISTINCT notebooks.notebook_id AS notebook_id, notebooks.library_id AS library_id,
-        notebooks.owner_user_id AS owner_user_id
+        notebooks.owner_user_id AS owner_user_id,
+        CASE WHEN notebooks.meta_json IS NULL THEN NULL ELSE json(notebooks.meta_json) END AS meta_json
       FROM notebooks
       WHERE notebooks.notebook_id IN (
         SELECT notes.notebook_id
@@ -102,6 +115,10 @@ extension NoteService {
     // Reachable through any referencing notebook: an attachment shared by two
     // notebooks is readable when either one is.
     for row in rows {
+      if !allowsPendingNotebookIngestAccess,
+         Self.isPendingNotebookIngestMetadata(row["meta_json"] ?? nil) {
+        continue
+      }
       guard let libraryId = row.identifier("library_id", as: LibraryID.self),
             try isReachable(libraryId: libraryId, in: db) else { continue }
       if actingUserId != nil || isUnauthenticatedPrincipal,

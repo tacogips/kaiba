@@ -152,6 +152,14 @@ public struct GraphQLAttachNoteFileInput: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLAttachNotebookFileInput: Codable, Equatable, Sendable {
+  public var notebookId: NotebookID
+  public var contentBase64: String
+  public var role: String?
+  public var mediaType: String
+  public var originalFilename: String?
+}
+
 public struct GraphQLConfigureNoteAutoActionInput: Codable, Equatable, Sendable {
   public var actionId: AutoActionID
   public var trigger: String

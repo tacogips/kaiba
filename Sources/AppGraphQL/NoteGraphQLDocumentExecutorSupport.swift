@@ -6,13 +6,17 @@ import AppCore
 /// `NoteGraphQLDocumentExecutor`, split out to keep the executor itself
 /// focused on operation dispatch.
 
-/// Resolves the audit-attribution identity (`assignedBy`/`author`) for a note
+/// Resolves caller-visible attribution (`assignedBy`/`author`) for a note
 /// mutation.
 ///
 /// On the authenticated HTTP note API (`authenticatedClientId` non-nil) the
-/// identity is always the bearer-verified `client:<id>`; any explicit value in
-/// the request is rejected so attribution cannot be forged. On the local
-/// operator path (`authenticatedClientId` nil) the explicit value is honored.
+/// server supplies the bearer-verified `client:<id>` when the caller omits an
+/// attribution. Explicit Riela labels remain caller-visible, but the reserved
+/// `client:` namespace cannot be supplied by a bearer client, so it cannot be
+/// confused with verified identity. Database audit ownership remains scoped to
+/// the authenticated user independently of this display attribution. On the
+/// local operator path (`authenticatedClientId` nil) the explicit value is
+/// honored.
 func noteAPIAssignedBy(
   _ explicit: String?,
   field: String,
@@ -21,12 +25,16 @@ func noteAPIAssignedBy(
   guard let clientId = request.authenticatedClientId else {
     return explicit
   }
-  guard explicit == nil else {
+  guard let explicit else {
+    return "client:\(clientId)"
+  }
+  guard !explicit.trimmingCharacters(in: .whitespacesAndNewlines)
+    .lowercased().hasPrefix("client:") else {
     throw NoteGraphQLDocumentExecutorError.invalidVariable(
-      "\(field) cannot be set by an authenticated note API client"
+      "\(field) cannot use the reserved client identity namespace"
     )
   }
-  return "client:\(clientId)"
+  return explicit
 }
 
 public func noteGraphQLRootFieldName(in query: String, operationName: String? = nil) -> String? {
@@ -55,11 +63,13 @@ public func noteGraphQLRootFieldNames(in query: String, operationName: String? =
 public func noteGraphQLRequiresAuthentication(in query: String, operationName: String? = nil) -> Bool {
   do {
     return try noteGraphQLRootFieldNames(in: query, operationName: operationName)
-      .contains { supportedNoteGraphQLFields.contains($0) }
+      .contains { supportedNoteGraphQLFields.contains($0) || introspectionAuthenticationFields.contains($0) }
   } catch {
     return true
   }
 }
+
+private let introspectionAuthenticationFields: Set<String> = ["__schema", "__type"]
 
 public func noteGraphQLOperationTypeName(in query: String, operationName: String? = nil) -> String {
   guard
@@ -93,6 +103,9 @@ let supportedNoteGraphQLFields: Set<String> = [
   "tagClasses",
   "noteFile",
   "noteFiles",
+  "notebookFiles",
+  "noteLinks",
+  "longTermMemoryNotebook",
   "autoActions",
   "createNote",
   "createNotebook",
@@ -118,6 +131,11 @@ let supportedNoteGraphQLFields: Set<String> = [
   "userAgentCredential",
   "linkNotes",
   "attachNoteFile",
+  "attachNotebookFile",
+  "ingestNotebookPages",
+  "appendLongTermMemory",
+  "recallLongTermMemory",
+  "linkLongTermMemoryAssociations",
   "configureNoteAutoAction",
   "deleteNoteAutoAction",
   "saveNoteConversation",
@@ -158,6 +176,9 @@ let noteGraphQLQueryFields: Set<String> = [
   "tagClasses",
   "noteFile",
   "noteFiles",
+  "notebookFiles",
+  "noteLinks",
+  "longTermMemoryNotebook",
   "autoActions",
   "noteConversations",
   "notebookConversations",
@@ -300,6 +321,12 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "tagClasses": "NoteTagClassesQueryPayload",
   "noteFile": "NoteFileQueryPayload",
   "noteFiles": "NoteFilesQueryPayload",
+  "notebookFiles": "NotebookFilesQueryPayload",
+  "noteLinks": "NoteLinksQueryPayload",
+  "longTermMemoryNotebook": "NotebookQueryPayload",
+  "appendLongTermMemory": "LongTermMemoryAppendPayload",
+  "recallLongTermMemory": "LongTermMemoryRecallPayload",
+  "linkLongTermMemoryAssociations": "NoteLinksQueryPayload",
   "autoActions": "NoteAutoActionsQueryPayload",
   "noteConversations": "AgentConversationsQueryPayload",
   "notebookConversations": "AgentConversationsQueryPayload",
@@ -350,6 +377,24 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
   "NoteTagClassesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteTagClass"),
   "NoteFileQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFile"),
   "NoteFilesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFileAttachment"),
+  "NotebookFilesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NotebookFileAttachment"),
+  "NoteLinksQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteLink"),
+  "LongTermMemoryAppendPayload": [
+    "result": "ControlPlaneResult",
+    "notes": "Note",
+    "idempotentReplay": nil
+  ],
+  "LongTermMemoryRecallPayload": noteGraphQLQueryPayloadFields(valueType: "LongTermMemoryRecallHit"),
+  "LongTermMemoryRecallHit": [
+    "note": "Note",
+    "snippet": nil,
+    "rank": nil,
+    "isAssociation": nil,
+    "edgeKind": nil,
+    "weight": nil,
+    "hopCount": nil,
+    "pathNoteIds": nil
+  ],
   "NoteAutoActionsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteAutoAction"),
   "AgentConversationsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "AgentConversation"),
   "AgentModelsPayload": [
@@ -463,6 +508,8 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "tag": "NoteTag",
     "tagClass": "NoteTagClass",
     "file": "NoteFile",
+    "noteFiles": "NoteFileAttachment",
+    "notebookFiles": "NotebookFileAttachment",
     "comment": "NoteComment",
     "link": "NoteLink",
     "autoAction": "NoteAutoAction"
@@ -578,6 +625,11 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "role": nil,
     "position": nil
   ],
+  "NotebookFileAttachment": [
+    "notebookId": nil,
+    "file": "NoteFile",
+    "role": nil
+  ],
   "NoteComment": [
     "commentId": nil,
     "noteId": nil,
@@ -598,7 +650,8 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "snippet": nil,
     "rank": nil,
     "matchedTags": "NoteTag",
-    "isLinkedNeighbor": nil
+    "isLinkedNeighbor": nil,
+    "termCoverage": nil
   ],
   "NoteGraphNeighbor": [
     "seedNoteId": nil,

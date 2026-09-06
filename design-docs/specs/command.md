@@ -16,6 +16,10 @@ Global options: `--note-root <dir>` (default `~/.kaiba`, env
 `--version`. Commands that render
 entities accept `--output json|text` (default `text`).
 
+`kaiba graphql schema` is endpoint-only: it is routed before note-root and
+Kaiba configuration loading, so ambient local configuration cannot affect
+schema discovery.
+
 ### Notes
 
 ```bash
@@ -125,6 +129,26 @@ kaiba graphql (<document>|--file <path>|-) [--variables <json>]
 Executes a note GraphQL document against the local store and prints the
 JSON response (`data`/`errors`). Exit code is non-zero when the
 response carries GraphQL errors.
+
+Remote document mode remains compatible with `--endpoint <url>` and optional
+`--api-key-env <VAR>`. The schema-discovery branch is selected only when
+`schema` is the first token after `graphql`:
+
+```bash
+kaiba graphql schema --endpoint <url> \
+  (--api-key-env <VAR>|--allow-unauthenticated) \
+  [--allow-remote-unauthenticated] [--allow-insecure-http] \
+  [--filter <icu-regex>] [--output text|json]
+```
+
+Discovery always queries the endpoint with standard authenticated
+introspection; it has no compiled-schema or local-store fallback. Filtering is
+case-sensitive substring matching against simple and qualified root/type names.
+The result includes forward type dependencies, is deterministically sorted, and
+treats a valid no-match as success. Invalid usage, endpoint policy, credential,
+and regular expression errors exit 2 without a request. Authentication,
+connection, HTTP, response, and schema failures exit 1 with redacted diagnostics
+on stderr; success writes only to stdout.
 
 ### API keys
 

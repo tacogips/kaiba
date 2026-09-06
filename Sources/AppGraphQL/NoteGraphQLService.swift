@@ -2,6 +2,26 @@ import Foundation
 
 import AppCore
 
+typealias NotebookIngestCompletionMutation = @Sendable (
+  NoteService,
+  NotebookIngestRequestIdentity,
+  NotebookIngestResult,
+  String,
+  Bool,
+  AutoActionID?
+) throws -> Void
+
+typealias NotebookIngestRecoveryMutation = @Sendable (
+  NoteService,
+  NotebookIngestRequestIdentity,
+  NotebookIngestResult,
+  String,
+  Bool,
+  AutoActionID?
+) throws -> Void
+
+typealias NotebookIngestClaimObserver = @Sendable (NotebookIngestRequestClaim) -> Void
+
 // Mirrors riela's InlineWorkflowAddonAttachmentProjector.maxAttachmentBytes;
 // kaiba carries the bound directly since it has no workflow addon layer.
 private let graphQLNoteMaxInlineFileBytes = 8 * 1024 * 1024
@@ -31,6 +51,37 @@ public struct GraphQLNoteGraphQLService: Sendable {
   /// Personal-agent policy (`design-docs/specs/user-agent-tools.md`): gates
   /// the credential surface and the per-user model reported by `agentModels`.
   public var userAgentConfiguration: KaibaUserAgentConfiguration
+  /// Internal fault-injection seam for post-create ingest reconciliation.
+  /// Production always delegates directly to `NoteService.setReadOnly`.
+  var ingestReadOnlyMutation: @Sendable (NoteService, NoteID, Bool) throws -> Note
+  /// Internal test seam for the page-attachment phase of a pending ingest.
+  var ingestNoteAttachmentMutation: @Sendable (
+    NoteService, NoteID, Data, NoteFileRole, String, String?, Int
+  ) throws -> NoteFileAttachment
+  /// Internal fault-injection seam for authoritative post-create ingest reads.
+  /// Production always delegates directly to `NoteService.getNote`.
+  var ingestNoteReadback: @Sendable (NoteService, NoteID) throws -> Note
+  /// Internal fault-injection seam for the terminal reveal transaction.
+  var ingestCompletionMutation: NotebookIngestCompletionMutation
+  /// Internal fault-injection seam for durable terminal-recovery persistence.
+  var ingestRecoveryMutation: NotebookIngestRecoveryMutation
+  /// Internal test seam proving request validation finishes before the durable claim.
+  var ingestClaimObserver: NotebookIngestClaimObserver
+  /// Pending duplicate requests use release notification plus bounded fallback
+  /// backoff so disconnect cancellation cannot leave a hot SQLite poller.
+  var ingestClaimMaximumWait: Duration
+  var ingestClaimInitialBackoff: Duration
+  var ingestClaimMaximumBackoff: Duration
+  /// Internal fault-injection seam for a claimed request that fails before creation.
+  var ingestBeforeNotebookCreation: @Sendable () throws -> Void
+  /// Internal test seam after successful pre-create abandonment has released ownership.
+  var ingestAfterAbandonment: @Sendable () -> Void
+  /// Internal fault-injection seam after the atomic hidden-resource commit.
+  /// Throwing here models process loss before any reconciliation can run.
+  var ingestAfterNotebookCreation: @Sendable () throws -> Void
+  /// Internal fault-injection seam after attachment commits but before note
+  /// reconciliation, modeling a process stop later in the created state.
+  var ingestAfterAttachmentPhase: @Sendable () throws -> Void
 
   public init(
     service: NoteService,
@@ -48,6 +99,48 @@ public struct GraphQLNoteGraphQLService: Sendable {
     self.agentModelCatalog = agentModelCatalog
     self.agentModelCatalogCache = agentModelCatalogCache
     self.userAgentConfiguration = userAgentConfiguration
+    self.ingestReadOnlyMutation = { service, noteId, readOnly in
+      try service.setReadOnly(noteId: noteId, readOnly: readOnly)
+    }
+    self.ingestNoteAttachmentMutation = { service, noteId, data, role, mediaType, originalFilename, position in
+      try service.attachFile(
+        noteId: noteId,
+        data: data,
+        role: role,
+        mediaType: mediaType,
+        originalFilename: originalFilename,
+        position: position
+      )
+    }
+    self.ingestNoteReadback = { service, noteId in
+      try service.getNote(noteId)
+    }
+    self.ingestCompletionMutation = { service, identity, ingest, resultJSON, enqueue, actionId in
+      try service.completeNotebookIngestRequest(
+        identity,
+        ingest: ingest,
+        resultJSON: resultJSON,
+        enqueueAutoActions: enqueue,
+        originatingActionId: actionId
+      )
+    }
+    self.ingestRecoveryMutation = { service, identity, ingest, resultJSON, enqueue, actionId in
+      try service.recordNotebookIngestRecovery(
+        identity,
+        ingest: ingest,
+        resultJSON: resultJSON,
+        enqueueAutoActions: enqueue,
+        originatingActionId: actionId
+      )
+    }
+    self.ingestClaimObserver = { _ in }
+    self.ingestClaimMaximumWait = .seconds(30)
+    self.ingestClaimInitialBackoff = .milliseconds(25)
+    self.ingestClaimMaximumBackoff = .milliseconds(500)
+    self.ingestBeforeNotebookCreation = {}
+    self.ingestAfterAbandonment = {}
+    self.ingestAfterNotebookCreation = {}
+    self.ingestAfterAttachmentPhase = {}
   }
 
   public func note(noteId: NoteID) async -> GraphQLNoteQueryResult<GraphQLNoteDTO> {
@@ -179,6 +272,20 @@ public struct GraphQLNoteGraphQLService: Sendable {
   public func noteFiles(noteId: NoteID) async -> GraphQLNoteQueryResult<[GraphQLNoteFileAttachmentDTO]> {
     noteResult {
       try service.listFiles(noteId: noteId).map(GraphQLNoteFileAttachmentDTO.init)
+    }
+  }
+
+  public func notebookFiles(
+    notebookId: NotebookID
+  ) async -> GraphQLNoteQueryResult<[GraphQLNotebookFileAttachmentDTO]> {
+    noteResult {
+      try service.listFiles(notebookId: notebookId).map(GraphQLNotebookFileAttachmentDTO.init)
+    }
+  }
+
+  public func noteLinks(noteId: NoteID) async -> GraphQLNoteQueryResult<[GraphQLNoteLinkDTO]> {
+    noteResult {
+      try service.listLinks(noteId: noteId).map(GraphQLNoteLinkDTO.init)
     }
   }
 
@@ -453,6 +560,33 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
+  public func attachNotebookFile(
+    notebookId: NotebookID,
+    contentBase64: String,
+    role: String = NotebookFileRole.related.rawValue,
+    mediaType: String,
+    originalFilename: String? = nil
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      guard estimatedBase64DecodedByteCount(contentBase64) <= graphQLNoteMaxInlineFileBytes,
+            let data = Data(base64Encoded: contentBase64),
+            data.count <= graphQLNoteMaxInlineFileBytes else {
+        throw GraphQLNoteServiceError.invalidRequest("contentBase64 is invalid or exceeds the byte limit")
+      }
+      guard let fileRole = NotebookFileRole(rawValue: role) else {
+        throw GraphQLNoteServiceError.invalidRequest("unsupported notebook file role: \(role)")
+      }
+      let attachment = try service.attachNotebookFile(
+        notebookId: notebookId,
+        data: data,
+        role: fileRole,
+        mediaType: mediaType,
+        originalFilename: originalFilename
+      )
+      return .init(result: .ok, file: GraphQLNoteFileDTO(file: attachment.file))
+    }
+  }
+
   public func configureAutoAction(
     actionId: AutoActionID,
     trigger: String,
@@ -704,12 +838,15 @@ private func graphQLNoteProvenance(_ rawValue: String) throws -> NoteProvenance 
 
 private func validatePublicNotebookMetaJSON(_ metaJSON: String?) throws {
   guard let metaJSON,
-    let metadata = (try? JSONValue(parsing: metaJSON))?.asObject,
-    metadata["kaibaChat"] != nil
-  else {
+        let metadata = (try? JSONValue(parsing: metaJSON))?.asObject else {
     return
   }
-  throw GraphQLNoteServiceError.invalidRequest("kaibaChat notebook metadata is server-managed")
+  if metadata["kaibaChat"] != nil {
+    throw GraphQLNoteServiceError.invalidRequest("kaibaChat notebook metadata is server-managed")
+  }
+  if metadata["_kaibaNotebookIngest"] != nil {
+    throw GraphQLNoteServiceError.invalidRequest("_kaibaNotebookIngest notebook metadata is server-managed")
+  }
 }
 
 private func validatePublicNoteMetaJSON(_ metaJSON: String?) throws {
@@ -732,7 +869,7 @@ private func graphQLNoteListSort(_ rawValue: String?) throws -> NoteListSort {
   return sort
 }
 
-private func noteResult<Value>(
+func noteResult<Value>(
   _ body: () throws -> Value
 ) -> GraphQLNoteQueryResult<Value> where Value: Codable & Equatable & Sendable {
   do {
@@ -742,7 +879,7 @@ private func noteResult<Value>(
   }
 }
 
-private func noteMutation(_ body: () throws -> GraphQLNoteMutationResult) -> GraphQLNoteMutationResult {
+func noteMutation(_ body: () throws -> GraphQLNoteMutationResult) -> GraphQLNoteMutationResult {
   do {
     return try body()
   } catch {

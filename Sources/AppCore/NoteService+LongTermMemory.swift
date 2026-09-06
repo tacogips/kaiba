@@ -37,8 +37,9 @@ public struct LongTermMemoryEntryInput: Equatable, Sendable {
 
 public struct LongTermMemoryAppendResult: Equatable, Sendable {
   public var notes: [Note]
-  /// True when the idempotency key had already been persisted and `notes` are
-  /// the entries from that earlier append rather than newly written rows.
+  /// True when the principal's idempotency key and canonical request had
+  /// already been persisted and `notes` are the entries from that earlier
+  /// append rather than newly written rows.
   public var idempotentReplay: Bool
 
   public init(notes: [Note], idempotentReplay: Bool) {
@@ -143,35 +144,52 @@ extension NoteService {
   }
 
   public func longTermMemoryNotebook() throws -> Notebook {
-    try requireUnscopedLongTermMemoryAccess()
     return try driver.withDatabase { database in
-      try requireNotebook(try requireLongTermMemoryNotebookId(in: database), in: database)
+      try database.transaction { db in
+        try requireLongTermMemoryAccess(in: db)
+        let operatorService = longTermMemoryOperatorService
+        return try operatorService.requireNotebook(
+          operatorService.requireLongTermMemoryNotebookId(in: db),
+          in: db
+        )
+      }
     }
   }
 
   /// Appends consolidated memories as notes in the canonical notebook.
   ///
   /// The whole batch is one transaction: a single unusable entry leaves no note,
-  /// tag or link behind. Note ids are derived from `idempotencyKey`, so a retry
-  /// of an interrupted call returns the already-persisted entries instead of
-  /// duplicating them.
+  /// tag or link behind. Note ids are derived from the acting user and
+  /// `idempotencyKey`; an identical retry returns the already-persisted entries
+  /// while a changed request using that principal/key pair is rejected.
   @discardableResult
   public func appendLongTermMemoryNotes(
     _ entries: [LongTermMemoryEntryInput],
-    idempotencyKey: String
+    idempotencyKey: String,
+    assignedBy: String = Self.longTermMemoryAssignedBy
   ) throws -> LongTermMemoryAppendResult {
-    try requireUnscopedLongTermMemoryAccess()
     guard !entries.isEmpty else {
       throw NoteServiceError.invalidInput("long-term memory append requires at least one entry")
     }
     let normalizedKey = try normalizedLongTermMemoryIdempotencyKey(idempotencyKey)
     let normalizedEntries = try entries.map(normalizedLongTermMemoryEntry)
+    let requestDigest = try longTermMemoryRequestDigest(
+      entries: normalizedEntries,
+      assignedBy: assignedBy
+    )
     let result = try driver.withDatabase { database in
       try database.transaction { db -> (result: LongTermMemoryAppendResult, dispatches: [QueuedAutoActionDispatch]) in
-        let notebookId = try requireLongTermMemoryNotebookId(in: db)
-        if let existing = try existingLongTermMemoryBatch(
+        try requireLongTermMemoryAccess(in: db)
+        let operatorService = longTermMemoryOperatorService
+        let notebookId = try operatorService.requireLongTermMemoryNotebookId(in: db)
+        let principalId = writeOwnerUserId()
+        if let existing = try operatorService.existingLongTermMemoryBatch(
           notebookId: notebookId,
           idempotencyKey: normalizedKey,
+          principalId: principalId,
+          requestDigest: requestDigest,
+          entries: normalizedEntries,
+          assignedBy: assignedBy,
           expectedCount: normalizedEntries.count,
           in: db
         ) {
@@ -185,16 +203,23 @@ extension NoteService {
         var notes: [Note] = []
         var dispatches: [QueuedAutoActionDispatch] = []
         for (index, entry) in normalizedEntries.enumerated() {
-          let noteId = longTermMemoryNoteId(idempotencyKey: normalizedKey, index: index)
+          let noteId = longTermMemoryNoteId(
+            idempotencyKey: normalizedKey,
+            principalId: principalId,
+            index: index
+          )
           try insertLongTermMemoryNote(
             noteId: noteId,
             notebookId: notebookId,
             noteNumber: firstNoteNumber + index,
             entry: entry,
+            idempotencyPrincipalId: principalId,
+            idempotencyRequestDigest: requestDigest,
             timestamp: now,
+            assignedBy: assignedBy,
             in: db
           )
-          notes.append(try requireNote(noteId, in: db))
+          notes.append(try operatorService.requireNote(noteId, in: db))
           dispatches.append(contentsOf: try enqueueAutoActions(
             for: makeAutoActionEvent(
               trigger: .noteCreated,
@@ -206,8 +231,8 @@ extension NoteService {
           ))
         }
         try db.execute(
-          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
-          bindings: [.text(now), .id(notebookId)]
+          "UPDATE notebooks SET updated_at = ?, updated_by = ? WHERE notebook_id = ?",
+          bindings: [.text(now), .id(writeOwnerUserId()), .id(notebookId)]
         )
         return (
           LongTermMemoryAppendResult(notes: notes, idempotentReplay: false),
@@ -229,19 +254,21 @@ extension NoteService {
     tagFilters: [String] = [],
     limit: Int = 20
   ) throws -> [Note] {
-    try requireUnscopedLongTermMemoryAccess()
     let boundedLimit = max(1, min(limit, Self.longTermMemoryMaximumLimit))
     return try driver.withDatabase { database in
-      let notebookId = try requireLongTermMemoryNotebookId(in: database)
-      var sql = """
+      try database.transaction { db in
+        try requireLongTermMemoryAccess(in: db)
+        let operatorService = longTermMemoryOperatorService
+        let notebookId = try operatorService.requireLongTermMemoryNotebookId(in: db)
+        var sql = """
         SELECT n.note_id
         FROM notes n
         WHERE n.notebook_id = ?
           AND json_extract(n.meta_json, '$.longTermMemoryVersion') = 1
         """
-      var bindings: [SQLiteValue] = [.id(notebookId)]
-      if let periodStart {
-        sql += """
+        var bindings: [SQLiteValue] = [.id(notebookId)]
+        if let periodStart {
+          sql += """
 
           AND coalesce(
             json_extract(n.meta_json, '$.periodEnd'),
@@ -249,10 +276,10 @@ extension NoteService {
             n.created_at
           ) >= ?
           """
-        bindings.append(.text(longTermMemoryTimestamp(periodStart)))
-      }
-      if let periodEnd {
-        sql += """
+          bindings.append(.text(longTermMemoryTimestamp(periodStart)))
+        }
+        if let periodEnd {
+          sql += """
 
           AND coalesce(
             json_extract(n.meta_json, '$.periodStart'),
@@ -260,10 +287,10 @@ extension NoteService {
             n.created_at
           ) <= ?
           """
-        bindings.append(.text(longTermMemoryTimestamp(periodEnd)))
-      }
-      for tagName in orderedUnique(tagFilters) {
-        sql += """
+          bindings.append(.text(longTermMemoryTimestamp(periodEnd)))
+        }
+        for tagName in orderedUnique(tagFilters) {
+          sql += """
 
           AND EXISTS (
             SELECT 1
@@ -272,12 +299,15 @@ extension NoteService {
             WHERE nt.note_id = n.note_id AND t.name = ?
           )
           """
-        bindings.append(.text(tagName))
+          bindings.append(.text(tagName))
+        }
+        sql += "\nORDER BY n.created_at DESC, n.note_id DESC\nLIMIT ?"
+        bindings.append(.int(Int64(boundedLimit)))
+        let noteIds = try db.query(sql, bindings: bindings).compactMap {
+          $0.identifier("note_id", as: NoteID.self)
+        }
+        return try noteIds.map { try operatorService.requireNote($0, in: db) }
       }
-      sql += "\nORDER BY n.created_at DESC, n.note_id DESC\nLIMIT ?"
-      bindings.append(.int(Int64(boundedLimit)))
-      let noteIds = try database.query(sql, bindings: bindings).compactMap { $0.identifier("note_id", as: NoteID.self) }
-      return try noteIds.map { try requireNote($0, in: database) }
     }
   }
 
@@ -298,57 +328,61 @@ extension NoteService {
     associationDepth: Int = NoteGraphPolicy.associationMaxDepth,
     recencyWeight: Double = Self.longTermMemoryDefaultRecencyWeight
   ) throws -> [LongTermMemoryRecallResult] {
-    try requireUnscopedLongTermMemoryAccess()
     guard recencyWeight >= 0, recencyWeight.isFinite else {
       throw NoteServiceError.invalidInput("recencyWeight must be a non-negative number")
     }
+    guard associationDepth >= 0 else {
+      throw NoteServiceError.invalidInput("associationDepth must not be negative")
+    }
     let boundedLimit = max(1, min(limit, Self.longTermMemoryMaximumLimit))
     return try driver.withDatabase { database in
-      let notebookId = try requireLongTermMemoryNotebookId(in: database)
-      let pool = try longTermMemoryDirectHits(
-        query: query,
-        notebookId: notebookId,
-        limit: min(boundedLimit * 2, Self.longTermMemoryMaximumLimit),
-        in: database
-      )
-      let direct = Array(
-        rerankLongTermMemoriesByRecency(pool, recencyWeight: recencyWeight).prefix(boundedLimit)
-      )
-      guard includeAssociations, !direct.isEmpty, direct.count < boundedLimit else {
-        return direct
-      }
-      let directNoteIds = direct.map(\.note.noteId)
-      let directNoteIdSet = Set(directNoteIds)
-      let depth = min(
-        max(associationDepth, NoteGraphPolicy.associationMaxDepth),
-        NoteGraphPolicy.maximumDepth
-      )
-      let neighbors = try filterReachable(
-        try noteGraphNeighborsInDatabase(
-          noteIds: Array(directNoteIds.prefix(NoteGraphPolicy.maximumSeedCount)),
-          maxDepth: depth,
-          limit: NoteGraphPolicy.maximumLimit,
-          resultExclusions: directNoteIdSet,
-          in: database
-        ),
-        in: database
-      )
-      let associations = neighbors
-        .filter { !directNoteIdSet.contains($0.note.noteId) }
-        .prefix(boundedLimit - direct.count)
-        .map { neighbor in
-          LongTermMemoryRecallResult(
-            note: neighbor.note,
-            snippet: snippet(from: neighbor.note.bodyMarkdown, query: query),
-            rank: neighbor.weight,
-            isAssociation: true,
-            edgeKind: neighbor.edgeKind,
-            weight: neighbor.weight,
-            hopCount: neighbor.hopCount,
-            pathNoteIds: neighbor.pathNoteIds
-          )
+      try database.transaction { db in
+        try requireLongTermMemoryAccess(in: db)
+        let operatorService = longTermMemoryOperatorService
+        let notebookId = try operatorService.requireLongTermMemoryNotebookId(in: db)
+        let pool = try operatorService.longTermMemoryDirectHits(
+          query: query,
+          notebookId: notebookId,
+          limit: min(boundedLimit * 2, Self.longTermMemoryMaximumLimit),
+          in: db
+        )
+        let direct = Array(
+          rerankLongTermMemoriesByRecency(pool, recencyWeight: recencyWeight).prefix(boundedLimit)
+        )
+        guard includeAssociations, !direct.isEmpty, direct.count < boundedLimit else {
+          return direct
         }
-      return direct + associations
+        let directNoteIds = direct.map(\.note.noteId)
+        let directNoteIdSet = Set(directNoteIds)
+        let depth = min(associationDepth, NoteGraphPolicy.maximumDepth)
+        let neighbors = try operatorService.filterReachable(
+          try noteGraphNeighborsInDatabase(
+            noteIds: Array(directNoteIds.prefix(NoteGraphPolicy.maximumSeedCount)),
+            maxDepth: depth,
+            limit: NoteGraphPolicy.maximumLimit,
+            resultExclusions: directNoteIdSet,
+            scope: operatorService.longTermMemoryGraphScope,
+            in: db
+          ),
+          in: db
+        )
+        let associations = neighbors
+          .filter { !directNoteIdSet.contains($0.note.noteId) }
+          .prefix(boundedLimit - direct.count)
+          .map { neighbor in
+            LongTermMemoryRecallResult(
+              note: neighbor.note,
+              snippet: snippet(from: neighbor.note.bodyMarkdown, query: query),
+              rank: neighbor.weight,
+              isAssociation: true,
+              edgeKind: neighbor.edgeKind,
+              weight: neighbor.weight,
+              hopCount: neighbor.hopCount,
+              pathNoteIds: neighbor.pathNoteIds
+            )
+          }
+        return direct + associations
+      }
     }
   }
 
@@ -361,23 +395,23 @@ extension NoteService {
     noteId: NoteID,
     limit: Int = 8
   ) throws -> [NoteLink] {
-    try requireUnscopedLongTermMemoryAccess()
     let boundedLimit = max(1, min(limit, NoteGraphPolicy.maximumLimit))
-    try driver.withDatabase { database in
-      let notebookId = try requireLongTermMemoryNotebookId(in: database)
-      let note = try requireNote(noteId, in: database)
-      guard note.notebookId == notebookId else {
-        throw NoteServiceError.invalidInput(
-          "note \(noteId) does not belong to the long-term-memory notebook"
-        )
-      }
-    }
-    let proposals = try proposeLinks(noteId: noteId, limit: boundedLimit)
-    guard !proposals.isEmpty else {
-      return []
-    }
     return try driver.withDatabase { database in
       try database.transaction { db in
+        try requireLongTermMemoryAccess(in: db)
+        let operatorService = longTermMemoryOperatorService
+        let notebookId = try operatorService.requireLongTermMemoryNotebookId(in: db)
+        let note = try operatorService.requireNote(noteId, in: db)
+        guard note.notebookId == notebookId else {
+          throw NoteServiceError.invalidInput(
+            "note \(noteId) does not belong to the long-term-memory notebook"
+          )
+        }
+        let proposals = try operatorService.longTermMemoryLinkProposals(
+          noteId: noteId,
+          limit: boundedLimit,
+          in: db
+        )
         var created: [NoteLink] = []
         for proposal in proposals {
           let targetNoteId = proposal.targetNote.noteId
@@ -447,10 +481,16 @@ private func longTermMemoryRecencyKey(_ note: Note) -> String {
 }
 
 private extension NoteService {
-  func requireUnscopedLongTermMemoryAccess() throws {
-    guard actingUserId == nil, !isUnauthenticatedPrincipal else {
-      throw NoteServiceError.notFound("long-term memory not found")
-    }
+  var longTermMemoryGraphScope: NoteSearchScope {
+    NoteSearchScope(excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess)
+  }
+
+  var longTermMemoryOperatorService: NoteService {
+    scoped(to: nil).unauthenticated(false)
+  }
+
+  func requireLongTermMemoryAccess(in database: SQLiteDatabase) throws {
+    try requireStoreAdministrator(in: database)
   }
 
   func requireLongTermMemoryNotebookId(in database: SQLiteDatabase) throws -> NotebookID {
@@ -575,12 +615,56 @@ private extension NoteService {
     ).isEmpty
   }
 
+  func longTermMemoryLinkProposals(
+    noteId: NoteID,
+    limit: Int,
+    in database: SQLiteDatabase
+  ) throws -> [NoteLinkProposal] {
+    let linkedRows = try database.query(
+      """
+      SELECT from_note_id, to_note_id
+      FROM note_links
+      WHERE from_note_id = ? OR to_note_id = ?
+      """,
+      bindings: [.id(noteId), .id(noteId)]
+    )
+    var excludedNoteIds: Set<NoteID> = [noteId]
+    for row in linkedRows {
+      guard let fromNoteId = row.identifier("from_note_id", as: NoteID.self),
+            let toNoteId = row.identifier("to_note_id", as: NoteID.self) else {
+        throw NoteServiceError.invalidRow("note link row is missing required fields")
+      }
+      excludedNoteIds.insert(fromNoteId == noteId ? toNoteId : fromNoteId)
+    }
+    let neighbors = try filterReachable(
+      noteGraphNeighborsInDatabase(
+        noteIds: [noteId],
+        maxDepth: NoteGraphPolicy.associationMaxDepth,
+        limit: limit,
+        resultExclusions: excludedNoteIds,
+        scope: longTermMemoryGraphScope,
+        in: database
+      ),
+      in: database
+    )
+    return neighbors.map { neighbor in
+      NoteLinkProposal(
+        targetNote: neighbor.note,
+        linkKind: "related",
+        reason: "Graph \(neighbor.edgeKind.rawValue) path: \(neighbor.pathNoteIds.rawValues.joined(separator: " -> "))."
+      )
+    }
+  }
+
   func insertLongTermMemoryNote(
     noteId: NoteID,
     notebookId: NotebookID,
     noteNumber: Int,
     entry: LongTermMemoryEntryInput,
+    idempotencyPrincipalId: UserID,
+    idempotencyRequestDigest: String,
     timestamp: String,
+    assignedBy: String,
     in database: SQLiteDatabase
   ) throws {
     let resolvedSourceNoteIds = try resolvedLongTermMemoryNoteIds(entry.sourceNoteIds, in: database)
@@ -595,8 +679,7 @@ private extension NoteService {
         read_only, created_by, updated_by, created_at, updated_at, meta_json
       ) VALUES (
         ?, ?, ?, ?, 'derived', ?, 0,
-        (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
-        (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
+        ?, ?,
         ?, ?, jsonb(?)
       )
       """,
@@ -606,13 +689,15 @@ private extension NoteService {
         .int(Int64(noteNumber)),
         .optionalText(noteTitle(from: entry.bodyMarkdown)),
         .text(entry.bodyMarkdown),
-        .id(notebookId),
-        .id(notebookId),
+        .id(writeOwnerUserId()),
+        .id(writeOwnerUserId()),
         .text(timestamp),
         .text(timestamp),
         .text(try longTermMemoryMetaJSON(
           entry: entry,
-          unresolvedRelatedNoteIds: unresolvedRelatedNoteIds
+          unresolvedRelatedNoteIds: unresolvedRelatedNoteIds,
+          idempotencyPrincipalId: idempotencyPrincipalId,
+          idempotencyRequestDigest: idempotencyRequestDigest
         ))
       ]
     )
@@ -621,7 +706,7 @@ private extension NoteService {
         noteId: noteId,
         tag: NoteTagInput(name: tagName, classId: .topic),
         provenance: .system,
-        assignedBy: Self.longTermMemoryAssignedBy,
+        assignedBy: assignedBy,
         deletable: true,
         in: database
       )
@@ -660,7 +745,9 @@ private extension NoteService {
 
   func longTermMemoryMetaJSON(
     entry: LongTermMemoryEntryInput,
-    unresolvedRelatedNoteIds: [NoteID]
+    unresolvedRelatedNoteIds: [NoteID],
+    idempotencyPrincipalId: UserID,
+    idempotencyRequestDigest: String
   ) throws -> String {
     var object: JSONObject = [:]
     if let metaJSON = entry.metaJSON {
@@ -675,6 +762,8 @@ private extension NoteService {
     // them, so caller extras must never be able to shadow them.
     object["longTermMemoryVersion"] = .integer(1)
     object["entryKind"] = .string("long-term-memory")
+    object["idempotencyPrincipalId"] = .id(idempotencyPrincipalId)
+    object["idempotencyRequestSHA256"] = .string(idempotencyRequestDigest)
     object["sourceNoteIds"] = .ids(orderedUnique(entry.sourceNoteIds))
     object["unresolvedRelatedNoteIds"] = .ids(orderedUnique(unresolvedRelatedNoteIds))
     if let periodStart = entry.periodStart {
@@ -724,49 +813,6 @@ private extension NoteService {
     normalized.sourceNoteIds = orderedUnique(entry.sourceNoteIds)
     normalized.relatedNoteIds = orderedUnique(entry.relatedNoteIds)
     return normalized
-  }
-
-  func existingLongTermMemoryBatch(
-    notebookId: NotebookID,
-    idempotencyKey: String,
-    expectedCount: Int,
-    in database: SQLiteDatabase
-  ) throws -> [Note]? {
-    let prefix = longTermMemoryNoteIdPrefix(idempotencyKey: idempotencyKey)
-    let noteIds = try database.query(
-      """
-      SELECT note_id FROM notes
-      WHERE notebook_id = ? AND note_id LIKE ?
-      ORDER BY note_id
-      """,
-      bindings: [.id(notebookId), .text("\(prefix)-%")]
-    ).compactMap { $0.identifier("note_id", as: NoteID.self) }
-    guard !noteIds.isEmpty else {
-      return nil
-    }
-    let expectedNoteIds = (0..<expectedCount).map { NoteID("\(prefix)-\($0 + 1)") }
-    guard noteIds.count == expectedNoteIds.count, Set(noteIds) == Set(expectedNoteIds) else {
-      throw NoteServiceError.invalidInput(
-        "long-term memory idempotency key has inconsistent persisted entry count"
-      )
-    }
-    return try expectedNoteIds.map { try requireNote($0, in: database) }
-  }
-
-  func normalizedLongTermMemoryIdempotencyKey(_ value: String) throws -> String {
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else {
-      throw NoteServiceError.invalidInput("long-term memory idempotency key must not be empty")
-    }
-    return trimmed
-  }
-
-  func longTermMemoryNoteIdPrefix(idempotencyKey: String) -> String {
-    "note-long-term-memory-\(sha256Hex(Data(idempotencyKey.utf8)))"
-  }
-
-  func longTermMemoryNoteId(idempotencyKey: String, index: Int) -> NoteID {
-    NoteID("\(longTermMemoryNoteIdPrefix(idempotencyKey: idempotencyKey))-\(index + 1)")
   }
 
   func longTermMemoryLikePattern(_ value: String) -> String {

@@ -1,7 +1,41 @@
 import AppCore
 import Foundation
+import KaibaCLIKit
+import KaibaClient
 
 var arguments = Array(CommandLine.arguments.dropFirst())
+
+// Resolve the command once from the positional grammar. Only complete global
+// option pairs may precede it, so later option values can never become commands.
+func resolvedCommandToken(in arguments: [String]) -> (index: Int, value: String)? {
+  var cursor = 0
+  while cursor < arguments.count {
+    if arguments[cursor] == "--note-root" || arguments[cursor] == "--config" {
+      guard cursor + 1 < arguments.count else { return nil }
+      cursor += 2
+    } else {
+      return (cursor, arguments[cursor])
+    }
+  }
+  return nil
+}
+
+func commandRequestsHelp(
+  in arguments: [String],
+  valueOptions: Set<String>
+) -> Bool {
+  var cursor = 0
+  while cursor < arguments.count {
+    let argument = arguments[cursor]
+    if valueOptions.contains(argument) {
+      cursor += 2
+    } else {
+      if argument == "--help" || argument == "-h" { return true }
+      cursor += 1
+    }
+  }
+  return false
+}
 
 func extractGlobalConfiguration(
   from arguments: inout [String]
@@ -38,10 +72,15 @@ func extractGlobalConfiguration(
 
 // `kaiba serve` and `kaiba graphql` are async paths; everything else stays on
 // the synchronous AppCommand router.
-if let serveIndex = arguments.firstIndex(of: "serve"),
-  !arguments.contains("--help"), !arguments.contains("-h") {
+let commandToken = resolvedCommandToken(in: arguments)
+
+if let commandToken, commandToken.value == "serve",
+  !commandRequestsHelp(
+    in: Array(arguments.dropFirst(commandToken.index + 1)),
+    valueOptions: ["--host", "--port", "--web-root", "--note-root", "--config"]
+  ) {
   var serveArguments = arguments
-  serveArguments.remove(at: serveIndex)
+  serveArguments.remove(at: commandToken.index)
   do {
     let global = try extractGlobalConfiguration(from: &serveArguments)
     let options = try ServeCommand.parse(
@@ -57,46 +96,70 @@ if let serveIndex = arguments.firstIndex(of: "serve"),
   }
 }
 
-if let graphqlIndex = arguments.firstIndex(of: "graphql"),
-  !arguments.contains("--help"), !arguments.contains("-h") {
-  var graphqlArguments = arguments
-  graphqlArguments.remove(at: graphqlIndex)
-  do {
-    let global = try extractGlobalConfiguration(from: &graphqlArguments)
-    let options = try GraphQLCommand.parse(
-      arguments: graphqlArguments,
-      noteRoot: global.noteRoot,
-      configuration: global.configuration
-    )
-    let (output, exitCode) = try await GraphQLCommand.run(options)
-    if !output.isEmpty {
-      print(output)
+if let commandToken, commandToken.value == "graphql" {
+  let commandArguments = Array(arguments.dropFirst(commandToken.index + 1))
+  let graphQLValueOptions: Set<String> = [
+    "--endpoint", "--api-key-env", "--file", "--variables", "--operation",
+    "--filter", "--output", "--note-root", "--config"
+  ]
+  let requestsHelp = commandRequestsHelp(
+    in: commandArguments,
+    valueOptions: graphQLValueOptions
+  )
+  if GraphQLSchemaCommand.isSchemaSubcommand(arguments: commandArguments), !requestsHelp {
+    let leadingGlobalArguments = Array(arguments[..<commandToken.index])
+    let schemaArguments = leadingGlobalArguments + commandArguments.dropFirst()
+    let result = await GraphQLSchemaCommand.run(arguments: Array(schemaArguments))
+    if !result.standardOutput.isEmpty {
+      FileHandle.standardOutput.write(Data((result.standardOutput + "\n").utf8))
     }
-    exit(exitCode)
-  } catch {
-    FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
-    exit(1)
+    if !result.standardError.isEmpty {
+      FileHandle.standardError.write(Data((result.standardError + "\n").utf8))
+    }
+    exit(result.exitCode)
+  } else if !requestsHelp {
+    var graphqlArguments = arguments
+    graphqlArguments.remove(at: commandToken.index)
+    do {
+      let global = try extractGlobalConfiguration(from: &graphqlArguments)
+      let options = try GraphQLCommand.parse(
+        arguments: graphqlArguments,
+        noteRoot: global.noteRoot,
+        configuration: global.configuration
+      )
+      let (output, exitCode) = try await GraphQLCommand.run(options)
+      if !output.isEmpty {
+        print(output)
+      }
+      exit(exitCode)
+    } catch let error as GraphQLSchemaCommandError {
+      FileHandle.standardError.write(Data((error.description + "\n").utf8))
+      exit(2)
+    } catch let error as KaibaClientError {
+      FileHandle.standardError.write(Data((error.description + "\n").utf8))
+      switch error {
+      case .invalidEndpoint, .invalidConfiguration, .invalidRequest, .invalidRegex:
+        exit(2)
+      default:
+        exit(1)
+      }
+    } catch {
+      FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+      exit(1)
+    }
   }
 }
 
-// `ai` must be the command itself (only the global option pairs may precede
-// it) so values like `kaiba search ai` are never hijacked.
-func isCommandToken(at index: Int, in arguments: [String]) -> Bool {
-  var cursor = 0
-  while cursor < index {
-    if arguments[cursor] == "--note-root" || arguments[cursor] == "--config" {
-      cursor += 2
-    } else {
-      return false
-    }
-  }
-  return cursor == index
-}
-
-if let aiIndex = arguments.firstIndex(of: "ai"), isCommandToken(at: aiIndex, in: arguments),
-  !arguments.contains("--help"), !arguments.contains("-h") {
+if let commandToken, commandToken.value == "ai",
+  !commandRequestsHelp(
+    in: Array(arguments.dropFirst(commandToken.index + 1)),
+    valueOptions: [
+      "--note", "--notebook", "--resume", "--to", "--provider", "--model",
+      "--title", "--output", "--limit", "--note-root", "--config"
+    ]
+  ) {
   var aiArguments = arguments
-  aiArguments.remove(at: aiIndex)
+  aiArguments.remove(at: commandToken.index)
   do {
     let global = try extractGlobalConfiguration(from: &aiArguments)
     let options = try AICommand.parse(

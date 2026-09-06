@@ -155,6 +155,11 @@ func ftsCandidateNoteIds(
     bindings: &bindings
   )
   appendOwnerScopePredicate(alias: "n", actingUserId: scope.actingUserId, predicates: &predicates, bindings: &bindings)
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: "n",
+    excludesPendingNotebookIngests: scope.excludesPendingNotebookIngests,
+    predicates: &predicates
+  )
   if scope.excludesLongTermMemory, scope.actingUserId == nil {
     appendLongTermMemoryExclusionPredicate(
       alias: "n",

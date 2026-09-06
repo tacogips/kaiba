@@ -145,10 +145,12 @@ final class NoteRetrievalFusionTests: NoteTestCase {
     XCTAssertGreaterThan(mass["only-s1"] ?? 0, mass["only-s2"] ?? 0)
     XCTAssertEqual(mass["hub"], 0)
     XCTAssertEqual(mass["hub-leaf-1"], 0)
-    XCTAssertEqual(
-      mass,
-      personalizedPageRank(nodes: nodes, edges: edges, personalization: ["s1": 1 / 60.0, "s2": 1 / 61.0])
-    )
+    for _ in 0..<20 {
+      XCTAssertEqual(
+        mass,
+        personalizedPageRank(nodes: nodes, edges: edges, personalization: ["s1": 1 / 60.0, "s2": 1 / 61.0])
+      )
+    }
     XCTAssertTrue(personalizedPageRank(nodes: nodes, edges: edges, personalization: [:]).values.allSatisfy { $0 == 0 })
   }
 

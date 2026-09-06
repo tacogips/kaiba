@@ -86,6 +86,10 @@ public struct NoteService: Sendable {
   /// Shared registry of background dispatch tasks fired by this service value,
   /// awaited by `drainAutoActionDispatches()`.
   let autoActionDispatchTasks: AutoActionDispatchTaskTracker
+  /// Process-local ownership for durable notebook-ingest creation records.
+  /// Service copies share it; a restarted service gets an empty registry and
+  /// may resume a transaction committed by the prior process.
+  let notebookIngestExecutionRegistry: NotebookIngestExecutionRegistry
   /// The account this service value acts as: new notebooks take it as owner and
   /// notebook reads are filtered to it. Nil is the unscoped view the CLI and
   /// internal bootstrap paths use. Set with `scoped(to:)`.
@@ -101,6 +105,14 @@ public struct NoteService: Sendable {
   /// authentication. The local CLI is not one of these: an operator with the
   /// store file already has every library (`design-docs/specs/library.md`).
   public internal(set) var isUnauthenticatedPrincipal: Bool
+  /// Internal capability used only while a multi-stage GraphQL ingest owns a
+  /// hidden notebook. Normal service values cannot read or mutate pending rows.
+  var allowsPendingNotebookIngestAccess: Bool
+  /// Multi-stage ingest publishes one terminal event after reconciliation.
+  var suppressesChangePublication: Bool
+  /// Pending multi-stage ingest mutations must not publish success-shaped
+  /// action history before their notebook is atomically revealed.
+  var suppressesActionHistory: Bool
 
   public init(
     driver: NoteDatabaseDriving,
@@ -128,9 +140,13 @@ public struct NoteService: Sendable {
     self.activeAutoActionDispatchLease = nil
     self.changeObserver = changeObserver
     self.autoActionDispatchTasks = AutoActionDispatchTaskTracker()
+    self.notebookIngestExecutionRegistry = NotebookIngestExecutionRegistry()
     self.actingUserId = nil
     self.actingLibraryId = nil
     self.isUnauthenticatedPrincipal = false
+    self.allowsPendingNotebookIngestAccess = false
+    self.suppressesChangePublication = false
+    self.suppressesActionHistory = false
     try NoteStoreSchema.prepare(on: driver)
     try bootstrapLongTermMemoryNotebook()
     // Recovery+retry is no longer run from init; it is an explicit entry point
@@ -147,6 +163,7 @@ public struct NoteService: Sendable {
     libraryId: LibraryID? = nil,
     originatingActionId: AutoActionID? = nil
   ) throws -> Notebook {
+    try rejectReservedNotebookIngestMetadata(metaJSON)
     let result = try driver.withDatabase { database in
       try database.transaction { db in
         try insertNotebook(
@@ -469,13 +486,39 @@ public struct NoteService: Sendable {
     assignedBy: String? = "kaiba-note-ingest",
     originatingActionId: AutoActionID? = nil
   ) throws -> NotebookIngestResult {
+    try createNotebookWithNotes(
+      title: title,
+      kindTagName: kindTagName,
+      metaJSON: metaJSON,
+      pages: pages,
+      notebookReadOnly: notebookReadOnly,
+      provenance: provenance,
+      assignedBy: assignedBy,
+      originatingActionId: originatingActionId,
+      autoActionPolicy: .immediate
+    )
+  }
+
+  @discardableResult
+  package func createNotebookWithNotes(
+    title: String,
+    kindTagName: String? = nil,
+    metaJSON: String? = nil,
+    pages: [NotePageDraft],
+    notebookReadOnly: Bool = false,
+    provenance: NoteProvenance = .system,
+    assignedBy: String? = "kaiba-note-ingest",
+    originatingActionId: AutoActionID? = nil,
+    autoActionPolicy: NotebookIngestAutoActionPolicy
+  ) throws -> NotebookIngestResult {
+    try rejectReservedNotebookIngestMetadata(metaJSON)
     guard !pages.isEmpty else {
       throw NoteServiceError.invalidInput("notebook ingest pages must not be empty")
     }
     try validateNotebookIngestPageNumbers(pages)
     let result = try driver.withDatabase { database in
       try database.transaction { db in
-        try insertNotebookWithNotes(
+        let inserted = try insertNotebookWithNotes(
           title: title,
           kindTagName: kindTagName,
           metaJSON: metaJSON,
@@ -484,16 +527,31 @@ public struct NoteService: Sendable {
           provenance: provenance,
           assignedBy: assignedBy,
           originatingActionId: originatingActionId,
+          enqueueAutoActions: autoActionPolicy == .immediate,
+          recordIngestAction: autoActionPolicy == .immediate,
           in: db
+        )
+        guard autoActionPolicy == .deferredUntilFinalized else {
+          return inserted
+        }
+        return (
+          ingestResult: try markDeferredNotebookIngestAutoActions(
+            inserted.ingestResult,
+            callerMetadataJSON: metaJSON,
+            in: db
+          ),
+          dispatches: inserted.dispatches
         )
       }
     }
     dispatchQueuedAutoActions(result.dispatches)
-    publishChange(NoteChangeEvent(
-      kind: NoteChangeEventKind.notebookCreated,
-      notebookId: result.ingestResult.notebook.notebookId,
-      tagNames: folderTagNames(of: result.ingestResult.notebook)
-    ))
+    if autoActionPolicy == .immediate {
+      publishChange(NoteChangeEvent(
+        kind: NoteChangeEventKind.notebookCreated,
+        notebookId: result.ingestResult.notebook.notebookId,
+        tagNames: folderTagNames(of: result.ingestResult.notebook)
+      ))
+    }
     return result.ingestResult
   }
 
@@ -504,7 +562,7 @@ public struct NoteService: Sendable {
   /// additional writes in the *same* transaction (e.g. `promoteCommentToNotebook`
   /// inlining a `note_links` INSERT) call this helper directly and dispatch the returned
   /// auto-actions after the transaction commits. Never open a nested transaction here.
-  private func insertNotebookWithNotes(
+  func insertNotebookWithNotes(
     title: String,
     kindTagName: String?,
     metaJSON: String?,
@@ -513,6 +571,8 @@ public struct NoteService: Sendable {
     provenance: NoteProvenance,
     assignedBy: String?,
     originatingActionId: AutoActionID?,
+    enqueueAutoActions shouldEnqueueAutoActions: Bool = true,
+    recordIngestAction shouldRecordIngestAction: Bool = true,
     in db: SQLiteDatabase
   ) throws -> (ingestResult: NotebookIngestResult, dispatches: [QueuedAutoActionDispatch]) {
     let now = NoteStoreClock.system.now()
@@ -596,21 +656,26 @@ public struct NoteService: Sendable {
     let ingestResult = NotebookIngestResult(notebook: try requireNotebook(notebookId, in: db), notes: notes)
     // Recorded but not undoable (U10): a bulk ingest's cascade snapshot would
     // embed every page body.
-    try recordAction(
-      NoteActionRecord(
-        kind: .notebookIngested,
-        provenance: provenance,
-        entityType: .notebook,
-        entityId: notebookId.rawValue,
-        notebookId: notebookId,
-        display: [
-          "title": .string(title),
-          "noteCount": .integer(Int64(notes.count))
-        ],
-        undoable: false
-      ),
-      in: db
-    )
+    if shouldRecordIngestAction {
+      try recordAction(
+        NoteActionRecord(
+          kind: .notebookIngested,
+          provenance: provenance,
+          entityType: .notebook,
+          entityId: notebookId.rawValue,
+          notebookId: notebookId,
+          display: [
+            "title": .string(title),
+            "noteCount": .integer(Int64(notes.count))
+          ],
+          undoable: false
+        ),
+        in: db
+      )
+    }
+    guard shouldEnqueueAutoActions else {
+      return (ingestResult: ingestResult, dispatches: [])
+    }
     var dispatches = try enqueueAutoActions(
       for: makeAutoActionEvent(
         trigger: .notebookCreated,
@@ -721,101 +786,6 @@ public struct NoteService: Sendable {
     }
     dispatchQueuedAutoActions(result.dispatches)
     return (notebook: result.notebook, note: result.note)
-  }
-
-  public func listNotes(notebookId: NotebookID, limit: Int = 100, offset: Int = 0) throws -> [Note] {
-    try driver.withDatabase { database in
-      _ = try requireNotebook(notebookId, in: database)
-      let rows = try database.query(
-        """
-        SELECT note_id, notebook_id, note_number, title, body_markdown, read_only,
-          created_at, updated_at,
-          CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
-        FROM notes
-        WHERE notebook_id = ?
-        ORDER BY note_number, note_id
-        LIMIT ? OFFSET ?
-        """,
-        bindings: [.id(notebookId), .int(Int64(limit)), .int(Int64(offset))]
-      )
-      return try notes(from: rows, in: database)
-    }
-  }
-
-  public func listNotes(
-    limit: Int = 100,
-    offset: Int = 0,
-    notebookId: NotebookID? = nil,
-    tagFilter: [String] = []
-  ) throws -> [Note] {
-    try driver.withDatabase { database in
-      let expandedTagFilterIds = try expandedTagFilterIds(names: tagFilter, in: database)
-      guard tagFilter.isEmpty || !expandedTagFilterIds.isEmpty else {
-        return []
-      }
-      var predicates: [String] = []
-      var bindings: [SQLiteValue] = []
-      // The cross-notebook feed spans libraries, so it carries the same scope
-      // the catalog does (`design-docs/specs/library.md`).
-      appendLibraryScopePredicate(
-        alias: "notes",
-        reachableLibraryIds: try reachableLibraryIds(in: database),
-        predicates: &predicates,
-        bindings: &bindings
-      )
-      appendOwnerScopePredicate(
-        alias: "notes",
-        actingUserId: actingUserId,
-        predicates: &predicates,
-        bindings: &bindings
-      )
-      if isUnauthenticatedPrincipal, actingUserId == nil {
-        appendLongTermMemoryExclusionPredicate(
-          alias: "notes",
-          excludesLongTermMemory: true,
-          predicates: &predicates,
-          bindings: &bindings
-        )
-      }
-      if let notebookId {
-        _ = try requireNotebook(notebookId, in: database)
-        predicates.append("notebook_id = ?")
-        bindings.append(.id(notebookId))
-      }
-      if !expandedTagFilterIds.isEmpty {
-        predicates.append(
-          """
-          EXISTS (
-            SELECT 1
-            FROM note_tags nt
-            WHERE nt.note_id = notes.note_id
-              AND nt.tag_id IN (\(placeholders(count: expandedTagFilterIds.count)))
-          )
-          """
-        )
-        bindings.append(contentsOf: expandedTagFilterIds.sqliteBindings)
-      }
-      let whereClause = predicates.isEmpty ? "" : "WHERE \(predicates.joined(separator: " AND "))"
-      // A notebook-scoped listing returns the notebook's pages in their intrinsic
-      // order (note_number); `created_at DESC` is reserved for the cross-notebook
-      // feed, where recency is the only meaningful ordering.
-      let orderClause = notebookId == nil ? "created_at DESC, note_id" : "note_number, note_id"
-      bindings.append(.int(Int64(limit)))
-      bindings.append(.int(Int64(offset)))
-      let rows = try database.query(
-        """
-        SELECT note_id, notebook_id, note_number, title, body_markdown, read_only,
-          created_at, updated_at,
-          CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
-        FROM notes
-        \(whereClause)
-        ORDER BY \(orderClause)
-        LIMIT ? OFFSET ?
-        """,
-        bindings: bindings
-      )
-      return try notes(from: rows, in: database)
-    }
   }
 
   @discardableResult

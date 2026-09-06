@@ -134,6 +134,9 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
   }
 
   private func executeAsCurrentUser(_ request: GraphQLDocumentRequest) async -> GraphQLDocumentExecutionResponse {
+    if let response = graphQLIntrospectionResponse(for: request) {
+      return response
+    }
     let rootFields: [ParsedNoteGraphQLRootField]
     do {
       guard let parsed = try request.parsedRootFields ?? parseNoteGraphQLRootFields(
@@ -283,6 +286,16 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.noteFile(fileId: requiredIdentifier("fileId", as: FileID.self, variables: variables)))
     case "noteFiles":
       return try await encodedJSONValue(service.noteFiles(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
+    case "notebookFiles":
+      return try await encodedJSONValue(service.notebookFiles(
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables)
+      ))
+    case "noteLinks":
+      return try await encodedJSONValue(service.noteLinks(
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)
+      ))
+    case "longTermMemoryNotebook":
+      return try await encodedJSONValue(service.longTermMemoryNotebook())
     case "autoActions":
       return try await encodedJSONValue(service.autoActions())
     case "noteConversations":
@@ -464,6 +477,32 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         mediaType: input.mediaType,
         originalFilename: input.originalFilename,
         position: input.position ?? 0
+      ))
+    case "attachNotebookFile":
+      let input: GraphQLAttachNotebookFileInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.attachNotebookFile(
+        notebookId: input.notebookId,
+        contentBase64: input.contentBase64,
+        role: input.role ?? "related",
+        mediaType: input.mediaType,
+        originalFilename: input.originalFilename
+      ))
+    case "ingestNotebookPages":
+      let input: GraphQLIngestNotebookPagesInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.ingestNotebookPages(input))
+    case "appendLongTermMemory":
+      let input: GraphQLAppendLongTermMemoryInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.appendLongTermMemory(
+        input,
+        assignedBy: try noteAPIAssignedBy(nil, field: "assignedBy", request: request)
+      ))
+    case "recallLongTermMemory":
+      let input: GraphQLRecallLongTermMemoryInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.recallLongTermMemory(input))
+    case "linkLongTermMemoryAssociations":
+      return try await encodedJSONValue(service.linkLongTermMemoryAssociations(
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
+        limit: try optionalInt("limit", variables: variables) ?? 8
       ))
     case "configureNoteAutoAction":
       let input: GraphQLConfigureNoteAutoActionInput = try requiredInput("input", variables: variables)

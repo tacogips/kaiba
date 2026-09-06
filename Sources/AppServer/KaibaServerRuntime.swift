@@ -92,6 +92,15 @@ public actor KaibaServerRuntime {
   /// returns the existing info if already running.
   @discardableResult
   public func start() async throws -> KaibaServerStartInfo {
+    try await start(allowsEphemeralPort: false)
+  }
+
+  @discardableResult
+  func startForTesting() async throws -> KaibaServerStartInfo {
+    try await start(allowsEphemeralPort: true)
+  }
+
+  private func start(allowsEphemeralPort: Bool) async throws -> KaibaServerStartInfo {
     if let startInfo {
       return startInfo
     }
@@ -216,7 +225,11 @@ public actor KaibaServerRuntime {
       unauthenticatedActsAsAdmin: config.unauthenticatedActsAsAdmin
     )
     let server = KaibaLocalHTTPServer(routeHandler: httpHandler)
-    let boundPort = try await server.start(host: config.host, port: config.port)
+    let boundPort = if allowsEphemeralPort {
+      try await server.startForTesting(host: config.host)
+    } else {
+      try await server.start(host: config.host, port: config.port)
+    }
     let endpoint = "http://\(config.host):\(boundPort)"
 
     let authMode: KaibaServerStartInfo.AuthMode

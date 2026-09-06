@@ -39,6 +39,7 @@ type NoteFile {
   migratedAt: String
 }
 type NoteFileAttachment { noteId: String!, file: NoteFile!, role: String!, position: Int! }
+type NotebookFileAttachment { notebookId: String!, file: NoteFile!, role: String! }
 type NoteComment { commentId: String!, noteId: String, notebookId: String, bodyMarkdown: String!, author: String!, createdAt: String! }
 type NoteLink { fromNoteId: String!, toNoteId: String!, linkKind: String!, provenance: String!, createdAt: String! }
 type NoteSearchResult { note: Note!, snippet: String!, rank: Float!, matchedTags: [NoteTag!]!, isLinkedNeighbor: Boolean!, termCoverage: Float! }
@@ -58,6 +59,11 @@ type NoteTagsQueryPayload { result: ControlPlaneResult!, value: [NoteTag!] }
 type NoteTagClassesQueryPayload { result: ControlPlaneResult!, value: [NoteTagClass!] }
 type NoteFileQueryPayload { result: ControlPlaneResult!, value: NoteFile }
 type NoteFilesQueryPayload { result: ControlPlaneResult!, value: [NoteFileAttachment!] }
+type NotebookFilesQueryPayload { result: ControlPlaneResult!, value: [NotebookFileAttachment!] }
+type NoteLinksQueryPayload { result: ControlPlaneResult!, value: [NoteLink!] }
+type LongTermMemoryAppendPayload { result: ControlPlaneResult!, notes: [Note!]!, idempotentReplay: Boolean! }
+type LongTermMemoryRecallHit { note: Note!, snippet: String!, rank: Float!, isAssociation: Boolean!, edgeKind: String, weight: Float, hopCount: Int, pathNoteIds: [String!]! }
+type LongTermMemoryRecallPayload { result: ControlPlaneResult!, value: [LongTermMemoryRecallHit!]! }
 type NoteAutoActionsQueryPayload { result: ControlPlaneResult!, value: [NoteAutoAction!] }
 type NoteCommentsQueryPayload { result: ControlPlaneResult!, value: [NoteComment!] }
 # Cross-notebook tag detail surface (design-docs/specs/tag-detail-pane.md).
@@ -93,9 +99,31 @@ input AddNoteCommentInput { noteId: String!, bodyMarkdown: String!, author: Stri
 input AddNotebookCommentInput { notebookId: String!, bodyMarkdown: String!, author: String }
 input LinkNotesInput { fromNoteId: String!, toNoteId: String!, linkKind: String, provenance: String }
 input AttachNoteFileInput { noteId: String!, contentBase64: String!, role: String, mediaType: String!, originalFilename: String, position: Int }
+input AttachNotebookFileInput { notebookId: String!, contentBase64: String!, role: String, mediaType: String!, originalFilename: String }
+input IngestAttachmentInput { contentBase64: String!, mediaType: String!, originalFilename: String, role: String }
+input IngestNotebookPageInput {
+  bodyMarkdown: String!
+  readOnly: Boolean
+  tags: [NoteTagInput!]
+  metaJSON: String
+  noteNumber: Int
+  pageImage: IngestAttachmentInput
+}
+input IngestNotebookPagesInput {
+  idempotencyKey: String!
+  title: String!
+  kindTagName: String
+  metaJSON: String
+  pages: [IngestNotebookPageInput!]!
+  sourceDocument: IngestAttachmentInput
+  originatingActionId: String
+}
+input LongTermMemoryEntryInput { bodyMarkdown: String!, topicTags: [String!], sourceNoteIds: [String!], relatedNoteIds: [String!], periodStart: String, periodEnd: String, metaJSON: String }
+input AppendLongTermMemoryInput { idempotencyKey: String!, entries: [LongTermMemoryEntryInput!]! }
+input RecallLongTermMemoryInput { query: String!, limit: Int, includeAssociations: Boolean, associationDepth: Int, recencyWeight: Float }
 input ConfigureNoteAutoActionInput { actionId: String!, trigger: String!, workflowId: String!, filterJSON: String, enabled: Boolean, position: Int }
 input NoteConversationTurnInput { userMarkdown: String!, assistantMarkdown: String!, sourceNoteIds: [String!] }
-input SaveNoteConversationInput { title: String!, transcript: [NoteConversationTurnInput!]!, assignedBy: String }
+input SaveNoteConversationInput { title: String!, transcript: [NoteConversationTurnInput!]!, assignedBy: String, originatingActionId: String }
 type AgentConversation { notebookId: String!, title: String!, updatedAt: String!, turnCount: Int!, subjectNoteId: String, subjectNotebookId: String }
 # App settings are JSON documents keyed by name (e.g. "web"), stored in the
 # note store's sqlite so preferences follow the store across clients.
@@ -205,6 +233,8 @@ type NoteMutationPayload {
   tag: NoteTag
   tagClass: NoteTagClass
   file: NoteFile
+  noteFiles: [NoteFileAttachment!]!
+  notebookFiles: [NotebookFileAttachment!]!
   comment: NoteComment
   link: NoteLink
   autoAction: NoteAutoAction

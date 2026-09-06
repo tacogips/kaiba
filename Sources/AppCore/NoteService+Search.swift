@@ -27,6 +27,7 @@ public extension NoteService {
           reachableLibraryIds: try reachableLibraryIds(in: database),
           actingUserId: actingUserId,
           excludesLongTermMemory: actingUserId != nil || isUnauthenticatedPrincipal,
+          excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
           createdAfter: createdAfter,
           createdBefore: createdBefore
         ),

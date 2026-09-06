@@ -185,6 +185,8 @@ final class NoteLongTermMemoryTests: NoteTestCase {
     let metadata = try metaObject(memory)
     XCTAssertEqual(metadata["longTermMemoryVersion"]?.asInt, 1)
     XCTAssertEqual(metadata["entryKind"]?.asString, "long-term-memory")
+    XCTAssertEqual(metadata["idempotencyPrincipalId"]?.asString, NoteStoreSchema.defaultUserId.rawValue)
+    XCTAssertEqual(metadata["idempotencyRequestSHA256"]?.asString?.count, 64)
     XCTAssertEqual(metadata["consolidatedBy"]?.asString, "weekly-rollup")
     XCTAssertEqual(
       metadata["sourceNoteIds"],
@@ -223,6 +225,213 @@ final class NoteLongTermMemoryTests: NoteTestCase {
     XCTAssertFalse(distinct.idempotentReplay)
     XCTAssertNotEqual(distinct.notes.map(\.noteId), first.notes.map(\.noteId))
     XCTAssertEqual(try service.listLongTermMemoryNotes(limit: 50).count, 4)
+  }
+
+  func testAppendAdoptsMatchingPrePrincipalIdempotencyBatchAcrossUpgrade() throws {
+    let root = try makeNoteRoot(function: #function)
+    let driver = SQLiteNoteDatabaseDriver(noteRoot: root)
+    let service = try NoteService(driver: driver)
+    let notebook = try service.longTermMemoryNotebook()
+    let key = "legacy-upgrade-retry"
+    let legacyPrefix = "note-long-term-memory-\(sha256Hex(Data(key.utf8)))"
+    let legacyNoteId = NoteID("\(legacyPrefix)-1")
+    let metadata = try JSONValue.object([
+      "legacyFixture": .bool(true),
+      "longTermMemoryVersion": .integer(1),
+      "entryKind": .string("long-term-memory"),
+      "sourceNoteIds": .array([]),
+      "unresolvedRelatedNoteIds": .array([])
+    ]).encodedString()
+    try driver.withDatabase { database in
+      try database.execute(
+        """
+        INSERT INTO notes (
+          note_id, notebook_id, note_number, title, title_source, body_markdown,
+          read_only, created_by, updated_by, created_at, updated_at, meta_json
+        ) VALUES (?, ?, 1, ?, 'derived', ?, 0, ?, ?, ?, ?, jsonb(?))
+        """,
+        bindings: [
+          .id(legacyNoteId),
+          .id(notebook.notebookId),
+          .text("Legacy memory"),
+          .text("Legacy memory"),
+          .id(NoteStoreSchema.defaultUserId),
+          .id(NoteStoreSchema.defaultUserId),
+          .text("2026-08-01T00:00:00.000Z"),
+          .text("2026-08-01T00:00:00.000Z"),
+          .text(metadata)
+        ]
+      )
+    }
+
+    let entry = LongTermMemoryEntryInput(
+      bodyMarkdown: "Legacy memory",
+      metaJSON: #"{"legacyFixture":true}"#
+    )
+    let replay = try service.appendLongTermMemoryNotes([entry], idempotencyKey: key)
+    XCTAssertTrue(replay.idempotentReplay)
+    XCTAssertEqual(replay.notes.map(\.noteId), [legacyNoteId])
+    XCTAssertEqual(try service.listLongTermMemoryNotes(limit: 50).count, 1)
+    let adoptedMetadata = try metaObject(try XCTUnwrap(replay.notes.first))
+    XCTAssertEqual(adoptedMetadata["idempotencyPrincipalId"]?.asString, NoteStoreSchema.defaultUserId.rawValue)
+    XCTAssertEqual(adoptedMetadata["idempotencyRequestSHA256"]?.asString?.count, 64)
+
+    XCTAssertThrowsError(try service.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(bodyMarkdown: "Changed legacy memory")],
+      idempotencyKey: key
+    )) { error in
+      guard case let NoteServiceError.invalidInput(message) = error else {
+        return XCTFail("expected legacy idempotency conflict, got \(error)")
+      }
+      XCTAssertTrue(message.contains("idempotency key conflicts"))
+    }
+  }
+
+  func testAppendRejectsChangedRequestForPersistedIdempotencyKey() throws {
+    let service = try makeService(function: #function)
+    let sourceNotebook = try service.createNotebook(title: "Idempotency sources")
+    let sourceOne = try service.createNote(
+      notebookId: sourceNotebook.notebookId,
+      bodyMarkdown: "Source one"
+    )
+    let sourceTwo = try service.createNote(
+      notebookId: sourceNotebook.notebookId,
+      bodyMarkdown: "Source two"
+    )
+    let relatedOne = try service.createNote(
+      notebookId: sourceNotebook.notebookId,
+      bodyMarkdown: "Related one"
+    )
+    let relatedTwo = try service.createNote(
+      notebookId: sourceNotebook.notebookId,
+      bodyMarkdown: "Related two"
+    )
+    let periodStart = Date(timeIntervalSince1970: 1_760_000_000)
+    let periodEnd = Date(timeIntervalSince1970: 1_760_600_000)
+    let original = LongTermMemoryEntryInput(
+      bodyMarkdown: "Original memory",
+      topicTags: ["alpha"],
+      sourceNoteIds: [sourceOne.noteId],
+      relatedNoteIds: [relatedOne.noteId],
+      periodStart: periodStart,
+      periodEnd: periodEnd,
+      metaJSON: #"{"b":2,"a":1}"#
+    )
+    let first = try service.appendLongTermMemoryNotes(
+      [original],
+      idempotencyKey: "conflicting-retry"
+    )
+
+    var canonicalReplay = original
+    canonicalReplay.metaJSON = #"{"a":1,"b":2}"#
+    XCTAssertTrue(try service.appendLongTermMemoryNotes(
+      [canonicalReplay],
+      idempotencyKey: "conflicting-retry"
+    ).idempotentReplay)
+
+    var changedBody = original
+    changedBody.bodyMarkdown = "Changed memory"
+    var changedTags = original
+    changedTags.topicTags = ["beta"]
+    var changedPeriod = original
+    changedPeriod.periodEnd = periodEnd.addingTimeInterval(1)
+    var changedRelationship = original
+    changedRelationship.relatedNoteIds = [relatedTwo.noteId]
+    var changedSource = original
+    changedSource.sourceNoteIds = [sourceTwo.noteId]
+    var changedMetadata = original
+    changedMetadata.metaJSON = #"{"a":1,"b":3}"#
+    for changed in [
+      changedBody,
+      changedTags,
+      changedPeriod,
+      changedRelationship,
+      changedSource,
+      changedMetadata
+    ] {
+      XCTAssertThrowsError(
+        try service.appendLongTermMemoryNotes(
+          [changed],
+          idempotencyKey: "conflicting-retry"
+        )
+      ) { error in
+        guard case let NoteServiceError.invalidInput(message) = error else {
+          return XCTFail("expected idempotency conflict, got \(error)")
+        }
+        XCTAssertTrue(message.contains("idempotency key conflicts"))
+      }
+    }
+    XCTAssertThrowsError(try service.appendLongTermMemoryNotes(
+      [original],
+      idempotencyKey: "conflicting-retry",
+      assignedBy: "different-attribution"
+    )) { error in
+      guard case let NoteServiceError.invalidInput(message) = error else {
+        return XCTFail("expected attribution conflict, got \(error)")
+      }
+      XCTAssertTrue(message.contains("idempotency key conflicts"))
+    }
+    XCTAssertEqual(
+      try service.listLongTermMemoryNotes(limit: 50).map(\.noteId),
+      first.notes.map(\.noteId)
+    )
+  }
+
+  func testIdempotencyKeysArePrincipalScopedAndConcurrentReuseIsSafe() async throws {
+    let service = try makeService(function: #function)
+    let alice = try service.createUser(email: "memory-alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "memory-bob@example.com", displayName: "Bob")
+    try service.setUserAdmin(userId: alice.userId, isAdmin: true)
+    try service.setUserAdmin(userId: bob.userId, isAdmin: true)
+    let aliceService = service.scoped(to: alice.userId)
+    let bobService = service.scoped(to: bob.userId)
+
+    let aliceResult = try aliceService.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(bodyMarkdown: "Alice memory")],
+      idempotencyKey: "shared-principal-key"
+    )
+    let bobResult = try bobService.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(bodyMarkdown: "Bob memory")],
+      idempotencyKey: "shared-principal-key"
+    )
+    XCTAssertFalse(aliceResult.idempotentReplay)
+    XCTAssertFalse(bobResult.idempotentReplay)
+    XCTAssertNotEqual(aliceResult.notes.map(\.noteId), bobResult.notes.map(\.noteId))
+
+    let concurrentEntries = [LongTermMemoryEntryInput(bodyMarkdown: "Concurrent memory")]
+    let replayFlags = try await withThrowingTaskGroup(of: Bool.self) { group in
+      for _ in 0..<2 {
+        group.addTask {
+          try aliceService.appendLongTermMemoryNotes(
+            concurrentEntries,
+            idempotencyKey: "concurrent-key"
+          ).idempotentReplay
+        }
+      }
+      return try await group.reduce(into: []) { $0.append($1) }
+    }
+    XCTAssertEqual(replayFlags.sorted(by: { !$0 && $1 }), [false, true])
+
+    let conflictingOutcomes = await withTaskGroup(of: String.self) { group in
+      for body in ["Concurrent first body", "Concurrent second body"] {
+        group.addTask {
+          do {
+            let result = try aliceService.appendLongTermMemoryNotes(
+              [LongTermMemoryEntryInput(bodyMarkdown: body)],
+              idempotencyKey: "concurrent-conflict-key"
+            )
+            return result.idempotentReplay ? "replay" : "created"
+          } catch let NoteServiceError.invalidInput(message)
+            where message.contains("idempotency key conflicts") {
+            return "conflict"
+          } catch {
+            return "unexpected: \(error)"
+          }
+        }
+      }
+      return await group.reduce(into: []) { $0.append($1) }
+    }
+    XCTAssertEqual(conflictingOutcomes.sorted(), ["conflict", "created"])
   }
 
   func testAppendRollsBackTheWholeBatchWhenALaterEntryIsUnusable() throws {
@@ -367,6 +576,109 @@ final class NoteLongTermMemoryTests: NoteTestCase {
     XCTAssertEqual(association.hopCount, 1)
     XCTAssertEqual(association.pathNoteIds, [memory.noteId, source.noteId])
     XCTAssertEqual(association.weight, association.rank)
+  }
+
+  func testPendingIngestNotesAreExcludedFromMemoryGraphReadsAndWrites() throws {
+    let service = try makeService(function: #function)
+    let memory = try XCTUnwrap(try service.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(
+        bodyMarkdown: "Consolidated pending graph boundary",
+        topicTags: ["pending-graph-boundary"]
+      )],
+      idempotencyKey: "pending-graph-boundary-memory"
+    ).notes.first)
+    let claim = try service.claimNotebookIngestRequest(
+      idempotencyKey: "pending-graph-boundary-ingest",
+      canonicalRequest: Data("pending-graph-boundary".utf8)
+    )
+    guard case let .execute(identity) = claim else {
+      return XCTFail("expected a new ingest claim")
+    }
+    let pendingService = service.pendingNotebookIngestScope()
+    let pending = try pendingService.createNotebookWithNotes(
+      title: "Pending graph notebook",
+      metaJSON: try service.pendingNotebookIngestMetadata(
+        callerMetadataJSON: nil,
+        identity: identity
+      ),
+      pages: [NotePageDraft(
+        bodyMarkdown: "Pending graph candidate",
+        readOnly: false,
+        tags: [NoteTagInput(name: "pending-graph-boundary", classId: .topic)]
+      )],
+      autoActionPolicy: .deferredUntilFinalized
+    )
+    let pendingNoteId = try XCTUnwrap(pending.notes.first?.noteId)
+
+    let recall = try service.recallLongTermMemories(
+      query: "pending graph boundary",
+      includeAssociations: true
+    )
+    XCTAssertEqual(recall.map(\.note.noteId), [memory.noteId])
+    let created = try service.linkLongTermMemoryAssociations(noteId: memory.noteId)
+    XCTAssertFalse(created.contains { $0.toNoteId == pendingNoteId })
+    XCTAssertFalse(try service.listLinks(noteId: memory.noteId).contains {
+      $0.toNoteId == pendingNoteId || $0.fromNoteId == pendingNoteId
+    })
+  }
+
+  func testRecallAssociationDepthRejectsNegativeHonorsZeroAndOneAndCapsAtMaximum() throws {
+    let service = try makeService(function: #function)
+    let sourceNotebook = try service.createNotebook(title: "Association depth source")
+    let firstHop = try service.createNote(
+      notebookId: sourceNotebook.notebookId,
+      bodyMarkdown: "Quartz"
+    )
+    let secondHop = try service.createNote(
+      notebookId: sourceNotebook.notebookId,
+      bodyMarkdown: "Nebula"
+    )
+    _ = try service.linkNotes(from: firstHop.noteId, to: secondHop.noteId)
+    let memory = try XCTUnwrap(try service.appendLongTermMemoryNotes(
+      [LongTermMemoryEntryInput(
+        bodyMarkdown: "Depthboundarytoken",
+        sourceNoteIds: [firstHop.noteId]
+      )],
+      idempotencyKey: "association-depth-boundary"
+    ).notes.first)
+
+    XCTAssertThrowsError(try service.recallLongTermMemories(
+      query: "Depthboundarytoken",
+      includeAssociations: true,
+      associationDepth: -1
+    )) { error in
+      XCTAssertEqual(
+        error as? NoteServiceError,
+        .invalidInput("associationDepth must not be negative")
+      )
+    }
+    let zero = try service.recallLongTermMemories(
+      query: "Depthboundarytoken",
+      includeAssociations: true,
+      associationDepth: 0
+    )
+    XCTAssertEqual(zero.map(\.note.noteId), [memory.noteId])
+
+    let one = try service.recallLongTermMemories(
+      query: "Depthboundarytoken",
+      includeAssociations: true,
+      associationDepth: 1
+    )
+    XCTAssertTrue(one.contains { $0.note.noteId == firstHop.noteId && $0.hopCount == 1 })
+    XCTAssertFalse(one.contains { $0.note.noteId == secondHop.noteId })
+
+    let maximum = try service.recallLongTermMemories(
+      query: "Depthboundarytoken",
+      includeAssociations: true,
+      associationDepth: NoteGraphPolicy.maximumDepth
+    )
+    XCTAssertTrue(maximum.contains { $0.note.noteId == secondHop.noteId && $0.hopCount == 2 })
+    let overMaximum = try service.recallLongTermMemories(
+      query: "Depthboundarytoken",
+      includeAssociations: true,
+      associationDepth: NoteGraphPolicy.maximumDepth + 100
+    )
+    XCTAssertEqual(overMaximum, maximum)
   }
 
   func testRecallFindsNothingForUnrelatedQueries() throws {

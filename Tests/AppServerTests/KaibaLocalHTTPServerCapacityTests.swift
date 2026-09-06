@@ -59,7 +59,130 @@ private actor ManualIncompleteRequestDeadlineScheduler {
   }
 }
 
+private actor RouteCancellationGate {
+  private var enteredCount = 0
+  private var cancelledCount = 0
+  private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+  private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func holdRequest() async -> KaibaHTTPResponse {
+    enteredCount += 1
+    let entryWaiters = entryWaiters
+    self.entryWaiters.removeAll()
+    entryWaiters.forEach { $0.resume() }
+    do {
+      try await Task.sleep(for: .seconds(60))
+      return .text(status: 200, "unexpected completion")
+    } catch {
+      cancelledCount += 1
+      let cancellationWaiters = cancellationWaiters
+      self.cancellationWaiters.removeAll()
+      cancellationWaiters.forEach { $0.resume() }
+      return .text(status: 499, "cancelled")
+    }
+  }
+
+  func waitUntilEntered(_ expectedCount: Int) async {
+    while enteredCount < expectedCount {
+      await withCheckedContinuation { entryWaiters.append($0) }
+    }
+  }
+
+  func waitUntilCancelled(_ expectedCount: Int) async {
+    while cancelledCount < expectedCount {
+      await withCheckedContinuation { cancellationWaiters.append($0) }
+    }
+  }
+}
+
+private actor RouteStartGate {
+  private var entered = false
+  private var handlerInvocationCount = 0
+  private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+  private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func holdBeforeHandlerEntry() async {
+    entered = true
+    let entryWaiters = entryWaiters
+    self.entryWaiters.removeAll()
+    entryWaiters.forEach { $0.resume() }
+    await withCheckedContinuation { releaseWaiters.append($0) }
+  }
+
+  func waitUntilEntered() async {
+    guard !entered else { return }
+    await withCheckedContinuation { entryWaiters.append($0) }
+  }
+
+  func release() {
+    let releaseWaiters = releaseWaiters
+    self.releaseWaiters.removeAll()
+    releaseWaiters.forEach { $0.resume() }
+  }
+
+  func recordHandlerInvocation() {
+    handlerInvocationCount += 1
+  }
+
+  var invocationCount: Int {
+    handlerInvocationCount
+  }
+}
+
 final class KaibaLocalHTTPServerCapacityTests: XCTestCase {
+  func testCancellationBeforeRouteTaskStartsNeverInvokesHandler() async throws {
+    let gate = RouteStartGate()
+    let server = KaibaLocalHTTPServer(
+      routeHandler: AnyKaibaHTTPRouteHandler { _ in
+        await gate.recordHandlerInvocation()
+        return .text(status: 200, "unexpected invocation")
+      },
+      routeTaskBeforeHandlerEntry: {
+        await gate.holdBeforeHandlerEntry()
+      }
+    )
+    let port = try await server.startForTesting()
+    defer { Task { await server.stop() } }
+
+    let connection = openHeldConnection(port: port)
+    await gate.waitUntilEntered()
+    try await waitUntilRouteTaskCount(server, equals: 1)
+    connection.cancel()
+    try await waitUntilConnectionCount(server, equals: 0)
+    await gate.release()
+    try await waitUntilRouteTaskCount(server, equals: 0)
+
+    let invocationCount = await gate.invocationCount
+    XCTAssertEqual(invocationCount, 0)
+  }
+
+  func testDisconnectAndServerStopCancelConnectionOwnedRouteTasks() async throws {
+    let gate = RouteCancellationGate()
+    let server = KaibaLocalHTTPServer(routeHandler: AnyKaibaHTTPRouteHandler { _ in
+      await gate.holdRequest()
+    })
+    let port = try await server.startForTesting()
+    defer { Task { await server.stop() } }
+
+    let disconnected = openHeldConnection(port: port)
+    await gate.waitUntilEntered(1)
+    try await waitUntilRouteTaskCount(server, equals: 1)
+    disconnected.cancel()
+    await gate.waitUntilCancelled(1)
+    try await waitUntilRouteTaskCount(server, equals: 0)
+    try await waitUntilConnectionCount(server, equals: 0)
+
+    let stopped = openHeldConnection(port: port)
+    defer { stopped.cancel() }
+    await gate.waitUntilEntered(2)
+    try await waitUntilRouteTaskCount(server, equals: 1)
+    await server.stop()
+    await gate.waitUntilCancelled(2)
+    try await waitUntilRouteTaskCount(server, equals: 0)
+    XCTAssertEqual(server.activeConnectionCountForTesting, 0)
+    XCTAssertEqual(server.currentState, .stopped)
+  }
+
   func testConnectionCapacityRejects257thOpenConnectionAndRecoversAfterRelease() async throws {
     let gate = ConnectionCapacityGate()
     let server = KaibaLocalHTTPServer(routeHandler: AnyKaibaHTTPRouteHandler { _ in
@@ -184,6 +307,22 @@ final class KaibaLocalHTTPServerCapacityTests: XCTestCase {
     while server.activeConnectionCountForTesting != expectedCount {
       guard clock.now < deadline else {
         XCTFail("server connection count did not reach \(expectedCount); current \(server.activeConnectionCountForTesting)")
+        return
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+
+  private func waitUntilRouteTaskCount(
+    _ server: KaibaLocalHTTPServer,
+    equals expectedCount: Int,
+    timeout: Duration = .seconds(2)
+  ) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now + timeout
+    while server.activeRouteTaskCountForTesting != expectedCount {
+      guard clock.now < deadline else {
+        XCTFail("server route-task count did not reach \(expectedCount); current \(server.activeRouteTaskCountForTesting)")
         return
       }
       try await Task.sleep(for: .milliseconds(10))

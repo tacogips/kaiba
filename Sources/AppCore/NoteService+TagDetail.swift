@@ -67,6 +67,7 @@ public extension NoteService {
         actingUserId: actingUserId,
         reachableLibraryIds: reachableLibraryIds,
         excludesLongTermMemory: actingUserId != nil || isUnauthenticatedPrincipal,
+        excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
         in: database
       )
       let notebookCount = try taggedEntityCount(
@@ -76,6 +77,7 @@ public extension NoteService {
         actingUserId: actingUserId,
         reachableLibraryIds: reachableLibraryIds,
         excludesLongTermMemory: actingUserId != nil || isUnauthenticatedPrincipal,
+        excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
         in: database
       )
       return TagDetail(
@@ -87,6 +89,7 @@ public extension NoteService {
           tagId: tagId,
           actingUserId: actingUserId,
           libraryIds: reachableLibraryIds,
+          excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
           in: database
         )
       )
@@ -131,6 +134,9 @@ public extension NoteService {
       let longTermMemoryBindings: [SQLiteValue] = excludesLongTermMemory
         ? [.id(NoteStoreSchema.longTermMemoryNotebookKindTagId)]
         : []
+      let pendingIngestPredicate = allowsPendingNotebookIngestAccess
+        ? ""
+        : " AND json_extract(nb2.meta_json, '$._kaibaNotebookIngest.state') IS NOT 'pending'"
       let rows = try database.query(
         """
         SELECT c.comment_id, c.note_id, c.notebook_id, c.body_markdown, c.author, c.created_at,
@@ -141,12 +147,12 @@ public extension NoteService {
         WHERE (c.note_id IN (
           SELECT n2.note_id FROM note_tags nt JOIN notes n2 ON n2.note_id = nt.note_id
           JOIN notebooks nb2 ON nb2.notebook_id = n2.notebook_id
-          WHERE nt.tag_id IN (\(tagPlaceholders))\(actingUserId.map { _ in " AND nb2.owner_user_id = ?" } ?? "")\(libraryPredicate)\(longTermMemoryPredicate)
+          WHERE nt.tag_id IN (\(tagPlaceholders))\(actingUserId.map { _ in " AND nb2.owner_user_id = ?" } ?? "")\(libraryPredicate)\(longTermMemoryPredicate)\(pendingIngestPredicate)
         ))
           OR (c.note_id IS NULL
             AND c.notebook_id IN (
               SELECT nb2.notebook_id FROM notebook_tags nt JOIN notebooks nb2 ON nb2.notebook_id = nt.notebook_id
-              WHERE nt.tag_id IN (\(tagPlaceholders))\(actingUserId.map { _ in " AND nb2.owner_user_id = ?" } ?? "")\(libraryPredicate)\(longTermMemoryPredicate)
+              WHERE nt.tag_id IN (\(tagPlaceholders))\(actingUserId.map { _ in " AND nb2.owner_user_id = ?" } ?? "")\(libraryPredicate)\(longTermMemoryPredicate)\(pendingIngestPredicate)
             ))
         ORDER BY c.created_at DESC, c.comment_id DESC
         LIMIT ? OFFSET ?
@@ -192,6 +198,7 @@ public extension NoteService {
         if let existingId = try findTagMemoNotebookId(
           tagId: tagId,
           actingUserId: actingUserId,
+          excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
           in: db
         ) {
           let existing = try loadNotebook(existingId, in: db)
@@ -306,6 +313,11 @@ public extension NoteService {
       predicates: &predicates,
       bindings: &bindings
     )
+    appendPendingNotebookIngestExclusionPredicate(
+      alias: "notes",
+      excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
+      predicates: &predicates
+    )
     let rows = try database.query(
       """
       SELECT body_markdown
@@ -383,6 +395,11 @@ private extension NoteService {
       predicates: &notePredicates,
       bindings: &noteBindings
     )
+    appendPendingNotebookIngestExclusionPredicate(
+      alias: "n",
+      excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
+      predicates: &notePredicates
+    )
     let noteLibraryIds = try database.query(
       """
       SELECT DISTINCT nb.library_id AS library_id
@@ -414,6 +431,11 @@ private extension NoteService {
       predicates: &notebookPredicates,
       bindings: &notebookBindings
     )
+    appendPendingNotebookIngestExclusionPredicate(
+      alias: "nb",
+      excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
+      predicates: &notebookPredicates
+    )
     let notebookLibraryIds = try database.query(
       """
       SELECT DISTINCT nb.library_id AS library_id
@@ -441,6 +463,7 @@ func findTagMemoNotebookId(
   tagId: TagID,
   actingUserId: UserID? = nil,
   libraryIds: [LibraryID]? = nil,
+  excludesPendingNotebookIngests: Bool = false,
   in database: SQLiteDatabase
 ) throws -> NotebookID? {
   if let libraryIds, libraryIds.isEmpty {
@@ -450,11 +473,14 @@ func findTagMemoNotebookId(
   let libraryPredicate = libraryIds.map {
     " AND library_id IN (\(placeholders(count: $0.count)))"
   } ?? ""
+  let pendingIngestPredicate = excludesPendingNotebookIngests
+    ? " AND json_extract(meta_json, '$._kaibaNotebookIngest.state') IS NOT 'pending'"
+    : ""
   return try database.query(
     """
     SELECT notebook_id
     FROM notebooks
-    WHERE json_extract(meta_json, '$.kaibaTagMemo.subjectTagId') = ?\(ownershipPredicate)\(libraryPredicate)
+    WHERE json_extract(meta_json, '$.kaibaTagMemo.subjectTagId') = ?\(ownershipPredicate)\(libraryPredicate)\(pendingIngestPredicate)
     ORDER BY created_at, notebook_id
     LIMIT 1
     """,
@@ -470,6 +496,7 @@ private func taggedEntityCount(
   actingUserId: UserID?,
   reachableLibraryIds: [LibraryID]?,
   excludesLongTermMemory: Bool,
+  excludesPendingNotebookIngests: Bool,
   in database: SQLiteDatabase
 ) throws -> Int {
   guard !tagIds.isEmpty else { return 0 }
@@ -486,6 +513,14 @@ private func taggedEntityCount(
   } else {
     ownershipBindings = []
     ownershipPredicate = ""
+  }
+  let pendingIngestPredicate: String
+  if excludesPendingNotebookIngests {
+    pendingIngestPredicate = table == "note_tags"
+      ? "AND note_id NOT IN (SELECT notes.note_id FROM notes JOIN notebooks ON notebooks.notebook_id = notes.notebook_id WHERE json_extract(notebooks.meta_json, '$._kaibaNotebookIngest.state') = 'pending')"
+      : "AND notebook_id NOT IN (SELECT notebook_id FROM notebooks WHERE json_extract(meta_json, '$._kaibaNotebookIngest.state') = 'pending')"
+  } else {
+    pendingIngestPredicate = ""
   }
   let libraryPredicate: String
   let libraryBindings: [SQLiteValue]
@@ -517,6 +552,7 @@ private func taggedEntityCount(
       \(ownershipPredicate)
       \(libraryPredicate)
       \(longTermMemoryPredicate)
+      \(pendingIngestPredicate)
     """,
     bindings: tagIds.sqliteBindings + ownershipBindings + libraryBindings + longTermMemoryBindings
   )

@@ -1,4 +1,5 @@
 import Foundation
+import AppGraphQL
 
 public enum KaibaHTTPRequestParseResult: Equatable, Sendable {
   case incomplete
@@ -41,7 +42,7 @@ public enum KaibaHTTPRequestParserError: LocalizedError, Equatable, Sendable {
 
 public struct KaibaHTTPRequestParser: Sendable {
   public static let maximumHeaderBytes = 32 * 1_024
-  public static let maximumBodyBytes = 2 * 1_024 * 1_024
+  public static let maximumBodyBytes = GraphQLRequestLimits.maximumSerializedBodyBytes
 
   public init() {}
 

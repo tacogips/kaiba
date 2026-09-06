@@ -13,6 +13,7 @@ extension NoteService {
   /// Runs on the caller's open transaction; a failure rolls the mutation back.
   @discardableResult
   func recordAction(_ record: NoteActionRecord, in db: SQLiteDatabase) throws -> Int64 {
+    guard !suppressesActionHistory else { return 0 }
     try db.execute(
       """
       INSERT INTO note_action_log (
@@ -117,7 +118,15 @@ extension NoteService {
   public func actionHistory(limit: Int = 50, beforeSeq: Int64? = nil) throws -> [NoteActionLogEntry] {
     let clamped = Swift.min(Swift.max(limit, 1), 500)
     return try driver.withDatabase { database in
-      var predicates = ["actor_user_id = ?"]
+      var predicates = [
+        "actor_user_id = ?",
+        """
+        (notebook_id IS NULL OR notebook_id NOT IN (
+          SELECT notebook_id FROM notebooks
+          WHERE json_extract(meta_json, '$._kaibaNotebookIngest.state') = 'pending'
+        ))
+        """
+      ]
       var bindings: [SQLiteValue] = [.id(writeOwnerUserId())]
       if let beforeSeq {
         predicates.append("seq < ?")

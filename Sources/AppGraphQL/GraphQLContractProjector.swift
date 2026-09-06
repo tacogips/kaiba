@@ -30,6 +30,9 @@ public enum GraphQLContractProjector {
     tagClasses: NoteTagClassesQueryPayload!
     noteFile(fileId: String!): NoteFileQueryPayload!
     noteFiles(noteId: String!): NoteFilesQueryPayload!
+    notebookFiles(notebookId: String!): NotebookFilesQueryPayload!
+    noteLinks(noteId: String!): NoteLinksQueryPayload!
+    longTermMemoryNotebook: NotebookQueryPayload!
     autoActions: NoteAutoActionsQueryPayload!
     noteConversations(noteId: String!, limit: Int): AgentConversationsQueryPayload!
     notebookConversations(notebookId: String!, limit: Int): AgentConversationsQueryPayload!
@@ -68,6 +71,11 @@ public enum GraphQLContractProjector {
     clearUserAgentCredential: UserAgentCredentialPayload!
     linkNotes(input: LinkNotesInput!): NoteMutationPayload!
     attachNoteFile(input: AttachNoteFileInput!): NoteMutationPayload!
+    attachNotebookFile(input: AttachNotebookFileInput!): NoteMutationPayload!
+    ingestNotebookPages(input: IngestNotebookPagesInput!): NoteMutationPayload!
+    appendLongTermMemory(input: AppendLongTermMemoryInput!): LongTermMemoryAppendPayload!
+    recallLongTermMemory(input: RecallLongTermMemoryInput!): LongTermMemoryRecallPayload!
+    linkLongTermMemoryAssociations(noteId: String!, limit: Int): NoteLinksQueryPayload!
     configureNoteAutoAction(input: ConfigureNoteAutoActionInput!): NoteMutationPayload!
     deleteNoteAutoAction(actionId: String!): ControlPlaneResult!
     saveNoteConversation(input: SaveNoteConversationInput!): NoteMutationPayload!

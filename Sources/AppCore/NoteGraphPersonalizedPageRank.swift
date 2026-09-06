@@ -35,11 +35,13 @@ func personalizedPageRank<Node: Hashable>(
   damping: Double = NoteGraphPageRankPolicy.damping,
   iterations: Int = NoteGraphPageRankPolicy.iterations
 ) -> [Node: Double] {
-  let nodeSet = Set(nodes)
+  let orderedNodes = orderedUnique(nodes)
+  let nodeSet = Set(orderedNodes)
   guard !nodeSet.isEmpty else {
     return [:]
   }
-  let seedTotal = personalization.filter { nodeSet.contains($0.key) && $0.value > 0 }.values.reduce(0, +)
+  // Hash iteration order must not change floating-point accumulation or ranking.
+  let seedTotal = orderedNodes.reduce(0.0) { $0 + max(0, personalization[$1] ?? 0) }
   guard seedTotal > 0 else {
     return Dictionary(uniqueKeysWithValues: nodeSet.map { ($0, 0.0) })
   }
@@ -56,7 +58,8 @@ func personalizedPageRank<Node: Hashable>(
   var mass = seeds
   for _ in 0..<max(0, iterations) {
     var next: [Node: Double] = seeds.mapValues { $0 * (1 - damping) }
-    for (source, sourceMass) in mass where sourceMass > 0 {
+    for source in orderedNodes {
+      guard let sourceMass = mass[source], sourceMass > 0 else { continue }
       guard let neighbours = outgoing[source], let degree = weightedDegree[source], degree > 0 else {
         continue
       }
@@ -64,7 +67,7 @@ func personalizedPageRank<Node: Hashable>(
         next[destination, default: 0] += damping * sourceMass * weight / degree
       }
     }
-    let total = next.values.reduce(0, +)
+    let total = orderedNodes.reduce(0.0) { $0 + (next[$1] ?? 0) }
     mass = total > 0 ? next.mapValues { $0 / total } : seeds
   }
   var result = Dictionary(uniqueKeysWithValues: nodeSet.map { ($0, 0.0) })

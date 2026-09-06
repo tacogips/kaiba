@@ -511,7 +511,9 @@ final class NoteLibraryEnforcementTests: NoteTestCase {
 
   func testDefaultAndUnauthenticatedScopesCannotDiscoverInternalLongTermMemory() throws {
     let service = try makeService()
-    let source = try service.createNote(bodyMarkdown: "Default-account memory source")
+    // Keep the visible source from matching the search query: this assertion is
+    // specifically about excluding the internal long-term-memory note.
+    let source = try service.createNote(bodyMarkdown: "Default-account source")
     let memory = try XCTUnwrap(try service.appendLongTermMemoryNotes(
       [LongTermMemoryEntryInput(
         bodyMarkdown: "Internal default-account consolidated memory",

@@ -182,6 +182,18 @@ public struct GraphQLNoteFileAttachmentDTO: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLNotebookFileAttachmentDTO: Codable, Equatable, Sendable {
+  public var notebookId: NotebookID
+  public var file: GraphQLNoteFileDTO
+  public var role: String
+
+  public init(attachment: NotebookFileAttachment) {
+    notebookId = attachment.notebookId
+    file = GraphQLNoteFileDTO(file: attachment.file)
+    role = attachment.role.rawValue
+  }
+}
+
 public struct GraphQLNoteCommentDTO: Codable, Equatable, Sendable {
   public var commentId: CommentID
   /// Nil for a notebook-level memo (anchored to the notebook, not a note).
@@ -604,6 +616,8 @@ public struct GraphQLNoteMutationResult: Codable, Equatable, Sendable {
   public var tag: GraphQLNoteTagDTO?
   public var tagClass: GraphQLNoteTagClassDTO?
   public var file: GraphQLNoteFileDTO?
+  public var noteFiles: [GraphQLNoteFileAttachmentDTO]
+  public var notebookFiles: [GraphQLNotebookFileAttachmentDTO]
   public var comment: GraphQLNoteCommentDTO?
   public var link: GraphQLNoteLinkDTO?
   public var autoAction: GraphQLNoteAutoActionDTO?
@@ -616,6 +630,8 @@ public struct GraphQLNoteMutationResult: Codable, Equatable, Sendable {
     tag: GraphQLNoteTagDTO? = nil,
     tagClass: GraphQLNoteTagClassDTO? = nil,
     file: GraphQLNoteFileDTO? = nil,
+    noteFiles: [GraphQLNoteFileAttachmentDTO] = [],
+    notebookFiles: [GraphQLNotebookFileAttachmentDTO] = [],
     comment: GraphQLNoteCommentDTO? = nil,
     link: GraphQLNoteLinkDTO? = nil,
     autoAction: GraphQLNoteAutoActionDTO? = nil
@@ -627,6 +643,8 @@ public struct GraphQLNoteMutationResult: Codable, Equatable, Sendable {
     self.tag = tag
     self.tagClass = tagClass
     self.file = file
+    self.noteFiles = noteFiles
+    self.notebookFiles = notebookFiles
     self.comment = comment
     self.link = link
     self.autoAction = autoAction

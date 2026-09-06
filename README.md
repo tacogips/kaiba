@@ -172,7 +172,52 @@ curl -X POST http://127.0.0.1:8787/graphql \
 
 # or execute GraphQL locally without a server
 kaiba graphql 'query Tags { tags { result { accepted } value { name } } }'
+
+# discover the authenticated endpoint schema; the token stays in the environment
+kaiba graphql schema --endpoint http://127.0.0.1:8787 \
+  --api-key-env KAIBA_API_KEY --filter '^(notes|Note)$' --output text
 ```
+
+`kaiba graphql schema` retrieves standard authenticated introspection from the
+endpoint. Its optional ICU regular expression matches root-field and type names;
+output includes the forward transitive type dependencies needed to understand
+each match. Use `--allow-unauthenticated` only for a trusted loopback server.
+Remote unauthenticated access additionally requires
+`--allow-remote-unauthenticated`; non-loopback HTTP additionally requires
+`--allow-insecure-http`. Text and stable sorted JSON output are supported.
+
+Swift clients can depend on the standalone `KaibaClient` library product. It
+normalizes the endpoint, requires an explicit bearer or unauthenticated choice,
+executes arbitrary GraphQL, exposes readiness/schema APIs and typed common note
+operations, and never opens a Kaiba store or falls back to in-process services:
+
+```swift
+import KaibaClient
+
+let client = try KaibaClient(
+  endpoint: URL(string: "https://kaiba.example.com")!,
+  authentication: .bearer(try KaibaBearerToken(
+    ProcessInfo.processInfo.environment["KAIBA_API_KEY"] ?? ""
+  ))
+)
+let readiness = try await client.probeReadiness()
+let schema = try await client.fetchSchema()
+```
+
+Requests default to a 2 MiB encoded limit, responses to 8 MiB, and a ten-second
+timeout; configurable timeouts are capped at 24 hours. Redirects are refused,
+caller cancellation remains cancellation, and diagnostics do not retain
+request bodies, response bodies, or bearer values. Typed conveniences cover
+notes, notebooks, tags, attachments, comments, notebook/document ingest,
+conversations, and long-term memory. Ingest and long-term-memory append calls
+require caller-provided idempotency keys; the client does not retry
+automatically. Long-term-memory operations require an authenticated, enabled
+administrator, except for the server's explicit loopback operator mode.
+
+Transport, authentication, HTTP, GraphQL, decoding, and schema failures remain
+distinct `KaibaClientError` categories. Schema discovery is intentionally
+bounded to the SDK's canonical introspection document rather than providing a
+general-purpose GraphQL introspection engine.
 
 ## Personal AI agent (your own API key)
 

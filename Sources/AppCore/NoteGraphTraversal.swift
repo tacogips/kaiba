@@ -211,6 +211,11 @@ private func noteMatchesGraphScope(
     predicates: &predicates,
     bindings: &bindings
   )
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: "n",
+    excludesPendingNotebookIngests: scope.excludesPendingNotebookIngests,
+    predicates: &predicates
+  )
   if let notebookId = scope.notebookId {
     predicates.append("n.notebook_id = ?")
     bindings.append(.id(notebookId))
@@ -239,6 +244,11 @@ func appendGraphScopePredicates(
     actingUserId: scope.actingUserId,
     predicates: &predicates,
     bindings: &bindings
+  )
+  appendPendingNotebookIngestExclusionPredicate(
+    alias: alias,
+    excludesPendingNotebookIngests: scope.excludesPendingNotebookIngests,
+    predicates: &predicates
   )
   if scope.excludesLongTermMemory, scope.actingUserId == nil {
     appendLongTermMemoryExclusionPredicate(

@@ -48,6 +48,7 @@ extension NoteService {
   /// Publishes after a successful transaction only; a throwing mutation never
   /// reaches its publish call.
   func publishChange(_ event: NoteChangeEvent) {
+    guard !suppressesChangePublication else { return }
     changeObserver?.noteStoreDidChange(event)
   }
 }

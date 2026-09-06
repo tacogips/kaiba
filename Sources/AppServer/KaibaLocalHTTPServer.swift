@@ -3,6 +3,41 @@ import Foundation
 #if canImport(Network)
 import Network
 
+private final class KaibaHTTPRouteTaskHandle: @unchecked Sendable {
+  private let lock = NSLock()
+  private var task: Task<Void, Never>?
+  private var cancellationRequested = false
+  private var handlerStarted = false
+
+  func install(_ task: Task<Void, Never>) {
+    lock.lock()
+    guard !cancellationRequested else {
+      lock.unlock()
+      task.cancel()
+      return
+    }
+    self.task = task
+    lock.unlock()
+  }
+
+  func cancel() {
+    lock.lock()
+    cancellationRequested = true
+    let task = task
+    self.task = nil
+    lock.unlock()
+    task?.cancel()
+  }
+
+  func beginHandlerExecution() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !cancellationRequested, !handlerStarted else { return false }
+    handlerStarted = true
+    return true
+  }
+}
+
 public enum KaibaLocalHTTPServerState: Equatable, Sendable {
   case stopped
   case starting(port: Int)
@@ -48,6 +83,7 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
   private let queue: DispatchQueue
   private let incompleteRequestTimeoutNanoseconds: UInt64
   private let scheduleIncompleteRequestTimeout: (@escaping @Sendable () -> Void) -> Void
+  private let routeTaskBeforeHandlerEntry: @Sendable () async -> Void
   private let lock = NSLock()
   /// Every accepted connection owns a socket, a parsing buffer, and often a
   /// long-poll task.  Keep a hard server-wide ceiling independent of route
@@ -65,6 +101,8 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
   }
   private var listener: NWListener?
   private var connections: [UUID: NWConnection] = [:]
+  private var routeTasks: [UUID: KaibaHTTPRouteTaskHandle] = [:]
+  private var activeRouteWorkers = 0
   private var incompleteRequestTimeoutGenerations: [UUID: UInt64] = [:]
   private var generation: UInt64 = 0
   private var state = KaibaLocalHTTPServerState.stopped
@@ -72,15 +110,32 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
   private var startContinuation: CheckedContinuation<Int, Error>?
   private var stopContinuations: [CheckedContinuation<Void, Never>] = []
 
-  public init(
+  public convenience init(
     routeHandler: any KaibaHTTPRouteHandling,
     queue: DispatchQueue = DispatchQueue(label: "dev.kaiba.local-http-server", qos: .userInitiated),
     incompleteRequestTimeoutNanoseconds: UInt64 = defaultIncompleteRequestTimeout,
     incompleteRequestTimeoutScheduler: ((@escaping @Sendable () -> Void) -> Void)? = nil
   ) {
+    self.init(
+      routeHandler: routeHandler,
+      queue: queue,
+      incompleteRequestTimeoutNanoseconds: incompleteRequestTimeoutNanoseconds,
+      incompleteRequestTimeoutScheduler: incompleteRequestTimeoutScheduler,
+      routeTaskBeforeHandlerEntry: {}
+    )
+  }
+
+  init(
+    routeHandler: any KaibaHTTPRouteHandling,
+    queue: DispatchQueue = DispatchQueue(label: "dev.kaiba.local-http-server", qos: .userInitiated),
+    incompleteRequestTimeoutNanoseconds: UInt64 = defaultIncompleteRequestTimeout,
+    incompleteRequestTimeoutScheduler: ((@escaping @Sendable () -> Void) -> Void)? = nil,
+    routeTaskBeforeHandlerEntry: @escaping @Sendable () async -> Void
+  ) {
     self.routeHandler = routeHandler
     self.queue = queue
     self.incompleteRequestTimeoutNanoseconds = incompleteRequestTimeoutNanoseconds
+    self.routeTaskBeforeHandlerEntry = routeTaskBeforeHandlerEntry
     if let incompleteRequestTimeoutScheduler {
       scheduleIncompleteRequestTimeout = incompleteRequestTimeoutScheduler
     } else {
@@ -116,6 +171,13 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
     return connections.count
   }
 
+  /// Internal observability for connection-owned route-task cleanup tests.
+  var activeRouteTaskCountForTesting: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return activeRouteWorkers
+  }
+
   @discardableResult
   public func start(port: Int) async throws -> Int {
     try await start(host: "127.0.0.1", port: port)
@@ -128,7 +190,12 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
 
   @discardableResult
   func startForTesting() async throws -> Int {
-    try await start(host: "127.0.0.1", port: 0, allowsEphemeralPort: true)
+    try await startForTesting(host: "127.0.0.1")
+  }
+
+  @discardableResult
+  func startForTesting(host: String) async throws -> Int {
+    try await start(host: host, port: 0, allowsEphemeralPort: true)
   }
 
   private func start(host: String, port: Int, allowsEphemeralPort: Bool) async throws -> Int {
@@ -184,20 +251,25 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
 
   public func stop() async {
     await withCheckedContinuation { continuation in
-      let listenerToCancel: NWListener?
-      let connectionsToCancel: [NWConnection]
       lock.lock()
-      guard let activeListener = listener else {
+      let listenerToCancel = listener
+      let connectionsToCancel = Array(connections.values)
+      let routeTasksToCancel = Array(routeTasks.values)
+      routeTasks.removeAll()
+      guard listenerToCancel != nil else {
+        connections.removeAll()
+        incompleteRequestTimeoutGenerations.removeAll()
         updateStateLocked(.stopped)
         lock.unlock()
+        routeTasksToCancel.forEach { $0.cancel() }
+        connectionsToCancel.forEach { $0.cancel() }
         continuation.resume()
         return
       }
-      listenerToCancel = activeListener
-      connectionsToCancel = Array(connections.values)
       stopContinuations.append(continuation)
       updateStateLocked(.stopping(port: state.boundPort))
       lock.unlock()
+      routeTasksToCancel.forEach { $0.cancel() }
       connectionsToCancel.forEach { $0.cancel() }
       listenerToCancel?.cancel()
     }
@@ -256,13 +328,18 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
   ) {
     let pendingStart: CheckedContinuation<Int, Error>?
     let pendingStops: [CheckedContinuation<Void, Never>]
+    let connectionsToCancel: [NWConnection]
+    let routeTasksToCancel: [KaibaHTTPRouteTaskHandle]
     lock.lock()
     guard listener === sourceListener, generation == sourceGeneration else {
       lock.unlock()
       return
     }
     listener = nil
+    connectionsToCancel = Array(connections.values)
     connections.removeAll()
+    routeTasksToCancel = Array(routeTasks.values)
+    routeTasks.removeAll()
     incompleteRequestTimeoutGenerations.removeAll()
     pendingStart = startContinuation
     startContinuation = nil
@@ -274,6 +351,8 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
       updateStateLocked(.stopped)
     }
     lock.unlock()
+    routeTasksToCancel.forEach { $0.cancel() }
+    connectionsToCancel.forEach { $0.cancel() }
     if let pendingStart {
       pendingStart.resume(throwing: failure ?? .cancelledBeforeReady)
     }
@@ -302,9 +381,21 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
       lock.unlock()
       let response = KaibaHTTPResponse.text(status: 429, "Server connection capacity reached")
       connection.start(queue: queue)
-      connection.send(content: response.serialized(forMethod: "GET"), completion: .contentProcessed { _ in
-        connection.cancel()
-      })
+      // Half-close after the response and drain the incoming request before
+      // cancellation. Cancelling immediately with unread TCP data can reset
+      // the peer before it receives the capacity response.
+      queue.asyncAfter(deadline: .now() + .seconds(1)) { connection.cancel() }
+      connection.send(
+        content: response.serialized(forMethod: "GET"),
+        contentContext: .finalMessage,
+        isComplete: true,
+        completion: .contentProcessed { error in
+          guard error == nil else { connection.cancel(); return }
+          connection.receive(minimumIncompleteLength: 1, maximumLength: KaibaHTTPRequestParser.maximumHeaderBytes) { _, _, _, _ in
+            connection.cancel()
+          }
+        }
+      )
       return
     }
     connections[connectionID] = connection
@@ -342,10 +433,7 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
           }
         case let .complete(request):
           self.clearIncompleteRequestDeadline(id: id)
-          Task {
-            let response = await self.routeHandler.response(for: request)
-            self.send(response, method: request.method, through: connection, id: id)
-          }
+          self.startRoute(request, through: connection, id: id)
         }
       } catch let parserError as KaibaHTTPRequestParserError {
         self.send(
@@ -373,10 +461,77 @@ public final class KaibaLocalHTTPServer: @unchecked Sendable {
   }
 
   private func removeConnection(id: UUID) {
+    let routeTask: KaibaHTTPRouteTaskHandle?
     lock.lock()
     connections[id] = nil
     incompleteRequestTimeoutGenerations[id] = nil
+    routeTask = routeTasks.removeValue(forKey: id)
     lock.unlock()
+    routeTask?.cancel()
+  }
+
+  private func startRoute(_ request: KaibaHTTPRequest, through connection: NWConnection, id: UUID) {
+    let handle = KaibaHTTPRouteTaskHandle()
+    lock.lock()
+    guard connections[id] === connection, routeTasks[id] == nil else {
+      lock.unlock()
+      connection.cancel()
+      return
+    }
+    routeTasks[id] = handle
+    activeRouteWorkers += 1
+    lock.unlock()
+    monitorRouteConnection(connection, id: id)
+    let task = Task { [weak self, connection] in
+      guard let self else { return }
+      defer { self.finishRouteWorker() }
+      await self.routeTaskBeforeHandlerEntry()
+      guard !Task.isCancelled, handle.beginHandlerExecution() else { return }
+      let response = await self.routeHandler.response(for: request)
+      guard !Task.isCancelled else { return }
+      self.finishRoute(
+        response,
+        method: request.method,
+        through: connection,
+        id: id,
+        handle: handle
+      )
+    }
+    handle.install(task)
+  }
+
+  private func finishRouteWorker() {
+    lock.lock()
+    activeRouteWorkers -= 1
+    lock.unlock()
+  }
+
+  private func finishRoute(
+    _ response: KaibaHTTPResponse,
+    method: String,
+    through connection: NWConnection,
+    id: UUID,
+    handle: KaibaHTTPRouteTaskHandle
+  ) {
+    lock.lock()
+    guard connections[id] === connection, routeTasks[id] === handle else {
+      lock.unlock()
+      return
+    }
+    routeTasks[id] = nil
+    lock.unlock()
+    send(response, method: method, through: connection, id: id)
+  }
+
+  private func monitorRouteConnection(_ connection: NWConnection, id: UUID) {
+    connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self, weak connection] _, _, complete, error in
+      guard let self, let connection else { return }
+      if complete || error != nil {
+        self.removeConnection(id: id)
+      } else {
+        self.monitorRouteConnection(connection, id: id)
+      }
+    }
   }
 
   private func refreshIncompleteRequestDeadline(for connection: NWConnection, id: UUID) {

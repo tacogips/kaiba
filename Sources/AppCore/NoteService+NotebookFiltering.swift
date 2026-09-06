@@ -16,6 +16,11 @@ extension NoteService {
       guard let expandedGroups else { return [] }
       var predicates: [String] = []
       var bindings: [SQLiteValue] = []
+      if !allowsPendingNotebookIngestAccess {
+        predicates.append(
+          "json_extract(notebooks.meta_json, '$._kaibaNotebookIngest.state') IS NOT 'pending'"
+        )
+      }
       for expandedGroup in expandedGroups {
         predicates.append(
           """

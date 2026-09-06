@@ -4,12 +4,12 @@ import AppCore
 import XCTest
 @testable import AppGraphQL
 
-/// Verifies that on the authenticated HTTP note API the audit-attribution
-/// identity is always the bearer-verified client and cannot be overridden by
-/// request input, and that migration diagnostics are redacted (theme T2,
+/// Verifies that the authenticated HTTP note API keeps caller-visible
+/// attribution separate from bearer-verified audit identity, reserves the
+/// verified client namespace, and redacts migration diagnostics (theme T2,
 /// findings F21/F26).
 final class NoteGraphQLVerifiedIdentityTests: XCTestCase {
-  func testAuthenticatedApplyTagsRejectsExplicitAssignedBy() async throws {
+  func testAuthenticatedApplyTagsRejectsReservedClientIdentity() async throws {
     let service = try makeNoteGraphQLService()
     let executor = NoteGraphQLDocumentExecutor(service: service)
     let note = try service.service.createNote(bodyMarkdown: "# Identity\n\nBody")
@@ -64,6 +64,37 @@ final class NoteGraphQLVerifiedIdentityTests: XCTestCase {
     let stored = try service.service.getNote(note.noteId)
     let assignedBy = stored.tags.first(where: { $0.tag.name == "topic" })?.assignedBy
     XCTAssertEqual(assignedBy, "client:abc123")
+  }
+
+  func testAuthenticatedApplyTagsPreservesCallerVisibleAttribution() async throws {
+    let service = try makeNoteGraphQLService()
+    let executor = NoteGraphQLDocumentExecutor(service: service)
+    let note = try service.service.createNote(bodyMarkdown: "# Identity\n\nBody")
+
+    let response = await executor.execute(GraphQLDocumentRequest(
+      query: """
+      mutation ApplyTags($input: ApplyNoteTagsInput!) {
+        applyNoteTags(input: $input) { result { accepted } }
+      }
+      """,
+      variables: [
+        "input": .object([
+          "noteId": .string(note.noteId.rawValue),
+          "tags": .array([.object(["name": .string("topic")])]),
+          "assignedBy": .string("riela-tag-assignment")
+        ])
+      ],
+      operationName: "ApplyTags",
+      authenticatedClientId: APIClientID("abc123")
+    ))
+
+    XCTAssertTrue(response.handled)
+    XCTAssertNil(response.body["errors"])
+    let stored = try service.service.getNote(note.noteId)
+    XCTAssertEqual(
+      stored.tags.first(where: { $0.tag.name == "topic" })?.assignedBy,
+      "riela-tag-assignment"
+    )
   }
 
   /// A distinctive substring an S3 upload error's description carries (e.g. a
