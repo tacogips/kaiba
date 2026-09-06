@@ -40,3 +40,9 @@ The subsequent Linux compile exposed stricter non-null `posix_spawn` argument
 types and an oversized tag-comment binding expression. Explicit pointer guards
 and incremental binding construction preserve behavior across Darwin and Glibc.
 The affected process-invocation and tag-detail suites passed all 47 tests.
+
+The local listener was already implemented only with Apple's Network framework.
+The runtime now guards that implementation on Linux, and `kaiba serve` reports
+an unsupported-platform error before creating a store. The Linux CI job checks
+this diagnostic and absence of store creation, as well as the CLI version.
+The portable SDK can still connect to a supported remote server from Linux.

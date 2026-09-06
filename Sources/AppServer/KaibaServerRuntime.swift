@@ -67,16 +67,20 @@ public struct KaibaServerStartInfo: Sendable, Equatable {
 public actor KaibaServerRuntime {
   public enum RuntimeError: Error, CustomStringConvertible, Equatable {
     case invalidConfiguration(String)
+    case unsupportedPlatform
 
     public var description: String {
       switch self {
       case let .invalidConfiguration(message): message
+      case .unsupportedPlatform: "kaiba serve is unavailable on this platform; the listener requires Apple's Network framework"
       }
     }
   }
 
   private let config: KaibaServeConfiguration
+  #if canImport(Network)
   private var server: KaibaLocalHTTPServer?
+  #endif
   private var maintenance: Task<Void, Never>?
   private var startInfo: KaibaServerStartInfo?
 
@@ -84,7 +88,15 @@ public actor KaibaServerRuntime {
     self.config = configuration
   }
 
-  public var isRunning: Bool { server != nil }
+  public static var isSupported: Bool {
+    #if canImport(Network)
+    true
+    #else
+    false
+    #endif
+  }
+
+  public var isRunning: Bool { startInfo != nil }
 
   public var currentStartInfo: KaibaServerStartInfo? { startInfo }
 
@@ -101,6 +113,7 @@ public actor KaibaServerRuntime {
   }
 
   private func start(allowsEphemeralPort: Bool) async throws -> KaibaServerStartInfo {
+    #if canImport(Network)
     if let startInfo {
       return startInfo
     }
@@ -254,14 +267,19 @@ public actor KaibaServerRuntime {
     )
     self.startInfo = info
     return info
+    #else
+    throw RuntimeError.unsupportedPlatform
+    #endif
   }
 
   /// Stops the server and cancels maintenance. Safe to call when not running.
   public func stop() async {
     maintenance?.cancel()
     maintenance = nil
+    #if canImport(Network)
     await server?.stop()
     server = nil
+    #endif
     startInfo = nil
   }
 }

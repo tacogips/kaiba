@@ -154,6 +154,10 @@ machine. The server exposes `POST /graphql`, `GET /note/events`
 (long-poll live updates), `GET|POST /note/register`, and serves the
 viewer SPA.
 
+The local listener requires Apple's Network framework, so `kaiba serve` is
+unavailable on Linux. The Linux CLI and `KaibaClient` SDK can still access a
+remote server; local GraphQL execution does not require the listener.
+
 The viewer treats attached tags as navigation subjects. Click an underlined
 tag term or tag chip to open its Memo, History, and Links tabs across every
 notebook. Tag memo creation is safe under concurrent submissions, agent context

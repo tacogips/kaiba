@@ -101,6 +101,9 @@ struct ServeCommand {
   }
 
   static func run(_ options: Options) async throws {
+    guard KaibaServerRuntime.isSupported else {
+      throw ServeError.invalidConfiguration(KaibaServerRuntime.RuntimeError.unsupportedPlatform.description)
+    }
     // AI reconciliation prints operator-facing lines and must run before the
     // port opens; the runtime performs the rest of the bootstrap
     // (design-docs/specs/ai-agent-integration.md,

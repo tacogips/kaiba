@@ -49,4 +49,12 @@ jobs:
               scripts/build-anydoc-native.sh
               export PKG_CONFIG_PATH=/workspace/.build/anydoc-native/host/pkgconfig
               swift build -c release --product "$EXECUTABLE_NAME" --triple x86_64-unknown-linux-gnu
+              .build/x86_64-unknown-linux-gnu/release/kaiba --version
+              mkdir -p tmp
+              if .build/x86_64-unknown-linux-gnu/release/kaiba --note-root tmp/linux-serve-unavailable serve >tmp/linux-serve-smoke.txt 2>&1; then
+                echo "expected unsupported Linux listener to fail"
+                exit 1
+              fi
+              grep -F "the listener requires Apple" tmp/linux-serve-smoke.txt
+              test ! -e tmp/linux-serve-unavailable
             '
