@@ -70,8 +70,7 @@ cask "kaiba" do
   sha256 arm: "$darwin_arm64_sha",
          intel: "$darwin_x64_sha"
 
-  url "$release_base_url/$artifact_name-#{version}-#{arch}.dmg",
-      verified: "github.com/tacogips/kaiba/releases/download/"
+  url "$release_base_url/$artifact_name-#{version}-#{arch}.dmg"
   name "kaiba"
   desc "System-memory service for AI agents"
   homepage "https://github.com/tacogips/kaiba"
