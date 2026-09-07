@@ -1,7 +1,6 @@
-/// UTF-8-budgeted context assembly shared by the agent-chat subject context
-/// builders (note, notebook, and tag subjects). All caps are expressed in
-/// UTF-8 bytes because provider context limits are byte-based; `String.prefix`
-/// counts Characters and can overshoot a byte budget threefold on CJK text.
+/// Helpers for callers requesting explicitly bounded text previews. Chat
+/// context uses complete source text by default. Byte limits here are application
+/// preview sizes, not model token limits.
 
 /// Returns the longest prefix whose UTF-8 encoding is at most `limit` bytes.
 /// The cut is backed up to a scalar boundary so a multi-byte encoding is

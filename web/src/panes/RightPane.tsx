@@ -21,12 +21,12 @@ export function RightPane(props: { onClose?: () => void } = {}): JSX.Element {
   const tagId = createMemo(() => app.tagPaneTagId())
   const tabs = createMemo<readonly TabDescriptor<RightTab>[]>(() => noteMode()
     ? [
-        { value: 'memo', label: 'Agent' },
+        { value: 'memo', label: 'Learn' },
         { value: 'info', label: 'Info' },
         { value: 'links', label: 'Links' },
       ]
     : [
-        { value: 'memo', label: 'Agent' },
+        { value: 'memo', label: 'Learn' },
         { value: 'info', label: 'Tags' },
         { value: 'links', label: 'Links' },
       ])
@@ -43,7 +43,7 @@ export function RightPane(props: { onClose?: () => void } = {}): JSX.Element {
               aria-expanded={false}
               onClick={app.toggleRightPane}
             >‹</button>
-            <span class="rail-label">Agent</span>
+            <span class="rail-label">Learn</span>
           </div>
         }
       >

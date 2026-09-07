@@ -257,12 +257,12 @@ public extension NoteService {
 
   /// Agent-chat subject context for a tag: the tag identity followed by the
   /// bodies of notes carrying the tag (or a descendant) in notebooks reachable
-  /// to this service principal, newest first, capped like the notebook subject
-  /// context.
+  /// to this service principal, newest first. Callers may request an explicit
+  /// preview limit; agent prompts use the complete context by default.
   func tagContextMarkdown(
     tagId: TagID,
     libraryId: LibraryID? = nil,
-    limitBytes: Int = 200 * 1024
+    limitBytes: Int? = nil
   ) throws -> String {
     return try driver.withDatabase { database in
       try tagContextMarkdown(
@@ -280,7 +280,7 @@ public extension NoteService {
   func tagContextMarkdown(
     tagId: TagID,
     libraryId: LibraryID? = nil,
-    limitBytes: Int = 200 * 1024,
+    limitBytes: Int? = nil,
     in database: SQLiteDatabase
   ) throws -> String {
     if let libraryId {
@@ -330,10 +330,12 @@ public extension NoteService {
       FROM notes
       WHERE \(predicates.joined(separator: " AND "))
       ORDER BY created_at DESC, note_id
-      LIMIT 50
       """,
       bindings: bindings
     )
+    guard let limitBytes else {
+      return ([heading] + rows.compactMap { $0["body_markdown"] }).joined(separator: "\n\n---\n\n")
+    }
     return boundedMarkdownContext(
       heading: heading,
       sections: rows.compactMap { $0["body_markdown"] },

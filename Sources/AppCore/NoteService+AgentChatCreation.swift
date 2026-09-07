@@ -47,7 +47,10 @@ public extension NoteService {
         }
         let metaJSON = try Self.chatNotebookMetaJSON(
           subjectNoteId: subjectNoteId,
-          subjectNotebookId: subjectNotebook.notebookId
+          subjectNotebookId: subjectNotebook.notebookId,
+          branchContext: try subjectNoteId.flatMap {
+            try agentBranchContext(noteId: $0, notebook: subjectNotebook, in: db)
+          }
         )
         try agentChatCreationPreinsertHook?(db)
         try validateAgentConversationSubject(

@@ -10,6 +10,36 @@ private struct StubInvoker: AgentInvoking {
   }
 }
 
+extension AgentChatGraphQLTests {
+  func testOpenMemoNotebookMutationProjectsReusableChatNotebook() async throws {
+    let service = try makeService()
+    let note = try service.service.createNote(bodyMarkdown: "Source")
+    XCTAssertEqual(try service.service.getNotebook(note.notebookId).type, .document)
+    let memo = try service.service.addComment(noteId: note.noteId, bodyMarkdown: "Memo thought")
+    let executor = NoteGraphQLDocumentExecutor(service: service)
+    let request = GraphQLDocumentRequest(
+      query: """
+      mutation OpenMemo($commentId: String!) {
+        openMemoNotebook(commentId: $commentId) {
+          result { accepted status }
+          notebook { notebookId type title }
+        }
+      }
+      """,
+      variables: ["commentId": .string(memo.commentId.rawValue)], operationName: "OpenMemo"
+    )
+    let response = await executor.execute(request)
+    XCTAssertTrue(response.handled)
+    XCTAssertNil(response.body["errors"], String(describing: response.body["errors"]))
+    let payload = try graphQLPayload(response.body, field: "openMemoNotebook")
+    XCTAssertEqual(payload["notebook"]?["type"], .string("AGENT_CHAT"))
+    XCTAssertEqual(try resultObject(payload)["accepted"], .bool(true))
+    let replay = await executor.execute(request)
+    XCTAssertEqual(try graphQLPayload(replay.body, field: "openMemoNotebook"), payload)
+  }
+
+}
+
 final class AgentChatGraphQLTests: XCTestCase {
   func testAgentModelsSharesInFlightCatalogAndCachesResult() async throws {
     actor CatalogCounter {

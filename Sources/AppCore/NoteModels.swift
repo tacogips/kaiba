@@ -28,7 +28,16 @@ public enum NoteAutoActionTrigger: String, Codable, Equatable, Sendable {
   case notebookCreated = "notebook-created"
 }
 
+public enum NotebookType: String, Codable, Equatable, Sendable {
+  case document = "DOCUMENT"
+  case agentChat = "AGENT_CHAT"
+}
+
 public struct Notebook: Equatable, Sendable {
+  /// The protected kind tag remains the canonical persisted discriminator.
+  public var type: NotebookType {
+    tags.contains { $0.tag.tagId == NoteStoreSchema.agentConversationNotebookKindTagId } ? .agentChat : .document
+  }
   public var notebookId: NotebookID
   public var title: String
   public var readOnly: Bool

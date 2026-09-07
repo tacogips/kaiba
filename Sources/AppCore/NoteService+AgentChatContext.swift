@@ -5,12 +5,26 @@ struct AgentChatSubjectSnapshot {
   let markdown: String?
   let libraryId: LibraryID
   /// Exact note content captured for an edit-mode provider invocation. This is
-  /// intentionally separate from `markdown`, which is truncated for normal
-  /// chat, so replacement writes can reject a concurrent human edit.
+  /// intentionally separate from contextual markdown so replacement writes
+  /// can reject a concurrent human edit.
   let noteBodyMarkdown: String?
 }
 
 extension NoteService {
+  func noteChatContext(_ note: Note, in database: SQLiteDatabase) throws -> String {
+    let notebook = try requireNotebook(note.notebookId, in: database)
+    return """
+      # Source notebook
+      Title: \(notebook.title)
+      Notebook ID: \(notebook.notebookId)
+
+      # Source note
+      Note ID: \(note.noteId)
+      Note number: \(note.noteNumber)
+
+      \(note.bodyMarkdown)
+      """
+  }
   /// Captures the subject and its context while the conversation and subject
   /// libraries are checked on the same database snapshot. A move therefore
   /// cannot turn an already-authorized open subject into protected provider
@@ -38,21 +52,18 @@ extension NoteService {
         case let .note(subjectNoteId):
           let subjectNote = try requireNote(subjectNoteId, in: db)
           if editMode {
-            guard subjectNote.bodyMarkdown.utf8.count <= Self.subjectContextLimitBytes else {
-              throw NoteServiceError.invalidInput(
-                "note \(subjectNoteId) is too large to edit in agent chat"
-              )
-            }
             markdown = subjectNote.bodyMarkdown
             noteBodyMarkdown = subjectNote.bodyMarkdown
           } else {
-            markdown = utf8Prefix(subjectNote.bodyMarkdown, limit: Self.subjectContextLimitBytes)
+            markdown = try Self.savedBranchContext(conversation) ?? noteChatContext(subjectNote, in: db)
             noteBodyMarkdown = nil
           }
         case let .notebook(subjectNotebookId):
           noteBodyMarkdown = nil
           let subjectNotebook = try requireNotebook(subjectNotebookId, in: db)
-          if let subjectTagId = try tagMemoSubjectTagId(notebookId: subjectNotebookId, in: db) {
+          if let saved = try Self.savedBranchContext(conversation) {
+            markdown = saved
+          } else if let subjectTagId = try tagMemoSubjectTagId(notebookId: subjectNotebookId, in: db) {
             markdown = try optionalAgentChatContext {
               try tagContextMarkdown(
                 tagId: subjectTagId,
@@ -77,19 +88,17 @@ extension NoteService {
   }
 
   /// Notebook-subject context: title plus each note's markdown in page order,
-  /// capped so a large imported document cannot blow the prompt.
+  /// including every note without truncating the source context.
   func notebookContextMarkdown(
-    notebookId: NotebookID,
-    limitBytes: Int = 200 * 1024
+    notebookId: NotebookID
   ) throws -> String {
     try driver.withDatabase { database in
-      try notebookContextMarkdown(notebookId: notebookId, limitBytes: limitBytes, in: database)
+      try notebookContextMarkdown(notebookId: notebookId, in: database)
     }
   }
 
   func notebookContextMarkdown(
     notebookId: NotebookID,
-    limitBytes: Int = 200 * 1024,
     in database: SQLiteDatabase
   ) throws -> String {
     let notebook = try requireNotebook(notebookId, in: database)
@@ -99,15 +108,11 @@ extension NoteService {
       FROM notes
       WHERE notebook_id = ?
       ORDER BY note_number, note_id
-      LIMIT 200
       """,
       bindings: [.id(notebookId)]
     )
-    return boundedMarkdownContext(
-      heading: "# \(notebook.title)",
-      sections: rows.compactMap { $0["body_markdown"] },
-      limitBytes: limitBytes
-    )
+    return (["# \(notebook.title)"] + rows.compactMap { $0["body_markdown"] })
+      .joined(separator: "\n\n---\n\n")
   }
 
   /// Checks immutable conversation identity for an idempotent replay. A

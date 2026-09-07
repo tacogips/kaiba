@@ -79,6 +79,12 @@ run = '''
 scripts/test-s3-gateway-integration.sh
 '''
 
+[tasks."test:live-memo-chat"]
+description = "Run a fresh-database memo/branch scenario with real GPT-5.6 Luna replies (requires local Codex login)"
+run = '''
+bash scripts/test-live-memo-chat.sh
+'''
+
 [tasks."test:turso"]
 description = "Run Kaiba persistence and FTS against a local libSQL HTTP server"
 run = '''

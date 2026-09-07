@@ -847,20 +847,14 @@ not claimed as coverage.
   exist.
 
   Reply prompt construction resolves only files attached to turns in the
-  active conversation. Its file-content budget is exactly 1 MiB (1,048,576)
-  of UTF-8 bytes and excludes framing. A separate 4 KiB allowance covers the
-  fixed delimiters, normalized filename/media-type headers, and omission
-  markers; accepted filenames are capped at 255 UTF-8 bytes, so four
-  current-turn headers fit that allowance. Prompt construction adds whole,
+  active conversation, plus inherited attachment text captured in branch
+  snapshots. There is no application-defined content or framing budget.
+  Prompt construction adds whole,
   delimited sections in this order: current-turn attachments by stored
   position, then prior turns newest-to-oldest and their attachments by stored
-  position. Current-turn validation guarantees all current file content fits
-  the 1 MiB content budget, including an aggregate exactly at the limit. A
-  prior file whose content would exceed the remaining content budget is
-  omitted and represented by a stable filename/media-type omission marker;
-  no file is partially truncated. If prior-file headers or omission markers
-  would exhaust the framing allowance, remaining prior files are omitted
-  without adding further markers. Sections label normalized filename and
+  position. All accepted file contents are preserved without omission or
+  truncation. Upload validation is separate from prompt assembly.
+  Sections label normalized filename and
   media type, treat contents as untrusted reference data, and never follow
   paths or URLs found inside a file. A retry uses persisted attachment
   positions and the model snapshot, producing the same ordering. Subject note

@@ -53,6 +53,7 @@ public struct GraphQLNoteTagAssignmentDTO: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLNotebookDTO: Codable, Equatable, Sendable {
+  public var type: NotebookType
   public var notebookId: NotebookID
   public var title: String
   public var readOnly: Bool
@@ -69,6 +70,7 @@ public struct GraphQLNotebookDTO: Codable, Equatable, Sendable {
   public var updatedBy: UserID?
 
   public init(notebook: Notebook) {
+    type = notebook.type
     notebookId = notebook.notebookId
     title = notebook.title
     readOnly = notebook.readOnly

@@ -124,6 +124,7 @@ let supportedNoteGraphQLFields: Set<String> = [
   "removeNoteTag",
   "addNoteComment",
   "addNotebookComment",
+  "openMemoNotebook",
   "setAppSetting",
   "setUserAgentCredential",
   "setUserAgentCredentialEnabled",
@@ -560,6 +561,7 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "updatedBy": nil
   ],
   "Notebook": [
+    "type": nil,
     "notebookId": nil,
     "title": nil,
     "readOnly": nil,

@@ -133,8 +133,8 @@ public extension NoteService {
     bodyMarkdown: String,
     author: String = "user"
   ) throws -> NoteComment {
-    let comment = try driver.withDatabase { database in
-      try database.transaction { db -> NoteComment in
+    let saved = try driver.withDatabase { database in
+      try database.transaction { db -> SavedMemoNotebook in
         _ = try requireNotebook(notebookId, in: db)
         let now = NoteStoreClock.system.now()
         let commentId = CommentID.generate()
@@ -145,7 +145,7 @@ public extension NoteService {
           """,
           bindings: [.id(commentId), .id(notebookId), .text(bodyMarkdown), .text(author), .text(now)]
         )
-        return NoteComment(
+        let comment = NoteComment(
           commentId: commentId,
           noteId: nil,
           notebookId: notebookId,
@@ -153,13 +153,19 @@ public extension NoteService {
           author: author,
           createdAt: now
         )
+        let source = try requireNotebook(notebookId, in: db)
+        let memo = Self.isPendingNotebookIngestMetadata(source.metaJSON) ? nil : try ensureMemoNotebook(comment, in: db)
+        return SavedMemoNotebook(comment: comment, sourceNotebookId: notebookId, memoNotebookId: memo?.notebookId)
       }
     }
     publishChange(NoteChangeEvent(
       kind: NoteChangeEventKind.noteUpdated,
       notebookId: notebookId
     ))
-    return comment
+    if let notebookId = saved.memoNotebookId {
+      publishChange(NoteChangeEvent(kind: NoteChangeEventKind.notebookCreated, notebookId: notebookId))
+    }
+    return saved.comment
   }
 
   /// Substring search over memos (note-anchored and notebook-level), oldest
@@ -715,7 +721,7 @@ private func requireNoteLink(
   return try noteLink(from: row)
 }
 
-private func noteComment(from row: SQLiteRow) throws -> NoteComment {
+func noteComment(from row: SQLiteRow) throws -> NoteComment {
   guard let commentId = row.identifier("comment_id", as: CommentID.self),
         let bodyMarkdown = row["body_markdown"],
         let author = row["author"],

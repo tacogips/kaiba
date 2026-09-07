@@ -71,10 +71,10 @@ export function SearchView(): JSX.Element {
   }
 
   return (
-    <div class="search-view">
+    <main class="search-view" id="main-content" tabindex="-1">
       <header class="search-head">
         <span class="eyebrow">
-          {route()?.method === 'grep' ? 'Grep search' : 'Agentic search'}
+          {route()?.method === 'grep' ? 'Find text' : 'Ask your knowledge'}
           {route()?.scope === 'notebook' ? ' · this notebook' : ' · all notebooks'}
         </span>
         <h1>{route()?.query}</h1>
@@ -83,20 +83,26 @@ export function SearchView(): JSX.Element {
         <div class="loading-state">
           <span class="loader" />
           {route()?.method === 'agentic'
-            ? 'The agent is searching… this can take a while.'
+            ? 'AI is exploring your notes…'
             : 'Searching…'}
         </div>
       </Show>
-      <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
+      <Show when={error()}><div role="alert"><p class="note-inline-error">{error()}</p>
+        <button type="button" class="secondary" onClick={() => { const current = route(); if (current) void run(current) }}>Try again</button>
+      </div></Show>
       <Show when={status() === 'agent-unavailable'}>
         <p class="chat-banner" role="status">
-          Agent runtime not configured — agentic search needs one. Try grep search instead.
+          AI search is not available. You can still find text in your notes.
+          <button type="button" class="secondary" onClick={() => {
+            const current = route()
+            if (current) app.openSearch(current.query, current.scope, 'grep')
+          }}>Find text instead</button>
         </p>
       </Show>
 
       <Show when={route()?.method === 'grep' && !loading()}>
         <Show when={results().length === 0 && !error()}>
-          <p class="pane-empty">No matches.</p>
+          <p class="pane-empty">No matching notes. Try a shorter phrase or search all notebooks.</p>
         </Show>
         <ul class="search-results">
           <For each={results()}>{(result) =>
@@ -104,7 +110,7 @@ export function SearchView(): JSX.Element {
               <button
                 type="button"
                 class="search-result"
-                onClick={() => app.openNote(result.note.noteId, result.note.notebookId)}
+                onClick={() => app.openNoteWithReturn(result.note.noteId, result.note.notebookId)}
               >
                 <strong>{noteDisplayTitle(result.note)}</strong>
                 <span class="link-meta">
@@ -124,6 +130,6 @@ export function SearchView(): JSX.Element {
           <MarkdownBody markdown={answer()} anchorIds={false} />
         </article>
       </Show>
-    </div>
+    </main>
   )
 }

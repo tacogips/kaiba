@@ -32,6 +32,7 @@ export interface NoteTagAssignment {
 }
 
 export interface Notebook {
+  type: 'DOCUMENT' | 'AGENT_CHAT'
   notebookId: NotebookId
   title: string
   readOnly: boolean
@@ -209,6 +210,7 @@ export interface QueryPayload<T> {
 }
 
 export interface MutationPayload {
+  note?: Note | null
   result: ControlResult
   notebook?: Notebook | null
   tag?: NoteTag | null

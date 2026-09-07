@@ -9,7 +9,7 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
   const app = useApp()
   const hasContents = () => Boolean(app.state.notebookId || app.state.note)
   const tabs = createMemo<readonly TabDescriptor<LeftTab>[]>(() => [
-    { value: 'files', label: 'Files' },
+    { value: 'files', label: 'Library' },
     { value: 'contents', label: 'Contents', disabled: !hasContents() },
   ])
   const activeTab = (): LeftTab => hasContents() ? app.state.pane.leftTab : 'files'
@@ -26,7 +26,7 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
               aria-expanded={false}
               onClick={app.toggleLeftPane}
             >›</button>
-            <span class="rail-label">Files</span>
+            <span class="rail-label">Library</span>
           </div>
         }
       >

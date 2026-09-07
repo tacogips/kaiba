@@ -8,6 +8,7 @@ import { ConfigView } from './ConfigView'
 import { LoginView } from './LoginView'
 import { useApp } from '../state/appStore'
 import type { SearchMethod, SearchScope } from '../router'
+import { formatRoute } from '../router'
 
 // The chatbook shell: a three-column grid whose fold state is expressed as data
 // attributes so the layout never depends on selector tricks, plus the shared
@@ -17,6 +18,11 @@ import type { SearchMethod, SearchScope } from '../router'
 export function ChatbookView(): JSX.Element {
   const app = useApp()
   const [mobilePane, setMobilePane] = createSignal<MobilePane>('reader')
+  createEffect(() => {
+    // Navigation reveals its destination even when Learn was the last mobile pane.
+    formatRoute(app.state.route)
+    setMobilePane('reader')
+  })
 
   const showMobilePane = (pane: MobilePane) => {
     if (pane === 'files' && !app.state.pane.leftOpen) app.toggleLeftPane()
@@ -26,6 +32,7 @@ export function ChatbookView(): JSX.Element {
 
   onMount(() => {
     const shortcut = (event: KeyboardEvent) => {
+      if (app.state.searchOpen || event.defaultPrevented) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
@@ -77,7 +84,7 @@ export function ChatbookView(): JSX.Element {
       <header class="chatbook-head">
         <button type="button" class="brand-button" onClick={app.openHome}>
           <span class="brand-mark">K</span>
-          <span class="brand-copy"><strong>Kaiba</strong><span>Note reader</span></span>
+          <span class="brand-copy"><strong>Kaiba</strong><span>Learning notebook</span></span>
         </button>
         <HeaderSearch />
         <div class="chatbook-head-actions">
@@ -91,7 +98,7 @@ export function ChatbookView(): JSX.Element {
               app.openReader()
             }}>Reader</button>
           </Show>
-          <button type="button" class="secondary" onClick={app.openConfig}>Config</button>
+          <button type="button" class="secondary" onClick={app.openConfig}>Settings</button>
           <button type="button" class="secondary" onClick={() => void app.refreshCatalog()}>Refresh</button>
         </div>
       </header>
@@ -114,7 +121,7 @@ export function ChatbookView(): JSX.Element {
             onNavigate={() => setMobilePane('reader')}
           />
           <PaneSplitter side="left" />
-          <ReaderPane />
+          <ReaderPane onStudy={() => showMobilePane('details')} />
           <PaneSplitter side="right" />
           <RightPane onClose={() => setMobilePane('reader')} />
           <MobilePaneNav active={mobilePane()} onSelect={showMobilePane} />
@@ -131,7 +138,10 @@ export function ChatbookView(): JSX.Element {
         <NoteSearchPopup
           client={app.client}
           tags={app.state.tags}
-          onOpenNote={(noteId, notebookId) => app.openNote(noteId, notebookId)}
+          onOpenNote={(noteId, notebookId) => {
+            app.openNoteWithReturn(noteId, notebookId)
+            setMobilePane('reader')
+          }}
           onClose={() => app.setSearchOpen(false)}
         />
       </Show>
@@ -155,9 +165,9 @@ function MobilePaneNav(props: {
   onSelect: (pane: MobilePane) => void
 }): JSX.Element {
   const items: readonly { pane: MobilePane; label: string }[] = [
-    { pane: 'files', label: 'Files' },
-    { pane: 'reader', label: 'Reader' },
-    { pane: 'details', label: 'Agent' },
+    { pane: 'files', label: 'Library' },
+    { pane: 'reader', label: 'Notebook' },
+    { pane: 'details', label: 'Learn' },
   ]
   return (
     <nav class="mobile-pane-nav" aria-label="Mobile workspace">
@@ -269,8 +279,8 @@ function HeaderSearch(): JSX.Element {
           value={method()}
           onChange={(event) => setMethod(event.currentTarget.value as SearchMethod)}
         >
-          <option value="agentic">Agentic</option>
-          <option value="grep">Grep</option>
+          <option value="agentic">Ask AI</option>
+          <option value="grep">Find text</option>
         </select>
       </label>
       <button type="submit" class="secondary" disabled={query().trim().length === 0}>Search</button>

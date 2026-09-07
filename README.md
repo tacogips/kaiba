@@ -137,10 +137,16 @@ The S3 gateway test expects a sibling checkout at `../s3-gateway` by
 default and uses Docker (Colima is supported) for MinIO. Override the checkout
 with `S3_GATEWAY_REPOSITORY`.
 
-## Web Viewer
+## Learning notebook
 
-Kaiba includes the SolidJS note viewer ported from riela and a local
-HTTP note API (GraphQL):
+Kaiba includes a SolidJS learning notebook and a local HTTP note API (GraphQL).
+Create a notebook in **My notebooks**, save your notes, then choose **Study this
+note** to ask AI for an explanation, a quiz, or connections between ideas.
+Choose **Memo only** to save a thought without an AI reply. Writable notes can
+also be edited directly. Saved notes and discussions use the same knowledge
+store as the CLI and Riela; unsaved drafts stay only in the current app session.
+
+Start the web client:
 
 ```bash
 cd web && bun install && bun run build && cd ..

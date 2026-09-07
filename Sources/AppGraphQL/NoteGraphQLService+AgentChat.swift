@@ -50,6 +50,12 @@ public actor AgentModelCatalogCache {
 /// so model discovery, untrusted attachment decoding, and turn creation stay
 /// cohesive and independently testable.
 public extension GraphQLNoteGraphQLService {
+  func openMemoNotebook(commentId: CommentID) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.openMemoNotebook(commentId: commentId)
+      return .init(result: .init(accepted: true, status: "ok"), notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
   /// Authenticated callers receive models for the configured provider.
   /// Discovery failure is non-fatal: the configured model remains the
   /// server-authoritative fallback and the status reports the degradation.

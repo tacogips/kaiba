@@ -1,0 +1,45 @@
+/* Learning workflow: readable controls and generous writing space at every pane width. */
+.notebook-create { margin: 20px 0 28px; }
+.notebook-create-form, .note-capture form { display: grid; gap: 12px; }
+.notebook-create-form label, .note-capture label { display: grid; gap: 10px; color: #d4e3eb; font-size: calc(14px * var(--fs, 1)); }
+.notebook-create-form input { width: 100%; }
+.library-section-title { font-size: calc(16px * var(--fs, 1)); margin: 20px 0 16px; }
+.learning-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.learning-actions button { min-height: 40px; }
+.note-capture { margin: 0 auto 24px; max-width: 840px; padding: 18px; border: 1px solid #304353; border-radius: 12px; background: #101d28; }
+.note-capture textarea { width: 100%; min-height: 160px; resize: vertical; line-height: 1.7; }
+.learning-welcome { padding: 16px 10px; color: #a8bdcd; line-height: 1.7; }
+.learning-welcome h2 { color: #e2f0f4; font-size: calc(18px * var(--fs, 1)); }
+.learning-context { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid #304353; overflow-wrap: anywhere; }
+.learning-context strong { color: #dcecf0; font-size: calc(14px * var(--fs, 1)); }
+.learning-starters { display: grid; gap: 16px; padding: 14px 0; }
+.learning-starters .pane-empty { font-size: calc(13px * var(--fs, 1)); color: #a8bdcd; }
+.memo-composer { flex-wrap: wrap; align-items: center; border-radius: 12px; padding: 10px; gap: 8px; }
+.composer-main { order: -1; flex: 0 0 100%; }
+.composer-main textarea { min-height: 100px; max-height: 320px; font-size: calc(14px * var(--fs, 1)); line-height: 1.6; }
+.composer-icon.composer-mode, .composer-submit { width: auto; min-width: 44px; min-height: 40px; padding: 0 10px !important; border-radius: 8px !important; font-size: calc(12px * var(--fs, 1)); }
+.composer-model { flex: 1; min-width: 80px; }
+.composer-help { flex-basis: 100%; margin: 0; color: #9fb2c2; font-size: calc(11px * var(--fs, 1)); line-height: 1.5; }
+.pane-tab { min-height: 40px; font-size: calc(13px * var(--fs, 1)); }
+.pane-empty { line-height: 1.6; }
+.reader-note-head { flex-wrap: wrap; }
+.study-note-button { margin-left: auto; min-height: 40px; white-space: normal; }
+.study-note-button[aria-pressed="true"] { border-color: #67d8de; color: #b9f1ef; }
+.reader-note { cursor: auto; }
+.reader-tools { min-width: 0; }
+.reader-tools summary { cursor: pointer; min-height: 40px; padding: 10px 12px; border: 1px solid #304353; border-radius: 8px; color: #b9cbd8; font-size: calc(12px * var(--fs, 1)); }
+.reader-tools summary:focus-visible { outline: 2px solid #67d8de; outline-offset: 2px; }
+.reader-tools[open] { flex-basis: 100%; }
+.reader-tools-body { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 0; }
+.note-editor { margin-top: 20px; border-top: 1px solid #304353; padding-top: 16px; }
+.note-editor form, .note-editor label { display: grid; gap: 12px; }
+.note-editor textarea { width: 100%; min-height: 200px; resize: vertical; line-height: 1.7; }
+@media (max-width: 900px) {
+  .reader-actions { flex-wrap: wrap; overflow: visible; }
+  .reader-tools summary { min-height: 44px; }
+}
+@media (max-width: 520px) {
+  .note-capture { padding: 12px; }
+  .notebook-list-head h1 { font-size: calc(24px * var(--fs, 1)); }
+  .memo-composer { padding: 10px; gap: 8px; }
+}

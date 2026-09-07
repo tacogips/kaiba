@@ -310,7 +310,7 @@ final class AgentChatTests: NoteTestCase {
     XCTAssertThrowsError(try AgentChatAttachmentValidation.validate(oneByteOver))
   }
 
-  func testAttachmentContextUsesGlobalBudgetAndEscapesUntrustedMetadata() async throws {
+  func testAttachmentContextPreservesAllHistoryAndEscapesUntrustedMetadata() async throws {
     let service = try makeService()
     let subject = try service.createNote(bodyMarkdown: "# Subject\nBody.")
     let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
@@ -343,8 +343,9 @@ final class AgentChatTests: NoteTestCase {
     let request = try XCTUnwrap(chatRequests.first)
     let markdown = try XCTUnwrap(request.turns.last?.markdown)
     XCTAssertTrue(markdown.contains("filename=\"current%26%22%3C.txt\""))
-    XCTAssertTrue(markdown.contains("<attachment omitted=\"budget\" filename=\"prior.txt\""))
-    XCTAssertFalse(markdown.contains(String(repeating: "A", count: 64)))
+    XCTAssertTrue(markdown.contains("filename=\"prior.txt\""))
+    XCTAssertTrue(markdown.contains(String(repeating: "A", count: AgentChatAttachmentValidation.maximumAggregateBytes)))
+    XCTAssertFalse(markdown.contains("omitted="))
   }
 
   func testAttachmentBlobsAreCleanedWhenTurnTransactionFails() throws {
@@ -438,7 +439,7 @@ final class AgentChatTests: NoteTestCase {
     XCTAssertEqual(dispatcher.counts(), [1])
   }
 
-  func testAttachmentContextIncludesExactBoundaryCurrentFilesWithinFramingBudget() async throws {
+  func testAttachmentContextIncludesAllCurrentFilesWithEscapedFilenames() async throws {
     let service = try makeService()
     let subject = try service.createNote(bodyMarkdown: "# Subject\nBody.")
     let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
@@ -461,8 +462,7 @@ final class AgentChatTests: NoteTestCase {
     let capturedRequest = await invoker.latestRequest()
     let request = try XCTUnwrap(capturedRequest)
     let markdown = try XCTUnwrap(request.turns.last?.markdown)
-    let framingBytes = markdown.utf8.count - "Question".utf8.count - (attachmentBytes * 4)
-    XCTAssertLessThanOrEqual(framingBytes, AgentChatAttachmentValidation.maximumPromptFramingBytes)
+    XCTAssertTrue(markdown.contains(String(repeating: "A", count: attachmentBytes)))
     XCTAssertEqual(markdown.components(separatedBy: "<attachment filename=").count - 1, 4)
     XCTAssertTrue(markdown.hasSuffix("</untrusted-attachments>"))
   }

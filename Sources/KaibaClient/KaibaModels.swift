@@ -62,7 +62,15 @@ public struct KaibaNote: Codable, Equatable, Sendable {
   public var updatedBy: String?
 }
 
+public enum KaibaNotebookType: String, Codable, Equatable, Sendable {
+  case document = "DOCUMENT"
+  case agentChat = "AGENT_CHAT"
+}
+
 public struct KaibaNotebook: Codable, Equatable, Sendable {
+  public var type: KaibaNotebookType {
+    tags.contains { $0.tag.name == "notebook-kind:agent-conversation" } ? .agentChat : .document
+  }
   public var notebookId: KaibaNotebookID
   public var title: String
   public var readOnly: Bool

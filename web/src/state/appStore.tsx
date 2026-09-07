@@ -1,6 +1,7 @@
 import { notebookId as asNotebookId } from '../notes/ids'
 import { createContext, onCleanup, useContext, type JSX } from 'solid-js'
-import { createStore } from 'solid-js/store'
+import { createStore, reconcile } from 'solid-js/store'
+import { createWritingDrafts } from './writingDrafts'
 import { NoteGraphQLClient, NoteTransportError, notebookPageLimit } from '../notes/client'
 import { subscribeNoteEvents } from '../notes/events'
 import { loadNotebookPages } from '../notes/paging'
@@ -92,6 +93,7 @@ export interface AppState {
 }
 
 export interface AppStore {
+  writingDrafts: ReturnType<typeof createWritingDrafts>
   state: AppState
   client: NoteGraphQLClient
   notes(): Note[]
@@ -166,11 +168,12 @@ export function useApp(): AppStore {
 }
 
 export function createAppStore(options: AppStoreOptions = {}): AppStore {
+  const writingDrafts = createWritingDrafts()
   const client = options.client ?? new NoteGraphQLClient()
   const router = options.router ?? browserRouterEnvironment()
   const paneStorage = options.paneStorage ?? browserPaneStorage()
   const [state, setState] = createStore<AppState>({
-    route: parseRoute(router.currentHash()),
+    route: { ...parseRoute(router.currentHash()) },
     loading: true,
     auth: 'unknown',
     error: '',
@@ -184,11 +187,11 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     expandedFolders: [],
     expandedNotebooks: [],
     activeHeadingId: '',
-    pane: readPaneState(paneStorage),
+    pane: { ...readPaneState(paneStorage) },
     notebookRevisions: {},
     catalogRevision: 0,
     searchOpen: false,
-    settings: defaultWebSettings,
+    settings: { ...defaultWebSettings },
     returnStack: [],
   })
 
@@ -209,6 +212,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
    * rejected credential by the time this runs. */
   const adoptUnauthenticated = (error: unknown): boolean => {
     if (!isUnauthorized(error)) return false
+    writingDrafts.clear()
     setState({ auth: 'unauthenticated', error: '', message: '', loading: false })
     return true
   }
@@ -359,6 +363,17 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       setState({ notebookId: route.notebookId, noteId: undefined, note: undefined, activeHeadingId: '' })
       setState('expandedNotebooks', (current) =>
         current.includes(route.notebookId) ? current : [...current, route.notebookId])
+      if (!state.notebooks.some((notebook) => notebook.notebookId === route.notebookId)) {
+        try {
+          const notebook = await client.notebook(route.notebookId)
+          if (generation !== noteGeneration) return
+          setState('notebooks', (current) => [...current.filter((item) => item.notebookId !== notebook.notebookId), notebook])
+        } catch (error) {
+          if (generation !== noteGeneration) return
+          if (adoptUnauthenticated(error)) return
+          setState('message', `Could not load notebook details: ${errorMessage(error)}`)
+        }
+      }
       await loadNotes(route.notebookId)
       return
     }
@@ -416,7 +431,8 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   let readerRoute = rememberReaderRoute(state.route)
   const unsubscribeRoute = subscribeRoute(router, (route) => {
     readerRoute = rememberReaderRoute(route, readerRoute)
-    setState('route', route)
+    // Routes are a union: fields from the previous variant must be removed.
+    setState('route', reconcile({ ...route }))
     const key = selectionKey(route)
     if (key === appliedSelection) return
     appliedSelection = key
@@ -472,6 +488,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   })
 
   const store: AppStore = {
+    writingDrafts,
     state,
     client,
     notes: () => (state.notebookId ? state.notesByNotebook[state.notebookId] ?? [] : []),

@@ -155,7 +155,7 @@ export class NoteGraphQLClient {
       query Notebooks($limit: Int, $offset: Int, $sort: NoteListSort, $tagFilterIdGroups: [[String!]!], $createdAfter: String, $createdBefore: String) {
         notebooks(limit: $limit, offset: $offset, sort: $sort, tagFilterIdGroups: $tagFilterIdGroups, createdAfter: $createdAfter, createdBefore: $createdBefore) {
           result { accepted status diagnostics }
-          value { notebookId title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+          value { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
         }
       }
     `, {
@@ -174,7 +174,7 @@ export class NoteGraphQLClient {
       query Notebook($notebookId: String!) {
         notebook(notebookId: $notebookId) {
           result { accepted status diagnostics }
-          value { notebookId title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+          value { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
         }
       }
     `, { notebookId }, (data) => data.notebook)
@@ -336,7 +336,7 @@ export class NoteGraphQLClient {
       mutation EnsureTagMemoNotebook($tagId: String!) {
         ensureTagMemoNotebook(tagId: $tagId) {
           result { accepted status diagnostics }
-          notebook { notebookId title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
         }
       }
     `, { tagId }, 'ensureTagMemoNotebook')
@@ -365,6 +365,22 @@ export class NoteGraphQLClient {
     `, { input: { noteId, bodyMarkdown, author: 'kaiba-web' } }, 'addNoteComment')
     if (!payload.comment) throw new NoteTransportError('The server did not return the memo.', 'result')
     return payload.comment
+  }
+
+  async openMemoNotebook(commentId: NoteComment['commentId']): Promise<Notebook> {
+    const payload = await this.mutation('OpenMemoNotebook', `
+      mutation OpenMemoNotebook($commentId: String!) {
+        openMemoNotebook(commentId: $commentId) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { commentId }, 'openMemoNotebook')
+    if (!payload.notebook) throw new NoteTransportError('The server did not return the memo notebook.', 'result')
+    return payload.notebook
   }
 
   /** A notebook-level memo (no note selected). */
@@ -589,12 +605,52 @@ export class NoteGraphQLClient {
     ensureAccepted(data.setAppSetting.result)
   }
 
+  async createNotebook(title: string): Promise<Notebook> {
+    return this.notebookMutation('CreateNotebook', `
+      mutation CreateNotebook($input: CreateNotebookInput!) {
+        createNotebook(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: { title: title.trim() } }, 'createNotebook')
+  }
+
+  async createNote(notebookId: NotebookId, bodyMarkdown: string): Promise<Note> {
+    const payload = await this.mutation('CreateNote', `
+      mutation CreateNote($input: CreateNoteInput!) {
+        createNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+        }
+      }
+    `, { input: { notebookId, bodyMarkdown, provenance: 'human', assignedBy: 'kaiba-web' } }, 'createNote')
+    if (!payload.note) throw new NoteTransportError('The server did not return the saved note.', 'result')
+    return payload.note
+  }
+
+  async updateNote(noteId: NoteId, bodyMarkdown: string): Promise<Note> {
+    const payload = await this.mutation('UpdateNote', `
+      mutation UpdateNote($input: UpdateNoteInput!) {
+        updateNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+        }
+      }
+    `, { input: { noteId, bodyMarkdown } }, 'updateNote')
+    if (!payload.note) throw new NoteTransportError('The server did not return the updated note.', 'result')
+    return payload.note
+  }
+
   async applyTagById(notebookId: NotebookId, tagId: TagId): Promise<Notebook> {
     return this.notebookMutation('ApplyNotebookTagIds', `
       mutation ApplyNotebookTagIds($input: ApplyNotebookTagIdsInput!) {
         applyNotebookTagIds(input: $input) {
           result { accepted status diagnostics }
-          notebook { notebookId title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
         }
       }
     `, { input: { notebookId, tagIds: [tagId], provenance: 'human', assignedBy: 'kaiba-web' } }, 'applyNotebookTagIds')
@@ -605,7 +661,7 @@ export class NoteGraphQLClient {
       mutation RemoveNotebookTagById($notebookId: String!, $tagId: String!, $provenance: String) {
         removeNotebookTagById(notebookId: $notebookId, tagId: $tagId, provenance: $provenance) {
           result { accepted status diagnostics }
-          notebook { notebookId title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
         }
       }
     `, { notebookId, tagId, provenance: 'human' }, 'removeNotebookTagById')
@@ -616,7 +672,7 @@ export class NoteGraphQLClient {
       mutation SetNotebookReadOnly($notebookId: String!, $readOnly: Boolean!) {
         setNotebookReadOnly(notebookId: $notebookId, readOnly: $readOnly) {
           result { accepted status diagnostics }
-          notebook { notebookId title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
         }
       }
     `, { notebookId, readOnly }, 'setNotebookReadOnly')
@@ -798,7 +854,10 @@ export class NoteGraphQLClient {
 }
 
 function normalizeNotebook(notebook: Notebook): Notebook {
-  return { ...notebook, readOnly: Boolean(notebook.readOnly) }
+  const type = notebook.type ?? (notebook.tags.some(
+    (assignment) => assignment.tag.name === 'notebook-kind:agent-conversation',
+  ) ? 'AGENT_CHAT' : 'DOCUMENT')
+  return { ...notebook, type, readOnly: Boolean(notebook.readOnly) }
 }
 
 // The credential lives in localStorage, not sessionStorage: a registration

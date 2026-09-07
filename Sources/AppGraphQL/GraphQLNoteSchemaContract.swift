@@ -9,7 +9,9 @@ let graphQLNoteSchemaContract = """
 type NoteTag { tagId: String!, name: String!, classId: String, parentTagId: String, isSystem: Boolean!, createdAt: String! }
 type NoteTagClass { classId: String!, label: String!, description: String, isSystem: Boolean!, createdAt: String! }
 type NoteTagAssignment { tag: NoteTag!, provenance: String!, assignedBy: String, deletable: Boolean!, createdAt: String! }
+enum NotebookType { DOCUMENT AGENT_CHAT }
 type Notebook {
+  type: NotebookType!
   notebookId: String!, title: String!, readOnly: Boolean!
   createdAt: String!, updatedAt: String!, metaJSON: String
   tags: [NoteTagAssignment!]!, firstNotePreview: String, noteCount: Int

@@ -7,6 +7,7 @@ import type { AppStore } from '../state/appStore'
 import { TocTab } from './TocTab'
 
 const notebook: Notebook = {
+  type: 'DOCUMENT',
   notebookId: asNotebookId('notebook-1'),
   title: 'Research',
   readOnly: false,

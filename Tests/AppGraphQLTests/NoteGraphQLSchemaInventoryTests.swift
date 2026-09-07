@@ -51,6 +51,7 @@ final class NoteGraphQLSchemaInventoryTests: XCTestCase {
       "removeNoteTag",
       "addNoteComment",
       "addNotebookComment",
+      "openMemoNotebook",
       "setAppSetting",
       "setUserAgentCredential",
       "setUserAgentCredentialEnabled",

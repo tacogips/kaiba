@@ -20,7 +20,7 @@ export function ConfigView(): JSX.Element {
   const scale = () => app.state.settings.fontScale
 
   return (
-    <div class="config-view">
+    <main class="config-view" id="main-content" tabindex="-1">
       <header class="search-head">
         <span class="eyebrow">Configuration</span>
         <h1>Settings</h1>
@@ -29,8 +29,7 @@ export function ConfigView(): JSX.Element {
       <section class="config-section">
         <h2>Font size</h2>
         <p class="pane-note">
-          Applies to the whole app. Stored in this kaiba store's sqlite, so every
-          client of the store shares it.
+          Applies to the whole app and is shared across clients connected to this knowledge store.
         </p>
         <div class="config-presets" role="group" aria-label="Font size presets">
           <For each={fontPresets}>{(preset) =>
@@ -75,6 +74,6 @@ export function ConfigView(): JSX.Element {
           Reset pane widths
         </button>
       </section>
-    </div>
+    </main>
   )
 }

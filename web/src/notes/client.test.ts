@@ -1,4 +1,4 @@
-import { notebookId as asNotebookId, tagId as asTagId } from './ids'
+import { notebookId as asNotebookId, noteId as asNoteId, tagId as asTagId } from './ids'
 import { describe, expect, test } from 'bun:test'
 import {
   NoteGraphQLClient,
@@ -37,6 +37,26 @@ function environment(
 }
 
 describe('Note GraphQL transport', () => {
+  test('creates learning material in the canonical store and rejects failed saves', async () => {
+    const notebook = { notebookId: asNotebookId('learning'), type: 'DOCUMENT', title: 'Learning', readOnly: false, tags: [] }
+    const note = { noteId: asNoteId('note-1'), notebookId: notebook.notebookId, bodyMarkdown: 'My understanding',
+      noteNumber: 1, title: 'My understanding', readOnly: false, createdAt: '', updatedAt: '' }
+    const result = { accepted: true, status: 'ok', diagnostics: [] }
+    const harness = environment([
+      { data: { createNotebook: { result, notebook } } },
+      { data: { createNote: { result, note } } },
+      { data: { createNote: { result: { accepted: false, status: 'rejected', diagnostics: ['Notebook is read-only'] } } } },
+    ])
+    const client = new NoteGraphQLClient(harness.value)
+    expect((await client.createNotebook(' Learning ')).notebookId).toBe(notebook.notebookId)
+    expect(await client.createNote(notebook.notebookId, note.bodyMarkdown)).toEqual(note)
+    expect(requestBody(harness.requests[0]).variables).toEqual({ input: { title: 'Learning' } })
+    expect(requestBody(harness.requests[1]).variables).toEqual({ input: {
+      notebookId: notebook.notebookId, bodyMarkdown: note.bodyMarkdown, provenance: 'human', assignedBy: 'kaiba-web',
+    } })
+    await expect(client.createNote(notebook.notebookId, 'Keep this draft')).rejects.toThrow('Notebook is read-only')
+  })
+
   test('sends bounded scope variables and notebook metadata selections', async () => {
     const harness = environment([{ data: { notebooks: { result: { accepted: true, status: 'ok', diagnostics: [] }, value: [] } } }])
     const client = new NoteGraphQLClient(harness.value)
@@ -57,6 +77,7 @@ describe('Note GraphQL transport', () => {
 
   test('adopts the canonical notebook lock mutation response', async () => {
     const canonical = {
+      type: 'DOCUMENT' as const,
       notebookId: asNotebookId('notebook-system-memory'),
       title: 'System Memory',
       readOnly: false,

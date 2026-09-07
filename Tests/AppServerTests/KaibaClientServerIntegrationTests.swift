@@ -44,7 +44,9 @@ final class KaibaClientServerIntegrationTests: XCTestCase {
 
       let listed = try await client.listNotes(limit: 10)
       XCTAssertTrue(listed.result.accepted)
-      XCTAssertEqual(listed.value?.map(\.noteId), [created.note?.noteId].compactMap { $0 })
+      XCTAssertEqual(listed.value?.count, 2)
+      XCTAssertTrue(listed.value?.contains { $0.noteId == created.note?.noteId } == true)
+      XCTAssertTrue(listed.value?.contains { $0.bodyMarkdown == "Attributed comment" } == true)
 
       let tagged: KaibaValuePayload<[KaibaNote]>
       do {

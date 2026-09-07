@@ -1,8 +1,11 @@
 import { noteId as asNoteId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { MarkdownBody } from '../components/Markdown'
+import { MemoTab } from '../components/MemoTab'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
 import { NotebookListTab } from '../components/NotebookListTab'
+import { NoteCapture } from '../components/NoteCapture'
+import { NoteEditor } from '../components/NoteEditor'
 import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
 import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
 import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
@@ -14,7 +17,7 @@ import type { CenterTab } from '../state/paneState'
 import type { NoteId } from '../notes/ids'
 
 // Center reader: the open notebook's notes as one continuous scroll. Notes lazy-
-// render as they approach the viewport, a click selects (or deselects) a note
+// render as they approach the viewport, an explicit Study action selects a note
 // for the right pane, and a goto-page control jumps within the notebook.
 // In-body occurrences of a note's attached tag names render underlined and open
 // the tag detail pane; drag-selecting text offers to register it as a tag.
@@ -23,10 +26,11 @@ import type { NoteId } from '../notes/ids'
  * content without waiting for the observer. */
 const eagerNoteCount = 6
 
-export function ReaderPane(): JSX.Element {
+export function ReaderPane(props: { onStudy?: () => void } = {}): JSX.Element {
   const app = useApp()
+  const chatNotebook = () => app.notebook()?.type === 'AGENT_CHAT'
   const tabs: readonly TabDescriptor<CenterTab>[] = [
-    { value: 'list', label: 'List' },
+    { value: 'list', label: 'My notebooks' },
     { value: 'notebook', label: 'Notebook' },
   ]
   const [copied, setCopied] = createSignal(false)
@@ -131,22 +135,10 @@ export function ReaderPane(): JSX.Element {
   })
 
   const select = (note: Note) => {
-    selectionFromClick = true
-    if (note.noteId === app.state.noteId) app.deselectNote()
-    else app.openNote(note.noteId, note.notebookId)
-  }
-
-  // Clicking the reader's empty space (between or beside notes) clears the
-  // selection; clicks inside a note section are handled by the section itself
-  // and never reach this as a deselect.
-  const backgroundClick = (event: MouseEvent) => {
-    const target = event.target as HTMLElement | null
-    if (target?.closest('.reader-note, a, button, input, textarea, select')) return
-    if (window.getSelection()?.toString()) return
-    if (app.state.noteId) {
-      selectionFromClick = true
-      app.deselectNote()
-    }
+    selectionFromClick = note.noteId !== app.state.noteId
+    app.openNote(note.noteId, note.notebookId)
+    app.setRightTab('memo')
+    props.onStudy?.()
   }
 
   const gotoPage = (event: Event) => {
@@ -224,7 +216,8 @@ export function ReaderPane(): JSX.Element {
             <div class="empty-state">
               <span aria-hidden="true">◇</span>
               <strong>No notebook open</strong>
-              <p>Pick a notebook or note in the Files pane to start reading.</p>
+              <p>Choose a notebook from the Library, or create one in My notebooks.</p>
+              <button type="button" onClick={() => app.setCenterTab('list')}>My notebooks</button>
             </div>
           </Show>
         }
@@ -238,6 +231,13 @@ export function ReaderPane(): JSX.Element {
             <Show when={app.state.returnStack.length > 0}>
               <button type="button" class="secondary reader-back" onClick={app.goBack}>← Back</button>
             </Show>
+            <span class="reader-position">{pageLabel(index(), notes().length)}</span>
+            <Show when={app.state.note}>
+              <button type="button" class="secondary" onClick={app.deselectNote}>Study whole notebook</button>
+            </Show>
+            <details class="reader-tools">
+              <summary>Notebook tools</summary>
+              <div class="reader-tools-body">
             <Show when={app.notebook()}>{(notebook) => <>
               <span class="note-readonly-badge">
                 {notebook().readOnly ? 'Notebook: Read-only' : 'Notebook: Writable'}
@@ -271,26 +271,30 @@ export function ReaderPane(): JSX.Element {
               </label>
               <button type="submit" class="secondary">Go</button>
             </form>
-            <span class="reader-position">{pageLabel(index(), notes().length)}</span>
             <Show when={app.state.note}>
               <button type="button" class="secondary" onClick={() => void copy()}>
                 {copied() ? 'Copied' : 'Copy'}
               </button>
               <button type="button" class="secondary" onClick={download}>Download</button>
-              <button type="button" class="secondary" onClick={app.deselectNote}>Deselect</button>
             </Show>
+              </div>
+            </details>
           </div>
         </header>
-        <article
+        <Show when={chatNotebook() && !app.state.noteId} fallback={<article
           class="reader-body"
           ref={setBody}
-          onClick={backgroundClick}
           onMouseDown={() => setSelectionTag(undefined)}
           onMouseUp={offerSelectionTag}
           onScroll={() => setSelectionTag(undefined)}
         >
-          <Show when={notes().length === 0}>
-            <p class="pane-empty">This notebook has no notes.</p>
+          <Show when={app.notebook() && !app.notebook()?.readOnly && !chatNotebook()}>
+            <Show keyed when={app.state.notebookId}>{(notebookId) =>
+              <NoteCapture notebookId={notebookId} empty={notes().length === 0} />
+            }</Show>
+          </Show>
+          <Show when={notes().length === 0 && app.notebook()?.readOnly}>
+            <p class="pane-empty">This notebook has no notes. Make it writable to add your own.</p>
           </Show>
           <For each={notes()}>{(note, noteIndex) => (
             <NoteSection
@@ -302,7 +306,11 @@ export function ReaderPane(): JSX.Element {
             />
           )}</For>
           <LoadMoreSentinel />
-        </article>
+        </article>}>
+          <div class="reader-body">
+            <MemoTab conversationNotebookId={app.state.notebookId} />
+          </div>
+        </Show>
         <Show when={selectionTag()}>{(staged) => (
           <div
             class="tag-select-popover"
@@ -371,15 +379,6 @@ function NoteSection(props: {
       .catch(() => setImages([]))
   })
 
-  const click = (event: MouseEvent) => {
-    const target = event.target as HTMLElement | null
-    // Links, buttons, text selection, and the image viewer inside the note
-    // must not toggle its selection.
-    if (target?.closest('a, button, input, textarea, select, .note-carousel')) return
-    if (window.getSelection()?.toString()) return
-    props.onSelect()
-  }
-
   // Underline terms come from the note's own tags plus the open notebook's.
   const tagTerms = createMemo(() =>
     tagTermsFromAssignments([props.note.tags, app.notebook()?.tags]))
@@ -390,12 +389,12 @@ function NoteSection(props: {
       classList={{ 'reader-note': true, selected: props.selected, 'has-images': images().length > 0 }}
       data-note-id={props.note.noteId}
       aria-current={props.selected ? 'true' : undefined}
-      onClick={click}
     >
       <header class="reader-note-head">
         <span class="reader-note-page">p.{props.page}</span>
         <span class="reader-note-title">{noteDisplayTitle(props.note)}</span>
-        <Show when={props.selected}><span class="reader-note-selected">Selected</span></Show>
+        <button type="button" class="secondary study-note-button" aria-pressed={props.selected}
+          onClick={props.onSelect}>{props.selected ? 'Studying this note' : 'Study this note'}</button>
       </header>
       <Show when={images().length > 0 && !imagesOpen()}>
         <button
@@ -417,6 +416,9 @@ function NoteSection(props: {
             tagTerms={tagTerms()}
             onTagClick={(tagId) => app.openTagPane(tagId)}
           />
+          <Show when={props.selected && app.notebook()?.type !== 'AGENT_CHAT'}>
+            <NoteEditor note={props.note} />
+          </Show>
         </Show>
       </Show>
     </section>

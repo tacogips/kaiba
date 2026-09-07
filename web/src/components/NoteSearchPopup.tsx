@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onMount } from 'solid-js'
+import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
 import type { NoteGraphQLClient } from '../notes/client'
 import type { NoteSearchResult, NoteTag } from '../notes/types'
 import { qualifiedTagLabel } from '../notes/tree'
@@ -23,12 +23,18 @@ export function NoteSearchPopup(props: {
   const [searched, setSearched] = createSignal(false)
   const [error, setError] = createSignal('')
   let input: HTMLInputElement | undefined
+  let dialog: HTMLElement | undefined
   // Only the newest query may publish results; a slower earlier search that
   // resolves late is dropped instead of overwriting the visible list.
   let generation = 0
 
   onMount(() => {
+    const previousFocus = document.activeElement as HTMLElement | null
     input?.focus()
+    onCleanup(() => {
+      if (previousFocus?.isConnected) previousFocus.focus()
+      else document.getElementById('main-content')?.focus()
+    })
     if (query().trim()) void search(false)
   })
 
@@ -68,7 +74,25 @@ export function NoteSearchPopup(props: {
   return <div class="note-modal-backdrop" role="presentation" onClick={(event) => {
     if (event.target === event.currentTarget) props.onClose()
   }}>
-    <section class="note-modal note-search" role="dialog" aria-modal="true" aria-label="Search notes">
+    <section ref={dialog} class="note-modal note-search" role="dialog" aria-modal="true" aria-label="Search notes"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          props.onClose()
+        }
+        if (event.key !== 'Tab' || !dialog) return
+        const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')]
+        const first = controls[0]
+        const last = controls[controls.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last?.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first?.focus()
+        }
+      }}>
       <header>
         <div><span class="eyebrow">SEARCH</span><h2>Search notes</h2></div>
         <button class="secondary" aria-label="Close search" onClick={props.onClose}>×</button>
@@ -85,7 +109,6 @@ export function NoteSearchPopup(props: {
             onInput={(event) => setQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') void search(false)
-              if (event.key === 'Escape') props.onClose()
             }}
           />
         </label>

@@ -4,6 +4,7 @@ import { formatTimestamp } from '../notes/format'
 import { diaryNotebooks, notebookCategories, notebookPreview } from '../notes/notebookList'
 import { qualifiedTagLabel } from '../notes/tree'
 import { useApp } from '../state/appStore'
+import { NotebookCreate } from './NotebookCreate'
 
 export function NotebookListTab(): JSX.Element {
   const app = useApp()
@@ -20,15 +21,17 @@ export function NotebookListTab(): JSX.Element {
   })
 
   return (
-    <section class="notebook-list-view" aria-label="Recent notebook writing">
+    <section class="notebook-list-view" aria-label="Learning notebooks">
       <header class="notebook-list-head">
         <div>
-          <span class="eyebrow">Diary</span>
-          <h1>Recent writing</h1>
-          <p>Write without filing first. Your latest notebooks stay visible here while tags organize them.</p>
+          <span class="eyebrow">Your learning space</span>
+          <h1>What will you understand next?</h1>
+          <p>Collect your notes, explore ideas with AI, and return to what you learned.</p>
         </div>
         <span class="notebook-list-count">{notebooks().length} notebook{notebooks().length === 1 ? '' : 's'}</span>
       </header>
+      <NotebookCreate />
+      <h2 class="library-section-title">Continue learning</h2>
 
       <Show when={categories().length > 0}>
         <div class="notebook-list-filters" role="group" aria-label="Filter recent writing by category">
@@ -55,7 +58,7 @@ export function NotebookListTab(): JSX.Element {
       <Show when={!app.state.loading && notebooks().length === 0}>
         <div class="empty-state notebook-list-empty">
           <strong>{tagId() ? 'No notebooks in this category' : 'No notebooks yet'}</strong>
-          <p>{tagId() ? 'Choose another tag to widen the view.' : 'Your writing will appear here in chronological order.'}</p>
+          <p>{tagId() ? 'Choose another tag to widen the view.' : 'Create a notebook above, save your first note, then ask AI to explain it or quiz you.'}</p>
         </div>
       </Show>
 

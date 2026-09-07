@@ -1,8 +1,11 @@
 import type { NoteId, NotebookId } from '../notes/ids'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
+import { notebookPageLimit } from '../notes/client'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX, type Setter } from 'solid-js'
 import { formatTimestamp } from '../notes/format'
 import { MarkdownBody } from './Markdown'
+import { noteDisplayTitle } from '../notes/noteText'
 import { errorMessage, useApp, type AppStore } from '../state/appStore'
+import { createWritingDrafts } from '../state/writingDrafts'
 import {
   newIdempotencyKey,
   turnStatusLabel,
@@ -45,6 +48,10 @@ export type MemoSubject =
   | { kind: 'notebook'; id: NotebookId }
 
 export interface MemoTabProps {
+  /** Stable identity for a subject whose backing notebook is created lazily. */
+  draftKey?: string
+  /** Continue this notebook's own conversation instead of a subject's memos. */
+  conversationNotebookId?: NotebookId
   /** An explicit store keeps the pane embeddable and enables integration tests
    * without changing the production context path. */
   app?: AppStore
@@ -70,16 +77,13 @@ const catalogUnreachableMessage = 'Could not load the agent model catalog.'
 
 export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const app = props.app ?? useApp()
+  const [expanded, setExpanded] = createSignal(false)
   const [memos, setMemos] = createSignal<NoteComment[]>([])
   const [conversations, setConversations] = createSignal<AgentConversation[]>([])
   const [turnsByConversation, setTurnsByConversation] =
     createSignal<Array<{ conversationId: NotebookId; turns: ChatTurn[] }>>([])
   const [loading, setLoading] = createSignal(false)
-  const [busy, setBusy] = createSignal(false)
-  const [draft, setDraft] = createSignal('')
-  const [memoOnly, setMemoOnly] = createSignal(false)
   const [noteEdit, setNoteEdit] = createSignal(false)
-  const [attachments, setAttachments] = createSignal<File[]>([])
   const [models, setModels] = createSignal<AgentModel[]>([])
   const [newConversation, setNewConversation] = createSignal(false)
   const [newConversationBoundary, setNewConversationBoundary] = createSignal(false)
@@ -96,11 +100,25 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   let streamGeneration = 0
 
   const subject = createMemo<MemoSubject | undefined>(() => {
+    if (props.conversationNotebookId) return { kind: 'notebook', id: props.conversationNotebookId }
     if (props.subject !== undefined) return props.subject ?? undefined
     if (app.state.noteId) return { kind: 'note', id: app.state.noteId }
     if (app.state.notebookId) return { kind: 'notebook', id: app.state.notebookId }
     return undefined
   })
+  const draftStore = app.writingDrafts ?? createWritingDrafts()
+  const draftRecord = createMemo(() => {
+    const current = subject()
+    return draftStore.get(props.draftKey ?? (current
+      ? `discussion:${current.kind}:${current.id}` : 'discussion:unselected'))
+  })
+  const draft = () => draftRecord().text()
+  const setDraft = (text: string) => draftRecord().setText(text)
+  const attachments = () => draftRecord().files()
+  const setAttachments: Setter<File[]> = (value) => draftRecord().setFiles(value)
+  const memoOnly = () => draftRecord().memoOnly()
+  const setMemoOnly = (value: boolean) => draftRecord().setMemoOnly(value)
+  const busy = () => draftRecord().busy()
   const entries = createMemo<MemoTimelineEntry[]>(() =>
     memoTimeline(memos(), turnsByConversation()))
   const entriesBeforeBoundary = createMemo(() => {
@@ -222,6 +240,18 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     setLoading(true)
     setError('')
     try {
+      if (props.conversationNotebookId) {
+        const conversationId = props.conversationNotebookId
+        const [notes, comments] = await Promise.all([
+          loadConversationNotes(conversationId), app.client.notebookComments(conversationId),
+        ])
+        const turns = conversationTurns(notes)
+        if (requested !== generation) return
+        setMemos(comments)
+        setConversations([])
+        setTurnsByConversation([{ conversationId, turns }])
+        return
+      }
       const [loadedMemos, loadedConversations] = await Promise.all([
         current.kind === 'note'
           ? app.client.noteComments(current.id)
@@ -235,7 +265,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
       setConversations(loadedConversations)
       const turns = await Promise.all(loadedConversations.map(async (conversation) => ({
         conversationId: conversation.notebookId,
-        turns: conversationTurns(await app.client.notes(conversation.notebookId, 0)),
+        turns: conversationTurns(await loadConversationNotes(conversation.notebookId)).filter((turn) => !turn.memoOnly),
       })))
       if (requested !== generation) return
       setTurnsByConversation(turns)
@@ -256,6 +286,17 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     streamGeneration += 1
     setStreamTurnId(undefined)
     setStreamText('')
+  }
+
+  const loadConversationNotes = async (id: NotebookId) => {
+    const notes = await app.client.notes(id, 0)
+    let pageSize = notes.length
+    while (pageSize === notebookPageLimit) {
+      const page = await app.client.notes(id, notes.length)
+      notes.push(...page)
+      pageSize = page.length
+    }
+    return notes
   }
 
   /** Long-polls the agent reply chunk stream for one turn, rendering the reply
@@ -338,15 +379,17 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // accepted, or the composer would confirm a removal the wire ignored.
     const stagedAttachments = retry ? [] : attachments()
     const effectiveModel = app.state.settings.agentModel
+    const directConversationId = props.conversationNotebookId
     // The New chat button is gated on `busy()` so a click during the await
     // window cannot reroute an already-submitted message; the captures settle
     // the request itself in one direction.
     const effectiveConversations = retry ? [] : conversations()
     const effectiveConversationId = retry ? retry.conversationId : activeConversationId()
     const effectiveNewConversation = retry ? false : newConversation()
+    const submittedDraft = draftRecord()
     let current = subject()
     if (!current && !props.ensureSubject) return
-    setBusy(true)
+    submittedDraft.setBusy(true)
     setError('')
     try {
       current = current ?? await props.ensureSubject?.()
@@ -354,7 +397,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
       const attachmentInputs = await Promise.all(stagedAttachments.map(fileToAttachment))
       // Nothing below reads a signal or a store field: every reactive value is
       // one of the captures above.
-      const result = await app.client.sendAgentChatMessage(buildAgentChatComposerRequest({
+      const request = buildAgentChatComposerRequest({
         subject: current,
         conversations: effectiveConversations,
         activeConversationId: effectiveConversationId,
@@ -364,20 +407,28 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         selectedModel: effectiveModel,
         noteEdit: effectiveNoteEdit,
         attachments: attachmentInputs,
-      }))
+      })
+      if (directConversationId) {
+        delete request.subjectNoteId
+        delete request.subjectNotebookId
+        request.conversationNotebookId = directConversationId
+      }
+      const result = await app.client.sendAgentChatMessage(request)
       if (!retry) {
-        setDraft('')
-        setAttachments([])
+        submittedDraft.setText('')
+        submittedDraft.setFiles([])
+        if (draftRecord() !== submittedDraft) return
         setNewConversation(false)
         if (result.conversationNotebookId) setActiveConversationId(result.conversationNotebookId)
       }
+      if (draftRecord() !== submittedDraft) return
       await reload()
       if (result.turnNoteId && result.agentStatus === 'pending') startStream(result.turnNoteId)
     } catch (sendError) {
       // The draft stays in the composer so a rejected message is not lost.
-      setError(errorMessage(sendError))
+      if (draftRecord() === submittedDraft) setError(errorMessage(sendError))
     } finally {
-      setBusy(false)
+      submittedDraft.setBusy(false)
     }
   }
 
@@ -385,20 +436,22 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     const body = draft().trim()
     if (!body || busy()) return
     let current = subject()
+    const submittedDraft = draftRecord()
     if (!current && !props.ensureSubject) return
-    setBusy(true)
+    submittedDraft.setBusy(true)
     setError('')
     try {
       current = current ?? await props.ensureSubject?.()
       if (!current) return
       if (current.kind === 'note') await app.client.addNoteComment(current.id, body)
       else await app.client.addNotebookComment(current.id, body)
-      setDraft('')
+      submittedDraft.setText('')
+      if (draftRecord() !== submittedDraft) return
       await reload()
     } catch (addError) {
-      setError(errorMessage(addError))
+      if (draftRecord() === submittedDraft) setError(errorMessage(addError))
     } finally {
-      setBusy(false)
+      submittedDraft.setBusy(false)
     }
   }
 
@@ -420,13 +473,14 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
   const stageFiles = async (files: FileList | null) => {
     if (!files) return
+    const stagedDraft = draftRecord()
     const next = [...attachments(), ...Array.from(files)]
     const validation = await validateComposerFiles(next)
     if (!validation.accepted) {
       setError(validation.message)
       return
     }
-    setAttachments(next)
+    stagedDraft.setFiles(next)
   }
 
   const memoAttribution = (memo: NoteComment): string | undefined => {
@@ -456,6 +510,14 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
             </span>
           </header>
           <MarkdownBody markdown={entry.memo.bodyMarkdown} anchorIds={false} />
+          <button type="button" class="secondary" disabled={busy()} onClick={() => {
+            const openingDraft = draftRecord()
+            openingDraft.setBusy(true)
+            void app.client.openMemoNotebook(entry.memo.commentId).then((notebook) => {
+              setExpanded(false)
+              app.openNotebookWithReturn(notebook.notebookId)
+            }).catch((failure) => setError(errorMessage(failure))).finally(() => openingDraft.setBusy(false))
+          }}>Open as notebook</button>
         </article>
       )
     }
@@ -463,11 +525,20 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     const streamingHere = () => streamTurnId() === turn.noteId && streamText().length > 0
     return (
       <article class="chat-turn">
+        <Show when={!props.conversationNotebookId}>
+          <button type="button" class="secondary" onClick={() => {
+            setExpanded(false)
+            app.openNotebookWithReturn(entry.conversationId)
+          }}>Open as notebook</button>
+        </Show>
+        <button type="button" class="secondary" onClick={() => {
+          app.openNote(turn.noteId, entry.conversationId)
+        }}>Branch from here</button>
         <div class="chat-message chat-user">
           <span class="chat-role">You</span>
           <MarkdownBody markdown={turn.userMarkdown} anchorIds={false} />
         </div>
-        <div class="chat-message chat-agent">
+        <Show when={!turn.memoOnly}><div class="chat-message chat-agent">
           <span class="chat-role">
             Agent
             <Show when={turn.mode === 'edit'}>
@@ -508,18 +579,28 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
               })}
             >Retry</button>
           </Show>
-        </div>
+        </div></Show>
       </article>
     )
   }
 
   return (
-    <div class="pane-section chat">
+    <div class="pane-section chat" classList={{ 'chat-expanded': expanded() }}>
       <Show
         when={Boolean(subject()) || Boolean(props.ensureSubject)}
-        fallback={<p class="pane-empty">Open a notebook or note to read and write memos.</p>}
+        fallback={<div class="learning-welcome"><h2>Make it make sense</h2><p>Open a notebook to ask questions, check your understanding, or save a thought.</p><p>Your discussion stays with the material you are studying.</p></div>}
       >
-        <button type="button" class="new-chat-button" aria-label="New chat" title="New chat" disabled={busy()} onClick={startNewChat}>＋</button>
+        <div class="learning-context">
+          <span class="eyebrow">{subject()?.kind === 'note' ? 'Learning from this note' : 'Learning from this notebook'}</span>
+          <strong>{props.subject !== undefined ? 'Selected topic' : app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</strong>
+        </div>
+        <button type="button" class="secondary" aria-expanded={expanded()}
+          onClick={() => setExpanded(!expanded())}>
+          {expanded() ? 'Close chat view' : 'Expand chat view'}
+        </button>
+        <Show when={!props.conversationNotebookId}>
+          <button type="button" class="secondary" aria-label="New chat" title="Start a separate discussion about the same material" disabled={busy()} onClick={startNewChat}>New discussion</button>
+        </Show>
         <Show when={loading() && entries().length === 0}>
           <div class="loading-state"><span class="loader" />Loading memos…</div>
         </Show>
@@ -533,12 +614,24 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
         <div class="chat-transcript" aria-label="Memo timeline" aria-busy={Boolean(streamTurnId())}>
           <Show when={!loading() && entries().length === 0 && !error()}>
-            <p class="pane-empty">
+            <div class="learning-starters"><p class="pane-empty">
               {props.emptyMessage
                 ?? (subject()?.kind === 'note'
-                  ? 'No memos on this note yet.'
-                  : 'No memos in this notebook yet.')}
+                  ? 'Explore this note in your own way.'
+                  : 'Turn your notes into understanding.')}
             </p>
+              <div class="learning-actions">
+                <For each={[
+                  { label: 'Explain simply', prompt: 'Explain the key ideas in this material in simple terms, with a concrete example. Point to the notes you use.' },
+                  { label: 'Quiz me', prompt: 'Help me test my understanding of this material. Ask one question at a time, wait for my answer, then give feedback. Point to the relevant notes.' },
+                  { label: 'Connect ideas', prompt: 'What are the most useful connections between the ideas in these notes? Distinguish what the notes say from your interpretation.' },
+                ]}>{(starter) => <button type="button" class="secondary" disabled={busy()} onClick={() => {
+                  setDraft(starter.prompt)
+                  setMemoOnly(false)
+                  setNoteEdit(false)
+                }}>{starter.label}</button>}</For>
+              </div>
+            </div>
           </Show>
           <For each={entriesBeforeBoundary()}>{renderTimelineEntry}</For>
           <Show when={newConversationBoundary()}>
@@ -631,18 +724,18 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         aria-disabled={!props.extensionsEnabled}
         disabled={!props.extensionsEnabled}
         onClick={() => attachmentPicker?.click()}
-      >＋</button>
-      <button type="button" class={`composer-icon ${props.memoOnly ? 'selected' : ''}`} aria-pressed={memoOnlyAttributes().ariaPressed} aria-label={memoOnlyAttributes().ariaLabel} title={memoOnlyAttributes().title} disabled={props.busy} onClick={props.onToggleMemoOnly}>▣</button>
+      >+</button>
+      <button type="button" class={`composer-icon composer-mode ${props.memoOnly ? 'selected' : ''}`} aria-pressed={memoOnlyAttributes().ariaPressed} aria-label={memoOnlyAttributes().ariaLabel} title={memoOnlyAttributes().title} disabled={props.busy} onClick={props.onToggleMemoOnly}>{props.memoOnly ? 'Memo only' : 'Ask AI'}</button>
       <button
         type="button"
-        class={`composer-icon ${props.noteEdit ? 'selected' : ''}`}
+        class={`composer-icon composer-mode ${props.noteEdit ? 'selected' : ''}`}
         aria-pressed={noteEditAttributes().ariaPressed}
         aria-label={noteEditAttributes().ariaLabel}
         title={props.canNoteEdit || props.noteEdit ? noteEditAttributes().title : 'Note edit mode requires a writable note'}
         aria-disabled={!props.canNoteEdit && !props.noteEdit}
         disabled={props.busy || (!props.canNoteEdit && !props.noteEdit)}
         onClick={props.onToggleNoteEdit}
-      >✎</button>
+      >Edit note</button>
       <div class="composer-main">
         <textarea
           aria-label="New memo or agent message"
@@ -668,7 +761,8 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
       <select class="composer-model" aria-label="Agent model" title="Agent model" disabled={!props.extensionsEnabled} value={props.selectedModel ?? ''} onInput={(event) => props.onModelChange(event.currentTarget.value)}>
         <For each={props.models}>{(model) => <option value={model.modelId}>{model.displayName ?? model.modelId}</option>}</For>
       </select>
-      <button type="button" class="composer-submit" aria-label={props.memoOnly ? 'Save memo' : 'Send message'} disabled={props.busy || !props.draft.trim()} onClick={props.onSubmit}>↑</button>
+      <button type="button" class="composer-submit" aria-label={props.memoOnly ? 'Save memo' : 'Send message'} disabled={props.busy || !props.draft.trim()} onClick={props.onSubmit}>{props.busy ? 'Saving…' : props.memoOnly ? 'Save memo' : 'Send'}</button>
+      <p class="composer-help">{props.memoOnly ? 'Saved with your material. AI will not reply.' : props.noteEdit ? 'AI can change this note. Describe the changes you want.' : 'Ask a question about the selected material. Enter to send; Shift+Enter for a new line.'}</p>
     </div>
   )
 }

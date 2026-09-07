@@ -65,6 +65,7 @@ public enum GraphQLContractProjector {
     removeNoteTag(noteId: String!, tagName: String!, provenance: String): NoteMutationPayload!
     addNoteComment(input: AddNoteCommentInput!): NoteMutationPayload!
     addNotebookComment(input: AddNotebookCommentInput!): NoteMutationPayload!
+    openMemoNotebook(commentId: String!): NoteMutationPayload!
     setAppSetting(input: SetAppSettingInput!): AppSettingPayload!
     setUserAgentCredential(input: SetUserAgentCredentialInput!): UserAgentCredentialPayload!
     setUserAgentCredentialEnabled(enabled: Boolean!): UserAgentCredentialPayload!

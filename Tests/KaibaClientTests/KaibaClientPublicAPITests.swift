@@ -28,7 +28,7 @@ struct KaibaClientPublicAPITests {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: output) }
 
-    _ = try runXcrun([
+    let extractorArguments = [
       "swift-symbolgraph-extract",
       "-module-name", "KaibaClient",
       "-I", modules.path,
@@ -37,7 +37,15 @@ struct KaibaClientPublicAPITests {
       "-sdk", sdkPath,
       "-minimum-access-level", "public",
       "-skip-synthesized-members"
-    ])
+    ]
+    do {
+      _ = try runXcrun(extractorArguments)
+    } catch {
+      // mise and Xcode can provide different builds of the same Swift version.
+      // Use the extractor beside SwiftPM's active toolchain when Xcode cannot
+      // load the module produced in the shared build directory.
+      _ = try runEnvironmentTool(extractorArguments)
+    }
     let graph = try JSONDecoder().decode(
       SymbolGraph.self,
       from: Data(contentsOf: output.appendingPathComponent("KaibaClient.symbols.json"))
@@ -52,10 +60,18 @@ struct KaibaClientPublicAPITests {
   }
 
   private func runXcrun(_ arguments: [String]) throws -> Data {
+    try run(executable: "/usr/bin/xcrun", arguments: arguments, tool: "xcrun")
+  }
+
+  private func runEnvironmentTool(_ arguments: [String]) throws -> Data {
+    try run(executable: "/usr/bin/env", arguments: arguments, tool: arguments.first ?? "tool")
+  }
+
+  private func run(executable: String, arguments: [String], tool: String) throws -> Data {
     let process = Process()
     let output = Pipe()
     let errors = Pipe()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+    process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = arguments
     process.standardOutput = output
     process.standardError = errors
@@ -65,7 +81,7 @@ struct KaibaClientPublicAPITests {
     guard process.terminationStatus == 0 else {
       let stderr = errors.fileHandleForReading.readDataToEndOfFile()
       throw PublicAPITestError.commandFailed(
-        tool: "xcrun",
+        tool: tool,
         status: process.terminationStatus,
         diagnostic: String(bytes: stderr, encoding: .utf8) ?? "<non-UTF-8 diagnostics>"
       )

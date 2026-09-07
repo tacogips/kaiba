@@ -1,4 +1,4 @@
-import { noteId as asNoteId, notebookId as asNotebookId } from '../notes/ids'
+import { noteId as asNoteId, notebookId as asNotebookId, commentId as asCommentId } from '../notes/ids'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { describe, expect, test } from 'vitest'
@@ -137,6 +137,7 @@ function testStore(
       return catalogPayload()
     },
     noteComments: async () => [],
+    notebookComments: async () => [],
     noteConversations: async () => [
       {
         notebookId: asNotebookId('conversation-old'), title: 'Earlier conversation', updatedAt: '2026-08-13T00:01:00Z',
@@ -176,6 +177,128 @@ function testStore(
 }
 
 describe('MemoTab integration', () => {
+  test('keeps drafts with their subjects and an old send cannot erase the next subject draft', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const store = testStore([], [])
+    const [selected, setSelected] = createSignal(subject.noteId)
+    let finish: (() => void) | undefined
+    store.client.sendAgentChatMessage = async () => {
+      await new Promise<void>((resolve) => { finish = resolve })
+      return { conversationNotebookId: asNotebookId('finished'), turnNoteId: null, agentStatus: 'answered' }
+    }
+    const dispose = render(() => <MemoTab app={store} subject={{ kind: 'note', id: selected() }} />, host)
+    const write = (text: string) => {
+      const composer = host.querySelector('textarea')!
+      composer.value = text
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    try {
+      await waitFor(() => expect(host.querySelector('textarea')).not.toBeNull())
+      write('Question about the first note')
+      setSelected(asNoteId('another-note'))
+      await waitFor(() => expect(host.querySelector('textarea')?.value).toBe(''))
+      write('Question about the second note')
+      setSelected(subject.noteId)
+      await waitFor(() => expect(host.querySelector('textarea')?.value).toBe('Question about the first note'))
+      host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.click()
+      await waitFor(() => expect(finish).toBeDefined())
+      setSelected(asNoteId('another-note'))
+      finish!()
+      await waitFor(() => expect(host.querySelector('textarea')?.disabled).toBe(false))
+      expect(host.querySelector('textarea')?.value).toBe('Question about the second note')
+      setSelected(subject.noteId)
+      await waitFor(() => expect(host.querySelector('textarea')?.value).toBe(''))
+    } finally { dispose(); host.remove() }
+  })
+
+  test('memo-only in a notebook chat saves to that notebook and remains visible', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const requests: Array<Record<string, unknown>> = []
+    const store = testStore(requests, [])
+    const saved: string[] = []
+    const comments: Awaited<ReturnType<typeof store.client.notebookComments>> = []
+    store.client.notebookComments = async () => comments
+    store.client.addNotebookComment = async (id, body) => {
+      saved.push(id)
+      const comment = { commentId: asCommentId('saved'), noteId: null, notebookId: id,
+        bodyMarkdown: body, author: 'user', createdAt: '2026-01-01' }
+      comments.push(comment)
+      return comment
+    }
+    const dispose = render(() => <MemoTab app={store} conversationNotebookId={earlierTurn.notebookId} />, host)
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+      host.querySelector<HTMLButtonElement>('button[aria-label="Memo only"]')!.click()
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Side memo in this notebook'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await waitFor(() => expect(host.textContent).toContain('Side memo in this notebook'))
+      expect(saved).toEqual([earlierTurn.notebookId])
+      expect(requests).toEqual([])
+      expect(host.querySelector('article.memo')?.textContent).toContain('Open as notebook')
+    } finally { dispose(); host.remove() }
+  })
+
+  test('chat notebook sends directly into its existing conversation', async () => {
+    const requests: Array<Record<string, unknown>> = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const store = testStore(requests, [])
+    const dispose = render(() => <MemoTab app={store} conversationNotebookId={earlierTurn.notebookId} />, host)
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+      expect(host.querySelector('button[aria-label="New chat"]')).toBeNull()
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Continue this notebook'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      await waitFor(() => expect(requests.length).toBe(1))
+      expect(requests[0]?.conversationNotebookId).toBe(earlierTurn.notebookId)
+      expect(requests[0]?.subjectNoteId).toBeUndefined()
+      expect(requests[0]?.subjectNotebookId).toBeUndefined()
+      expect(requests[0]?.userMarkdown).toBe('Continue this notebook')
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
+  test('expanded chat preserves the mounted composer and branches from the selected turn', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const store = testStore([], [])
+    const opened: unknown[][] = []
+    store.openNote = (...args) => { opened.push(args) }
+    const openedNotebooks: NotebookId[] = []
+    store.openNotebookWithReturn = (id) => { openedNotebooks.push(id) }
+    const dispose = render(() => <MemoTab app={store} />, host)
+    try {
+      await waitFor(() => expect(host.textContent).toContain('Earlier question'))
+      const composer = host.querySelector('textarea')!
+      composer.value = 'Keep this draft'
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      const button = (label: string) => Array.from(host.querySelectorAll('button'))
+        .find((item) => item.textContent?.trim() === label)!
+      button('Expand chat view').click()
+      expect(host.querySelector('.chat-expanded')).not.toBeNull()
+      expect(host.querySelector('textarea')).toBe(composer)
+      expect(composer.value).toBe('Keep this draft')
+      button('Close chat view').click()
+      expect(host.querySelector('.chat-expanded')).toBeNull()
+      expect(composer.value).toBe('Keep this draft')
+      button('Branch from here').click()
+      expect(opened).toEqual([[earlierTurn.noteId, earlierTurn.notebookId]])
+      button('Open as notebook').click()
+      expect(openedNotebooks).toEqual([earlierTurn.notebookId])
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
   test('wires keyboard, controls, New chat history, and requests through the actual pane', async () => {
     const requests: Array<Record<string, unknown>> = []
     const memoWrites: string[] = []

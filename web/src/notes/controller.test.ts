@@ -4,6 +4,7 @@ import { NotebookReadOnlyController } from './controller'
 import type { Notebook } from './types'
 
 const notebook = (): Notebook => ({
+  type: 'DOCUMENT',
   notebookId: asNotebookId('book-1'),
   title: 'Launch',
   readOnly: false,

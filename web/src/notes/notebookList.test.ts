@@ -20,6 +20,7 @@ const assignment = (tagId: TagId, name: string, provenance = 'ai'): NoteTagAssig
 })
 
 const notebook = (id: string, updatedAt: string, tags: NoteTagAssignment[] = []): Notebook => ({
+  type: 'DOCUMENT',
   notebookId: asNotebookId(id),
   title: id,
   readOnly: false,

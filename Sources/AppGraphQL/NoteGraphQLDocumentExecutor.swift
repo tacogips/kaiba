@@ -433,6 +433,10 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         bodyMarkdown: input.bodyMarkdown,
         author: try noteAPIAssignedBy(input.author, field: "author", request: request) ?? "user"
       ))
+    case "openMemoNotebook":
+      return try await encodedJSONValue(service.openMemoNotebook(
+        commentId: requiredIdentifier("commentId", as: CommentID.self, variables: variables)
+      ))
     case "addNotebookComment":
       let input: GraphQLAddNotebookCommentInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.addNotebookComment(

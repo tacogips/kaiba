@@ -76,7 +76,6 @@ public enum AgentChatAttachmentValidation {
   public static let maximumFiles = 4
   public static let maximumAggregateBytes = 1_048_576
   public static let maximumFilenameBytes = 255
-  public static let maximumPromptFramingBytes = 4 * 1024
   public static let allowedMediaTypes: Set<String> = [
     "text/plain", "text/markdown", "text/csv", "text/tab-separated-values",
     "application/json", "application/xml", "application/yaml", "application/x-yaml"
@@ -511,7 +510,7 @@ public extension NoteService {
       editMode: state.mode == .edit
     )
     let subject = subjectSnapshot.subject
-    let priorNotes = try listNotes(notebookId: turnNote.notebookId, limit: 100, offset: 0)
+    let priorNotes = try listNotes(notebookId: turnNote.notebookId, limit: Int.max, offset: 0)
       .filter { $0.noteNumber < turnNote.noteNumber }
       .sorted { $0.noteNumber < $1.noteNumber }
     var turns: [AgentInvocationTurn] = []
@@ -520,7 +519,8 @@ public extension NoteService {
         continue
       }
       turns.append(AgentInvocationTurn(role: .user, markdown: priorState.userMarkdown))
-      if priorState.status == .answered,
+      let memoOnly = note.metaJSON.flatMap { try? JSONValue(parsing: $0) }?["kaibaChat"]?["memoOnly"]?.asBool == true
+      if priorState.status == .answered, !memoOnly,
         let assistant = Self.assistantMarkdown(fromTurnBody: note.bodyMarkdown) {
         turns.append(AgentInvocationTurn(role: .assistant, markdown: assistant))
       }
@@ -673,9 +673,6 @@ public extension NoteService {
     }
   }
 
-  /// Byte budget for the subject document handed to the agent as context.
-  static let subjectContextLimitBytes = 200 * 1024
-
   static var chatSystemPrompt: String {
     """
     You are a reading assistant for a note-taking system. The user is asking \
@@ -685,55 +682,20 @@ public extension NoteService {
     """
   }
 
-  /// One deterministic attachment context is appended to the current user
-  /// turn: current files first, then prior turns newest-first. Content and
-  /// framing have independent global budgets. Metadata is percent-normalized
-  /// to a bounded representation before inclusion in delimiters.
+  /// Include all attachments: current files first, then prior turns newest-first.
   private func chatAttachmentContext(
     currentTurn: Note,
     priorTurnsNewestFirst: ReversedCollection<[Note]>
   ) throws -> String {
-    var contentRemaining = AgentChatAttachmentValidation.maximumAggregateBytes
-    let opening = "\n<untrusted-attachments>\n"
-    let closing = "</untrusted-attachments>"
-    var framingRemaining = AgentChatAttachmentValidation.maximumPromptFramingBytes
-      - opening.utf8.count - closing.utf8.count
-    var context = opening
-    let orderedTurns = [currentTurn] + priorTurnsNewestFirst
-    for turn in orderedTurns {
-      let attachments = try listFiles(noteId: turn.noteId).sorted {
-        $0.position == $1.position ? $0.file.fileId < $1.file.fileId : $0.position < $1.position
-      }
-      for attachment in attachments {
-        let filename = promptMetadata(attachment.file.originalFilename ?? attachment.file.fileId.rawValue)
-        let mediaType = promptMetadata(attachment.file.mediaType)
-        let header = "<attachment filename=\"\(filename)\" media-type=\"\(mediaType)\">\n"
-        let footer = "\n</attachment>"
-        let attachmentFraming = header.utf8.count + footer.utf8.count
-        guard attachmentFraming <= framingRemaining else {
-          // Accepted current-turn filenames are bounded so this is only
-          // reachable for prior turns. Do not add further omission markers.
-          return context + closing
-        }
-        let text = String(data: try resolveFileContent(fileId: attachment.file.fileId), encoding: .utf8) ?? ""
-        if text.utf8.count <= contentRemaining {
-          contentRemaining -= text.utf8.count
-          framingRemaining -= attachmentFraming
-          context += header + text + footer
-        } else {
-          let omission = "<attachment omitted=\"budget\" filename=\"\(filename)\" media-type=\"\(mediaType)\" />"
-          guard omission.utf8.count <= framingRemaining else { return context + closing }
-          framingRemaining -= omission.utf8.count
-          context += omission
-        }
-      }
+    try driver.withDatabase { database in
+      try ([currentTurn] + priorTurnsNewestFirst).map {
+        try chatFileContext(noteId: $0.noteId, in: database)
+      }.joined()
     }
-    return context == opening ? "" : context + closing
   }
 
-  /// Percent encoding constrains every metadata byte to at most three bytes;
-  /// four accepted 255-byte filenames therefore fit the 4 KiB framing budget.
-  private func promptMetadata(_ value: String) -> String {
+  /// Encode delimiter characters in attachment metadata.
+  func promptMetadata(_ value: String) -> String {
     value.utf8.map { byte in
       switch byte {
       case 45, 46, 48...57, 65...90, 95, 97...122:
@@ -876,10 +838,12 @@ public extension NoteService {
 
   static func chatNotebookMetaJSON(
     subjectNoteId: NoteID?,
-    subjectNotebookId: NotebookID
+    subjectNotebookId: NotebookID,
+    branchContext: String? = nil
   ) throws -> String {
     var chat: JSONObject = ["subjectNotebookId": .id(subjectNotebookId)]
     chat["subjectNoteId"] = subjectNoteId.map(JSONValue.id)
+    chat["branchContext"] = branchContext.map(JSONValue.string)
     do {
       return try JSONValue.object(["kaibaChat": .object(chat)]).encodedString()
     } catch {

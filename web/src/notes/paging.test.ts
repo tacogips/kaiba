@@ -8,6 +8,7 @@ import {
 import type { Notebook } from './types'
 
 const notebook = (index: number): Notebook => ({
+  type: 'DOCUMENT',
   notebookId: asNotebookId(`book-${index}`),
   title: `Book ${index}`,
   readOnly: false,

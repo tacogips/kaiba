@@ -113,6 +113,7 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
         <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
         <TabPanel idPrefix="tag" value="memo" active={tab()}>
           <MemoTab
+            draftKey={`discussion:tag:${props.tagId}`}
             subject={memoSubject()}
             ensureSubject={ensureSubject}
             composerPlaceholder={`Ask about ${tagLabel()}`}

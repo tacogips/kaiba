@@ -9,6 +9,7 @@ import type { NoteId } from './ids'
 export type ChatTurnStatus = 'pending' | 'answered' | 'failed' | 'unavailable'
 
 export interface ChatTurn {
+  memoOnly?: boolean
   noteId: NoteId
   noteNumber: number
   status: ChatTurnStatus
@@ -47,6 +48,7 @@ export function parseChatTurn(note: Note): ChatTurn {
   const reply = assistantMarkdown(note.bodyMarkdown)
   return {
     noteId: note.noteId,
+    ...(chat?.memoOnly ? { memoOnly: true } : {}),
     noteNumber: note.noteNumber,
     status: turnStatus(chat?.status, reply !== undefined),
     userMarkdown: userMarkdown(note, chat?.userMarkdown),
@@ -82,6 +84,7 @@ export function newIdempotencyKey(random: () => number = Math.random): string {
 }
 
 interface ChatMeta {
+  memoOnly?: boolean
   status?: string
   userMarkdown?: string
   error?: string
@@ -102,6 +105,7 @@ function chatMeta(metaJSON: string | null | undefined): ChatMeta | undefined {
   const record = chat as Record<string, unknown>
   return {
     ...(typeof record.status === 'string' ? { status: record.status } : {}),
+    ...(record.memoOnly === true ? { memoOnly: true } : {}),
     ...(typeof record.userMarkdown === 'string' ? { userMarkdown: record.userMarkdown } : {}),
     ...(typeof record.error === 'string' && record.error.length > 0 ? { error: record.error } : {}),
     ...(record.mode === 'memo' || record.mode === 'edit' ? { mode: record.mode } : {}),
