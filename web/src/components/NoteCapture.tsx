@@ -21,10 +21,10 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
       setDraft('')
       setOpen(false)
       await app.refreshCatalog()
-      if (routeHref(app.state.route) === startedRoute && app.state.pane.centerTab === 'notebook') {
+      if (routeHref(app.state.route) === startedRoute) {
         app.openNote(note.noteId, note.notebookId)
       }
-      app.setMessage('Note saved. Ask AI to explore it in the Learn pane.')
+      app.setMessage('Saved.')
     } catch (error) {
       setError(`Could not save your note: ${errorMessage(error)}`)
     } finally {
@@ -38,9 +38,9 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
       queueMicrotask(() => textarea?.focus())
     }}>{draft() ? 'Resume draft' : 'Add a note'}</button>}>
       <form onSubmit={(event) => void save(event)}>
-        <label>{props.empty ? 'Start with a thought, a question, or your source text' : 'Write a note'}
+        <label><span class="sr-only">Write a note</span>
           <textarea ref={textarea} rows={6} value={draft()} disabled={busy()}
-            placeholder="What do you want to understand? Paste your reading notes or write in your own words. Markdown is supported."
+            placeholder="Write…"
             onInput={(event) => setDraft(event.currentTarget.value)} />
         </label>
         <div class="learning-actions">
@@ -48,7 +48,6 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
           <Show when={!props.empty}><button type="button" class="secondary" disabled={busy()} onClick={() => setOpen(false)}>Close draft</button></Show>
         </div>
         <Show when={error()}><p role="alert" class="note-inline-error">{error()}</p></Show>
-        <p class="composer-help">Your draft stays here while you browse. Save it before closing the app.</p>
       </form>
     </Show>
   </section>

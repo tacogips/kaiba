@@ -6,6 +6,7 @@ import { NoteSearchPopup } from '../components/NoteSearchPopup'
 import { SearchView } from './SearchView'
 import { ConfigView } from './ConfigView'
 import { LoginView } from './LoginView'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { useApp } from '../state/appStore'
 import type { SearchMethod, SearchScope } from '../router'
 import { formatRoute } from '../router'
@@ -33,6 +34,11 @@ export function ChatbookView(): JSX.Element {
   onMount(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (app.state.searchOpen || event.defaultPrevented) return
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
+        event.preventDefault()
+        app.setSearchOpen(true)
+        return
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
@@ -49,7 +55,16 @@ export function ChatbookView(): JSX.Element {
       }
     }
     window.addEventListener('keydown', shortcut)
-    onCleanup(() => window.removeEventListener('keydown', shortcut))
+    const protectDrafts = (event: BeforeUnloadEvent) => {
+      if (!app.writingDrafts.hasUnsavedChanges()) return
+      event.preventDefault()
+      event.returnValue = true
+    }
+    window.addEventListener('beforeunload', protectDrafts)
+    onCleanup(() => {
+      window.removeEventListener('keydown', shortcut)
+      window.removeEventListener('beforeunload', protectDrafts)
+    })
   })
 
   const view = () => {
@@ -82,15 +97,16 @@ export function ChatbookView(): JSX.Element {
     >
       <a class="skip-link" href="#main-content">Skip to content</a>
       <header class="chatbook-head">
-        <button type="button" class="brand-button" onClick={app.openHome}>
-          <span class="brand-mark">K</span>
-          <span class="brand-copy"><strong>Kaiba</strong><span>Learning notebook</span></span>
-        </button>
+        <nav class="workspace-tools" aria-label="Workspace">
+          <button type="button" class="workspace-icon" aria-label="Notebooks" title="Notebooks" onClick={() => { if (view() !== 'reader') app.openReader(); showMobilePane('files') }}><WorkspaceIcon name="files" /></button>
+          <button type="button" class="workspace-icon" aria-label="Quick switcher" title="Quick switcher (⌘/Ctrl P)" onClick={() => app.setSearchOpen(true)}><WorkspaceIcon name="search" /></button>
+          <button type="button" class="workspace-icon" aria-label="AI" title="AI" onClick={() => { app.setRightTab('memo'); showMobilePane('details') }}><WorkspaceIcon name="ai" /></button>
+          <button type="button" class="workspace-icon" aria-label="Links" title="Links" onClick={() => { app.setRightTab('links'); showMobilePane('details') }}><WorkspaceIcon name="links" /></button>
+        </nav>
         <HeaderSearch />
         <div class="chatbook-head-actions">
-          <span class="server-status" role="status" aria-live="polite">
+          <span class="server-status" role="status" aria-live="polite" aria-label={app.state.live ? 'Live' : 'Offline'} title={app.state.live ? 'Live' : 'Offline'}>
             <span classList={{ dot: true, live: app.state.live }} />
-            {app.state.live ? 'Live' : 'Offline'}
           </span>
           <Show when={view() !== 'reader'}>
             <button type="button" class="secondary" onClick={() => {
@@ -98,8 +114,8 @@ export function ChatbookView(): JSX.Element {
               app.openReader()
             }}>Reader</button>
           </Show>
-          <button type="button" class="secondary" onClick={app.openConfig}>Settings</button>
-          <button type="button" class="secondary" onClick={() => void app.refreshCatalog()}>Refresh</button>
+          <button type="button" class="workspace-icon" aria-label="Settings" title="Settings" onClick={app.openConfig}><WorkspaceIcon name="settings" /></button>
+          <button type="button" class="workspace-icon" aria-label="Refresh" title="Refresh" onClick={() => void app.refreshCatalog()}><WorkspaceIcon name="refresh" /></button>
         </div>
       </header>
 
@@ -121,7 +137,10 @@ export function ChatbookView(): JSX.Element {
             onNavigate={() => setMobilePane('reader')}
           />
           <PaneSplitter side="left" />
-          <ReaderPane onStudy={() => showMobilePane('details')} />
+          <ReaderPane
+            onStudy={() => showMobilePane('details')}
+            onBrowseNotebooks={() => showMobilePane('files')}
+          />
           <PaneSplitter side="right" />
           <RightPane onClose={() => setMobilePane('reader')} />
           <MobilePaneNav active={mobilePane()} onSelect={showMobilePane} />
@@ -165,9 +184,9 @@ function MobilePaneNav(props: {
   onSelect: (pane: MobilePane) => void
 }): JSX.Element {
   const items: readonly { pane: MobilePane; label: string }[] = [
-    { pane: 'files', label: 'Library' },
-    { pane: 'reader', label: 'Notebook' },
-    { pane: 'details', label: 'Learn' },
+    { pane: 'files', label: 'Notebooks' },
+    { pane: 'reader', label: 'Editor' },
+    { pane: 'details', label: 'AI / Links' },
   ]
   return (
     <nav class="mobile-pane-nav" aria-label="Mobile workspace">

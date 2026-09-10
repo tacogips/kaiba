@@ -28,9 +28,6 @@ export function FileTreeTab(props: { onNavigate?: () => void } = {}): JSX.Elemen
           <For each={unfiled()}>{(notebook) => <NotebookBranch notebook={notebook} level={2} onNavigate={props.onNavigate} />}</For>
         </div>
       </Show>
-      <Show when={!app.state.loading && app.state.notebooks.length === 0}>
-        <p class="pane-empty">No notebooks yet.</p>
-      </Show>
     </div>
   )
 }
@@ -58,8 +55,9 @@ function FolderBranch(props: { node: TagTreeNode; level: number; onNavigate?: ()
         <button
           type="button"
           class="tree-label"
+          title={props.node.tag.name}
           onClick={() => app.toggleFolder(props.node.tag.tagId)}
-        ><span class="tree-icon" aria-hidden="true">▰</span>{props.node.tag.name}</button>
+        ><span class="tree-icon" aria-hidden="true">▰</span><span class="tree-label-text">{props.node.tag.name}</span></button>
         <span class="tree-count">{notebooks().length}</span>
       </div>
       <Show when={expanded()}>
@@ -101,11 +99,12 @@ function NotebookBranch(props: { notebook: Notebook; level: number; onNavigate?:
         <button
           type="button"
           class="tree-label"
+          title={props.notebook.title}
           onClick={() => {
             app.openNotebook(props.notebook.notebookId)
             props.onNavigate?.()
           }}
-        ><span class="tree-icon" aria-hidden="true">▤</span>{props.notebook.title}</button>
+        ><span class="tree-icon" aria-hidden="true">▤</span><span class="tree-label-text">{props.notebook.title}</span></button>
         <Show when={props.notebook.readOnly}><span class="tree-count" title="Read-only">L</span></Show>
       </div>
       <Show when={expanded()}>
@@ -122,11 +121,12 @@ function NotebookBranch(props: { notebook: Notebook; level: number; onNavigate?:
               <button
                 type="button"
                 class="tree-label"
+                title={noteDisplayTitle(note)}
                 onClick={() => {
                   app.openNote(note.noteId, note.notebookId)
                   props.onNavigate?.()
                 }}
-              ><span class="tree-icon" aria-hidden="true">·</span>{noteDisplayTitle(note)}</button>
+              ><span class="tree-icon" aria-hidden="true">·</span><span class="tree-label-text">{noteDisplayTitle(note)}</span></button>
             </div>}
           </For>
           <Show when={notes().length === 0}>

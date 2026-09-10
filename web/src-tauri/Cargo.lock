@@ -1787,7 +1787,7 @@ dependencies = [
 
 [[package]]
 name = "kaiba-client"
-version = "0.1.9"
+version = "0.1.16"
 dependencies = [
  "tauri",
  "tauri-build",

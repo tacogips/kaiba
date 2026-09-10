@@ -127,9 +127,10 @@
 .pane-note { margin: 0; color: #7f93a6; font-size: calc(10px * var(--fs, 1)); line-height: 1.5; }
 
 /* Files tab -------------------------------------------------------------- */
-.file-tree { display: grid; gap: 1px; }
+.file-tree { min-width: 0; display: grid; gap: 1px; }
+.file-tree > div, .file-tree [role="group"] { min-width: 0; max-width: 100%; }
 .tree-row, .tree-group {
-  min-height: 30px;
+  width: 100%; min-width: 0; min-height: 30px;
   display: flex; align-items: center; gap: 2px;
   border-radius: 7px;
   padding-left: calc(var(--tree-level, 1) * 10px - 10px);
@@ -150,6 +151,7 @@
   font-size: calc(12px * var(--fs, 1)); text-align: left; text-overflow: ellipsis; white-space: nowrap;
 }
 .tree-label:hover { background: #101d27 !important; }
+.tree-label-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-static { padding: 5px 4px; color: #5d7286; font-size: calc(10px * var(--fs, 1)); letter-spacing: .08em; text-transform: uppercase; }
 .tree-icon { flex: none; color: #54c8ce; font-size: calc(10px * var(--fs, 1)); }
 .tree-count { flex: none; padding: 1px 6px; border-radius: 999px; color: #6d8497; background: #111f2b; font-size: calc(9px * var(--fs, 1)); }

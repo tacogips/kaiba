@@ -2,7 +2,7 @@ import { Show, createSignal, type JSX } from 'solid-js'
 import { errorMessage, routeHref, useApp } from '../state/appStore'
 
 /** Inline creation keeps a learner's place and retains input after a failure. */
-export function NotebookCreate(): JSX.Element {
+export function NotebookCreate(props: { onCreated?: () => void; buttonLabel?: string } = {}): JSX.Element {
   const app = useApp()
   const { text: title, setText: setTitle, busy, setBusy, error, setError } =
     app.writingDrafts.get('new-notebook')
@@ -20,9 +20,10 @@ export function NotebookCreate(): JSX.Element {
       setTitle('')
       setOpen(false)
       await app.refreshCatalog()
-      if (routeHref(app.state.route) === startedRoute && app.state.pane.centerTab === 'list') {
+      if (routeHref(app.state.route) === startedRoute) {
         app.openNotebook(notebook.notebookId)
-      } else app.setMessage(`Created notebook “${notebook.title}”. Find it in My notebooks.`)
+        props.onCreated?.()
+      } else app.setMessage(`Created notebook “${notebook.title}”.`)
     } catch (error) {
       setError(`Could not create the notebook: ${errorMessage(error)}`)
     } finally {
@@ -30,15 +31,17 @@ export function NotebookCreate(): JSX.Element {
     }
   }
 
+  const closedLabel = () => title() ? 'Resume notebook draft' : props.buttonLabel ?? 'New notebook'
+
   return <div class="notebook-create">
     <Show when={open()} fallback={<button type="button" onClick={() => {
       setOpen(true)
       queueMicrotask(() => input?.focus())
-    }}>New notebook</button>}>
+    }} aria-label={closedLabel()} title={closedLabel()}>{title() ? 'Resume notebook draft' : props.buttonLabel ?? '+'}</button>}>
       <form class="notebook-create-form" onSubmit={(event) => void submit(event)}>
-        <label>What are you learning?
+        <label>Notebook name
           <input ref={input} value={title()} disabled={busy()} required maxlength={200}
-            placeholder="e.g. Understanding neural networks"
+            placeholder="Untitled"
             onInput={(event) => setTitle(event.currentTarget.value)} />
         </label>
         <div class="learning-actions">

@@ -3,17 +3,15 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, 
 import { MarkdownBody } from '../components/Markdown'
 import { MemoTab } from '../components/MemoTab'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
-import { NotebookListTab } from '../components/NotebookListTab'
 import { NoteCapture } from '../components/NoteCapture'
 import { NoteEditor } from '../components/NoteEditor'
-import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
+import { NotebookCreate } from '../components/NotebookCreate'
 import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
 import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
 import { normalizeSelectionTagName, tagTermsFromAssignments } from '../notes/tagMatch'
 import { noteHeadingPrefix } from '../notes/toc'
 import { errorMessage, useApp } from '../state/appStore'
 import type { Note } from '../notes/types'
-import type { CenterTab } from '../state/paneState'
 import type { NoteId } from '../notes/ids'
 
 // Center reader: the open notebook's notes as one continuous scroll. Notes lazy-
@@ -26,13 +24,9 @@ import type { NoteId } from '../notes/ids'
  * content without waiting for the observer. */
 const eagerNoteCount = 6
 
-export function ReaderPane(props: { onStudy?: () => void } = {}): JSX.Element {
+export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: () => void } = {}): JSX.Element {
   const app = useApp()
   const chatNotebook = () => app.notebook()?.type === 'AGENT_CHAT'
-  const tabs: readonly TabDescriptor<CenterTab>[] = [
-    { value: 'list', label: 'My notebooks' },
-    { value: 'notebook', label: 'Notebook' },
-  ]
   const [copied, setCopied] = createSignal(false)
   const [gotoDraft, setGotoDraft] = createSignal('')
   const [accessBusy, setAccessBusy] = createSignal(false)
@@ -193,19 +187,6 @@ export function ReaderPane(props: { onStudy?: () => void } = {}): JSX.Element {
 
   return (
     <main class="reader" id="main-content" tabindex="-1">
-      <div class="center-tabs-head">
-        <Tabs
-          label="Center pane display mode"
-          tabs={tabs}
-          active={app.state.pane.centerTab}
-          idPrefix="center"
-          onSelect={app.setCenterTab}
-        />
-      </div>
-      <TabPanel idPrefix="center" value="list" active={app.state.pane.centerTab}>
-        <NotebookListTab />
-      </TabPanel>
-      <TabPanel idPrefix="center" value="notebook" active={app.state.pane.centerTab}>
       <Show when={app.state.noteLoading && !app.state.notebookId && notes().length === 0}>
         <div class="loading-state"><span class="loader" />Loading note…</div>
       </Show>
@@ -213,12 +194,26 @@ export function ReaderPane(props: { onStudy?: () => void } = {}): JSX.Element {
         when={app.state.notebookId || notes().length > 0}
         fallback={
           <Show when={!app.state.noteLoading}>
-            <div class="empty-state">
-              <span aria-hidden="true">◇</span>
-              <strong>No notebook open</strong>
-              <p>Choose a notebook from the Library, or create one in My notebooks.</p>
-              <button type="button" onClick={() => app.setCenterTab('list')}>My notebooks</button>
-            </div>
+            <Show
+              when={app.state.notebooks.length === 0}
+              fallback={
+                <div class="empty-state reader-empty-selection">
+                  <span aria-hidden="true">KAIBA</span>
+                  <strong>Continue learning</strong>
+                  <p>Choose a notebook to review your notes, add what you learn, or ask AI about the material.</p>
+                  <button type="button" onClick={props.onBrowseNotebooks}>Browse notebooks</button>
+                  <button type="button" class="secondary" onClick={() => app.setSearchOpen(true)}>Find a note</button>
+                </div>
+              }
+            >
+              <div class="empty-state reader-onboarding">
+                <span aria-hidden="true">KAIBA</span>
+                <strong>Start with something you want to understand</strong>
+                <p>Create a notebook for a topic, question, or project. Add rough notes as you learn; AI can help you explain, connect, and test them.</p>
+                <NotebookCreate buttonLabel="Create your first notebook" />
+                <button type="button" class="secondary" onClick={() => app.setSearchOpen(true)}>Open an existing note</button>
+              </div>
+            </Show>
           </Show>
         }
       >
@@ -233,10 +228,10 @@ export function ReaderPane(props: { onStudy?: () => void } = {}): JSX.Element {
             </Show>
             <span class="reader-position">{pageLabel(index(), notes().length)}</span>
             <Show when={app.state.note}>
-              <button type="button" class="secondary" onClick={app.deselectNote}>Study whole notebook</button>
+              <button type="button" class="secondary" onClick={app.deselectNote}>Notebook context</button>
             </Show>
             <details class="reader-tools">
-              <summary>Notebook tools</summary>
+              <summary aria-label="Notebook tools">•••</summary>
               <div class="reader-tools-body">
             <Show when={app.notebook()}>{(notebook) => <>
               <span class="note-readonly-badge">
@@ -329,7 +324,6 @@ export function ReaderPane(props: { onStudy?: () => void } = {}): JSX.Element {
           </div>
         )}</Show>
       </Show>
-      </TabPanel>
     </main>
   )
 }
@@ -394,7 +388,7 @@ function NoteSection(props: {
         <span class="reader-note-page">p.{props.page}</span>
         <span class="reader-note-title">{noteDisplayTitle(props.note)}</span>
         <button type="button" class="secondary study-note-button" aria-pressed={props.selected}
-          onClick={props.onSelect}>{props.selected ? 'Studying this note' : 'Study this note'}</button>
+          onClick={props.onSelect}>{props.selected ? 'AI context' : 'Ask AI'}</button>
       </header>
       <Show when={images().length > 0 && !imagesOpen()}>
         <button

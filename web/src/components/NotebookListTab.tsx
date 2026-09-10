@@ -21,17 +21,8 @@ export function NotebookListTab(): JSX.Element {
   })
 
   return (
-    <section class="notebook-list-view" aria-label="Learning notebooks">
-      <header class="notebook-list-head">
-        <div>
-          <span class="eyebrow">Your learning space</span>
-          <h1>What will you understand next?</h1>
-          <p>Collect your notes, explore ideas with AI, and return to what you learned.</p>
-        </div>
-        <span class="notebook-list-count">{notebooks().length} notebook{notebooks().length === 1 ? '' : 's'}</span>
-      </header>
+    <section class="notebook-list-view" aria-label="Notebooks">
       <NotebookCreate />
-      <h2 class="library-section-title">Continue learning</h2>
 
       <Show when={categories().length > 0}>
         <div class="notebook-list-filters" role="group" aria-label="Filter recent writing by category">
@@ -55,13 +46,6 @@ export function NotebookListTab(): JSX.Element {
       <Show when={app.state.loading && app.state.notebooks.length === 0}>
         <div class="loading-state"><span class="loader" />Loading recent writing…</div>
       </Show>
-      <Show when={!app.state.loading && notebooks().length === 0}>
-        <div class="empty-state notebook-list-empty">
-          <strong>{tagId() ? 'No notebooks in this category' : 'No notebooks yet'}</strong>
-          <p>{tagId() ? 'Choose another tag to widen the view.' : 'Create a notebook above, save your first note, then ask AI to explain it or quiz you.'}</p>
-        </div>
-      </Show>
-
       <div class="notebook-card-list">
         <For each={notebooks()}>{(notebook) => {
           const assignments = () => notebookCategories(notebook)

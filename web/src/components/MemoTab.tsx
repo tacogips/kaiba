@@ -98,6 +98,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   let generation = 0
   let catalogGeneration = 0
   let streamGeneration = 0
+  let chatRoot: HTMLDivElement | undefined
 
   const subject = createMemo<MemoSubject | undefined>(() => {
     if (props.conversationNotebookId) return { kind: 'notebook', id: props.conversationNotebookId }
@@ -234,6 +235,31 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   })
 
   onCleanup(() => { streamGeneration += 1 })
+
+  const closeExpandedChat = () => setExpanded(false)
+
+  const handleExpandedChatKeyDown = (event: KeyboardEvent) => {
+    if (!expanded()) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeExpandedChat()
+      return
+    }
+    if (event.key !== 'Tab' || !chatRoot) return
+    const controls = [...chatRoot.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled]):not([tabindex="-1"]), a[href], [tabindex]:not([tabindex="-1"])',
+    )]
+    const first = controls[0]
+    const last = controls.at(-1)
+    if (!first || !last) return
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   const load = async (current: MemoSubject) => {
     const requested = ++generation
@@ -585,13 +611,20 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   }
 
   return (
-    <div class="pane-section chat" classList={{ 'chat-expanded': expanded() }}>
+    <div
+      ref={chatRoot}
+      class="pane-section chat"
+      classList={{ 'chat-expanded': expanded() }}
+      role={expanded() ? 'dialog' : undefined}
+      aria-modal={expanded() ? 'true' : undefined}
+      aria-label={expanded() ? 'Expanded learning discussion' : undefined}
+      onKeyDown={handleExpandedChatKeyDown}
+    >
       <Show
         when={Boolean(subject()) || Boolean(props.ensureSubject)}
-        fallback={<div class="learning-welcome"><h2>Make it make sense</h2><p>Open a notebook to ask questions, check your understanding, or save a thought.</p><p>Your discussion stays with the material you are studying.</p></div>}
+        fallback={<div class="pane-empty">No selection</div>}
       >
         <div class="learning-context">
-          <span class="eyebrow">{subject()?.kind === 'note' ? 'Learning from this note' : 'Learning from this notebook'}</span>
           <strong>{props.subject !== undefined ? 'Selected topic' : app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</strong>
         </div>
         <button type="button" class="secondary" aria-expanded={expanded()}
@@ -614,12 +647,8 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
 
         <div class="chat-transcript" aria-label="Memo timeline" aria-busy={Boolean(streamTurnId())}>
           <Show when={!loading() && entries().length === 0 && !error()}>
-            <div class="learning-starters"><p class="pane-empty">
-              {props.emptyMessage
-                ?? (subject()?.kind === 'note'
-                  ? 'Explore this note in your own way.'
-                  : 'Turn your notes into understanding.')}
-            </p>
+            <div class="learning-starters">
+              <Show when={props.emptyMessage}><p class="pane-empty">{props.emptyMessage}</p></Show>
               <div class="learning-actions">
                 <For each={[
                   { label: 'Explain simply', prompt: 'Explain the key ideas in this material in simple terms, with a concrete example. Point to the notes you use.' },
@@ -712,6 +741,7 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         class="sr-only"
         type="file"
         multiple
+        tabIndex={-1}
         ref={(element) => { attachmentPicker = element }}
         disabled={!props.extensionsEnabled}
         onChange={(event) => void props.onStageFiles(event.currentTarget.files)}
@@ -762,7 +792,6 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         <For each={props.models}>{(model) => <option value={model.modelId}>{model.displayName ?? model.modelId}</option>}</For>
       </select>
       <button type="button" class="composer-submit" aria-label={props.memoOnly ? 'Save memo' : 'Send message'} disabled={props.busy || !props.draft.trim()} onClick={props.onSubmit}>{props.busy ? 'Saving…' : props.memoOnly ? 'Save memo' : 'Send'}</button>
-      <p class="composer-help">{props.memoOnly ? 'Saved with your material. AI will not reply.' : props.noteEdit ? 'AI can change this note. Describe the changes you want.' : 'Ask a question about the selected material. Enter to send; Shift+Enter for a new line.'}</p>
     </div>
   )
 }

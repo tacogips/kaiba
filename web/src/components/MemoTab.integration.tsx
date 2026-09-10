@@ -283,10 +283,23 @@ describe('MemoTab integration', () => {
       const button = (label: string) => Array.from(host.querySelectorAll('button'))
         .find((item) => item.textContent?.trim() === label)!
       button('Expand chat view').click()
-      expect(host.querySelector('.chat-expanded')).not.toBeNull()
+      const dialog = host.querySelector<HTMLElement>('.chat-expanded')!
+      expect(dialog).not.toBeNull()
+      expect(dialog.getAttribute('role')).toBe('dialog')
+      expect(dialog.getAttribute('aria-modal')).toBe('true')
       expect(host.querySelector('textarea')).toBe(composer)
       expect(composer.value).toBe('Keep this draft')
-      button('Close chat view').click()
+      const close = button('Close chat view')
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), input:not([disabled]):not([tabindex="-1"])',
+      )]
+      const last = focusable.at(-1)!
+      close.focus()
+      close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
+      expect(document.activeElement).toBe(last)
+      last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+      expect(document.activeElement).toBe(close)
+      close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
       expect(host.querySelector('.chat-expanded')).toBeNull()
       expect(composer.value).toBe('Keep this draft')
       button('Branch from here').click()

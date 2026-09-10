@@ -18,6 +18,15 @@ export function createWritingDrafts() {
       for (const draft of drafts.values()) draft.setBaseText(undefined)
       drafts.clear()
     },
+    /** True only for user-authored content that would be lost on reload. An
+     * editor seeded with the unchanged server text is not a draft yet. */
+    hasUnsavedChanges() {
+      return [...drafts.values()].some((draft) => {
+        if (draft.files().length > 0) return true
+        const base = draft.baseText()
+        return base === undefined ? draft.text().length > 0 : draft.text() !== base
+      })
+    },
   }
 }
 

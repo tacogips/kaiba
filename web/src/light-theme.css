@@ -1,0 +1,170 @@
+/* Riela's compact, flat light surfaces, adapted to Kaiba's green workspace.
+   Loaded after feature styles so layout, pane sizing, and mobile behavior
+   remain owned by their existing stylesheets. */
+:root {
+  color-scheme: light;
+  --ink: #203529;
+  --muted: #5e7163;
+  --line: #d6e3d5;
+  --surface: #ffffff;
+  --surface-subtle: #f5f9f3;
+  --green-soft: #edf6e8;
+  --green-selected: #dcefcf;
+  --green-primary: #b9df9e;
+  --green-hover: #a8d488;
+  --green-line: #96ba80;
+  --green-ink: #315d29;
+  --green-focus: #467836;
+  --warning-ink: #805b17;
+  --warning-line: #dec996;
+  --danger-ink: #a3313c;
+  color: var(--ink);
+  background: var(--surface-subtle);
+}
+
+body { color: var(--ink); background: var(--surface-subtle); }
+::selection { color: var(--ink); background: var(--green-selected); }
+:focus-visible, .chatbook :focus-visible, .reader-tools summary:focus-visible {
+  outline: 2px solid var(--green-focus); outline-offset: 2px;
+}
+.skip-link { color: var(--ink); background: var(--green-primary); border-radius: 3px; }
+button:not(nav button) {
+  border-color: var(--green-line); border-radius: 4px;
+  color: var(--ink); background: var(--green-primary); box-shadow: none;
+}
+button:not(nav button):hover:not(:disabled) { background-color: var(--green-hover); }
+button.secondary, .chatbook button.secondary {
+  color: var(--ink); border-color: var(--line); background: var(--surface);
+}
+button.secondary:hover:not(:disabled), .chatbook button.secondary:hover:not(:disabled) {
+  color: var(--green-ink); border-color: var(--green-line); background: var(--green-soft);
+}
+input, textarea, select, .chatbook input, .chatbook textarea, .chatbook select,
+.user-agent-form input, .user-agent-form select, .server-connection-row input, .login-input {
+  color: var(--ink); border-color: var(--line); border-radius: 4px;
+  background: var(--surface); accent-color: var(--green-focus);
+}
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
+
+/* White document surface framed by soft green navigation. */
+.chatbook { --chatbook-border: var(--line); background: var(--surface-subtle); }
+.chatbook-head { min-height: 52px; border-color: var(--line); background: var(--surface); }
+.pane, .center-tabs-head, .mobile-pane-nav { background: var(--green-soft); }
+.reader, .reader-head { background: var(--surface); }
+.pane-head, .pane-right .pane-head, .center-tabs-head, .reader-head,
+.notebook-outline, .reader-note-head, .note-capture, .note-editor, .learning-context,
+.server-connection.compact, .new-conversation-boundary { border-color: var(--line); }
+.chatbook button.workspace-icon { color: var(--muted); }
+.chatbook button.workspace-icon:hover { color: var(--green-ink); background: var(--green-selected); }
+.pane-splitter:hover, .pane-splitter:active { background: var(--green-selected); }
+.pane-tab, .pane-fold, .rail-button, .mobile-pane-button { color: var(--muted) !important; }
+.pane-tab.active { color: var(--green-ink) !important; border-bottom-color: var(--green-focus) !important; }
+.pane-fold:hover, .rail-button:hover { background: var(--green-selected) !important; }
+.mobile-pane-button.active { color: var(--green-ink) !important; background: var(--green-selected) !important; }
+.brand-button .brand-mark, .login-brand .brand-mark {
+  border-color: var(--green-line); border-radius: 4px;
+  color: var(--green-ink); background: var(--green-primary);
+  font-family: inherit; font-weight: 700;
+}
+.dot { background: var(--muted); box-shadow: none; }
+.dot.live { background: var(--green-focus); box-shadow: none; }
+
+/* Consistent legible text on every light surface. */
+.brand-copy span, .server-status, .eyebrow, .rail-label, .pane-empty, .pane-note,
+.notebook-outline summary, .tree-static, .reader-position, .reader-note-page,
+.reader-note-head, .reader-tools summary, .notebook-card-preview, .notebook-card-meta,
+.notebook-list-head p, .notebook-list-count, .note-carousel-loading, .note-carousel-bar,
+.memo > header span, .info-grid dt, .info-tags h3, .link-group h3, .info-tag-class,
+.tag-provenance, .link-meta, .tag-pane-meta, .chat-role, .composer-help,
+.new-conversation-boundary, .search-snippet, .server-connection > p,
+.login-lead, .login-label, .login-help, .loading-state, .empty-state,
+.note-search-empty, .note-search-snippet, .note-search-meta,
+.learning-welcome, .learning-starters .pane-empty { color: var(--muted); }
+.reader-title h1, .notebook-list-head h1, .search-head h1, .config-section h2,
+.note-modal h2, .empty-state strong, .markdown-body .md-heading {
+  color: var(--ink); font-family: inherit; font-weight: 650; letter-spacing: -.02em;
+}
+.notebook-list-head h1 { font-size: clamp(22px, 3vw, 30px); }
+.notebook-card-main strong, .notebook-tree-title, .reader-note-title,
+.learning-context strong, .learning-welcome h2, .info-grid dd, .config-preview,
+.notebook-create-form label, .note-capture label, .user-agent-form label,
+.user-agent-status, .server-connection > label, .markdown-body { color: var(--ink); }
+.empty-state > span, .tree-icon, .tag-pane-name { color: var(--green-ink); }
+.loader { border-color: var(--line); border-top-color: var(--green-focus); }
+
+.tree-row, .tree-group { color: var(--muted); }
+.tree-row.selected { color: var(--green-ink); background: var(--green-selected); }
+.tree-label:hover, .toc-entry:hover, .toc-disclosure:hover { background: var(--green-selected) !important; }
+.tree-twisty, .toc-entry, .toc-disclosure { color: var(--muted) !important; }
+.toc-notebook { color: var(--ink) !important; }
+.toc-entry.active {
+  color: var(--green-ink) !important; border-left-color: var(--green-focus) !important;
+  background: var(--green-selected) !important;
+}
+.tree-count { color: var(--muted); background: var(--green-selected); }
+.chatbook .notebook-card { border-bottom-color: var(--line) !important; }
+.chatbook .notebook-card:hover, .chatbook .notebook-card:focus-visible { background: var(--green-soft) !important; }
+.reader-note { border-color: var(--line); }
+.reader-note:hover { border-color: var(--green-line); background: var(--surface-subtle); }
+.reader-note.selected { border-color: var(--green-line); background: transparent; box-shadow: none; }
+.reader-note-selected, .folder-chip, .tag-pane-meta em, .chat-badge {
+  border-color: var(--line); border-radius: 3px; color: var(--green-ink); background: var(--green-soft);
+}
+.folder-chip button { color: var(--green-ink) !important; }
+.category-filter { border-color: var(--line) !important; color: var(--muted) !important; background: var(--surface) !important; }
+.category-filter.active { border-color: var(--green-line) !important; color: var(--green-ink) !important; background: var(--green-selected) !important; }
+.reader-onboarding .notebook-create > button, .notebook-create > button {
+  color: var(--ink); border-color: var(--green-line); background: var(--green-primary);
+}
+.reader-onboarding .notebook-create > button:hover { background: var(--green-hover); }
+.study-note-button[aria-pressed="true"] { color: var(--green-ink); border-color: var(--green-focus); background: var(--green-selected); }
+
+/* Notes, chat, forms, and supporting dialogs use the same surface palette. */
+.memo, .chat-message, .info-grid div, .config-section, .login-card,
+.note-modal, .tag-select-popover, .chat.chat-expanded {
+  color: var(--ink); border-color: var(--line); border-radius: 4px; background: var(--surface);
+}
+.chat-user { background: var(--green-soft); }
+.memo-composer { border-color: var(--green-line); border-radius: 4px; background: var(--surface); }
+.chatbook .composer-main textarea, .chatbook .composer-model,
+.chatbook .note-capture textarea, .chatbook .note-editor textarea { background: transparent; }
+.composer-icon.selected, .composer-submit {
+  color: var(--ink) !important; background: var(--green-primary) !important;
+}
+.composer-icon.selected:hover:not(:disabled), .composer-submit:hover:not(:disabled) { background: var(--green-hover) !important; }
+.memo-note-ref { color: var(--green-ink) !important; border-color: var(--green-line) !important; }
+.memo-note-ref:disabled { color: var(--muted) !important; }
+.config-preview { border-color: var(--line); }
+.search-result, .note-search-results button, .link-list button {
+  color: var(--ink) !important; border-color: var(--line) !important; background: var(--surface) !important;
+}
+.search-result:hover:not(:disabled), .note-search-results button:hover:not(:disabled), .link-list button:hover:not(:disabled) {
+  border-color: var(--green-line) !important; background: var(--green-soft) !important;
+}
+.markdown-body .md-quote { border-color: var(--green-line); color: var(--muted); }
+.markdown-body .md-code, .markdown-body .md-inline-code, .login-help pre {
+  color: var(--ink); border-color: var(--line); background: var(--surface-subtle);
+}
+.markdown-body a { color: var(--green-ink); }
+.markdown-body .tag-term { color: var(--green-ink) !important; text-decoration-color: var(--green-focus); }
+.markdown-body .tag-term:hover, .markdown-body .tag-term:focus-visible, .tag-chip-open:hover { color: var(--ink) !important; }
+.markdown-body hr { background: var(--line); }
+.note-carousel-stage { border-color: var(--line); background: var(--surface-subtle); }
+.note-images-arrow, .note-carousel-arrow { color: var(--green-ink) !important; background: var(--green-soft) !important; }
+.note-images-arrow:hover, .note-carousel-arrow:hover:not(:disabled) { color: var(--ink) !important; background: var(--green-selected) !important; }
+.note-modal-backdrop { background: rgb(32 53 41 / 30%); }
+.note-modal { box-shadow: 0 20px 60px rgb(32 53 41 / 16%); }
+.tag-select-popover { box-shadow: 0 8px 24px rgb(32 53 41 / 14%); }
+.notes-message { color: var(--green-ink); border-color: var(--green-line); background: var(--green-soft); }
+.error-banner { color: var(--danger-ink); border-color: #e4b9bd; background: #fff5f5; }
+.note-inline-error, .login-failure { color: var(--danger-ink); }
+.chat-badge.status-failed { color: var(--danger-ink); border-color: #e4b9bd; background: #fff5f5; }
+.chat-banner, .note-readonly-badge, .chat-badge.status-unavailable {
+  color: var(--warning-ink); border-color: var(--warning-line); background: #fff8e7;
+}
+.lock-toggle[aria-pressed="true"] { color: var(--warning-ink) !important; border-color: var(--warning-line) !important; }
+
+@media (max-width: 800px) {
+  .note-modal { border-radius: 8px 8px 0 0; }
+}

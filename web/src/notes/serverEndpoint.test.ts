@@ -26,6 +26,18 @@ function memoryStorage(initial?: string, credential?: string) {
 }
 
 describe('native server endpoint', () => {
+  test('permits configured HTTP and HTTPS hosts on any port in the native shell', async () => {
+    const capabilityUrl = new URL('../../src-tauri/capabilities/default.json', import.meta.url)
+    const capability = await Bun.file(capabilityUrl).json() as {
+      permissions: Array<string | { identifier: string; allow: Array<{ url: string }> }>
+    }
+    const permission = capability.permissions.find(
+      (entry): entry is { identifier: string; allow: Array<{ url: string }> } =>
+        typeof entry !== 'string' && entry.identifier === 'http:default',
+    )
+    expect(permission?.allow.map((entry) => entry.url)).toEqual(['http://*:*', 'https://*:*'])
+  })
+
   test('normalizes HTTP server origins', () => {
     expect(normalizeServerEndpoint(' https://notes.example.test/ '))
       .toBe('https://notes.example.test')

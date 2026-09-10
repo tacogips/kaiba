@@ -22,4 +22,22 @@ describe('session writing drafts', () => {
     expect(old.text()).toBe('')
     expect(drafts.get('note:first').text()).toBe('')
   })
+
+  test('detects only content that would be lost on reload', () => {
+    const drafts = createWritingDrafts()
+    const edit = drafts.get('edit:note')
+    edit.setText('Current server text')
+    edit.setBaseText('Current server text')
+    expect(drafts.hasUnsavedChanges()).toBe(false)
+    edit.setText('My revision')
+    expect(drafts.hasUnsavedChanges()).toBe(true)
+    edit.setText('Current server text')
+    expect(drafts.hasUnsavedChanges()).toBe(false)
+
+    const discussion = drafts.get('discussion:note')
+    discussion.setFiles([new File(['source'], 'source.txt', { type: 'text/plain' })])
+    expect(drafts.hasUnsavedChanges()).toBe(true)
+    drafts.clear()
+    expect(drafts.hasUnsavedChanges()).toBe(false)
+  })
 })

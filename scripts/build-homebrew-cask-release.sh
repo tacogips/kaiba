@@ -30,6 +30,7 @@ Optional environment:
   SWIFT_SDKROOT         Defaults to Xcode's macOS SDK path.
   NOTARYTOOL            Defaults to Xcode's notarytool.
   STAPLER               Defaults to Xcode's stapler.
+  CASK_WEB_ROOT          Prebuilt SPA directory to embed instead of building web/dist.
 
 Examples:
   scripts/build-homebrew-cask-release.sh --dry-run darwin-arm64 darwin-x64
@@ -221,6 +222,19 @@ swift_build_product() {
   )
 }
 
+prepare_web_root() {
+  local web_root
+  web_root="$1"
+  if [[ -z "${CASK_WEB_ROOT:-}" ]]; then
+    require_command bun
+    ( cd "$repo_root/web" && bun run build )
+  fi
+  if [[ ! -f "$web_root/index.html" ]]; then
+    printf 'cask web root has no index.html: %s\n' "$web_root" >&2
+    return 1
+  fi
+}
+
 assert_codesigning_identity() {
   local identity
   identity="$1"
@@ -228,10 +242,11 @@ assert_codesigning_identity() {
 }
 
 print_plan() {
-  local version target release_dir work_dir dmg_path staged_binary triple install_prefix
+  local version target release_dir web_root work_dir dmg_path staged_binary triple install_prefix
   version="$1"
   target="$2"
   release_dir="$3"
+  web_root="$4"
   work_dir="$release_dir/work/$artifact_name-$version-$target"
   dmg_path="$release_dir/$artifact_name-$version-$target.dmg"
   staged_binary="$work_dir/$product"
@@ -248,6 +263,7 @@ print_plan() {
   printf '  cask install prefix: %s\n' "$install_prefix"
   printf '  staged signed binary: %s\n' "$staged_binary"
   printf '  staged signed app bundle: %s/%s\n' "$work_dir" "$app_bundle_name"
+  printf '  bundled learning notebook UI: %s\n' "$web_root"
   printf '  notarized DMG: %s\n' "$dmg_path"
   printf '  checksum: %s.sha256\n' "$dmg_path"
   printf '  required Apple env: APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID\n'
@@ -255,10 +271,11 @@ print_plan() {
 }
 
 build_target() {
-  local version target release_dir work_dir dmg_path staged_binary bin_path notarytool stapler
+  local version target release_dir web_root work_dir dmg_path staged_binary bin_path notarytool stapler
   version="$1"
   target="$2"
   release_dir="$3"
+  web_root="$4"
   work_dir="$release_dir/work/$artifact_name-$version-$target"
   dmg_path="$release_dir/$artifact_name-$version-$target.dmg"
   staged_binary="$work_dir/$product"
@@ -295,7 +312,9 @@ build_target() {
   swift_build_product "$target" "$product_app"
   local app_dir
   app_dir="$work_dir/$app_bundle_name"
-  "$script_dir/assemble-macos-app-bundle.sh" "$bin_path/$product_app" "$version" "$work_dir" >/dev/null
+  "$script_dir/assemble-macos-app-bundle.sh" \
+    "$bin_path/$product_app" "$version" "$work_dir" "$web_root" >/dev/null
+  test -f "$app_dir/Contents/Resources/web/index.html"
   # Sign the nested executable first, then the bundle, under the hardened runtime.
   codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" \
     "$app_dir/Contents/MacOS/$product_app"
@@ -338,11 +357,16 @@ main() {
     return 1
   fi
 
-  local version release_dir
+  local version release_dir web_root
   version="$(package_version)"
   validate_version "$version"
   release_dir="$(absolute_path "${CASK_RELEASE_DIR:-dist/homebrew-cask}")"
   validate_release_dir "$release_dir"
+  web_root="$(absolute_path "${CASK_WEB_ROOT:-web/dist}")"
+
+  if [[ "$dry_run" != true ]]; then
+    prepare_web_root "$web_root"
+  fi
 
   local -a targets
   if [[ "$#" -eq 0 ]]; then
@@ -355,10 +379,10 @@ main() {
   for target in "${targets[@]}"; do
     validate_target "$target"
     if [[ "$dry_run" == true ]]; then
-      print_plan "$version" "$target" "$release_dir"
+      print_plan "$version" "$target" "$release_dir" "$web_root"
     else
       mkdir -p "$release_dir"
-      build_target "$version" "$target" "$release_dir"
+      build_target "$version" "$target" "$release_dir" "$web_root"
     fi
   done
 

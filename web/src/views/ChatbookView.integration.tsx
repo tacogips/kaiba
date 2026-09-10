@@ -62,8 +62,9 @@ describe('ChatbookView authentication surface', () => {
       addListener: (listener: () => void) => { listeners.add(listener) },
       removeListener: (listener: () => void) => { listeners.delete(listener) },
     }
+    const folder = { tagId: 'research', name: 'Research', classId: 'folder' }
     const notebook = { type: 'DOCUMENT', notebookId: notebookId('learning'), title: 'Neural networks',
-      readOnly: false, createdAt: '2026-09-07', updatedAt: '2026-09-07', tags: [] }
+      readOnly: false, createdAt: '2026-09-07', updatedAt: '2026-09-07', tags: [{ tag: folder, deletable: true }] }
     const note = { noteId: noteId('first-note'), notebookId: notebook.notebookId, noteNumber: 1,
       title: 'My first thought', bodyMarkdown: 'How does a neuron learn?', readOnly: false,
       createdAt: '2026-09-07', updatedAt: '2026-09-07', tags: [] }
@@ -73,7 +74,7 @@ describe('ChatbookView authentication surface', () => {
     let finishSave: (() => void) | undefined
     let sent = 0
     const api = client({
-      tags: async () => [], tagClasses: async () => [], notebooks: async () => created ? [notebook] : [],
+      tags: async () => [folder], tagClasses: async () => [], notebooks: async () => created ? [notebook] : [],
       notebook: async () => notebook, note: async () => note,
       notes: async () => saved ? [note] : [], noteFiles: async () => [],
       noteComments: async () => [], notebookComments: async () => [],
@@ -93,19 +94,22 @@ describe('ChatbookView authentication surface', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const dispose = render(() => <AppStoreProvider options={{ client: api, router }}><ChatbookView /></AppStoreProvider>, host)
-    const button = (label: string) => Array.from(host.querySelectorAll('button')).find((item) => item.textContent === label)!
+    const button = (label: string) => Array.from(host.querySelectorAll('button')).find((item) => (item.getAttribute('aria-label') ?? item.textContent) === label)!
     try {
       await settle()
       button('New notebook').click()
       const title = host.querySelector<HTMLInputElement>('.notebook-create input')!
       title.value = notebook.title
       title.dispatchEvent(new Event('input', { bubbles: true }))
-      host.querySelector<HTMLButtonElement>('#center-tab-notebook')!.click()
-      host.querySelector<HTMLButtonElement>('#center-tab-list')!.click()
+      host.querySelector<HTMLButtonElement>('.pane-left .pane-fold')!.click()
+      host.querySelector<HTMLButtonElement>('.pane-left .rail-button')!.click()
       expect(host.querySelector<HTMLInputElement>('.notebook-create input')?.value).toBe(notebook.title)
       host.querySelector('.notebook-create form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await settle()
       expect(hash).toBe('#/notebook/learning')
+      button('Expand Research').click()
+      expect(host.querySelector('.pane-left [role="tree"]')?.textContent).toContain(notebook.title)
+      expect(button('Collapse Neural networks')).toBeDefined()
       const draft = host.querySelector<HTMLTextAreaElement>('.note-capture textarea')!
       draft.value = note.bodyMarkdown
       draft.dispatchEvent(new Event('input', { bubbles: true }))
@@ -114,8 +118,15 @@ describe('ChatbookView authentication surface', () => {
       await settle()
       expect(draft.value).toBe(note.bodyMarkdown)
       expect(host.querySelector('.note-capture [role="alert"]')?.textContent).toContain('Connection lost')
-      host.querySelector<HTMLButtonElement>('#center-tab-list')!.click()
-      host.querySelector<HTMLButtonElement>('#center-tab-notebook')!.click()
+      router.setHash('#/')
+      expect(host.querySelector('.reader-empty-selection')?.textContent).toContain('Continue learning')
+      expect(host.querySelector('.reader-onboarding')).toBeNull()
+      button('Browse notebooks').click()
+      expect(host.querySelector<HTMLElement>('.chatbook-grid')?.dataset.mobilePane).toBe('files')
+      const notebookLink = Array.from(host.querySelectorAll<HTMLButtonElement>('.pane-left .tree-label'))
+        .find((item) => item.textContent?.includes(notebook.title))!
+      notebookLink.click()
+      await settle()
       expect(host.querySelector<HTMLTextAreaElement>('.note-capture textarea')?.value).toBe(note.bodyMarkdown)
       save()
       await settle()
@@ -137,7 +148,7 @@ describe('ChatbookView authentication surface', () => {
       expect(host.querySelector('.learning-context')?.textContent).toContain(note.title)
       host.querySelector<HTMLElement>('.reader-note')!.click()
       expect(hash).toBe('#/note/first-note')
-      button('Study whole notebook').click()
+      button('Notebook context').click()
       await settle()
       expect(hash).toBe('#/notebook/learning')
       host.querySelector<HTMLButtonElement>('.study-note-button')!.click()
@@ -269,6 +280,53 @@ describe('ChatbookView authentication surface', () => {
       await settle()
       expect(host.querySelector('.chatbook')).not.toBeNull()
       expect(host.querySelector('.login-view')).toBeNull()
+      expect(host.querySelector('main [role="tablist"]')).toBeNull()
+      expect(host.querySelector('main .notebook-list-view')).toBeNull()
+      expect(host.querySelector('.pane-left [role="tree"]')).not.toBeNull()
+      expect(host.querySelector('.pane-left .notebook-create')).not.toBeNull()
+      expect(host.querySelector('.reader-onboarding')?.textContent).toContain('Start with something you want to understand')
+      expect(host.querySelector<HTMLButtonElement>('.reader-onboarding [aria-label="Create your first notebook"]')).not.toBeNull()
+      expect(host.querySelector('.reader-onboarding')?.textContent).toContain('Open an existing note')
+      host.querySelector<HTMLButtonElement>('[aria-label="Links"]')!.click()
+      expect(host.querySelector('#right-tab-links')?.getAttribute('aria-selected')).toBe('true')
+      host.querySelector<HTMLButtonElement>('[aria-label="AI"]')!.click()
+      expect(host.querySelector('#right-tab-memo')?.getAttribute('aria-selected')).toBe('true')
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', metaKey: true, cancelable: true }))
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    } finally {
+      dispose()
+      host.remove()
+    }
+  })
+
+  test('warns before discarding a draft and makes a cancelled notebook draft discoverable', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => (
+      <AppStoreProvider options={{ client: open() }}>
+        <ChatbookView />
+      </AppStoreProvider>
+    ), host)
+    const button = (label: string) => Array.from(host.querySelectorAll('button'))
+      .find((item) => (item.getAttribute('aria-label') ?? item.textContent?.trim()) === label)!
+    try {
+      await settle()
+      const cleanUnload = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(cleanUnload)
+      expect(cleanUnload.defaultPrevented).toBe(false)
+
+      button('New notebook').click()
+      const title = host.querySelector<HTMLInputElement>('.notebook-create input')!
+      title.value = 'Still learning this'
+      title.dispatchEvent(new Event('input', { bubbles: true }))
+      const dirtyUnload = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(dirtyUnload)
+      expect(dirtyUnload.defaultPrevented).toBe(true)
+
+      button('Cancel').click()
+      expect(button('Resume notebook draft')).toBeDefined()
+      button('Resume notebook draft').click()
+      expect(host.querySelector<HTMLInputElement>('.notebook-create input')?.value).toBe('Still learning this')
     } finally {
       dispose()
       host.remove()

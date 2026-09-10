@@ -67,10 +67,11 @@ so there was no `.app` to launch at all.
   operate one store. Auth (the JWT signing key, `api_clients`) is shared for
   free because it lives in that store.
 
-- **M6 — Optional bundled SPA.** If the app bundle carries the built reader at
-  `Contents/Resources/web`, the runtime serves it as the web root and "Open web
-  UI" lands on the reader; otherwise the menu still opens the API endpoint. The
-  bundle works with or without the SPA staged.
+- **M6 — Bundled learning notebook.** Release app bundles carry the built reader
+  at `Contents/Resources/web`, so the runtime serves it as the web root and
+  "Open web UI" lands on the learning notebook. The low-level assembly script
+  still accepts a server-only bundle for development, but the Cask builder
+  rejects a release bundle without the embedded entry point.
 
 - **M7 — Clean shutdown.** Quit stops the runtime (releasing the port and
   closing the sqlite handle) before `NSApplication.terminate`, so a relaunch
@@ -94,10 +95,11 @@ so there was no `.app` to launch at all.
 - `scripts/assemble-macos-app-bundle.sh` — pure, unsigned bundle staging from a
   built `KaibaApp` binary (and optional built SPA). Runs locally without Apple
   credentials, so the bundle layout is testable.
-- `scripts/build-homebrew-cask-release.sh` — builds the `KaibaApp` release
-  product per target, assembles the bundle, signs the nested executable and then
-  the `.app` under the hardened runtime, and stages `Kaiba.app` into the same
-  DMG as the `kaiba` CLI. The existing notarize/staple/`spctl` flow is unchanged.
+- `scripts/build-homebrew-cask-release.sh` — builds the web client once, builds
+  the `KaibaApp` release product per target, embeds the learning notebook,
+  asserts its entry point exists, signs the nested executable and then the
+  `.app` under the hardened runtime, and stages `Kaiba.app` into the same DMG as
+  the `kaiba` CLI. The existing notarize/staple/`spctl` flow is unchanged.
 - `scripts/render-homebrew-cask.sh` — the cask now declares both
   `app "Kaiba.app"` and `binary "kaiba"`, so `brew install --cask kaiba` puts
   Kaiba in `/Applications` and links the CLI into the Homebrew prefix.
@@ -129,5 +131,7 @@ so there was no `.app` to launch at all.
   `registrationURL=` banner it always did (now sourced from the runtime).
 - `scripts/assemble-macos-app-bundle.sh` produces a bundle whose `Info.plist`
   carries the version and `LSUIElement`, verified with `PlistBuddy`.
-- `scripts/build-homebrew-cask-release.sh --dry-run` lists the staged app
-  bundle; `scripts/render-homebrew-cask.sh` emits a cask with `app "Kaiba.app"`.
+- `scripts/build-homebrew-cask-release.sh --dry-run` lists the staged app bundle
+  and bundled UI root; an unsigned assembly check verifies
+  `Contents/Resources/web/index.html`; `scripts/render-homebrew-cask.sh` emits a
+  cask with `app "Kaiba.app"`.

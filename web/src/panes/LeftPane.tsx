@@ -1,18 +1,12 @@
-import { Show, createMemo, type JSX } from 'solid-js'
-import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
+import { Show, type JSX } from 'solid-js'
+import { NotebookCreate } from '../components/NotebookCreate'
 import { FileTreeTab } from '../components/FileTreeTab'
 import { TocTab } from '../components/TocTab'
 import { useApp } from '../state/appStore'
-import type { LeftTab } from '../state/paneState'
 
 export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void } = {}): JSX.Element {
   const app = useApp()
   const hasContents = () => Boolean(app.state.notebookId || app.state.note)
-  const tabs = createMemo<readonly TabDescriptor<LeftTab>[]>(() => [
-    { value: 'files', label: 'Library' },
-    { value: 'contents', label: 'Contents', disabled: !hasContents() },
-  ])
-  const activeTab = (): LeftTab => hasContents() ? app.state.pane.leftTab : 'files'
   return (
     <aside class="pane pane-left" aria-label="Library and contents">
       <Show
@@ -26,18 +20,12 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
               aria-expanded={false}
               onClick={app.toggleLeftPane}
             >›</button>
-            <span class="rail-label">Library</span>
+            <span class="rail-label">Notebooks</span>
           </div>
         }
       >
         <div class="pane-head">
-          <Tabs
-            label="Library and contents"
-            tabs={tabs()}
-            active={activeTab()}
-            idPrefix="left"
-            onSelect={app.setLeftTab}
-          />
+          <span class="notebook-tree-title">Notebooks</span>
           <button
             type="button"
             class="pane-fold"
@@ -50,12 +38,14 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
           >‹</button>
         </div>
         <div class="pane-body">
-          <TabPanel idPrefix="left" value="files" active={activeTab()}>
-            <FileTreeTab onNavigate={props.onNavigate} />
-          </TabPanel>
-          <TabPanel idPrefix="left" value="contents" active={activeTab()}>
-            <TocTab onNavigate={props.onNavigate} />
-          </TabPanel>
+          <NotebookCreate onCreated={props.onNavigate} />
+          <FileTreeTab onNavigate={props.onNavigate} />
+          <Show when={hasContents()}>
+            <details class="notebook-outline">
+              <summary>Outline</summary>
+              <TocTab onNavigate={props.onNavigate} />
+            </details>
+          </Show>
         </div>
       </Show>
     </aside>

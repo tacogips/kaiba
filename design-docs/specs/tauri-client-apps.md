@@ -91,7 +91,7 @@ without a phone-specific layout branch.
 
 ## Native permissions
 
-The Tauri capability permits `http://**` and `https://**` because the actual
+The Tauri capability permits `http://*:*` and `https://*:*` because the actual
 host is user-configurable and cannot be enumerated at build time. Endpoint
 validation is therefore the effective guard on which origins the app contacts.
 The HTTP plugin is built with no extra features. `unsafe-headers`, which lifts

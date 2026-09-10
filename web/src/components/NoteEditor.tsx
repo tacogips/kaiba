@@ -22,6 +22,7 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
       }
       await app.client.updateNote(props.note.noteId, record.text())
       record.setText('')
+      record.setBaseText(undefined)
       setOpen(false)
       await app.refreshCatalog()
       app.setMessage('Note updated.')
@@ -62,7 +63,6 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
             } catch (error) { record.setError(errorMessage(error)) }
             finally { record.setBusy(false) }
           }}>Discard draft and load latest text</button></Show>
-          <p class="composer-help">Markdown is supported. Changes update this note in your shared knowledge store.</p>
         </form>
       </Show>
     </div>
