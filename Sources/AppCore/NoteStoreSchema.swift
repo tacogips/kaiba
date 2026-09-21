@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 20
+  public static let currentVersion = 21
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -209,8 +209,9 @@ public enum NoteStoreSchema {
     )
   }
 
-  /// Version 19 receives a narrow credential-table upgrade preserving keys.
-  /// Other legacy schemas still require recreation.
+  /// Versions 19 and 20 can each represent one side of the schema changes
+  /// merged into version 21. Upgrade both additions idempotently so stores
+  /// created by either line preserve their credentials and tag bindings.
   private static func requireSupportedVersion(in database: SQLiteDatabase) throws {
     guard let newest = try appliedSchemaVersions(in: database).max() else {
       return
@@ -218,8 +219,8 @@ public enum NoteStoreSchema {
     if newest > currentVersion {
       throw NoteStoreSchemaError.unsupportedFutureVersion(found: newest, supported: currentVersion)
     }
-    if newest == 19 {
-      try upgradeSubscriptionCredentials(in: database)
+    if newest == 19 || newest == 20 {
+      try upgradeToVersion21(in: database)
       return
     }
     if newest < currentVersion {
@@ -227,7 +228,7 @@ public enum NoteStoreSchema {
     }
   }
 
-  private static func upgradeSubscriptionCredentials(in database: SQLiteDatabase) throws {
+  private static func upgradeToVersion21(in database: SQLiteDatabase) throws {
     guard let statement = schemaStatements.first(where: { $0.contains("CREATE TABLE IF NOT EXISTS user_agent_credentials (") }) else {
       throw NoteStoreSchemaError.storeInvariant("missing credential schema")
     }
@@ -236,6 +237,13 @@ public enum NoteStoreSchema {
       try db.execute(statement)
       try db.execute("INSERT INTO user_agent_credentials SELECT * FROM user_agent_credentials_v19")
       try db.execute("DROP TABLE user_agent_credentials_v19")
+      let tagColumns = try db.query("PRAGMA table_info(tags)")
+      if !tagColumns.contains(where: { $0["name"] == "canonical_note_id" }) {
+        try db.execute(
+          "ALTER TABLE tags ADD COLUMN canonical_note_id TEXT REFERENCES notes(note_id) ON DELETE SET NULL"
+        )
+      }
+      try db.execute("CREATE INDEX IF NOT EXISTS idx_tags_canonical_note ON tags(canonical_note_id)")
       try recordSchemaVersion(currentVersion, in: db)
     }
   }
