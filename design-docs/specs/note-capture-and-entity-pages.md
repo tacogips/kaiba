@@ -14,6 +14,45 @@ planning run, verified against `Sources/AppCore/NoteService+ActionHistory.swift`
 and the `tags` DDL, and is ratified as part of this design. The matching entry
 lives in the plan's progress log.
 
+Accepted deltas (2026-09-21, resumed-run design step; each closes a TASK-000
+finding recorded in `tmp/note-capture-entity-pages-20260921-opus3/TASK-000/progress.md`):
+
+- **C3 delta (closes F-000-2).** The Quick Memos singleton is scoped **per
+  write principal** — one notebook per `(owner_user_id, library_id)` pair as
+  bound by `writeOwnerUserId()` / `writeLibraryId()`, exactly the identity
+  `ensureQuickMemoNotebook`'s insert already records. The lookup
+  `quickMemoNotebookIds` must filter by that same scope; the multi-holder
+  invariant applies within the scope only. Rationale: the store-wide lookup
+  combined with `requireNotebookOwnership` made the first capturing account
+  the sole owner and every other account's capture fail forever; per-principal
+  scoping matches the per-user bearer credential and needs no operator-service
+  bypass. Amended text in C3 below.
+- **C6 delta (closes F-000-1 and F-000-3).** The contract adds **500** (the
+  existing generic internal-error body) for any failure the note service
+  raises on a request the route has already validated — including the C3
+  singleton-invariant violation, which is a store defect, not a caller error.
+  The route's `400` is produced **only** by the route's own body validation;
+  the blanket `invalidInput → 400` mapping is removed. The previously
+  implemented `404` arm (foreign singleton) is **removed** as unreachable
+  under the C3 delta, together with its message constant and test. Amended
+  text in C6 below.
+- **C4 delta (closes F-000-6).** `ensureQuickMemoNotebook` publishes a
+  `notebookCreated` change event on the run that actually creates the
+  notebook (once ever per notebook), because `note-created` names a notebook
+  id a viewer that never listed the notebook cannot interpret. Amended text
+  in C4 below.
+- **E6 delta (closes F-000-4).** `coOccurringTags` takes its limit as the
+  root-field argument `tagDetail(tagId: String!, coOccurringTagLimit: Int)`
+  rather than a nested field argument: this executor resolves a payload
+  eagerly and then projects it, so nested field arguments are structurally
+  unsupported. Nested-argument use is rejected and pinned by test. Amended
+  text in E6 below.
+
+The E4/E5 aggregation implementation threads the requested limit through
+`NoteService.tagDetail(tagId:coOccurringTagLimit:)` so a non-default limit
+computes the co-occurrence aggregate once, not twice (closes F-000-5; no
+contract change).
+
 ## Summary
 
 Two additions to the note subsystem, planned together as one work package:
@@ -63,7 +102,7 @@ symbol in this tree:
   (`kaiba serve --allow-unauthenticated`, `Sources/AppCore/Command.swift`).
   Standard error bodies: `noteAPIUnauthorizedResponse` (401) and
   `noteAPIUnavailableResponse` (503).
-- **The registration page precedent.** `KaibaNoteFileHTTPRouterChain.response(for:)`
+- **The registration page precedent.** `KaibaStaticSPAHTTPRouter.response(for:)`
   (`Sources/AppServer/KaibaStaticAssetResolver.swift`) special-cases
   `GET /note/register` to serve the SPA bootstrap (path rewritten to `/`),
   because `/note` is otherwise a service prefix (`isKaibaSPAServicePath`).
@@ -130,7 +169,14 @@ symbol in this tree:
   notebooks carrying the kind tag via `idx_notebook_tags_tag`, errors if
   more than one, returns the existing one, otherwise creates a notebook
   titled `Quick Memos` and applies the kind tag (`provenance: .system`,
-  `deletable: false`). *Rejected alternatives:* title lookup (titles are
+  `deletable: false`). *(Amended 2026-09-21, C3 delta:)* the singleton is
+  scoped per write principal: the lookup joins `notebooks` and filters
+  `owner_user_id = writeOwnerUserId() AND library_id = writeLibraryId()`,
+  the same identity the creation insert binds, so every account (user in its
+  active library) finds or creates **its own** Quick Memos notebook and the
+  multi-holder invariant is evaluated within that scope. A different
+  account's holder is invisible, never an error and never reachable.
+  *Rejected alternatives:* title lookup (titles are
   user-mutable and not unique); reusing `notebook-kind:user-memo`
   (per-comment memo notebooks, different lifecycle); reusing the
   long-term-memory notebook (guarded, curated by consolidation).
@@ -141,6 +187,11 @@ symbol in this tree:
   existing outbox (auto-tagging applies to captured notes with zero new
   mechanism) and `publishChange` feeds `GET /note/events`, so an open viewer
   updates live. No capture-specific auto-action configuration.
+  *(Amended 2026-09-21, C4 delta:)* additionally, the run of
+  `ensureQuickMemoNotebook` that actually creates the notebook publishes one
+  `notebookCreated` change event, so a viewer that has never listed the
+  notebook learns it exists; subsequent captures publish only `createNote`'s
+  own `note-created`.
 - **C5 — The capture page is an SPA route.** `GET /note/capture` serves the
   SPA bootstrap through the same rewrite-to-`/` special case
   `GET /note/register` already uses in `KaibaNoteFileHTTPRouterChain`; the
@@ -161,6 +212,14 @@ symbol in this tree:
   - `405` — the existing unsupported-method body for known paths
   - `503` — exactly `noteAPIUnavailableResponse` when no `NoteService` is
     configured, matching the other note routes
+  - `500` — *(amended 2026-09-21, C6 delta)* the route's generic
+    internal-error body for any error the note service raises on a request
+    the route has already validated, including the C3 singleton-invariant
+    violation ("multiple notebooks carry notebook-kind:quick-memo" within
+    the caller's scope): that is a store defect and must not be reported as
+    a client 400. The route's `400` is produced only by the route's own body
+    validation. The earlier working-material `404` arm (foreign singleton)
+    is removed as unreachable under the per-principal C3 delta.
   Oversized bodies are rejected by the existing parser before routing.
 - **C7 — Security posture is unchanged.** Plain HTTP on the LAN, bearer
   tokens in the `Authorization` header, requests scoped to
@@ -234,8 +293,14 @@ symbol in this tree:
   center-reader page — it would duplicate the pane's data wiring and split
   the tag destination across two surfaces.
 - **E6 — GraphQL surface.** `tagDetail` payload gains `canonicalNote`
-  (nullable note projection) and `coOccurringTags(limit)` (list of
-  `{ tag, count }`); new mutations `promoteTagNote(input: { tagId, noteId })`
+  (nullable note projection) and `coOccurringTags` (list of
+  `{ tag, count }`); *(amended 2026-09-21, E6 delta)* the limit is the
+  root-field argument `tagDetail(tagId: String!, coOccurringTagLimit: Int)`
+  — this executor resolves a payload eagerly and then projects it, so
+  nested field arguments are structurally unsupported; a nested-argument
+  selection is rejected (pinned by test) and the limit is threaded through
+  `NoteService.tagDetail(tagId:coOccurringTagLimit:)` so the aggregate runs
+  once. New mutations `promoteTagNote(input: { tagId, noteId })`
   and `unpromoteTagNote(input: { tagId })` returning the existing
   `NoteMutationPayload` shape (`GraphQLContractProjector.swift`,
   executor cases in `NoteGraphQLDocumentExecutor.swift`, operation
@@ -263,10 +328,15 @@ symbol in this tree:
 
 ## Edge Cases
 
-- Two concurrent first captures: `ensureQuickMemoNotebook` is one
-  serialized transaction; both return the same notebook, one creation event.
-- A second notebook manually tagged `notebook-kind:quick-memo`: ensure fails
-  loudly (same invariant and error shape as long-term memory).
+- Two concurrent first captures by the same principal:
+  `ensureQuickMemoNotebook` is one serialized transaction; both return the
+  same notebook, one creation event.
+- Captures from two different accounts: each resolves or creates its own
+  per-principal notebook (C3 delta); neither sees or errors on the other's.
+- A second notebook carrying `notebook-kind:quick-memo` **within one
+  principal's scope**: ensure fails loudly (same invariant shape as
+  long-term memory) and the capture route answers 500 (C6 delta), never a
+  400.
 - Quick Memos notebook deleted: next capture recreates it (find-or-create).
 - Capture with empty/whitespace `text`, non-object body, wrong
   content-type: 400 with the C6 body; oversized body: rejected by the

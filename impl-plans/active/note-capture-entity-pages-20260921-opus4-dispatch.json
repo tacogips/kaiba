@@ -1,0 +1,138 @@
+{
+  "taskId": "note-capture-entity-pages-20260921-opus4",
+  "workflowMode": "fable-and-improve-opus",
+  "implementationBranch": "feat/note-capture-and-entity-pages",
+  "baseBranch": "feat/note-capture-and-entity-pages",
+  "remote": "origin",
+  "originalHead": "b5226d29852da177ae877f099118579f42408688",
+  "designDocPaths": [
+    "design-docs/specs/note-capture-and-entity-pages.md"
+  ],
+  "evidenceRoot": "tmp/note-capture-entity-pages-20260921-opus4",
+  "notes": {
+    "supersedes": "impl-plans/active/note-capture-entity-pages-20260921-opus3-dispatch.json (originalHead 83a4be5) is the record of the run that was killed by an external OOM; impl-plans/active/note-capture-entity-pages-20260921-dispatch.json is older still. Both are left untouched as history. THIS manifest is authoritative for the resumed run.",
+    "resumedRun": "TASK-000, TASK-001 and TASK-003 are already satisfied: TASK-000 completed with recorded evidence (24 files reviewed, 20 KEEP / 4 CORRECT / 0 REMOVE, build exit 0, 76 targeted tests 0 failures) and TASK-001/TASK-003 material from ba7ef12 carries a KEEP verdict. They are not dispatched; their checkboxes are checked in TASK-009's sweep citing that evidence plus green re-runs. Do not rewrite KEEP material.",
+    "ratifiedDeltas": "Four deltas are binding and already written into the design doc: C3 (per-write-principal Quick Memos singleton scoped by owner_user_id + library_id), C6 (contract 201/400/401/405/503/500; route-owned 400 only; 404 arm removed), C4 (once-only notebookCreated publish ratified), E6 (root-field coOccurringTagLimit argument). No further design decisions are permitted in implementation.",
+    "sharedPlanDocument": "impl-plans/active/note-capture-and-entity-pages.md holds every task definition and is READ-ONLY for workers. Its Progress Log and checkboxes are edited only in the serial reconciliation wave (TASK-009).",
+    "perPlanProgress": "Each plan writes its own progress file at progressPath under the untracked evidenceRoot; per-attempt logs go in <evidenceRoot>/<planId>/attempt-<n>/. No worker edits this manifest.",
+    "serialReconciliation": "Shared docs cross-references, the plan checkbox sweep, any broad formatting and the single commit/push belong to TASK-009.",
+    "sharedFiles": "web/src/state/appStore.tsx is touched by TASK-007 and TASK-008 — land TASK-007 first, then take a fresh read in TASK-008. Sources/AppCore/Command.swift (usage text) is touched by TASK-006 only.",
+    "environment": ".build/anydoc-native/ was cleaned after the OOM kill, so arch -arm64 /bin/zsh -lc 'mise run anydoc:native' must run once before any build or test. Every Swift command runs in an arm64 login shell with PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig exported; the default shell is Rosetta and the xctest bundle refuses to dlopen there. web/ uses bun via mise.",
+    "baselineProtocol": "A failure may be called pre-existing only after the identical filter is run on a clean checkout of bab58cd outside this worktree and both results are recorded. The prior run's swift-test-full.log is truncated at the kill and is NOT admissible evidence; the full suite must run to completion. Known pre-kill failure to re-check: AgentGatewayCLIInvokerLifecycleTests.testProductionZombieDescendantWaitsForDisappearanceWithoutSIGKILL.",
+    "commitPolicy": "AGENTS.md governs: no AI attribution or co-authorship lines, no emojis, no machine-local absolute paths in commit messages. Push only feat/note-capture-and-entity-pages (first push creates it on origin); never force push, reset or delete branches. Never commit .riela/ or tmp/. Never touch main, /Users/taco/gits/tacogips/kaiba, riela, or riela-worktrees."
+  },
+  "plans": [
+    {
+      "planId": "TASK-002",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus4/TASK-002/progress.md",
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/NoteService+QuickMemo.swift",
+        "Tests/AppCoreTests/QuickMemoCaptureTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "F-000-2 closed per the C3 delta: quickMemoNotebookIds joins notebooks and filters owner_user_id = writeOwnerUserId() AND library_id = writeLibraryId(), the same identity the creation insert binds (both predicates required — owner-only scoping would resurrect cross-library leakage); the multi-holder invariant is evaluated within that scope only. testASecondAccountCannotCaptureIntoAnotherAccountsQuickMemosNotebook is replaced by per-principal assertions: distinct notebooks per account, each containing only its own captures, no cross-visibility and no error. captureQuickMemo(bodyMarkdown:title:) still routes through createNote so auto-actions enqueue and a change event publishes; the once-only notebookCreated publish (C4 delta, F-000-6) stays as implemented and test-pinned. Concurrency/idempotency and per-scope duplicate-kind-tag failure tests pass.",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter QuickMemo'"
+    },
+    {
+      "planId": "TASK-005",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus4/TASK-005/progress.md",
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/NoteService+TagDetail.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+TagEntity.swift",
+        "Tests/AppGraphQLTests/TagEntityGraphQLTests.swift",
+        "Tests/AppCoreTests/TagEntityPageTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "F-000-5 closed: the co-occurrence limit is threaded through NoteService.tagDetail(tagId:coOccurringTagLimit:) as a defaulted parameter so NoteGraphQLService+TagEntity computes the aggregate once on a non-default limit instead of discarding and re-running it; every existing caller compiles against the default (build gate catches drift). F-000-4 recorded: the E6 root-field argument shape tagDetail(tagId: String!, coOccurringTagLimit: Int) is unchanged and a nested-argument selection stays rejected and pinned by test. promoteTagNote / unpromoteTagNote keep returning NoteMutationPayload with the operation allow-lists and GraphQLNoteSchemaContract doc string in agreement; the enforced GraphQL schema inventory is green.",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter \"TagEntity|NoteGraphQLSchemaInventory\"'"
+    },
+    {
+      "planId": "TASK-006",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus4/TASK-006/progress.md",
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/CommandTags.swift",
+        "Tests/AppCoreTests/CommandTests.swift"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/Command.swift"
+      ],
+      "acceptanceCriteria": "F-000-8 closed: when the positional argument of kaiba tag parses as a NoteID and resolves to no tag, the error restores the pre-ba7ef12 hint (tag requires --add <name> or --remove <name>) instead of the bare tag not found: note-…; covered by a new command test. The rest of the E7 surface (tag promote --tag --note, tag unpromote --tag, enriched kaiba tag <name-or-id>) is KEEP material and stays behaviourally unchanged. Sources/AppCore/Command.swift is edited for usage text only and by this plan only.",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter Command'"
+    },
+    {
+      "planId": "TASK-004",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus4/TASK-004/progress.md",
+      "dependsOn": [
+        "TASK-002"
+      ],
+      "writePaths": [
+        "Sources/AppServer/ServerContracts.swift",
+        "Tests/AppServerTests/NoteCaptureRouteTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "F-000-1 and F-000-3 closed per the C6 delta: the 404 arm, the noteCaptureNotebookUnavailableMessage constant and testASecondAccountAnswersAGeneric404ThatNamesNoForeignNotebook are deleted as unreachable under the C3 delta; the blanket catch NoteServiceError.invalidInput -> 400 mapping is removed so any service error on a route-validated request (including the singleton-invariant violation) answers the existing generic 500. The route's 400 must still be produced by the route's own body validation — tests pin both directions: blank/malformed body -> 400, invariant failure -> 500, second-account capture -> 201 into that account's own notebook. The route doc comment states the amended 201/400/401/405/503/500 contract; GET /note/capture still serves the SPA bootstrap via the /note/register rewrite pattern; authenticated and --allow-unauthenticated modes both covered.",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter NoteCaptureRoute'"
+    },
+    {
+      "planId": "TASK-007",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus4/TASK-007/progress.md",
+      "dependsOn": [
+        "TASK-004"
+      ],
+      "writePaths": [
+        "web/src/views/CaptureView.tsx",
+        "web/src/App.tsx"
+      ],
+      "sharedPaths": [
+        "web/src/state/appStore.tsx"
+      ],
+      "acceptanceCriteria": "New view web/src/views/CaptureView.tsx — the name NoteCapture.tsx is taken by an unrelated pre-existing inline composer and the canonical map in web/src/notes/controller.ts is a notebook cache; neither may be repurposed or collided with. Routing is hash-based while the C5 rewrite serves the app at path /note/capture with no hash, so App boot detects location.pathname === '/note/capture' and renders the capture view without disturbing existing hash routes (router tests guard). The view renders textarea plus submit and posts to POST /note/capture with the per-origin bearer credential stored by NoteGraphQLClient — registration reuses the existing ?code= initialize flow, no parallel mechanism; success shows the note id and clears the field; error bodies from the amended C6 contract render; a visitor with no stored credential gets the existing unregistered/registration surface. Vitest covers submit success, error body rendering and the unregistered path. Land this plan before TASK-008 (shared appStore.tsx).",
+      "verification": "cd web && mise exec -- bun run tsc --noEmit && mise exec -- bun test src && mise exec -- bun run lint"
+    },
+    {
+      "planId": "TASK-008",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus4/TASK-008/progress.md",
+      "dependsOn": [
+        "TASK-005",
+        "TASK-007"
+      ],
+      "writePaths": [
+        "web/src/components/TagPane.tsx"
+      ],
+      "sharedPaths": [
+        "web/src/state/appStore.tsx"
+      ],
+      "acceptanceCriteria": "Tag mode header per E5: canonical note excerpt with an open link when bound, promote control when unbound, the E3 create-description-note flow via ensureTagMemoNotebook, and co-occurring tag chips that navigate through the existing return stack. Data comes from the TASK-005 tagDetail surface with its coOccurringTagLimit root argument. Take a fresh read of web/src/state/appStore.tsx after TASK-007 lands and re-verify; never edit it concurrently with TASK-007. Vitest covers bound and unbound states and chip navigation.",
+      "verification": "cd web && mise exec -- bun run tsc --noEmit && mise exec -- bun test src && mise exec -- bun run lint && mise exec -- bun run build"
+    },
+    {
+      "planId": "TASK-009",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus4/TASK-009/progress.md",
+      "dependsOn": [
+        "TASK-002",
+        "TASK-004",
+        "TASK-005",
+        "TASK-006",
+        "TASK-007",
+        "TASK-008"
+      ],
+      "writePaths": [
+        "design-docs/specs/kaiba-note.md",
+        "impl-plans/active/note-capture-and-entity-pages.md"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "Serial reconciliation wave. kaiba-note.md HTTP API section lists /note/capture with the amended C6 status set (201/400/401/405/503/500). Every checkbox in the plan is checked with concrete per-box evidence in the Progress Log, including the recorded keep/correct/remove outcome for the starting material (24 files, 20 KEEP / 4 CORRECT / 0 REMOVE) and the TASK-000/001/003 evidence citations plus green re-runs. Residual doc fix: design-docs/specs/note-capture-and-entity-pages.md C5 still names the nonexistent KaibaNoteFileHTTPRouterChain at one remaining occurrence (line 197) — correct it to KaibaStaticSPAHTTPRouter and confirm no other doc references the stale symbol, completing F-000-7. The full Swift suite must run to COMPLETION in the foreground with the log retained (an interrupted log triggers a re-run, never a citation): zero failures, or each failure proven pre-existing by the identical filter on a clean checkout of bab58cd with both results recorded — the AgentGateway zombie-descendant test is explicitly re-checked. swiftlint via mise run lint shows no new violations against the 3 pre-existing baseline outside touched files. Smoke: kaiba serve plus curl POST/GET /note/capture (bearer, unauthenticated, malformed, invariant) asserting the amended C6 bodies, and a CLI promote confirmed to agree with GraphQL tagDetail. Then one commit set per AGENTS.md including this manifest, the design-doc edits and the plan (never .riela/ or tmp/), pushed only to feat/note-capture-and-entity-pages; main untouched.",
+      "verification": "arch -arm64 /bin/zsh -lc 'mise run anydoc:native' ; arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test' ; arch -arm64 /bin/zsh -lc 'mise run lint' ; cd web && mise exec -- bun run tsc --noEmit && mise exec -- bun test src && mise exec -- bun run lint && mise exec -- bun run build"
+    }
+  ]
+}
