@@ -100,6 +100,15 @@ export interface TagDetail {
   memoNotebookId: NotebookId | null
 }
 
+/** The `201` body of `POST /note/capture` (design-docs/specs/
+ * note-capture-and-entity-pages.md, C6): the quick memo the server wrote and
+ * the singleton Quick Memos notebook it resolved for this account. */
+export interface NoteCaptureResult {
+  noteId: NoteId
+  notebookId: NotebookId
+  noteNumber: number
+}
+
 /** A memo in a tag's cross-notebook history, attributed with the titles of
  * its anchoring note/notebook. */
 export interface TagComment {
