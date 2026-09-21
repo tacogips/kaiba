@@ -105,6 +105,9 @@ export interface AppStore {
   tagPaneTagId(): string | undefined
   /** Opens the right pane in tag mode for the tag. */
   openTagPane(tagId: TagId): void
+  /** Entity-page navigation between tags (a co-occurring chip): remembers the
+   * current location first, so Back walks back through the tags visited. */
+  openTagPaneWithReturn(tagId: TagId): void
   closeTagPane(): void
   /** Right-pane navigation that remembers where the reader was: pushes the
    * current route onto the return stack before jumping. */
@@ -411,6 +414,18 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     state.route.kind === 'note' || state.route.kind === 'notebook' ? state.route.conversationId : undefined
   const tagPaneTagId = () => routeTagId(state.route)
 
+  const openTagPaneRoute = (tagId: TagId) => {
+    // The pane must be visible for the selection to mean anything.
+    if (!state.pane.rightOpen) setPane({ ...state.pane, rightOpen: true })
+    if (state.route.kind === 'note' || state.route.kind === 'notebook') {
+      go(withTag(state.route, tagId))
+      return
+    }
+    // No reader selection on the route (home): fall back to the open
+    // notebook so the pane still has a place to live.
+    if (state.notebookId) go({ kind: 'notebook', notebookId: state.notebookId, tagId })
+  }
+
   /** Pushes the current location, then navigates keeping the tag pane open so
    * a jump from the pane does not close what drove it. */
   const goWithReturn = (route: Route) => {
@@ -500,16 +515,10 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       go({ kind: 'notebook', notebookId })
     },
     tagPaneTagId,
-    openTagPane: (tagId) => {
-      // The pane must be visible for the selection to mean anything.
-      if (!state.pane.rightOpen) setPane({ ...state.pane, rightOpen: true })
-      if (state.route.kind === 'note' || state.route.kind === 'notebook') {
-        go(withTag(state.route, tagId))
-        return
-      }
-      // No reader selection on the route (home): fall back to the open
-      // notebook so the pane still has a place to live.
-      if (state.notebookId) go({ kind: 'notebook', notebookId: state.notebookId, tagId })
+    openTagPane: openTagPaneRoute,
+    openTagPaneWithReturn: (tagId) => {
+      setState('returnStack', (stack) => pushReturn(stack, formatRoute(state.route)))
+      openTagPaneRoute(tagId)
     },
     closeTagPane: () => go(withTag(state.route, undefined)),
     openNoteWithReturn: (noteId, notebookId) => {

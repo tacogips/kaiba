@@ -316,8 +316,11 @@ export class NoteGraphQLClient {
     return response.blob()
   }
 
-  /** Cross-notebook tag detail: the tag, its class, aggregate counts and its
-   * memo notebook id (null until one is created). */
+  /** Cross-notebook tag detail: the tag, its class, aggregate counts, its memo
+   * notebook id (null until one is created) and the entity-page fields — the
+   * canonical note and the tags it co-occurs with. The co-occurrence size is
+   * the root field's `coOccurringTagLimit` argument (E6); the viewer takes the
+   * server default. */
   async tagDetail(tagId: TagId): Promise<TagDetail> {
     return this.queryValue<{ tagDetail: QueryPayload<TagDetail> }, TagDetail>('TagDetail', `
       query TagDetail($tagId: String!) {
@@ -327,10 +330,40 @@ export class NoteGraphQLClient {
             tag { tagId name classId parentTagId isSystem createdAt }
             tagClass { classId label description }
             noteCount notebookCount memoNotebookId
+            canonicalNote { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+            coOccurringTags { tag { tagId name classId parentTagId isSystem createdAt } noteCount }
           }
         }
       }
     `, { tagId }, (data) => data.tagDetail)
+  }
+
+  /** Designates an existing note as the tag's description, replacing any
+   * previous binding (E2, last promote wins). It creates no tag assignment:
+   * the canonical note is rendered in the entity header, not as an
+   * occurrence. */
+  async promoteTagNote(tagId: TagId, noteId: NoteId): Promise<void> {
+    await this.mutation('PromoteTagNote', `
+      mutation PromoteTagNote($input: PromoteTagNoteInput!) {
+        promoteTagNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+        }
+      }
+    `, { input: { tagId, noteId } }, 'promoteTagNote')
+  }
+
+  /** Clears the tag's canonical binding. A tag with nothing bound is a no-op
+   * success, so the header never has to ask first. */
+  async unpromoteTagNote(tagId: TagId): Promise<void> {
+    await this.mutation('UnpromoteTagNote', `
+      mutation UnpromoteTagNote($input: UnpromoteTagNoteInput!) {
+        unpromoteTagNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+        }
+      }
+    `, { input: { tagId } }, 'unpromoteTagNote')
   }
 
   /** The tag's memo history: memos of notes/notebooks carrying the tag
