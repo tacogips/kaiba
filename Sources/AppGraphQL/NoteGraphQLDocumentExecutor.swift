@@ -320,7 +320,11 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "tagDetail":
       return try await encodedJSONValue(service.tagDetail(
-        tagId: requiredIdentifier("tagId", as: TagID.self, variables: variables)
+        tagId: requiredIdentifier("tagId", as: TagID.self, variables: variables),
+        // The limit rides the root field because this engine resolves a payload
+        // eagerly and then projects it, so no nested field accepts arguments.
+        coOccurringTagLimit: try optionalInt("coOccurringTagLimit", variables: variables)
+          .map { try validatedLimit($0, defaultValue: NoteService.defaultCoOccurringTagLimit) }
       ))
     case "tagComments":
       return try await encodedJSONValue(service.tagComments(
@@ -527,6 +531,12 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.ensureTagMemoNotebook(
         tagId: requiredIdentifier("tagId", as: TagID.self, variables: variables)
       ))
+    case "promoteTagNote":
+      let input: GraphQLPromoteTagNoteInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.promoteTagNote(input))
+    case "unpromoteTagNote":
+      let input: GraphQLUnpromoteTagNoteInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.unpromoteTagNote(input))
     case "requestTagExtraction":
       let input: GraphQLRequestTagExtractionInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.requestTagExtraction(input))

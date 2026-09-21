@@ -248,6 +248,70 @@ describe('Note GraphQL transport', () => {
     await expectErrorKind(client.tags(), 'http', 401)
     expect(harness.storage.has(currentServerCredentialKey())).toBe(false)
   })
+
+  test('captures a quick memo over plain HTTP with the stored bearer', async () => {
+    const harness = environment([])
+    harness.storage.set(currentServerCredentialKey(), 'rn_live')
+    const requests: Array<{ input: string; init?: RequestInit }> = []
+    const client = new NoteGraphQLClient({
+      ...harness.value,
+      request: async (input, init) => {
+        requests.push({ input: String(input), init })
+        return new Response(
+          JSON.stringify({ noteId: 'note-9', notebookId: 'notebook-quick', noteNumber: 3 }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
+        )
+      },
+    })
+
+    expect(await client.captureNote('A thought')).toEqual({
+      noteId: asNoteId('note-9'), notebookId: asNotebookId('notebook-quick'), noteNumber: 3,
+    })
+    expect(requests[0]?.input).toBe('/note/capture')
+    expect(requests[0]?.init?.method).toBe('POST')
+    expect((requests[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer rn_live')
+    // The route derives a title from the body, so a blank one is never sent.
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ text: 'A thought' })
+
+    await client.captureNote('A thought', '  Titled  ')
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({ text: 'A thought', title: 'Titled' })
+    await client.captureNote('A thought', '   ')
+    expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({ text: 'A thought' })
+  })
+
+  test('reports the capture route error body and drops a rejected capture bearer', async () => {
+    const invalid = environment([])
+    const invalidClient = new NoteGraphQLClient({
+      ...invalid.value,
+      request: async () => new Response(
+        JSON.stringify({ error: 'capture request body must be a JSON object with a non-empty text string' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ),
+    })
+    await expect(invalidClient.captureNote(' ')).rejects.toThrow(
+      'capture request body must be a JSON object with a non-empty text string',
+    )
+
+    const rejected = environment([])
+    rejected.storage.set(currentServerCredentialKey(), 'rn_revoked')
+    const rejectedClient = new NoteGraphQLClient({
+      ...rejected.value,
+      request: async () => new Response(JSON.stringify({ error: 'note API bearer token is invalid or revoked' }), {
+        status: 401, headers: { 'Content-Type': 'application/json' },
+      }),
+    })
+    await expectErrorKind(rejectedClient.captureNote('A thought'), 'http', 401)
+    expect(rejected.storage.has(currentServerCredentialKey())).toBe(false)
+
+    const truncated = environment([])
+    const truncatedClient = new NoteGraphQLClient({
+      ...truncated.value,
+      request: async () => new Response(JSON.stringify({ notebookId: 'notebook-quick' }), {
+        status: 201, headers: { 'Content-Type': 'application/json' },
+      }),
+    })
+    await expectErrorKind(truncatedClient.captureNote('A thought'), 'result')
+  })
 })
 
 function requestBody(request?: { init?: RequestInit }): {

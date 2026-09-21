@@ -7,7 +7,7 @@ import { errorMessage, useApp } from '../state/appStore'
 import { noteDisplayTitle } from '../notes/noteText'
 import { loadTagOccurrences, transitionTagOccurrences } from '../notes/tagOccurrences'
 import type { Note, TagComment, TagDetail } from '../notes/types'
-import type { NotebookId, TagId } from '../notes/ids'
+import type { NotebookId, NoteId, TagId } from '../notes/ids'
 
 // The right pane's tag mode (design-docs/specs/tag-detail-pane.md): the
 // cross-notebook analogue of the per-note panes for one tag. Memo binds the
@@ -15,10 +15,21 @@ import type { NotebookId, TagId } from '../notes/ids'
 // every memo of notes/notebooks carrying the tag, and Links lists every note
 // carrying the tag grouped by notebook. Occurrence clicks push the return
 // stack so Back restores the reader.
+//
+// This pane is also the entity page (note-capture-and-entity-pages.md, E5):
+// the header at the top of the body carries the tag's canonical note, or the
+// controls that bind one, plus the tags it co-occurs with.
 
 type TagPaneTab = 'memo' | 'history' | 'links'
 
 const tagCommentsPageLimit = 50
+
+/** The tag classes `NoteService.requireCanonicalPromotable` refuses (E2):
+ * folder tags shape the notebook tree and document-kind tags mark notebook
+ * kinds, so neither is a subject a description could be about. The header
+ * withholds its promote controls for them rather than letting the refusal be
+ * discovered by attempting it. */
+const unpromotableTagClasses = ['folder', 'document-kind']
 
 export function TagPane(props: { tagId: TagId }): JSX.Element {
   const app = useApp()
@@ -26,6 +37,13 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
   const [detail, setDetail] = createSignal<TagDetail>()
   const [memoNotebookId, setMemoNotebookId] = createSignal<NotebookId>()
   const [error, setError] = createSignal('')
+  const [entityBusy, setEntityBusy] = createSignal(false)
+  const [entityError, setEntityError] = createSignal('')
+  const [composing, setComposing] = createSignal(false)
+  const [draft, setDraft] = createSignal('')
+  /** A description note already written but not yet bound, kept so a retry
+   * after a refused promote re-promotes it instead of creating another. */
+  const [pendingDescriptionNoteId, setPendingDescriptionNoteId] = createSignal<NoteId>()
   let generation = 0
   let loadedTagId: TagId | null = null
 
@@ -47,20 +65,70 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
       loadedTagId = tagId
       setDetail(undefined)
       setMemoNotebookId(undefined)
+      setComposing(false)
+      setDraft('')
+      setPendingDescriptionNoteId(undefined)
     }
     setError('')
-    void app.client.tagDetail(tagId)
-      .then((loaded) => {
-        if (requested !== generation) return
-        setDetail(loaded)
-        setMemoNotebookId(loaded.memoNotebookId ?? undefined)
-      })
-      .catch((loadError: unknown) => {
-        if (requested !== generation) return
-        setDetail(undefined)
-        setError(errorMessage(loadError))
-      })
+    setEntityError('')
+    void loadDetail(tagId, requested)
   })
+
+  const loadDetail = async (tagId: TagId, requested: number): Promise<void> => {
+    try {
+      const loaded = await app.client.tagDetail(tagId)
+      if (requested !== generation) return
+      setDetail(loaded)
+      setMemoNotebookId(loaded.memoNotebookId ?? undefined)
+    } catch (loadError) {
+      if (requested !== generation) return
+      setDetail(undefined)
+      setError(errorMessage(loadError))
+    }
+  }
+
+  // Promote and unpromote publish a change event, but the events feed is a
+  // long poll: the header re-reads its own detail so the binding it just
+  // changed is on screen without waiting for the feed.
+  const runEntityAction = async (action: () => Promise<void>): Promise<void> => {
+    if (entityBusy()) return
+    setEntityBusy(true)
+    setEntityError('')
+    try {
+      await action()
+      await loadDetail(props.tagId, ++generation)
+    } catch (actionError) {
+      setEntityError(errorMessage(actionError))
+    } finally {
+      setEntityBusy(false)
+    }
+  }
+
+  /** E3: a description written here lives in the tag's own memo notebook and
+   * is promoted in the same flow, so "write one now" needs no note picker.
+   * Promotion assigns no tag — the note is the header, not an occurrence.
+   *
+   * The flow is three server calls, so it can stop half-way: if the promote
+   * fails the note is already written. Its id is kept, and a retry promotes
+   * that note instead of writing a second one into the memo notebook. */
+  const createDescriptionNote = async (): Promise<void> => {
+    const tagId = props.tagId
+    let noteId = pendingDescriptionNoteId()
+    if (!noteId) {
+      const notebook = await app.client.ensureTagMemoNotebook(tagId)
+      const note = await app.client.createNote(notebook.notebookId, draft())
+      if (tagId === props.tagId) setMemoNotebookId(notebook.notebookId)
+      noteId = note.noteId
+      setPendingDescriptionNoteId(noteId)
+    }
+    await app.client.promoteTagNote(tagId, noteId)
+    // A tag switched mid-flight keeps its own draft state out of the new tag's
+    // pane; the promotion that was already in flight still completes.
+    if (tagId !== props.tagId) return
+    setPendingDescriptionNoteId(undefined)
+    setComposing(false)
+    setDraft('')
+  }
 
   const memoSubject = createMemo<MemoSubject | null>(() => {
     const id = memoNotebookId()
@@ -77,6 +145,10 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
   }
 
   const tagLabel = createMemo(() => detail()?.tag.name ?? '…')
+  const promotable = createMemo(() => {
+    const classId = detail()?.tag.classId
+    return !(classId && unpromotableTagClasses.includes(classId))
+  })
 
   return (
     <>
@@ -111,6 +183,102 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
       </div>
       <div class="pane-body">
         <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
+        <Show when={detail()}>{(loaded) => (
+          <section class="info-tags" aria-label="Tag description">
+            <h3>Description</h3>
+            <Show
+              when={loaded().canonicalNote}
+              fallback={
+                <>
+                  <p class="pane-empty">No description note for this tag yet.</p>
+                  <Show when={promotable()} fallback={
+                    <p class="pane-empty">
+                      Organizational tags carry no description: this one groups
+                      notes rather than naming a subject.
+                    </p>
+                  }>
+                    <div class="detail-chips">
+                      <Show when={app.state.noteId}>{(noteId) => (
+                        <button
+                          type="button"
+                          class="secondary"
+                          disabled={entityBusy()}
+                          onClick={() => void runEntityAction(() => app.client.promoteTagNote(props.tagId, noteId()))}
+                        >Use the open note</button>
+                      )}</Show>
+                      <button
+                        type="button"
+                        class="secondary"
+                        disabled={entityBusy()}
+                        onClick={() => setComposing((open) => !open)}
+                      >{composing() ? 'Cancel' : 'Write a description'}</button>
+                    </div>
+                    <Show when={composing()}>
+                      <form
+                        class="login-form"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          if (!draft().trim()) return
+                          void runEntityAction(createDescriptionNote)
+                        }}
+                      >
+                        <label class="login-label" for="tag-description">Description note</label>
+                        <textarea
+                          id="tag-description"
+                          class="login-input"
+                          rows={5}
+                          placeholder={`What is #${tagLabel()}?`}
+                          value={draft()}
+                          onInput={(event) => setDraft(event.currentTarget.value)}
+                        />
+                        <button type="submit" disabled={entityBusy() || !draft().trim()}>
+                          {entityBusy()
+                            ? 'Saving…'
+                            : pendingDescriptionNoteId() ? 'Retry promoting it' : 'Save as description'}
+                        </button>
+                      </form>
+                    </Show>
+                  </Show>
+                </>
+              }
+            >{(note) => (
+              <>
+                <MarkdownBody markdown={canonicalExcerpt(note().bodyMarkdown)} anchorIds={false} />
+                <div class="detail-chips">
+                  <button
+                    type="button"
+                    class="secondary"
+                    onClick={() => app.openNoteWithReturn(note().noteId, note().notebookId)}
+                  >Open {noteDisplayTitle(note())}</button>
+                  <button
+                    type="button"
+                    class="secondary"
+                    disabled={entityBusy()}
+                    onClick={() => void runEntityAction(() => app.client.unpromoteTagNote(props.tagId))}
+                  >Unbind</button>
+                </div>
+              </>
+            )}</Show>
+            <Show when={entityError()}><p class="note-inline-error" role="alert">{entityError()}</p></Show>
+          </section>
+        )}</Show>
+        <Show when={detail()?.coOccurringTags.length}>
+          <section class="info-tags" aria-label="Tags seen with this one">
+            <h3>Seen with</h3>
+            <div class="detail-chips">
+              <For each={detail()?.coOccurringTags ?? []}>{(entry) => (
+                <span class="folder-chip" title={`${entry.noteCount} shared note${entry.noteCount === 1 ? '' : 's'}`}>
+                  <button
+                    type="button"
+                    class="tag-chip-open"
+                    onClick={() => app.openTagPaneWithReturn(entry.tag.tagId)}
+                  >{entry.tag.name}</button>
+                  <em class="tag-provenance">{entry.noteCount}</em>
+                </span>
+              )}</For>
+            </div>
+          </section>
+        </Show>
         <TabPanel idPrefix="tag" value="memo" active={tab()}>
           <MemoTab
             draftKey={`discussion:tag:${props.tagId}`}
@@ -345,6 +513,17 @@ function TagLinksTab(props: { tagId: TagId; tagName?: string }): JSX.Element {
       )}</For>
     </div>
   )
+}
+
+/** The entity header shows the description, not the whole note: enough to
+ * recognize the subject, with "Open description" for the rest. Cut on a line
+ * boundary so a truncated list or heading never renders half-formed. */
+function canonicalExcerpt(bodyMarkdown: string, limit = 400): string {
+  const trimmed = bodyMarkdown.trim()
+  if (trimmed.length <= limit) return trimmed
+  const head = trimmed.slice(0, limit)
+  const boundary = head.lastIndexOf('\n')
+  return `${(boundary > 0 ? head.slice(0, boundary) : head).trimEnd()}\n\n…`
 }
 
 /** Reads every notebook revision plus the catalog revision so a tracking

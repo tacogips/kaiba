@@ -11,6 +11,7 @@ import type {
   MutationPayload,
   Note,
   Notebook,
+  NoteCaptureResult,
   NoteComment,
   NoteFileAttachment,
   NoteGraphNeighbor,
@@ -130,6 +131,40 @@ export class NoteGraphQLClient {
     const bearer = this.readBearer()
     if (bearer) headers.Authorization = `Bearer ${bearer}`
     return headers
+  }
+
+  /** Anywhere capture (design-docs/specs/note-capture-and-entity-pages.md,
+   * C6): `POST /note/capture` is plain HTTP, not GraphQL, so that a phone can
+   * hold one thought and send it before the SPA has any catalog loaded. The
+   * server resolves the account's singleton Quick Memos notebook itself, so
+   * the request carries nothing but the text. Error bodies are a single
+   * `error` string for every status the route answers (400/401/503/500). */
+  async captureNote(text: string, title?: string): Promise<NoteCaptureResult> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...this.streamHeaders() }
+    const trimmedTitle = title?.trim()
+    let response: Response
+    try {
+      response = await this.environment.request('/note/capture', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers,
+        body: JSON.stringify(trimmedTitle ? { text, title: trimmedTitle } : { text }),
+      })
+    } catch (error) {
+      throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
+    }
+    const body = await parseJSON<Partial<NoteCaptureResult> & { error?: string }>(response)
+    // A rejected bearer is dropped here exactly as the GraphQL transport does
+    // it, so the capture page falls back to the registration surface instead
+    // of resending a credential the server has revoked.
+    if (response.status === 401) this.dropBearer()
+    if (!response.ok) {
+      throw new NoteTransportError(body.error ?? `Capture failed (${response.status}).`, 'http', response.status)
+    }
+    if (!body.noteId || !body.notebookId || typeof body.noteNumber !== 'number') {
+      throw new NoteTransportError('The server did not return the captured note.', 'result')
+    }
+    return { noteId: body.noteId, notebookId: body.notebookId, noteNumber: body.noteNumber }
   }
 
   async tags(): Promise<NoteTag[]> {
@@ -281,8 +316,11 @@ export class NoteGraphQLClient {
     return response.blob()
   }
 
-  /** Cross-notebook tag detail: the tag, its class, aggregate counts and its
-   * memo notebook id (null until one is created). */
+  /** Cross-notebook tag detail: the tag, its class, aggregate counts, its memo
+   * notebook id (null until one is created) and the entity-page fields — the
+   * canonical note and the tags it co-occurs with. The co-occurrence size is
+   * the root field's `coOccurringTagLimit` argument (E6); the viewer takes the
+   * server default. */
   async tagDetail(tagId: TagId): Promise<TagDetail> {
     return this.queryValue<{ tagDetail: QueryPayload<TagDetail> }, TagDetail>('TagDetail', `
       query TagDetail($tagId: String!) {
@@ -292,10 +330,40 @@ export class NoteGraphQLClient {
             tag { tagId name classId parentTagId isSystem createdAt }
             tagClass { classId label description }
             noteCount notebookCount memoNotebookId
+            canonicalNote { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+            coOccurringTags { tag { tagId name classId parentTagId isSystem createdAt } noteCount }
           }
         }
       }
     `, { tagId }, (data) => data.tagDetail)
+  }
+
+  /** Designates an existing note as the tag's description, replacing any
+   * previous binding (E2, last promote wins). It creates no tag assignment:
+   * the canonical note is rendered in the entity header, not as an
+   * occurrence. */
+  async promoteTagNote(tagId: TagId, noteId: NoteId): Promise<void> {
+    await this.mutation('PromoteTagNote', `
+      mutation PromoteTagNote($input: PromoteTagNoteInput!) {
+        promoteTagNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+        }
+      }
+    `, { input: { tagId, noteId } }, 'promoteTagNote')
+  }
+
+  /** Clears the tag's canonical binding. A tag with nothing bound is a no-op
+   * success, so the header never has to ask first. */
+  async unpromoteTagNote(tagId: TagId): Promise<void> {
+    await this.mutation('UnpromoteTagNote', `
+      mutation UnpromoteTagNote($input: UnpromoteTagNoteInput!) {
+        unpromoteTagNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+        }
+      }
+    `, { input: { tagId } }, 'unpromoteTagNote')
   }
 
   /** The tag's memo history: memos of notes/notebooks carrying the tag

@@ -38,7 +38,7 @@ public enum GraphQLContractProjector {
     notebookConversations(notebookId: String!, limit: Int): AgentConversationsQueryPayload!
     noteComments(noteId: String!): NoteCommentsQueryPayload!
     notebookComments(notebookId: String!): NoteCommentsQueryPayload!
-    tagDetail(tagId: String!): TagDetailQueryPayload!
+    tagDetail(tagId: String!, coOccurringTagLimit: Int): TagDetailQueryPayload!
     tagComments(tagId: String!, limit: Int, offset: Int): TagCommentsQueryPayload!
     agentModels: AgentModelsPayload!
     agenticSearch(query: String!, notebookId: String, limit: Int): AgenticSearchPayload!
@@ -82,6 +82,8 @@ public enum GraphQLContractProjector {
     saveNoteConversation(input: SaveNoteConversationInput!): NoteMutationPayload!
     sendAgentChatMessage(input: SendAgentChatMessageInput!): AgentChatMessagePayload!
     ensureTagMemoNotebook(tagId: String!): NoteMutationPayload!
+    promoteTagNote(input: PromoteTagNoteInput!): NoteMutationPayload!
+    unpromoteTagNote(input: UnpromoteTagNoteInput!): NoteMutationPayload!
     requestTagExtraction(input: RequestTagExtractionInput!): TagExtractionRequestPayload!
     requestNotebookTranslation(input: RequestNotebookTranslationInput!): NotebookTranslationRequestPayload!
     migrateNoteFileStorage(input: MigrateNoteFileStorageInput!): NoteFileMigrationPayload!

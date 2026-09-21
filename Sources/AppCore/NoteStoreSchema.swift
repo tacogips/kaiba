@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 19
+  public static let currentVersion = 20
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -29,6 +29,11 @@ public enum NoteStoreSchema {
   public static let translationNotebookKindTag = "notebook-kind:translation"
   /// Per-tag memo/chat notebooks (`design-docs/specs/tag-detail-pane.md`, T4).
   public static let tagMemoNotebookKindTag = "notebook-kind:tag-memo"
+  /// The single accumulating notebook every anywhere-capture write lands in
+  /// (`design-docs/specs/note-capture-and-entity-pages.md`, C3). Identified by
+  /// this kind tag rather than by title, because titles are user-mutable.
+  public static let quickMemoNotebookKindTag = "notebook-kind:quick-memo"
+  static let quickMemoNotebookKindTagId = stableTagId(for: quickMemoNotebookKindTag)
   public static let autoTaggingWorkflowId = WorkflowID("note-auto-tagging")
   /// Chat-reply generation workflow routed by `KaibaAutoActionDispatcher`
   /// (`design-docs/specs/ai-agent-integration.md`, AI8).
@@ -360,7 +365,8 @@ private let systemNotebookKindTags = [
   NoteStoreSchema.agentConversationNotebookKindTag,
   "notebook-kind:user-memo",
   NoteStoreSchema.longTermMemoryNotebookKindTag,
-  NoteStoreSchema.translationNotebookKindTag
+  NoteStoreSchema.translationNotebookKindTag,
+  NoteStoreSchema.quickMemoNotebookKindTag
 ]
 
 private let noteSchemaVersionTableStatement = """
@@ -507,9 +513,26 @@ private let schemaStatements = [
     class_id TEXT REFERENCES tag_classes(class_id),
     parent_tag_id TEXT REFERENCES tags(tag_id),
     is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0,1)),
+    -- The note designated as this tag's canonical description
+    -- (`design-docs/specs/note-capture-and-entity-pages.md`, E1). A column
+    -- rather than a link row, so the one-note-per-tag limit is the schema's
+    -- job; ON DELETE SET NULL makes note deletion self-cleaning, which is why
+    -- `deleteNoteRows` needs no clause for it.
+    --
+    -- Self-cleaning is not self-restoring: the clear is invisible to the
+    -- action log, so undoing a note deletion would drop the binding unless the
+    -- deletion snapshot carries it. `captureNoteSnapshot` records the bound
+    -- tag ids and `restoreNoteSnapshot` re-applies them to tags that are still
+    -- unbound (E1 finding F1).
+    canonical_note_id TEXT REFERENCES notes(note_id) ON DELETE SET NULL,
     created_at TEXT NOT NULL
   ) STRICT
   """,
+  // Serves both the ON DELETE SET NULL action and the reverse lookup the
+  // deletion snapshot performs (`tags WHERE canonical_note_id = ?`). Not a
+  // partial index: SQLite does not use partial indexes for foreign-key
+  // actions.
+  "CREATE INDEX IF NOT EXISTS idx_tags_canonical_note ON tags(canonical_note_id)",
   """
   CREATE INDEX IF NOT EXISTS idx_tags_parent
   ON tags (parent_tag_id) WHERE parent_tag_id IS NOT NULL
