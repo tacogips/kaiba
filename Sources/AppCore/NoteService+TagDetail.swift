@@ -81,9 +81,24 @@ public extension NoteService {
   /// callers that want more pass an explicit limit.
   static let defaultCoOccurringTagLimit = 10
 
+  /// The largest co-occurrence limit any surface may ask for. It matches the
+  /// transport's own bound, so an over-large document limit is refused there
+  /// before it ever reaches the service rather than being bounded twice.
+  static let maximumCoOccurringTagLimit = 200
+
   /// The tag plus its class and cross-notebook aggregate counts. Counts expand
   /// to descendant tags like every tag filter (D16/D17).
-  func tagDetail(tagId: TagID) throws -> TagDetail {
+  ///
+  /// `coOccurringTagLimit` sizes the co-occurrence chips the payload carries
+  /// (E4). It is a defaulted parameter rather than a second entry point so a
+  /// caller wanting a different size gets it from the one aggregate this read
+  /// already runs, instead of taking the default payload, discarding its chips
+  /// and re-running the query at its own size.
+  func tagDetail(
+    tagId: TagID,
+    coOccurringTagLimit: Int = NoteService.defaultCoOccurringTagLimit
+  ) throws -> TagDetail {
+    try requireValidCoOccurringTagLimit(coOccurringTagLimit)
     return try driver.withDatabase { database in
       let tag = try requireTag(id: tagId, in: database)
       let tagClass = try tag.classId.map { try requireTagClass(classId: $0, in: database) }
@@ -124,7 +139,7 @@ public extension NoteService {
         canonicalNote: try canonicalNote(tagId: tagId, in: database),
         coOccurringTags: try coOccurringTags(
           tagId: tagId,
-          limit: Self.defaultCoOccurringTagLimit,
+          limit: coOccurringTagLimit,
           in: database
         )
       )
@@ -203,12 +218,21 @@ public extension NoteService {
     tagId: TagID,
     limit: Int = NoteService.defaultCoOccurringTagLimit
   ) throws -> [TagCoOccurrence] {
-    guard (0...200).contains(limit) else {
-      throw NoteServiceError.invalidInput("limit must be between 0 and 200")
-    }
+    try requireValidCoOccurringTagLimit(limit)
     return try driver.withDatabase { database in
       _ = try requireTag(id: tagId, in: database)
       return try coOccurringTags(tagId: tagId, limit: limit, in: database)
+    }
+  }
+
+  /// The single co-occurrence bound, shared by `tagDetail` and the standalone
+  /// aggregate so the two entry points can never disagree about what they
+  /// accept or about how they word the refusal.
+  private func requireValidCoOccurringTagLimit(_ limit: Int) throws {
+    guard (0...Self.maximumCoOccurringTagLimit).contains(limit) else {
+      throw NoteServiceError.invalidInput(
+        "limit must be between 0 and \(Self.maximumCoOccurringTagLimit)"
+      )
     }
   }
 

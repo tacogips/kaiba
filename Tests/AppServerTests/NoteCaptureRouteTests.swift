@@ -153,6 +153,61 @@ final class NoteCaptureRouteTests: XCTestCase {
     XCTAssertEqual(note.bodyMarkdown, "from the phone")
   }
 
+  func testASecondAccountCapturesIntoItsOwnNotebookWithA201() async throws {
+    // F-000-1 / C6 delta: this is what the deleted 404 test used to record.
+    // Under the C3 per-write-principal scope Bob's capture is not a refusal at
+    // all — he gets his own Quick Memos notebook — so the route's `notFound`
+    // arm is unreachable in production, not merely deleted from the source.
+    let service = try makeService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
+    let handler = DeterministicServerRouteHandler(
+      noteAPIAuthenticator: CaptureAuthenticator(usersByToken: [
+        "alice-token": alice.userId,
+        "bob-token": bob.userId
+      ]),
+      noteService: service
+    )
+
+    let first = await handler.route(
+      captureRequest(body: #"{"text":"alice first"}"#),
+      context: .init(serviceName: "test", bearerToken: "alice-token")
+    )
+    let second = await handler.route(
+      captureRequest(body: #"{"text":"bob second"}"#),
+      context: .init(serviceName: "test", bearerToken: "bob-token")
+    )
+
+    XCTAssertEqual(first.status, 201)
+    XCTAssertEqual(second.status, 201, "the second account must not be refused")
+    guard case let .string(aliceNotebookId)? = first.body["notebookId"],
+          case let .string(bobNotebookId)? = second.body["notebookId"],
+          case let .string(aliceNoteId)? = first.body["noteId"],
+          case let .string(bobNoteId)? = second.body["noteId"] else {
+      return XCTFail("expected ids, got \(first.body) and \(second.body)")
+    }
+    XCTAssertNotEqual(aliceNotebookId, bobNotebookId, "each principal owns its own singleton")
+
+    // Each note landed in its own account's notebook, and neither account can
+    // reach the other's.
+    let aliceScope = service.scoped(to: alice.userId)
+    let bobScope = service.scoped(to: bob.userId)
+    XCTAssertEqual(try aliceScope.getNote(NoteID(aliceNoteId)).notebookId.rawValue, aliceNotebookId)
+    XCTAssertEqual(try bobScope.getNote(NoteID(bobNoteId)).notebookId.rawValue, bobNotebookId)
+    XCTAssertEqual(
+      try aliceScope.getNotebook(NotebookID(aliceNotebookId)).title,
+      NoteService.quickMemoNotebookTitle
+    )
+    XCTAssertEqual(
+      try bobScope.getNotebook(NotebookID(bobNotebookId)).title,
+      NoteService.quickMemoNotebookTitle
+    )
+    XCTAssertFalse(
+      try aliceScope.listNotebooks().contains { $0.notebookId.rawValue == bobNotebookId },
+      "Alice must not see Bob's capture notebook"
+    )
+  }
+
   func testABlankTitleIsCollapsedSoTheBodyDerivesOne() async throws {
     let service = try makeService()
     let handler = DeterministicServerRouteHandler(
@@ -215,10 +270,55 @@ final class NoteCaptureRouteTests: XCTestCase {
     )
   }
 
-  func testServiceInvalidInputIsMappedTo400AndNeverTo500() async throws {
-    // RF3: `captureQuickMemo` validates the body again as defence in depth, and
-    // the C3 singleton invariant fails the same way when two notebooks carry
-    // the quick-memo kind tag. Neither may reach the caller as a 500.
+  func testOnlyTheRoutesOwnBodyValidationCanProduceA400() async throws {
+    // Both directions of the C6 delta in one place. A malformed body answers
+    // 400 against a healthy service, and no service failure answers 400 on a
+    // body the route has already accepted.
+    let healthy = DeterministicServerRouteHandler(
+      allowUnauthenticatedNoteAPI: true,
+      noteService: try makeService()
+    )
+    for body in ["", "   ", "not json", "[]", #"{"text":"   "}"#] {
+      let response = await healthy.route(
+        captureRequest(body: body),
+        context: .init(serviceName: "test")
+      )
+      XCTAssertEqual(response.status, 400, "route validation owns the 400 for \(body.debugDescription)")
+    }
+
+    // Every `NoteServiceError` the route still maps explicitly, plus a
+    // representative unmapped one: none of them is a 400.
+    let failures: [(NoteServiceError, Int)] = [
+      (.invalidInput("multiple notebooks carry notebook-kind:quick-memo"), 500),
+      (.notFound("notebook-9999"), 500),
+      (.invalidRow("notebooks row is malformed at notebook-1234"), 500),
+      (.accountUnavailable("user is disabled"), 401)
+    ]
+    for (index, (error, expected)) in failures.enumerated() {
+      let handler = DeterministicServerRouteHandler(
+        allowUnauthenticatedNoteAPI: true,
+        noteService: try makeFailingService(error, function: "\(#function)-\(index)")
+      )
+      let response = await handler.route(
+        captureRequest(body: #"{"text":"well formed"}"#),
+        context: .init(serviceName: "test")
+      )
+      XCTAssertEqual(response.status, expected, "service failure \(error) must not be a caller 400")
+      XCTAssertNotEqual(
+        response.body,
+        ["error": .string(DeterministicServerRouteHandler.noteCaptureInvalidBodyMessage)],
+        "the route's body-validation message must not describe a service failure"
+      )
+    }
+  }
+
+  // MARK: - 500
+
+  func testTheSingletonInvariantViolationAnswersAGeneric500NeverA400() async throws {
+    // F-000-3 / C6 delta: once the body has passed the route's own validation,
+    // a `NoteServiceError.invalidInput` is the C3 singleton invariant failing
+    // inside the caller's own scope — a store defect, not a caller error, so
+    // the blanket `invalidInput -> 400` mapping is gone.
     let handler = DeterministicServerRouteHandler(
       allowUnauthenticatedNoteAPI: true,
       noteService: try makeFailingService(
@@ -231,11 +331,9 @@ final class NoteCaptureRouteTests: XCTestCase {
       context: .init(serviceName: "test")
     )
 
-    XCTAssertEqual(response.status, 400)
-    XCTAssertEqual(response.body, [
-      "error": .string(DeterministicServerRouteHandler.noteCaptureInvalidBodyMessage)
-    ])
-    // The store's own wording never reaches the wire.
+    XCTAssertEqual(response.status, 500, "a store defect must not be blamed on the caller")
+    XCTAssertEqual(response.body, ["error": .string("quick memo could not be captured")])
+    // The store's own wording still never reaches the wire.
     XCTAssertFalse(
       describeBody(response).contains("notebook-kind:quick-memo"),
       "the service message must not be echoed: \(response.body)"
@@ -282,49 +380,6 @@ final class NoteCaptureRouteTests: XCTestCase {
     XCTAssertEqual(
       response.body,
       noteAPIUnauthorizedResponse("note API bearer token is invalid or revoked").body
-    )
-  }
-
-  // MARK: - 404
-
-  func testASecondAccountAnswersAGeneric404ThatNamesNoForeignNotebook() async throws {
-    // RF1: `quickMemoNotebookIds` is a store-wide lookup while notebook reach is
-    // per-account, so once Alice owns the singleton, Bob's capture fails with a
-    // service error naming ALICE's notebook id. The route must map that to 404
-    // and must not put that id on the wire. The per-account-versus-store-wide
-    // C3 decision itself is TASK-009's; the route is not redesigning it here.
-    let service = try makeService()
-    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
-    let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
-    let handler = DeterministicServerRouteHandler(
-      noteAPIAuthenticator: CaptureAuthenticator(usersByToken: [
-        "alice-token": alice.userId,
-        "bob-token": bob.userId
-      ]),
-      noteService: service
-    )
-
-    let owned = await handler.route(
-      captureRequest(body: #"{"text":"alice first"}"#),
-      context: .init(serviceName: "test", bearerToken: "alice-token")
-    )
-    XCTAssertEqual(owned.status, 201)
-    guard case let .string(aliceNotebookId)? = owned.body["notebookId"] else {
-      return XCTFail("expected Alice's notebook id, got \(owned.body)")
-    }
-
-    let refused = await handler.route(
-      captureRequest(body: #"{"text":"bob second"}"#),
-      context: .init(serviceName: "test", bearerToken: "bob-token")
-    )
-
-    XCTAssertEqual(refused.status, 404, "the refusal must not surface as a 500")
-    XCTAssertEqual(refused.body, [
-      "error": .string(DeterministicServerRouteHandler.noteCaptureNotebookUnavailableMessage)
-    ])
-    XCTAssertFalse(
-      describeBody(refused).contains(aliceNotebookId),
-      "a foreign notebook id must never be echoed: \(refused.body)"
     )
   }
 

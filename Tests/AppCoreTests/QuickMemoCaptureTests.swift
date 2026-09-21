@@ -226,27 +226,180 @@ final class QuickMemoCaptureTests: NoteTestCase {
     XCTAssertEqual(notebook.ownerUserId, alice.userId)
   }
 
-  /// Observed behaviour, recorded rather than asserted as desirable: C3 makes
-  /// the Quick Memos notebook a *store-wide* kind-tag singleton, while notebook
-  /// reach is per-account (`requireNotebookOwnership`,
-  /// `Sources/AppCore/NoteService+LibraryEnforcement.swift:138`). A second
-  /// account therefore cannot capture at all once the first account owns the
-  /// singleton: the kind-tag lookup finds Alice's notebook and the ownership
-  /// guard refuses it. Single-account stores — the `kaiba client issue` default,
-  /// where every client is bound to the default user — never reach this. Routed
-  /// forward for a design decision (per-account singleton vs. store-wide).
-  func testASecondAccountCannotCaptureIntoAnotherAccountsQuickMemosNotebook() throws {
+  /// C3 delta: the singleton is per write principal, so two accounts capture
+  /// side by side. Each finds or creates its own Quick Memos notebook, sees
+  /// only its own captures, and neither errors on the other's — the shape the
+  /// per-user bearer credential already implies, with no operator-service
+  /// bypass. The pre-delta store-wide lookup made the first capturing account
+  /// the sole owner and failed every other account's capture forever.
+  func testEachAccountCapturesIntoItsOwnQuickMemosNotebook() throws {
     let service = try makeQuickMemoService()
     let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
     let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
-    let aliceNotebook = try service.scoped(to: alice.userId).ensureQuickMemoNotebook()
+    let aliceService = service.scoped(to: alice.userId)
+    let bobService = service.scoped(to: bob.userId)
 
-    XCTAssertThrowsError(try service.scoped(to: bob.userId).captureQuickMemo(bodyMarkdown: "bob")) { error in
+    let aliceNote = try aliceService.captureQuickMemo(bodyMarkdown: "alice thought")
+    // Bob captures second, with Alice's holder already in the store: under the
+    // store-wide lookup this is the call that used to throw.
+    let bobNote = try bobService.captureQuickMemo(bodyMarkdown: "bob thought")
+
+    XCTAssertNotEqual(aliceNote.notebookId, bobNote.notebookId)
+    XCTAssertEqual(
+      try aliceService.ensureQuickMemoNotebook().notebookId,
+      aliceNote.notebookId
+    )
+    XCTAssertEqual(
+      try bobService.ensureQuickMemoNotebook().notebookId,
+      bobNote.notebookId
+    )
+    XCTAssertEqual(
+      try quickMemoHolders(of: service, ownedBy: alice.userId),
+      [aliceNote.notebookId]
+    )
+    XCTAssertEqual(
+      try quickMemoHolders(of: service, ownedBy: bob.userId),
+      [bobNote.notebookId]
+    )
+
+    // Each notebook holds only its owner's captures, and neither account can
+    // read the other's through the id it never learns.
+    XCTAssertEqual(
+      try aliceService.listNotes(notebookId: aliceNote.notebookId).map(\.bodyMarkdown),
+      ["alice thought"]
+    )
+    XCTAssertEqual(
+      try bobService.listNotes(notebookId: bobNote.notebookId).map(\.bodyMarkdown),
+      ["bob thought"]
+    )
+    XCTAssertThrowsError(try aliceService.listNotes(notebookId: bobNote.notebookId)) { error in
       XCTAssertEqual(
         error as? NoteServiceError,
-        .notFound("notebook not found: \(aliceNotebook.notebookId.rawValue)")
+        .notFound("notebook not found: \(bobNote.notebookId.rawValue)")
       )
     }
+    XCTAssertFalse(
+      try aliceService.listNotebooks().map(\.notebookId).contains(bobNote.notebookId)
+    )
+    // Negative control on the owner predicate: store-wide the kind tag now has
+    // two holders. That is exactly the set the pre-delta lookup read, and why
+    // it handed Bob Alice's notebook for `requireNotebook` to refuse.
+    XCTAssertEqual(
+      Set(try quickMemoHolders(of: service)),
+      [aliceNote.notebookId, bobNote.notebookId]
+    )
+  }
+
+  /// The scope is `(owner_user_id, library_id)`, not the owner alone. One
+  /// account working in two libraries gets one Quick Memos notebook in each;
+  /// an owner-only filter would hand the second library's capture the first
+  /// library's notebook, which `requireNotebook` then refuses for library
+  /// reach — the cross-library form of the leak the C3 delta closes.
+  func testTheSameAccountGetsItsOwnQuickMemosNotebookPerLibrary() throws {
+    let service = try makeQuickMemoService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let aliceService = service.scoped(to: alice.userId)
+    let second = try aliceService.createLibrary(name: "Second", title: "Second")
+    let secondScope = aliceService.scoped(toLibrary: second.libraryId)
+
+    let inDefault = try aliceService.captureQuickMemo(bodyMarkdown: "default library")
+    let inSecond = try secondScope.captureQuickMemo(bodyMarkdown: "second library")
+
+    XCTAssertNotEqual(inDefault.notebookId, inSecond.notebookId)
+    // Stable on the next call in each scope: neither sees two holders.
+    XCTAssertEqual(
+      try aliceService.ensureQuickMemoNotebook().notebookId,
+      inDefault.notebookId
+    )
+    XCTAssertEqual(
+      try secondScope.ensureQuickMemoNotebook().notebookId,
+      inSecond.notebookId
+    )
+    XCTAssertEqual(
+      try libraryId(ofNotebook: inSecond.notebookId, service: service),
+      second.libraryId
+    )
+    // Negative control on the library predicate: filtering by owner alone
+    // matches both notebooks, so an owner-only lookup would report two holders
+    // to whichever library scope asked next.
+    XCTAssertEqual(
+      Set(try quickMemoHolders(of: service, ownedBy: alice.userId, inLibrary: nil)),
+      [inDefault.notebookId, inSecond.notebookId]
+    )
+  }
+
+  /// The multi-holder invariant is evaluated within the caller's scope only: a
+  /// second holder inside one account's scope is still a loud failure, and a
+  /// different account's holder is not part of that count.
+  func testTheSingletonInvariantIsScopedToTheCapturingPrincipal() throws {
+    let service = try makeQuickMemoService()
+    let alice = try service.createUser(email: "alice@example.com", displayName: "Alice")
+    let bob = try service.createUser(email: "bob@example.com", displayName: "Bob")
+    let aliceService = service.scoped(to: alice.userId)
+    let bobService = service.scoped(to: bob.userId)
+
+    let aliceNotebook = try aliceService.ensureQuickMemoNotebook()
+    let bobNotebook = try bobService.ensureQuickMemoNotebook()
+
+    // Nothing stops an operator from hand-applying the kind tag to a second
+    // notebook of Alice's; that, and only that, trips Alice's invariant.
+    let impostor = try aliceService.createNotebook(title: "Stray capture target")
+    try aliceService.applyNotebookTagIds(
+      notebookId: impostor.notebookId,
+      tagIds: [NoteStoreSchema.quickMemoNotebookKindTagId],
+      provenance: .system
+    )
+    XCTAssertEqual(
+      Set(try quickMemoHolders(of: service, ownedBy: alice.userId)),
+      [aliceNotebook.notebookId, impostor.notebookId]
+    )
+
+    XCTAssertThrowsError(try aliceService.ensureQuickMemoNotebook()) { error in
+      XCTAssertEqual(
+        error as? NoteServiceError,
+        .invalidInput("multiple notebooks carry notebook-kind:quick-memo")
+      )
+    }
+    // Bob is untouched by a defect in Alice's scope: three holders exist in the
+    // store and his capture still resolves to exactly his own notebook.
+    XCTAssertEqual(try bobService.ensureQuickMemoNotebook().notebookId, bobNotebook.notebookId)
+    XCTAssertEqual(
+      try bobService.captureQuickMemo(bodyMarkdown: "bob unaffected").notebookId,
+      bobNotebook.notebookId
+    )
+  }
+
+  /// Edge case from the design: two concurrent first captures by the same
+  /// principal. `ensureQuickMemoNotebook` is one serialized transaction, so
+  /// they converge on one notebook with exactly one `notebookCreated` event
+  /// and no second holder left behind.
+  func testConcurrentFirstCapturesConvergeOnOneNotebookAndOneCreationEvent() throws {
+    let observer = RecordingQuickMemoObserver()
+    let service = try makeQuickMemoService(changeObserver: observer)
+    let results = ConcurrentQuickMemoResults()
+
+    DispatchQueue.concurrentPerform(iterations: 12) { index in
+      do {
+        results.record(notebookId: try service.captureQuickMemo(bodyMarkdown: "thought \(index)").notebookId)
+      } catch {
+        results.record(error: error)
+      }
+    }
+
+    XCTAssertTrue(results.errors.isEmpty, results.errors.joined(separator: "\n"))
+    XCTAssertEqual(results.notebookIds.count, 12)
+    XCTAssertEqual(Set(results.notebookIds).count, 1)
+    let notebookId = try XCTUnwrap(results.notebookIds.first)
+    XCTAssertEqual(try quickMemoHolders(of: service), [notebookId])
+    XCTAssertEqual(
+      observer.events.filter { $0.kind == NoteChangeEventKind.notebookCreated }.count,
+      1
+    )
+    XCTAssertEqual(
+      observer.events.filter { $0.kind == NoteChangeEventKind.noteCreated }.count,
+      12
+    )
+    XCTAssertEqual(try service.listNotes(notebookId: notebookId).count, 12)
   }
 
   // MARK: - Helpers
@@ -281,6 +434,83 @@ final class QuickMemoCaptureTests: NoteTestCase {
         bindings: [.id(NoteStoreSchema.quickMemoNotebookKindTagId)]
       ).compactMap { $0.identifier("notebook_id", as: NotebookID.self) }
     }
+  }
+
+  /// The same read narrowed to one owner, and by default to one library --
+  /// the scope `quickMemoNotebookIds` is supposed to apply. Written out here
+  /// rather than delegating, so the assertion stays independent of the code
+  /// under test. Passing `inLibrary: nil` drops the library predicate, which
+  /// is how a test reads the owner-only set the C3 delta rejects.
+  private func quickMemoHolders(
+    of service: NoteService,
+    ownedBy ownerUserId: UserID,
+    inLibrary libraryId: LibraryID? = NoteStoreSchema.defaultLibraryId
+  ) throws -> [NotebookID] {
+    var sql = """
+      SELECT notebook_tags.notebook_id AS notebook_id
+      FROM notebook_tags
+      JOIN notebooks ON notebooks.notebook_id = notebook_tags.notebook_id
+      WHERE notebook_tags.tag_id = ?
+      AND notebooks.owner_user_id = ?
+      """
+    var bindings: [SQLiteValue] = [
+      .id(NoteStoreSchema.quickMemoNotebookKindTagId),
+      .id(ownerUserId)
+    ]
+    if let libraryId {
+      sql += "\nAND notebooks.library_id = ?"
+      bindings.append(.id(libraryId))
+    }
+    sql += "\nORDER BY notebook_tags.notebook_id"
+    return try service.driver.withDatabase { database in
+      try database.query(sql, bindings: bindings)
+        .compactMap { $0.identifier("notebook_id", as: NotebookID.self) }
+    }
+  }
+
+  private func libraryId(
+    ofNotebook notebookId: NotebookID,
+    service: NoteService
+  ) throws -> LibraryID {
+    try service.driver.withDatabase { database in
+      let rows = try database.query(
+        "SELECT library_id FROM notebooks WHERE notebook_id = ?",
+        bindings: [.id(notebookId)]
+      )
+      return try XCTUnwrap(rows.first?.identifier("library_id", as: LibraryID.self))
+    }
+  }
+}
+
+/// Collects results off the concurrent workers, as `NoteServiceTests` does for
+/// its own concurrency case.
+private final class ConcurrentQuickMemoResults: @unchecked Sendable {
+  private let lock = NSLock()
+  private var recordedNotebookIds: [NotebookID] = []
+  private var recordedErrors: [String] = []
+
+  func record(notebookId: NotebookID) {
+    lock.lock()
+    recordedNotebookIds.append(notebookId)
+    lock.unlock()
+  }
+
+  func record(error: Error) {
+    lock.lock()
+    recordedErrors.append(String(describing: error))
+    lock.unlock()
+  }
+
+  var notebookIds: [NotebookID] {
+    lock.lock()
+    defer { lock.unlock() }
+    return recordedNotebookIds
+  }
+
+  var errors: [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return recordedErrors
   }
 }
 

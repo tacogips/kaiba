@@ -5,7 +5,10 @@ import Foundation
 // `design-docs/specs/note-capture-and-entity-pages.md` C3 and C4. Every capture
 // lands in one accumulating notebook, found by the system kind tag
 // `notebook-kind:quick-memo` rather than by title, because titles are
-// user-mutable and not unique. The capture itself is an ordinary `createNote`,
+// user-mutable and not unique. "One" is per write principal, not per store
+// (C3 delta): each `(owner_user_id, library_id)` pair finds or creates its own
+// Quick Memos notebook, which is what lets a second bearer credential capture
+// at all. The capture itself is an ordinary `createNote`,
 // so the auto-action outbox and the change feed apply with no capture-specific
 // mechanism at all — that is the point of C4, not an implementation shortcut.
 
@@ -20,6 +23,11 @@ extension NoteService {
   /// `provenance: .system`, `deletable: false` assignment so a client cannot
   /// detach the store's capture target. Deleting the notebook deletes its
   /// `notebook_tags` rows, so the next capture recreates it (C3, find-or-create).
+  ///
+  /// Both the lookup and the invariant are evaluated inside this service
+  /// value's write scope (`quickMemoNotebookIds` below): another account's
+  /// holder is invisible here, never a multi-holder failure and never a
+  /// notebook this caller is then refused.
   @discardableResult
   public func ensureQuickMemoNotebook() throws -> Notebook {
     let result = try driver.withDatabase { database in
@@ -27,6 +35,9 @@ extension NoteService {
         try requireEnabledActingUser(in: db)
         let notebookIds = try quickMemoNotebookIds(in: db)
         if notebookIds.count > 1 {
+          // Scoped: two holders owned by *this* principal in *this* library.
+          // A store defect, reported to the capture route as a 500 (C6 delta),
+          // never as a caller error.
           throw NoteServiceError.invalidInput(
             "multiple notebooks carry \(NoteStoreSchema.quickMemoNotebookKindTag)"
           )
@@ -110,17 +121,37 @@ extension NoteService {
   }
 }
 
-/// Notebooks carrying the quick-memo kind tag, newest-agnostic and ordered so
-/// the invariant check is deterministic. Reads `notebook_tags` by `tag_id`,
-/// which `idx_notebook_tags_tag` covers.
-func quickMemoNotebookIds(in database: SQLiteDatabase) throws -> [NotebookID] {
-  try database.query(
-    """
-    SELECT notebook_id
-    FROM notebook_tags
-    WHERE tag_id = ?
-    ORDER BY notebook_id
-    """,
-    bindings: [.id(NoteStoreSchema.quickMemoNotebookKindTagId)]
-  ).compactMap { $0.identifier("notebook_id", as: NotebookID.self) }
+extension NoteService {
+  /// Notebooks carrying the quick-memo kind tag **within this service value's
+  /// write scope**, ordered so the invariant check is deterministic.
+  ///
+  /// C3 delta: the singleton is per write principal, so the lookup joins
+  /// `notebooks` and filters on `owner_user_id` and `library_id` bound to
+  /// `writeOwnerUserId()` / `writeLibraryId()` — the very identity
+  /// `ensureQuickMemoNotebook`'s insert records. Both predicates are required.
+  /// Owner alone would still match the same user's holder in a different
+  /// library, hand it back, and have `requireNotebook` refuse it for library
+  /// reach: the cross-library form of exactly the leak this delta closes.
+  ///
+  /// Reads `notebook_tags` by `tag_id`, covered by `idx_notebook_tags_tag`,
+  /// then joins `notebooks` on its primary key; the scope predicates are a
+  /// row lookup per candidate, not a scan.
+  func quickMemoNotebookIds(in database: SQLiteDatabase) throws -> [NotebookID] {
+    try database.query(
+      """
+      SELECT notebook_tags.notebook_id AS notebook_id
+      FROM notebook_tags
+      JOIN notebooks ON notebooks.notebook_id = notebook_tags.notebook_id
+      WHERE notebook_tags.tag_id = ?
+      AND notebooks.owner_user_id = ?
+      AND notebooks.library_id = ?
+      ORDER BY notebook_tags.notebook_id
+      """,
+      bindings: [
+        .id(NoteStoreSchema.quickMemoNotebookKindTagId),
+        .id(writeOwnerUserId()),
+        .id(writeLibraryId())
+      ]
+    ).compactMap { $0.identifier("notebook_id", as: NotebookID.self) }
+  }
 }

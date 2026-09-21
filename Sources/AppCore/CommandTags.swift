@@ -73,7 +73,9 @@ extension AppCommand {
 
     let service = try makeService(context)
     let tags = try service.listTags()
-    let tag = try resolveTagReference(reference, in: tags)
+    guard let tag = try matchTagReference(reference, in: tags) else {
+      throw Error.invalidUsage(unresolvedTagReferenceMessage(reference))
+    }
     let detail = try service.tagDetail(tagId: tag.tagId)
     switch output {
     case .json:
@@ -156,12 +158,25 @@ extension AppCommand {
     _ reference: String,
     in tags: [Tag]
   ) throws -> Tag {
+    guard let tag = try matchTagReference(reference, in: tags) else {
+      throw Error.invalidUsage("tag not found: \(reference)")
+    }
+    return tag
+  }
+
+  /// The resolution itself, reporting "no such tag" as `nil` so a caller can
+  /// word that one case for its own surface. Ambiguity still throws, because
+  /// that refusal reads the same wherever the reference came from.
+  private func matchTagReference(
+    _ reference: String,
+    in tags: [Tag]
+  ) throws -> Tag? {
     if let byId = tags.first(where: { $0.tagId.rawValue == reference }) {
       return byId
     }
     let byName = tags.filter { $0.name == reference }
     guard let first = byName.first else {
-      throw Error.invalidUsage("tag not found: \(reference)")
+      return nil
     }
     guard byName.count == 1 else {
       let candidates = byName.map(\.tagId.rawValue).joined(separator: ", ")
@@ -170,6 +185,24 @@ extension AppCommand {
       )
     }
     return first
+  }
+
+  /// Wording for a positional that resolved to no tag.
+  ///
+  /// `kaiba tag <note-id>` was the note-tagging write's only shape until the
+  /// entity page (E7) took over the bare positional, and forgetting
+  /// `--add`/`--remove` used to answer with the option hint. Afterwards the
+  /// same slip resolved the note id as a tag name and answered
+  /// `tag not found: note-…`, which points the operator nowhere. A reference
+  /// carrying the minted note-id prefix gets the old hint back; anything else
+  /// is a genuinely unknown tag and says so. The prefix is consulted only
+  /// after resolution failed, so a tag actually named `note-…` still resolves
+  /// to its own entity page.
+  private func unresolvedTagReferenceMessage(_ reference: String) -> String {
+    guard reference.hasPrefix("\(NoteID.generatedPrefix)-") else {
+      return "tag not found: \(reference)"
+    }
+    return "tag requires --add <name> or --remove <name>"
   }
 
   private func renderTagDetail(_ detail: TagDetail, knownTags: [Tag]) -> String {

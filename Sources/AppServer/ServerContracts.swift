@@ -152,16 +152,10 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
   /// The single 400 body `POST /note/capture` returns for every malformed
   /// request (C6 names one shape for malformed JSON, missing or empty `text`
   /// and wrong types alike). Exposed so tests assert the shipped string rather
-  /// than a copy of it.
+  /// than a copy of it. It is the route's own validation that produces it; no
+  /// note-service failure is reported through this message (C6 delta).
   public static let noteCaptureInvalidBodyMessage =
     "capture request body must be a JSON object with a non-empty text string"
-  /// The 404 body for a capture that cannot reach the Quick Memos notebook.
-  /// Deliberately generic: the service reports `notFound` carrying the
-  /// notebook id it looked up, and that id can belong to another account
-  /// (the store-wide lookup in `quickMemoNotebookIds`), so echoing the
-  /// service message would disclose an id the caller never supplied.
-  public static let noteCaptureNotebookUnavailableMessage =
-    "quick memo notebook is not available to this account"
 
   public init(
     graphQLExecutor: (any GraphQLDocumentExecuting)? = nil,
@@ -685,16 +679,38 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
   /// Anywhere capture: one thought into the Quick Memos notebook
   /// (`design-docs/specs/note-capture-and-entity-pages.md` C1, C2, C6).
   ///
+  /// The amended contract is 201/400/401/405/503/500 (C6 delta, 2026-09-21):
+  ///
+  /// - `201` the captured note's `noteId` / `notebookId` / `noteNumber`
+  /// - `400` `noteCaptureInvalidBodyMessage`, produced **only** by this
+  ///   route's own body validation below
+  /// - `401` `noteAPIUnauthorizedResponse`, from the authenticator or from a
+  ///   credential whose account is disabled
+  /// - `405` the shared unsupported-method body for this known path
+  /// - `503` `noteAPIUnavailableResponse` when no note service or ownership
+  ///   scope is configured
+  /// - `500` the generic internal-error body for any error the note service
+  ///   raises on a request this route has already validated
+  ///
   /// The route owns its own validation rather than leaning on the service's:
   /// C6 places the empty-text 400 here, and `captureQuickMemo` rejects a blank
-  /// body only as defence in depth. The two must not disagree, so every
-  /// `NoteServiceError` this can raise is mapped explicitly below and none of
-  /// them can surface as a 500.
+  /// body only as defence in depth. Once the body has passed that validation a
+  /// `NoteServiceError` is no longer a statement about the caller's request —
+  /// the C3 singleton-invariant violation ("multiple notebooks carry
+  /// notebook-kind:quick-memo" within the caller's own scope) is a store
+  /// defect. The C6 delta therefore removed the blanket `invalidInput → 400`
+  /// mapping: such a failure falls to the generic `catch` below and is logged
+  /// and answered 500, never blamed on the caller as a 400.
   ///
-  /// Unlike `routeAgentToken` there is no `Content-Type` gate: C6 enumerates
-  /// 201/400/401/405/503 and nothing else, and a phone posting a one-field
-  /// form should not have to negotiate a header to be understood. A body that
-  /// is not a JSON object simply fails the parse below and answers 400.
+  /// There is no `notFound → 404` arm. Under the C3 delta the singleton is
+  /// scoped per write principal, so the lookup can never resolve a notebook
+  /// belonging to another account and the foreign-singleton refusal the
+  /// earlier working material mapped to 404 is unreachable.
+  ///
+  /// Unlike `routeAgentToken` there is no `Content-Type` gate: a phone posting
+  /// a one-field form should not have to negotiate a header to be understood.
+  /// A body that is not a JSON object simply fails the parse below and
+  /// answers 400.
   private func routeNoteCapture(
     _ request: ServerRequestEnvelope,
     context: ServerRequestContext
@@ -732,16 +748,6 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
         "noteId": .string(note.noteId.rawValue),
         "notebookId": .string(note.notebookId.rawValue),
         "noteNumber": .integer(Int64(note.noteNumber))
-      ])
-    } catch NoteServiceError.invalidInput {
-      // Reachable without a malformed request: the C3 singleton invariant
-      // fails this way when two notebooks carry the quick-memo kind tag. The
-      // message is the store's, not the caller's, so the canonical body is
-      // returned instead of echoing it.
-      return .init(status: 400, body: ["error": .string(Self.noteCaptureInvalidBodyMessage)])
-    } catch NoteServiceError.notFound {
-      return .init(status: 404, body: [
-        "error": .string(Self.noteCaptureNotebookUnavailableMessage)
       ])
     } catch NoteServiceError.accountUnavailable {
       // The credential authenticated but its account is disabled, the same

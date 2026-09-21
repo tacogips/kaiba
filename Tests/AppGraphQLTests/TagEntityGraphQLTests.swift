@@ -204,6 +204,61 @@ final class TagEntityGraphQLTests: XCTestCase {
     try assertErrorMessage(response, contains: "does not accept arguments")
   }
 
+  func testANonDefaultCoOccurringTagLimitLeavesTheRestOfTheHeaderAlone() async throws {
+    let service = try makeNoteGraphQLService()
+    try seedCoOccurrence(in: service.service)
+    let subject = try XCTUnwrap(service.service.listTags().first { $0.name == "kaiba" })
+    let note = try XCTUnwrap(try service.service.listNotes().first)
+    _ = try service.service.promoteTagCanonicalNote(tagId: subject.tagId, noteId: note.noteId)
+    let executor = NoteGraphQLDocumentExecutor(service: service)
+
+    // The limit is now threaded into the single service read rather than being
+    // applied by taking the default payload and replacing its chip list
+    // (F-000-5). Every field outside coOccurringTags must therefore be
+    // byte-identical between a default read and a trimmed one; if the two ever
+    // diverge, the trimmed read is no longer the same aggregate.
+    func header(limitArgument: String) async throws -> JSONObject {
+      let response = await executor.execute(GraphQLDocumentRequest(
+        query: """
+        query TagDetail($tagId: String!) {
+          tagDetail(tagId: $tagId\(limitArgument)) {
+            result { accepted }
+            value {
+              tag { tagId name }
+              noteCount
+              notebookCount
+              memoNotebookId
+              canonicalNote { noteId title }
+              coOccurringTags { tag { name } noteCount }
+            }
+          }
+        }
+        """,
+        variables: ["tagId": .string(subject.tagId.rawValue)],
+        operationName: "TagDetail"
+      ))
+      let payload = try graphQLPayload(response.body, field: "tagDetail")
+      XCTAssertEqual(try resultObject(payload)["accepted"], .bool(true))
+      return try objectValue(payload["value"], field: "tagDetail.value")
+    }
+
+    var byDefault = try await header(limitArgument: "")
+    var trimmed = try await header(limitArgument: ", coOccurringTagLimit: 1")
+
+    XCTAssertEqual(
+      try objectValue(trimmed["canonicalNote"], field: "canonicalNote")["noteId"],
+      .string(note.noteId.rawValue)
+    )
+    XCTAssertEqual(trimmed["coOccurringTags"], .array(
+      [try XCTUnwrap(arrayValue(byDefault["coOccurringTags"], field: "coOccurringTags").first)]
+    ))
+    // Compare everything else as a whole, so a field added to TagDetail later
+    // is covered by this check without anyone remembering to extend it.
+    byDefault["coOccurringTags"] = nil
+    trimmed["coOccurringTags"] = nil
+    XCTAssertEqual(trimmed, byDefault)
+  }
+
   // MARK: - promoteTagNote / unpromoteTagNote (E2)
 
   func testPromoteThenUnpromoteRoundTripsThroughTheMutationSurface() async throws {
@@ -589,6 +644,13 @@ final class TagEntityGraphQLTests: XCTestCase {
       throw TagEntityGraphQLTestFailure("expected object at \(field), got \(String(describing: value))")
     }
     return object
+  }
+
+  private func arrayValue(_ value: JSONValue?, field: String) throws -> [JSONValue] {
+    guard case let .array(rows) = value else {
+      throw TagEntityGraphQLTestFailure("expected array at \(field), got \(String(describing: value))")
+    }
+    return rows
   }
 }
 

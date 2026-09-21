@@ -176,6 +176,35 @@ private func createdNoteId(_ output: String) throws -> String {
   }
 }
 
+@Test func commandTagWithANoteIdAndNoAddOrRemoveRestoresTheOptionHint() throws {
+  let root = try makeCommandTempRoot()
+  let note = try createdNoteId(try runCommand(
+    ["add", "--body", "# Plain\nBody.", "--output", "json"],
+    root: root
+  ))
+
+  // The entity page owns the bare positional now, so this slip would otherwise
+  // be reported as `tag not found: note-…`, which names nothing the operator
+  // can act on. F-000-8: the pre-entity-page hint comes back for exactly the
+  // note-id shape.
+  do {
+    _ = try runCommand(["tag", note], root: root)
+    Issue.record("Expected a note id without --add/--remove to be refused")
+  } catch AppCommand.Error.invalidUsage(let message) {
+    #expect(message == "tag requires --add <name> or --remove <name>")
+  }
+}
+
+@Test func commandTagShowsATagWhoseNameLooksLikeANoteId() throws {
+  let root = try makeCommandTempRoot()
+  _ = try runCommand(["tag-define", "note-taking", "--class", "folder"], root: root)
+
+  // The note-id hint above is chosen only after resolution has already failed,
+  // so a tag that really carries a `note-` name keeps its entity page.
+  let shown = try runCommand(["tag", "note-taking"], root: root)
+  #expect(shown.hasPrefix("Tag note-taking ("))
+}
+
 @Test func commandTagRefusesAnAmbiguousTagNameWithTheCandidateIds() throws {
   let root = try makeCommandTempRoot()
   _ = try runCommand(["tag-define", "left", "--class", "folder"], root: root)

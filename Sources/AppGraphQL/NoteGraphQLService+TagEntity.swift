@@ -11,25 +11,21 @@ public extension GraphQLNoteGraphQLService {
   /// Tag detail carrying the entity header (E1/E2/E4).
   ///
   /// `coOccurringTagLimit` is nil for "whatever the service considers a
-  /// sensible header", which is `NoteService.defaultCoOccurringTagLimit` and
-  /// costs exactly one aggregate. An explicit limit that differs re-runs the
-  /// aggregate at the caller's size; the first result is discarded rather than
-  /// reaching into the service's transaction, which keeps this layer free of
-  /// its own reach rules. An explicit limit equal to the default is served by
-  /// the first aggregate alone.
+  /// sensible header", which is `NoteService.defaultCoOccurringTagLimit`. Every
+  /// limit -- default or not -- is handed to the service read itself, so the
+  /// aggregate costs exactly one query at whatever size was asked for. This
+  /// layer never takes a default payload, throws its chips away and re-runs the
+  /// aggregate, and it still reaches into none of the service's own rules:
+  /// choosing the limit is the whole of its job here.
   func tagDetail(
     tagId: TagID,
     coOccurringTagLimit: Int?
   ) async -> GraphQLNoteQueryResult<GraphQLTagDetailDTO> {
     noteResult {
-      var detail = try service.tagDetail(tagId: tagId)
-      if let coOccurringTagLimit, coOccurringTagLimit != NoteService.defaultCoOccurringTagLimit {
-        detail.coOccurringTags = try service.coOccurringTags(
-          tagId: tagId,
-          limit: coOccurringTagLimit
-        )
-      }
-      return GraphQLTagDetailDTO(detail: detail)
+      GraphQLTagDetailDTO(detail: try service.tagDetail(
+        tagId: tagId,
+        coOccurringTagLimit: coOccurringTagLimit ?? NoteService.defaultCoOccurringTagLimit
+      ))
     }
   }
 

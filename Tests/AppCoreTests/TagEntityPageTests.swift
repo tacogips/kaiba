@@ -293,6 +293,93 @@ final class TagEntityPageTests: NoteTestCase {
     XCTAssertEqual(after.notebookCount, before.notebookCount)
   }
 
+  // MARK: - tagDetail's co-occurrence limit (E4/E6, finding F-000-5)
+
+  /// Seeds a subject tag whose co-occurrence list has a deterministic order:
+  /// "swift" shares three notes, "sqlite" two.
+  private func seedRankedCoOccurrence(in service: NoteService) throws -> Tag {
+    let subject = try service.defineTag(name: "kaiba", classId: .topic)
+    let notebook = try service.createNotebook(title: "Entities")
+    for index in 0..<3 {
+      var tags = [NoteTagInput(name: "kaiba"), NoteTagInput(name: "swift")]
+      if index < 2 { tags.append(NoteTagInput(name: "sqlite")) }
+      _ = try service.createNote(
+        notebookId: notebook.notebookId,
+        bodyMarkdown: "# Note \(index)",
+        tags: tags
+      )
+    }
+    return subject
+  }
+
+  func testTagDetailSizesItsCoOccurrenceListFromTheGivenLimit() throws {
+    let service = try makeService()
+    let subject = try seedRankedCoOccurrence(in: service)
+
+    // The default is the payload's own idea of a header, and an explicit limit
+    // trims the same ranking rather than re-ranking it. Zero is a meaningful
+    // request -- "header without chips" -- not an absent argument.
+    XCTAssertEqual(
+      try service.tagDetail(tagId: subject.tagId).coOccurringTags.map(\.tag.name),
+      ["swift", "sqlite"]
+    )
+    XCTAssertEqual(
+      try service.tagDetail(tagId: subject.tagId, coOccurringTagLimit: 1)
+        .coOccurringTags.map(\.tag.name),
+      ["swift"]
+    )
+    XCTAssertEqual(
+      try service.tagDetail(tagId: subject.tagId, coOccurringTagLimit: 0).coOccurringTags,
+      []
+    )
+  }
+
+  func testTagDetailRejectsAnOutOfRangeCoOccurringTagLimit() throws {
+    let service = try makeService()
+    let subject = try seedRankedCoOccurrence(in: service)
+
+    // tagDetail and the standalone aggregate share one bound and one wording,
+    // so a caller cannot learn a different rule from whichever it happens to
+    // call. The refusal precedes the read: an out-of-range limit is never
+    // silently clamped into a payload.
+    for limit in [-1, NoteService.maximumCoOccurringTagLimit + 1] {
+      XCTAssertThrowsError(
+        try service.tagDetail(tagId: subject.tagId, coOccurringTagLimit: limit)
+      ) { error in
+        XCTAssertEqual(error as? NoteServiceError, .invalidInput("limit must be between 0 and 200"))
+      }
+    }
+    XCTAssertNoThrow(
+      try service.tagDetail(
+        tagId: subject.tagId,
+        coOccurringTagLimit: NoteService.maximumCoOccurringTagLimit
+      )
+    )
+  }
+
+  func testTagDetailHeaderIsIdenticalWhicheverCoOccurrenceLimitIsAsked() throws {
+    let service = try makeService()
+    let subject = try seedRankedCoOccurrence(in: service)
+    let note = try XCTUnwrap(try service.listNotes().first)
+    _ = try service.promoteTagCanonicalNote(tagId: subject.tagId, noteId: note.noteId)
+
+    let byDefault = try service.tagDetail(tagId: subject.tagId)
+    let trimmed = try service.tagDetail(tagId: subject.tagId, coOccurringTagLimit: 1)
+
+    // The limit sizes the chips and nothing else. This is what the single
+    // aggregate has to preserve now that the GraphQL layer no longer reads the
+    // default payload and replaces its chip list (F-000-5): if the limit ever
+    // starts perturbing a header field, the two reads stop agreeing here.
+    XCTAssertEqual(trimmed.tag, byDefault.tag)
+    XCTAssertEqual(trimmed.tagClass, byDefault.tagClass)
+    XCTAssertEqual(trimmed.noteCount, byDefault.noteCount)
+    XCTAssertEqual(trimmed.notebookCount, byDefault.notebookCount)
+    XCTAssertEqual(trimmed.memoNotebookId, byDefault.memoNotebookId)
+    XCTAssertEqual(trimmed.canonicalNote?.noteId, byDefault.canonicalNote?.noteId)
+    XCTAssertEqual(trimmed.canonicalNote?.noteId, note.noteId)
+    XCTAssertEqual(trimmed.coOccurringTags, Array(byDefault.coOccurringTags.prefix(1)))
+  }
+
   // MARK: - Query plans (E4, finding F2)
 
   func testCoOccurrenceQueryRidesTheTagIndexWithoutScanningNoteTags() throws {
