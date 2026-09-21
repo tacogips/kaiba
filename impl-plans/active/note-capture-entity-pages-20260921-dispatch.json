@@ -1,0 +1,168 @@
+{
+  "taskId": "note-capture-entity-pages-20260921",
+  "workflowMode": "fable-and-improve-opus",
+  "implementationBranch": "design/note-capture-and-entity-pages",
+  "baseBranch": "design/note-capture-and-entity-pages",
+  "remote": "origin",
+  "originalHead": "2035fda0c8d4788dcfdf6fd559a6875d5639554e",
+  "designDocPaths": [
+    "design-docs/specs/note-capture-and-entity-pages.md"
+  ],
+  "evidenceRoot": "tmp/note-capture-entity-pages-20260921",
+  "notes": {
+    "sharedPlanDocument": "impl-plans/active/note-capture-and-entity-pages.md holds all nine task definitions and is READ-ONLY for workers. Its Progress Log is edited only in the serial reconciliation wave (TASK-009).",
+    "perPlanProgress": "Each plan writes its own progress file at progressPath under the untracked evidenceRoot; per-attempt logs go in <evidenceRoot>/<planId>/attempt-<n>/.",
+    "serialReconciliation": "Shared indexes, docs cross-references and any broad formatting belong to TASK-009."
+  },
+  "plans": [
+    {
+      "planId": "TASK-001",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-001/progress.md",
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/NoteStoreSchema.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaCanonicalTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "tags DDL carries canonical_note_id TEXT REFERENCES notes(note_id) ON DELETE SET NULL; quickMemoNotebookKindTag = \"notebook-kind:quick-memo\" constant with stable id appended to systemNotebookKindTags; currentVersion = 20 with the unsupportedLegacyVersion guard intact; new tests cover column presence, SET NULL on note deletion, kind-tag seed and the version guard (design E1, C3-seed).",
+      "verification": "PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreSchema"
+    },
+    {
+      "planId": "TASK-002",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-002/progress.md",
+      "dependsOn": ["TASK-001"],
+      "writePaths": [
+        "Sources/AppCore/NoteService+QuickMemo.swift",
+        "Tests/AppCoreTests/QuickMemoCaptureTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "ensureQuickMemoNotebook() mirrors bootstrapLongTermMemoryNotebook() (single transaction, singleton invariant failure on duplicate kind tag, title \"Quick Memos\", system kind tag deletable:false); captureQuickMemo(bodyMarkdown:title:) routes through createNote so the auto-action outbox and NoteChangeFeed apply unchanged, proven by tests; idempotency and deleted-notebook recreation covered (design C3, C4).",
+      "verification": "PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter QuickMemo"
+    },
+    {
+      "planId": "TASK-003",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-003/progress.md",
+      "dependsOn": ["TASK-001"],
+      "writePaths": [
+        "Sources/AppCore/NoteService+TagDetail.swift",
+        "Tests/AppCoreTests/TagEntityPageTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "promoteTagCanonicalNote(tagId:noteId:) / unpromoteTagCanonicalNote(tagId:) implement the E2 validation matrix (missing tag/note, folder-class and document-kind rejection, last-promote-wins replacement, no-op unpromote) and publish change events; coOccurringTags(tagId:limit:) per E4 excluding system kind and folder tags; tagDetail(tagId:) payload extended with canonicalNote and co-occurrence; an EXPLAIN QUERY PLAN test asserts idx_note_tags_tag use (no full scan).",
+      "verification": "PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter TagEntity"
+    },
+    {
+      "planId": "TASK-004",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-004/progress.md",
+      "dependsOn": ["TASK-002"],
+      "writePaths": [
+        "Sources/AppServer/ServerContracts.swift",
+        "Sources/AppServer/KaibaStaticAssetResolver.swift",
+        "Tests/AppServerTests/NoteCaptureRouteTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "ServerContracts.route gains POST /note/capture implementing contract C6 exactly ({text required non-empty, title?} -> 201 {noteId, notebookId, noteNumber}; 400/401/405/503 reusing the existing helper body shapes byte-for-byte); GET /note/capture serves the SPA bootstrap through the existing /note/register rewrite pattern; route tests cover every status body in both authenticated and --allow-unauthenticated modes (design C1, C2, C5, C6).",
+      "verification": "PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteCaptureRoute"
+    },
+    {
+      "planId": "TASK-005",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-005/progress.md",
+      "dependsOn": ["TASK-003"],
+      "writePaths": [
+        "Sources/AppGraphQL/GraphQLContractProjector.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentInputs.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Tests/AppGraphQLTests/TagEntityGraphQLTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "tagDetail payload exposes canonicalNote and coOccurringTags(limit); promoteTagNote(input:{tagId,noteId}) and unpromoteTagNote(input:{tagId}) return NoteMutationPayload; operation allow-lists updated; GraphQLNoteSchemaContract.swift SDL text updated; executor tests pass (design E6). Locate the TagDetailQueryPayload SDL type body before extending it — only the query-field declaration location is pre-verified.",
+      "verification": "PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AppGraphQLTests"
+    },
+    {
+      "planId": "TASK-006",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-006/progress.md",
+      "dependsOn": ["TASK-003"],
+      "writePaths": [
+        "Sources/AppCore/CommandTags.swift",
+        "Tests/AppCoreTests/CommandTests.swift"
+      ],
+      "sharedPaths": [
+        {
+          "path": "Sources/AppCore/Command.swift",
+          "intendedEdit": "Usage/help text only: add the tag promote and tag unpromote subcommand lines. No dispatch or parsing changes outside CommandTags.swift.",
+          "owner": "TASK-006"
+        }
+      ],
+      "acceptanceCriteria": "kaiba tag promote --tag <name-or-id> --note <note-id> and kaiba tag unpromote --tag <name-or-id> implemented in CommandTags.swift following tag define conventions; kaiba tag <name-or-id> prints the canonical note and top co-occurring tags; Command.swift usage text updated; command tests extended (design E7).",
+      "verification": "PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter CommandTests"
+    },
+    {
+      "planId": "TASK-007",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-007/progress.md",
+      "dependsOn": ["TASK-004"],
+      "writePaths": [
+        "web/src/router.ts",
+        "web/src/views/"
+      ],
+      "sharedPaths": [
+        {
+          "path": "web/src/state/appStore.tsx",
+          "intendedEdit": "Add capture-view state and the POST /note/capture action reusing the stored bearer credential. Must land before TASK-008 touches this file.",
+          "owner": "TASK-007",
+          "alsoEditedBy": ["TASK-008"]
+        }
+      ],
+      "acceptanceCriteria": "/note/capture SPA route renders a textarea plus submit, posts to POST /note/capture with the stored bearer credential, shows the created note id and clears on success, renders C6 error bodies, and routes unregistered visitors to registration; vitest covers submit, error rendering and the unregistered redirect (design C5).",
+      "verification": "cd web && mise exec -- tsc --noEmit && mise exec -- bun test src"
+    },
+    {
+      "planId": "TASK-008",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-008/progress.md",
+      "dependsOn": ["TASK-005", "TASK-007"],
+      "writePaths": [
+        "web/src/components/TagPane.tsx"
+      ],
+      "sharedPaths": [
+        {
+          "path": "web/src/state/appStore.tsx",
+          "intendedEdit": "Add tag entity-header state plus promoteTagNote/unpromoteTagNote GraphQL actions. Take a fresh read after TASK-007 lands; never edit concurrently with TASK-007.",
+          "owner": "TASK-008",
+          "alsoEditedBy": ["TASK-007"]
+        }
+      ],
+      "acceptanceCriteria": "Tag mode header shows the canonical note (excerpt plus open link) or a promote control, implements the create-description-note flow per E3, and renders co-occurring tag chips that navigate via the return stack; vitest covers bound and unbound states and chip navigation (design E5). Start from a fresh read of web/src/components/TagPane.tsx — its current implementation was verified only by file presence during design.",
+      "verification": "cd web && mise exec -- tsc --noEmit && mise exec -- bun test src"
+    },
+    {
+      "planId": "TASK-009",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921/TASK-009/progress.md",
+      "dependsOn": ["TASK-001", "TASK-002", "TASK-003", "TASK-004", "TASK-005", "TASK-006", "TASK-007", "TASK-008"],
+      "writePaths": [],
+      "sharedPaths": [
+        {
+          "path": "design-docs/specs/kaiba-note.md",
+          "intendedEdit": "HTTP API section: add the /note/capture row. Serial reconciliation wave only.",
+          "owner": "TASK-009"
+        },
+        {
+          "path": "impl-plans/active/note-capture-and-entity-pages.md",
+          "intendedEdit": "Tick the task checkboxes and append the Progress Log entries with per-command exit statuses. This is the shared plan document: only TASK-009 writes it.",
+          "owner": "TASK-009"
+        }
+      ],
+      "acceptanceCriteria": "kaiba-note.md HTTP API section lists /note/capture; every task checkbox in the plan is ticked with evidence; the full verification sweep is green with exit statuses recorded in the Progress Log; no non-goal feature was introduced.",
+      "verification": "mise run build; PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test; cd web && mise exec -- tsc --noEmit && mise exec -- bun test src && mise exec -- bun run lint && mise exec -- bun run build"
+    }
+  ]
+}
