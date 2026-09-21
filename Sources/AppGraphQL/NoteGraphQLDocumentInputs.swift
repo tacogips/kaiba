@@ -255,6 +255,30 @@ public struct GraphQLRequestTagExtractionInput: Codable, Equatable, Sendable {
   }
 }
 
+/// Designates `noteId` as the tag's canonical description
+/// (`design-docs/specs/note-capture-and-entity-pages.md`, E2). Both ids are
+/// required: promotion always takes an existing note, never creates one.
+public struct GraphQLPromoteTagNoteInput: Codable, Equatable, Sendable {
+  public var tagId: TagID
+  public var noteId: NoteID
+
+  public init(tagId: TagID, noteId: NoteID) {
+    self.tagId = tagId
+    self.noteId = noteId
+  }
+}
+
+/// Clears a tag's canonical binding (E2). Carried as an input object rather
+/// than a bare argument so the mutation can gain fields without a breaking
+/// signature change, matching how the promote side is shaped.
+public struct GraphQLUnpromoteTagNoteInput: Codable, Equatable, Sendable {
+  public var tagId: TagID
+
+  public init(tagId: TagID) {
+    self.tagId = tagId
+  }
+}
+
 public struct GraphQLRequestNotebookTranslationInput: Codable, Equatable, Sendable {
   public var notebookId: NotebookID
   public var targetLanguage: String

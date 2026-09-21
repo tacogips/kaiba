@@ -181,6 +181,14 @@ public struct AppCommand: Sendable {
 
     Tags and ontology:
       tag        <note-id> (--add <name>... | --remove <name>...)
+      tag        <tag-name-or-id> [--output json|text]
+                 # the tag's entity page: counts, canonical note and the
+                 # tags it most often appears alongside
+      tag promote   --tag <name-or-id> --note <note-id>
+      tag unpromote --tag <name-or-id>
+                 # bind or clear the note that describes the tag; the
+                 # canonical note is shown on the entity page, not assigned
+                 # the tag
       tags       [--output json|text]
       classes    [--output json|text]
       tag-define <name> [--class <id>] [--parent <tag-name>]

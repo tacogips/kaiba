@@ -149,6 +149,20 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
   public static let defaultAgentTokenTTLSeconds = 300
   public static let maximumAgentTokenTTLSeconds = 900
 
+  /// The single 400 body `POST /note/capture` returns for every malformed
+  /// request (C6 names one shape for malformed JSON, missing or empty `text`
+  /// and wrong types alike). Exposed so tests assert the shipped string rather
+  /// than a copy of it.
+  public static let noteCaptureInvalidBodyMessage =
+    "capture request body must be a JSON object with a non-empty text string"
+  /// The 404 body for a capture that cannot reach the Quick Memos notebook.
+  /// Deliberately generic: the service reports `notFound` carrying the
+  /// notebook id it looked up, and that id can belong to another account
+  /// (the store-wide lookup in `quickMemoNotebookIds`), so echoing the
+  /// service message would disclose an id the caller never supplied.
+  public static let noteCaptureNotebookUnavailableMessage =
+    "quick memo notebook is not available to this account"
+
   public init(
     graphQLExecutor: (any GraphQLDocumentExecuting)? = nil,
     noteAPIAuthenticator: (any NoteAPIAuthenticating)? = nil,
@@ -199,8 +213,14 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
       response = await routeAgentReplyStream(request, context: contextWithHeaders)
     case ("POST", "/note/agent-token"):
       response = await routeAgentToken(request, context: contextWithHeaders)
+    case ("POST", "/note/capture"):
+      response = await routeNoteCapture(request, context: contextWithHeaders)
     case (_, "/"), (_, "/overview"), (_, "/healthz"), (_, "/graphql"), (_, "/note/register"),
-      (_, "/note/events"), (_, "/note/agent-stream"), (_, "/note/agent-token"):
+      (_, "/note/events"), (_, "/note/agent-stream"), (_, "/note/agent-token"),
+      // `GET /note/capture` is the SPA capture page, served ahead of this
+      // handler by `KaibaStaticSPAHTTPRouter` (C5). A server running without
+      // web assets has no page to give, so the known path answers 405 here.
+      (_, "/note/capture"):
       response = .init(status: 405, body: [
         "error": .string("unsupported method"),
         "method": .string(normalizedMethod),
@@ -662,6 +682,105 @@ public struct DeterministicServerRouteHandler: ServerRouteHandling {
     }
   }
 
+  /// Anywhere capture: one thought into the Quick Memos notebook
+  /// (`design-docs/specs/note-capture-and-entity-pages.md` C1, C2, C6).
+  ///
+  /// The route owns its own validation rather than leaning on the service's:
+  /// C6 places the empty-text 400 here, and `captureQuickMemo` rejects a blank
+  /// body only as defence in depth. The two must not disagree, so every
+  /// `NoteServiceError` this can raise is mapped explicitly below and none of
+  /// them can surface as a 500.
+  ///
+  /// Unlike `routeAgentToken` there is no `Content-Type` gate: C6 enumerates
+  /// 201/400/401/405/503 and nothing else, and a phone posting a one-field
+  /// form should not have to negotiate a header to be understood. A body that
+  /// is not a JSON object simply fails the parse below and answers 400.
+  private func routeNoteCapture(
+    _ request: ServerRequestEnvelope,
+    context: ServerRequestContext
+  ) async -> ServerResponseDescriptor {
+    // Authentication first, exactly as `routeNoteEvents` does it and with the
+    // same credential (C2): capture invents no second registration flow, and
+    // under `--allow-unauthenticated` it acts as the default user like every
+    // other note route.
+    let authenticatedClient: NoteAPIAuthenticatedClient?
+    if let noteAPIAuthenticator {
+      switch await noteAPIAuthenticator.authenticate(request: request, context: context) {
+      case let .accepted(client):
+        authenticatedClient = client
+      case let .rejected(response):
+        return response
+      }
+    } else if !allowUnauthenticatedNoteAPI {
+      return noteAPIUnavailableResponse("note API authentication is not configured")
+    } else {
+      authenticatedClient = nil
+    }
+    guard let service = scopedNoteAPIService(for: authenticatedClient) else {
+      return noteAPIUnavailableResponse("note API ownership scope is not configured")
+    }
+    let captured: NoteCaptureRequest
+    switch Self.parseNoteCaptureRequest(request.body) {
+    case let .failure(response):
+      return response
+    case let .success(value):
+      captured = value
+    }
+    do {
+      let note = try service.captureQuickMemo(bodyMarkdown: captured.text, title: captured.title)
+      return .init(status: 201, body: [
+        "noteId": .string(note.noteId.rawValue),
+        "notebookId": .string(note.notebookId.rawValue),
+        "noteNumber": .integer(Int64(note.noteNumber))
+      ])
+    } catch NoteServiceError.invalidInput {
+      // Reachable without a malformed request: the C3 singleton invariant
+      // fails this way when two notebooks carry the quick-memo kind tag. The
+      // message is the store's, not the caller's, so the canonical body is
+      // returned instead of echoing it.
+      return .init(status: 400, body: ["error": .string(Self.noteCaptureInvalidBodyMessage)])
+    } catch NoteServiceError.notFound {
+      return .init(status: 404, body: [
+        "error": .string(Self.noteCaptureNotebookUnavailableMessage)
+      ])
+    } catch NoteServiceError.accountUnavailable {
+      // The credential authenticated but its account is disabled, the same
+      // condition `routeAgentToken` answers with 401.
+      return noteAPIUnauthorizedResponse("note API bearer token is invalid or revoked")
+    } catch {
+      logNoteAPIServerError("quick memo capture failed", error: error)
+      return .init(status: 500, body: ["error": .string("quick memo could not be captured")])
+    }
+  }
+
+  /// C6's request body: a JSON object with a required non-empty `text` and an
+  /// optional `title`. Oversized bodies never reach here — the transport caps
+  /// them at `KaibaHTTPRequestParser.maximumBodyBytes` before routing.
+  static func parseNoteCaptureRequest(_ body: Data?) -> NoteCaptureParseResult {
+    let invalid = ServerResponseDescriptor(
+      status: 400,
+      body: ["error": .string(noteCaptureInvalidBodyMessage)]
+    )
+    guard let body, !body.isEmpty,
+          let value = try? JSONDecoder().decode(JSONValue.self, from: body),
+          case let .object(object) = value,
+          case let .string(text)? = object["text"],
+          !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return .failure(invalid)
+    }
+    let title: String?
+    switch object["title"] {
+    case .none, .some(.null):
+      title = nil
+    case let .some(.string(value)):
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      title = trimmed.isEmpty ? nil : trimmed
+    default:
+      return .failure(invalid)
+    }
+    return .success(NoteCaptureRequest(text: text, title: title))
+  }
+
   private func scopedNoteAPIService(for client: NoteAPIAuthenticatedClient?) -> NoteService? {
     noteService?
       .scoped(to: client?.userId ?? NoteStoreSchema.defaultUserId)
@@ -726,6 +845,26 @@ private func noteEventIsVisible(
 public enum GraphQLEnvelopeParseResult: Equatable, Sendable {
   case success(GraphQLServerEnvelope)
   case failure(String)
+}
+
+/// A validated `POST /note/capture` body (C6). `title` is already collapsed to
+/// nil when blank, so `captureQuickMemo` derives one from the body instead of
+/// storing an empty heading.
+public struct NoteCaptureRequest: Equatable, Sendable {
+  public var text: String
+  public var title: String?
+
+  public init(text: String, title: String? = nil) {
+    self.text = text
+    self.title = title
+  }
+}
+
+/// Failure carries the finished 400 descriptor rather than a message, because
+/// C6 gives the route exactly one malformed-request body for every cause.
+public enum NoteCaptureParseResult: Equatable, Sendable {
+  case success(NoteCaptureRequest)
+  case failure(ServerResponseDescriptor)
 }
 
 extension ServerRequestContext {

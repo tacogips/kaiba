@@ -172,7 +172,20 @@ symbol in this tree:
   by the schema, and it would overload the note graph's semantics. The
   column gives single-binding for free and `ON DELETE SET NULL` makes note
   deletion self-cleaning (`deleteNoteRows` needs no change; verified by a
-  deletion test).
+  deletion test) — but *not* self-restoring: the clear happens inside the
+  engine and never reaches the action log, so undo must carry the binding
+  explicitly. `captureNoteSnapshot` therefore records the ids of the tags the
+  deleted note was canonical for (`canonicalTagIds`) and
+  `restoreNoteSnapshot` re-applies each one **only to a tag that is still
+  unbound**, so a promote recorded after the deletion is never reversed by an
+  undo (E2's last-promote-wins). The `tags` DDL carries
+  `CREATE INDEX IF NOT EXISTS idx_tags_canonical_note ON
+  tags(canonical_note_id)`: that reverse lookup, and the foreign key's
+  `SET NULL` action itself, would otherwise scan `tags` once per deleted
+  note. The index is deliberately unfiltered — SQLite does not use partial
+  indexes for foreign-key actions. Notebook deletion needs no equivalent: it
+  is already recorded `undoable: false` (U10), so there is no undo path whose
+  bindings could be lost.
 - **E2 — Promote and unpromote are explicit operations.**
   `NoteService.promoteTagCanonicalNote(tagId:noteId:)` validates that the
   tag exists, the note exists, and the tag is not a `folder`-class or

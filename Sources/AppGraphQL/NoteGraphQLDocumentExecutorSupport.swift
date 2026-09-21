@@ -151,6 +151,8 @@ let supportedNoteGraphQLFields: Set<String> = [
   "tagDetail",
   "tagComments",
   "ensureTagMemoNotebook",
+  "promoteTagNote",
+  "unpromoteTagNote",
   "agenticSearch",
   "appSetting",
   "actionHistory",
@@ -416,7 +418,13 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "tagClass": "NoteTagClass",
     "noteCount": nil,
     "notebookCount": nil,
-    "memoNotebookId": nil
+    "memoNotebookId": nil,
+    "canonicalNote": "Note",
+    "coOccurringTags": "TagCoOccurrence"
+  ],
+  "TagCoOccurrence": [
+    "tag": "NoteTag",
+    "noteCount": nil
   ],
   "TagCommentsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "TagComment"),
   "TagComment": [
