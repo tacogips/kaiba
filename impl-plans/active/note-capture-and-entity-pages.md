@@ -162,6 +162,45 @@ Findings RC-7 (the co-occurrence bound `200` appears in both
 and RC-8 (MARK ordering) are explicitly DEFERRED as cosmetic: closing them
 would reopen accepted files for zero behavior change.
 
+### Resumed-run ordering (2026-09-21, session-8) — AUTHORITATIVE
+
+Supersedes the session-7 ordering above where they differ. State verified on
+disk at session-8 analysis: HEAD `8c63808`, tree clean except untracked
+`.riela/`; the branch has never been pushed (`git ls-remote` empty, no
+upstream).
+
+- **COMMIT-A is DONE**: the wave-2-accepted delta closures were committed as
+  `0c01432` after byte-identical SHA-256 re-verification against
+  `tmp/note-capture-entity-pages-20260921-opus4/integration-review-wave2/acceptance-record.json`.
+  Do not repeat it.
+- **All prior dispatch manifests were deleted** in `8c63808` because their
+  multi-plan fanout shape broke the runtime join ("fanout dependencies:
+  unknown or duplicate completed branch IDs"). The session-8 manifest
+  `impl-plans/active/note-capture-entity-pages-20260921-session8-dispatch.json`
+  is the ONLY manifest, carries EXACTLY ONE plan
+  (`planId: note-capture-and-entity-pages`, one branch,
+  `has_feature_fanout: false`), and is authoritative for this run. Do not
+  write another manifest; do not split the plan.
+- **Remaining execution, strictly serial inside the single plan**:
+  1. TASK-007 (web capture view) — commit its files when its web gates are
+     green.
+  2. TASK-008 (TagPane entity header) — fresh read of the shared
+     `web/src/state/appStore.tsx` after TASK-007 lands; commit when green.
+  3. TASK-009 — `kaiba-note.md` HTTP API row, full checkbox sweep with
+     per-box evidence (TASK-001..006 boxes cite the opus4 acceptance records
+     plus commit `0c01432`; TASK-000's 20 KEEP / 4 CORRECT / 0 REMOVE
+     disposition restated), fresh full-suite run to completion, web gates,
+     final commit, then the branch's FIRST push
+     (`git push -u origin feat/note-capture-and-entity-pages`).
+- Environment re-check at session-8: `.build/` is warm but
+  `.build/anydoc-native/` is ABSENT again — run
+  `arch -arm64 /bin/zsh -lc 'mise run anydoc:native'` once before any swift
+  command. Evidence root for this run:
+  `tmp/note-capture-entity-pages-20260921-session8/`.
+- Frozen-material and deferred-findings rules from session-7 stand unchanged
+  (TASK-001..006 frozen; RC-7/RC-8 deferred; RC-4 standing rule: `.riela/`
+  is untracked, NOT gitignored, and never committed).
+
 ### TASK-000: Review the starting material
 
 **Parallelizable**: No (wave 0; gates every other task)
@@ -502,3 +541,35 @@ through the arm64 login shell (see Applicable prior knowledge):
     flow; web tests run `bun test src && vitest run`.
   - Team KB recall for `note-capture-entity-pages` again returned zero
     entries (kb-recall-prior, session-7).
+- 2026-09-21 (session-8 resumed run, analysis + design step; the session-7
+  implementation run was killed by the same external OOM class AFTER it had
+  executed COMMIT-A and the manifest cleanup):
+  - **State on disk**: HEAD `8c63808`, worktree clean except untracked
+    `.riela/`. `main..HEAD` = `ba7ef12` (starting material), `83a4be5`
+    (merge main), three plan/manifest docs commits, `0c01432` (COMMIT-A:
+    the accepted C3/C6/E6/F-000-8 delta closures, committed after
+    byte-identical hash re-verification per its own commit message), and
+    `8c63808` (drops all four stale multi-plan dispatch manifests). The
+    branch has never been pushed: `git ls-remote origin` shows no
+    `feat/note-capture-and-entity-pages` and no upstream is configured.
+  - **Design step outcome**: the accepted design needs NO new deltas.
+    Session-8 verified the web tree state the remaining tasks depend on:
+    no `CaptureView`/`/note/capture` reference exists under `web/src`,
+    `TagPane.tsx` carries no canonical/co-occurrence code, and
+    `web/src/views/` holds only Chatbook/Config/Login/Search — TASK-007 and
+    TASK-008 are genuinely not started, exactly as the session-7 notes
+    recorded. All ratified deltas (E1, C3, C4, C6, E6, F-000-7) stand.
+  - **Plan step outcome**: added the AUTHORITATIVE session-8 resumed-run
+    ordering (COMMIT-A done; remaining TASK-007 → TASK-008 → TASK-009,
+    strictly serial inside one plan) and authored the single-plan dispatch
+    manifest
+    `impl-plans/active/note-capture-entity-pages-20260921-session8-dispatch.json`
+    (`has_feature_fanout: false`, one planId, one branch), replacing
+    nothing: no other manifest exists on the branch after `8c63808`.
+  - Environment: `.build/` warm (arm64 debug artifacts present) but
+    `.build/anydoc-native/` absent — `mise run anydoc:native` must re-run
+    before any swift command. Team KB recall for
+    `kaiba note-capture entity-pages` returned zero entries
+    (kb-recall-prior, session-8), so no external prior knowledge applies
+    beyond what this plan already embeds (arm64 login shell, anydoc
+    bootstrap, bun-via-mise web gates, bab58cd baseline protocol).
