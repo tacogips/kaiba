@@ -207,6 +207,7 @@ public struct GraphQLSendAgentChatMessageInput: Codable, Equatable, Sendable {
   public var conversationNotebookId: NotebookID?
   public var userMarkdown: String
   public var idempotencyKey: String?
+  public var provider: String?
   public var model: String?
   /// "memo" (default) or "edit"; validated against `AgentChatTurnMode`.
   public var mode: String?
@@ -219,6 +220,7 @@ public struct GraphQLSendAgentChatMessageInput: Codable, Equatable, Sendable {
     userMarkdown: String,
     idempotencyKey: String? = nil,
     model: String? = nil,
+    provider: String? = nil,
     mode: String? = nil,
     attachments: [GraphQLAgentChatAttachmentInput]? = nil
   ) {
@@ -228,6 +230,7 @@ public struct GraphQLSendAgentChatMessageInput: Codable, Equatable, Sendable {
     self.userMarkdown = userMarkdown
     self.idempotencyKey = idempotencyKey
     self.model = model
+    self.provider = provider
     self.mode = mode
     self.attachments = attachments
   }

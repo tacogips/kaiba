@@ -11,6 +11,28 @@ private struct StubInvoker: AgentInvoking {
 }
 
 extension AgentChatGraphQLTests {
+  func testGeneralConversationCanStartReplayAndContinueWithoutSource() async throws {
+    let service = try makeService()
+    let input = GraphQLSendAgentChatMessageInput(
+      userMarkdown: "Explain spaced repetition", idempotencyKey: "general-first"
+    )
+    let first = await service.sendAgentChatMessage(input)
+    XCTAssertTrue(first.result.accepted)
+    let conversationId = try XCTUnwrap(first.conversationNotebookId)
+    let firstTurnId = try XCTUnwrap(first.turnNoteId)
+    XCTAssertEqual(try service.service.getNotebook(conversationId).type, .agentChat)
+    let replay = await service.sendAgentChatMessage(input)
+    XCTAssertEqual(replay.conversationNotebookId, conversationId)
+    XCTAssertEqual(replay.turnNoteId, firstTurnId)
+    let continued = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
+      conversationNotebookId: conversationId,
+      userMarkdown: "Give an example", idempotencyKey: "general-next"
+    ))
+    XCTAssertTrue(continued.result.accepted)
+    XCTAssertEqual(continued.conversationNotebookId, conversationId)
+    XCTAssertNotEqual(continued.turnNoteId, firstTurnId)
+  }
+
   func testOpenMemoNotebookMutationProjectsReusableChatNotebook() async throws {
     let service = try makeService()
     let note = try service.service.createNote(bodyMarkdown: "Source")

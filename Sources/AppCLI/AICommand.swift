@@ -419,7 +419,8 @@ enum AICommand {
         service: service,
         invoker: invoker,
         provider: aiConfiguration?.agent?.provider,
-        model: aiConfiguration?.agent?.model
+        model: aiConfiguration?.agent?.model,
+        registrationPrompt: aiConfiguration?.autoTag?.prompt
       )
       let result = try await extraction.extractTags(subject: subject, dryRun: dryRun)
       if result.proposals.isEmpty {

@@ -43,3 +43,6 @@
   .notebook-list-head h1 { font-size: calc(24px * var(--fs, 1)); }
   .memo-composer { padding: 10px; gap: 8px; }
 }
+
+.document-import-form { display: grid; gap: 12px; }
+.document-import-form button { justify-self: start; }

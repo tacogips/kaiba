@@ -523,8 +523,8 @@ describe('MemoTab integration', () => {
       const model = () => host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
       await waitFor(() => expect(host.querySelector('.note-inline-error')?.textContent ?? '')
         .toContain('agent model catalog'))
-      expect(model().disabled).toBe(false)
-      expect(model().options).toHaveLength(0)
+      expect(model().disabled).toBe(true)
+      expect(model().options).toHaveLength(1)
       expect(host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files"]')!.disabled).toBe(false)
       expect(host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!.disabled).toBe(false)
 

@@ -34,7 +34,7 @@ test('manual editing keeps a failed draft, detects changed source text, and save
   const dispose = render(() => <AppStoreProvider options={{ client: api,
     router: { currentHash: () => '#/', setHash: () => {}, addListener: () => {}, removeListener: () => {} },
   }}><NoteEditor note={note} /></AppStoreProvider>, host)
-  const button = (text: string) => [...host.querySelectorAll('button')].find((item) => item.textContent === text)!
+  const button = (text: string) => [...host.querySelectorAll('button')].find((item) => (item.getAttribute('aria-label') ?? item.textContent) === text)!
   const write = (text: string) => {
     const textarea = host.querySelector('textarea')!
     textarea.value = text

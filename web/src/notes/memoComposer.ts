@@ -12,6 +12,13 @@ const extensions: Record<string, string> = {
   json: 'application/json', xml: 'application/xml', yaml: 'application/yaml', yml: 'application/x-yaml',
 }
 
+export async function fileToChatAttachment(file: File): Promise<AgentChatAttachmentInput> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return { contentBase64: btoa(binary), mediaType: composerAttachmentMediaType(file) ?? '', originalFilename: file.name }
+}
+
 export function composerShouldSubmit(event: { key: string; shiftKey: boolean; isComposing: boolean }): boolean {
   return event.key === 'Enter' && !event.shiftKey && !event.isComposing
 }
@@ -113,6 +120,7 @@ export interface AgentChatComposerRequestOptions {
   userMarkdown: string
   idempotencyKey: string
   selectedModel?: string
+  selectedProvider?: string
   /** True sends mode "edit": the agent rewrites the subject note instead of
    * answering in the conversation. */
   noteEdit?: boolean
@@ -126,6 +134,7 @@ export interface AgentChatComposerRequest {
   userMarkdown: string
   idempotencyKey: string
   model?: string
+  provider?: string
   mode?: 'edit'
   attachments?: AgentChatAttachmentInput[]
 }
@@ -146,6 +155,7 @@ export function buildAgentChatComposerRequest(options: AgentChatComposerRequestO
     userMarkdown: options.userMarkdown.trim(),
     idempotencyKey: options.idempotencyKey,
     ...(options.selectedModel ? { model: options.selectedModel } : {}),
+    ...(options.selectedProvider ? { provider: options.selectedProvider } : {}),
     ...(options.noteEdit ? { mode: 'edit' as const } : {}),
     ...(options.attachments.length > 0 ? { attachments: [...options.attachments] } : {}),
   }

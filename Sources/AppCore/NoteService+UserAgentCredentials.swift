@@ -14,7 +14,10 @@ public extension NoteService {
     targetUserId: UserID? = nil,
     customBaseURLAllowed: Bool = false
   ) throws -> UserAgentCredentialSummary {
-    let apiKey = try UserAgentCredentialValidation.validatedKey(input.apiKey)
+    let apiKey = input.provider == .codex ? "" : try UserAgentCredentialValidation.validatedKey(input.apiKey)
+    guard input.provider != .codex || (input.baseURL?.isEmpty ?? true) else {
+      throw NoteServiceError.invalidInput("Codex subscription does not accept a baseURL")
+    }
     let model = try UserAgentCredentialValidation.validatedModel(input.defaultModel)
     let baseURL = try UserAgentCredentialValidation.validatedBaseURL(
       input.baseURL,

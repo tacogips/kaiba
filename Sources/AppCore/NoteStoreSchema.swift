@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 19
+  public static let currentVersion = 20
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -204,10 +204,8 @@ public enum NoteStoreSchema {
     )
   }
 
-  /// Kaiba carries no migrations and backward compatibility is not a
-  /// requirement: a store is either created fresh at `currentVersion` or is
-  /// already at it. Any other version is rejected up front, and the operator
-  /// recreates the store rather than upgrading it.
+  /// Version 19 receives a narrow credential-table upgrade preserving keys.
+  /// Other legacy schemas still require recreation.
   private static func requireSupportedVersion(in database: SQLiteDatabase) throws {
     guard let newest = try appliedSchemaVersions(in: database).max() else {
       return
@@ -215,8 +213,25 @@ public enum NoteStoreSchema {
     if newest > currentVersion {
       throw NoteStoreSchemaError.unsupportedFutureVersion(found: newest, supported: currentVersion)
     }
+    if newest == 19 {
+      try upgradeSubscriptionCredentials(in: database)
+      return
+    }
     if newest < currentVersion {
       throw NoteStoreSchemaError.unsupportedLegacyVersion(found: newest, required: currentVersion)
+    }
+  }
+
+  private static func upgradeSubscriptionCredentials(in database: SQLiteDatabase) throws {
+    guard let statement = schemaStatements.first(where: { $0.contains("CREATE TABLE IF NOT EXISTS user_agent_credentials (") }) else {
+      throw NoteStoreSchemaError.storeInvariant("missing credential schema")
+    }
+    try database.transaction { db in
+      try db.execute("ALTER TABLE user_agent_credentials RENAME TO user_agent_credentials_v19")
+      try db.execute(statement)
+      try db.execute("INSERT INTO user_agent_credentials SELECT * FROM user_agent_credentials_v19")
+      try db.execute("DROP TABLE user_agent_credentials_v19")
+      try recordSchemaVersion(currentVersion, in: db)
     }
   }
 
@@ -651,7 +666,7 @@ private let schemaStatements = [
   """
   CREATE TABLE IF NOT EXISTS user_agent_credentials (
     user_id TEXT PRIMARY KEY REFERENCES users(user_id),
-    provider TEXT NOT NULL CHECK (provider IN ('anthropic','openai','openrouter','openai-compatible')),
+    provider TEXT NOT NULL CHECK (provider IN ('anthropic','openai','openrouter','openai-compatible','codex')),
     api_key TEXT NOT NULL,
     base_url TEXT,
     default_model TEXT NOT NULL,

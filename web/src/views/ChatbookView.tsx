@@ -6,10 +6,13 @@ import { NoteSearchPopup } from '../components/NoteSearchPopup'
 import { SearchView } from './SearchView'
 import { ConfigView } from './ConfigView'
 import { LoginView } from './LoginView'
+import { WorkspaceShortcuts, shortcutLabel, type WorkspaceCommand } from '../components/WorkspaceShortcuts'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { useApp } from '../state/appStore'
-import type { SearchMethod, SearchScope } from '../router'
 import { formatRoute } from '../router'
+import type { RightTab } from '../state/paneState'
+import type { NotebookId } from '../notes/ids'
+import { AgentFooter } from '../components/AgentFooter'
 
 // The chatbook shell: a three-column grid whose fold state is expressed as data
 // attributes so the layout never depends on selector tricks, plus the shared
@@ -19,6 +22,30 @@ import { formatRoute } from '../router'
 export function ChatbookView(): JSX.Element {
   const app = useApp()
   const [mobilePane, setMobilePane] = createSignal<MobilePane>('reader')
+  const [agentConversation, setAgentConversation] = createSignal<NotebookId>()
+  const [pendingNavigation, setPendingNavigation] = createSignal<{ ready: () => boolean; run: () => void }>()
+  // Hash navigation completes asynchronously in the browser and native web view.
+  // Defer destination actions until the route has mounted its controls.
+  const afterNavigation = (ready: () => boolean, navigate: () => void, run: () => void) => {
+    setPendingNavigation(undefined)
+    if (ready()) { navigate(); run(); return }
+    setPendingNavigation({ ready, run })
+    navigate()
+  }
+  createEffect(() => {
+    const pending = pendingNavigation()
+    if (!pending?.ready()) return
+    queueMicrotask(() => {
+      if (pendingNavigation() !== pending) return
+      setPendingNavigation(undefined)
+      pending.run()
+    })
+  })
+  onCleanup(() => setPendingNavigation(undefined))
+  const openAgentConversation = (id: NotebookId) => {
+    setAgentConversation(id)
+    showDetails('memo')
+  }
   createEffect(() => {
     // Navigation reveals its destination even when Learn was the last mobile pane.
     formatRoute(app.state.route)
@@ -31,14 +58,66 @@ export function ChatbookView(): JSX.Element {
     setMobilePane(pane)
   }
 
+  const inReader = (run: () => void) => afterNavigation(
+    () => app.state.route.kind !== 'config' && app.state.route.kind !== 'search', app.openReader, run)
+  const showDetails = (tab: RightTab, then?: () => void) => inReader(() => afterNavigation(
+    () => !app.tagPaneTagId(), app.closeTagPane, () => {
+      app.setRightTab(tab)
+      showMobilePane('details')
+      then?.()
+    }))
+
+  const focus = (selector: string) => queueMicrotask(() => document.querySelector<HTMLElement>(selector)?.focus())
+  const newNotebook = () => afterNavigation(() => app.state.route.kind === 'home', app.openHome, () => {
+    setMobilePane('reader'); focus('.new-notebook-editor textarea')
+  })
+  const browseNotebooks = () => inReader(() => showMobilePane('files'))
+  const agentChat = () => showDetails('memo', () => focus('.pane-right .chat textarea'))
+  const commands: WorkspaceCommand[] = [
+    { label: 'New notebook', key: 'n', run: newNotebook },
+    { label: 'Notebooks', key: '1', shift: true, run: browseNotebooks },
+    { label: 'Toggle tree / timeline', key: 't', shift: true, run: () => {
+      app.setNotebookView(app.state.pane.notebookView === 'tree' ? 'timeline' : 'tree')
+      browseNotebooks()
+    } },
+    { label: 'Quick switcher', key: 'p', run: () => app.setSearchOpen(true) },
+    { label: 'AI', key: 'a', shift: true, run: agentChat },
+    { label: 'Ask AI', key: 'j', run: () => {
+      document.querySelector<HTMLButtonElement>('.agent-footer [aria-label="Ask AI"][aria-expanded="false"]')?.click()
+      focus('.agent-footer textarea')
+    } },
+    { label: 'New chat', key: 'j', shift: true, run: () => {
+      showDetails('memo', () => queueMicrotask(() => {
+        document.querySelector<HTMLButtonElement>('.pane-right [aria-label="New chat"]:not(:disabled)')?.click()
+        focus('.pane-right .chat textarea')
+      }))
+    } },
+    { label: 'Tags', key: '2', shift: true, run: () => showDetails('info') },
+    { label: 'Links', key: '3', shift: true, run: () => showDetails('links') },
+    { label: 'History', key: '4', shift: true, run: () => showDetails('history') },
+    { label: 'Settings', key: ',', run: app.openConfig },
+    { label: 'Toggle library pane', key: 'b', run: app.toggleLeftPane },
+    { label: 'Toggle details pane', key: 'b', shift: true, run: app.toggleRightPane },
+    { label: 'Add a note', key: 'n', shift: true, run: () => inReader(() => {
+      setMobilePane('reader')
+      queueMicrotask(() => {
+        document.querySelector<HTMLButtonElement>('.note-capture > button')?.click()
+        focus('main .note-capture textarea')
+      })
+    }) },
+    { label: 'Save writing', key: 's', run: () => {
+      const activeForm = document.activeElement?.closest('form')
+      const form = activeForm?.matches('main .note-capture form, main form.note-capture, main .note-editor form') ? activeForm : document.querySelector<HTMLFormElement>('main .note-capture form, main form.note-capture, main .note-editor form')
+      form?.querySelector<HTMLButtonElement>('button[type="submit"]:not(:disabled)')?.click()
+    } },
+    { label: 'Keyboard shortcuts', key: '/', run: () => document.querySelector<HTMLButtonElement>('[aria-label="Keyboard shortcuts"]')?.click() },
+  ]
+  const hint = (label: string) => `${label} (${shortcutLabel(commands.find((command) => command.label === label)!)})`
+
   onMount(() => {
     const shortcut = (event: KeyboardEvent) => {
-      if (app.state.searchOpen || event.defaultPrevented) return
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'p') {
-        event.preventDefault()
-        app.setSearchOpen(true)
-        return
-      }
+      if (app.state.auth === 'unauthenticated' || app.state.searchOpen || event.defaultPrevented
+        || event.isComposing || event.repeat || document.querySelector('dialog[open], [role="dialog"]')) return
       if (event.metaKey || event.ctrlKey || event.altKey) return
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
@@ -96,28 +175,20 @@ export function ChatbookView(): JSX.Element {
       data-view={view()}
     >
       <a class="skip-link" href="#main-content">Skip to content</a>
-      <header class="chatbook-head">
+      <div class="chatbook-head workspace-menu">
         <nav class="workspace-tools" aria-label="Workspace">
-          <button type="button" class="workspace-icon" aria-label="Notebooks" title="Notebooks" onClick={() => { if (view() !== 'reader') app.openReader(); showMobilePane('files') }}><WorkspaceIcon name="files" /></button>
+          <button type="button" class="workspace-icon" aria-label="New notebook" title={hint('New notebook')} onClick={newNotebook}><WorkspaceIcon name="edit" /></button>
+          <button type="button" class="workspace-icon" aria-label="Notebooks" title={hint('Notebooks')} onClick={browseNotebooks}><WorkspaceIcon name="files" /></button>
           <button type="button" class="workspace-icon" aria-label="Quick switcher" title="Quick switcher (⌘/Ctrl P)" onClick={() => app.setSearchOpen(true)}><WorkspaceIcon name="search" /></button>
-          <button type="button" class="workspace-icon" aria-label="AI" title="AI" onClick={() => { app.setRightTab('memo'); showMobilePane('details') }}><WorkspaceIcon name="ai" /></button>
-          <button type="button" class="workspace-icon" aria-label="Links" title="Links" onClick={() => { app.setRightTab('links'); showMobilePane('details') }}><WorkspaceIcon name="links" /></button>
+          <button type="button" class="workspace-icon" aria-label="AI" title={hint('AI')} onClick={agentChat}><WorkspaceIcon name="ai" /></button>
+          <button type="button" class="workspace-icon" aria-label="Tags" title={hint('Tags')} onClick={() => showDetails('info')}><WorkspaceIcon name="tags" /></button>
+          <button type="button" class="workspace-icon" aria-label="Links" title={hint('Links')} onClick={() => showDetails('links')}><WorkspaceIcon name="links" /></button>
         </nav>
-        <HeaderSearch />
         <div class="chatbook-head-actions">
-          <span class="server-status" role="status" aria-live="polite" aria-label={app.state.live ? 'Live' : 'Offline'} title={app.state.live ? 'Live' : 'Offline'}>
-            <span classList={{ dot: true, live: app.state.live }} />
-          </span>
-          <Show when={view() !== 'reader'}>
-            <button type="button" class="secondary" onClick={() => {
-              setMobilePane('reader')
-              app.openReader()
-            }}>Reader</button>
-          </Show>
-          <button type="button" class="workspace-icon" aria-label="Settings" title="Settings" onClick={app.openConfig}><WorkspaceIcon name="settings" /></button>
-          <button type="button" class="workspace-icon" aria-label="Refresh" title="Refresh" onClick={() => void app.refreshCatalog()}><WorkspaceIcon name="refresh" /></button>
+          <WorkspaceShortcuts commands={commands} blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen} />
+          <button type="button" class="workspace-icon" aria-label="Settings" title={hint('Settings')} onClick={app.openConfig}><WorkspaceIcon name="settings" /></button>
         </div>
-      </header>
+      </div>
 
       <Show when={app.state.error}>
         <div class="error-banner" role="alert">{app.state.error}
@@ -142,8 +213,7 @@ export function ChatbookView(): JSX.Element {
             onBrowseNotebooks={() => showMobilePane('files')}
           />
           <PaneSplitter side="right" />
-          <RightPane onClose={() => setMobilePane('reader')} />
-          <MobilePaneNav active={mobilePane()} onSelect={showMobilePane} />
+          <RightPane onClose={() => setMobilePane('reader')} conversationId={agentConversation()} onConversation={openAgentConversation} />
         </div>
       </Show>
       <Show when={view() === 'search'}>
@@ -153,6 +223,7 @@ export function ChatbookView(): JSX.Element {
         <ConfigView />
       </Show>
 
+      <AgentFooter onConversation={openAgentConversation} />
       <Show when={app.state.searchOpen}>
         <NoteSearchPopup
           client={app.client}
@@ -178,29 +249,6 @@ export function ChatbookView(): JSX.Element {
 }
 
 type MobilePane = 'files' | 'reader' | 'details'
-
-function MobilePaneNav(props: {
-  active: MobilePane
-  onSelect: (pane: MobilePane) => void
-}): JSX.Element {
-  const items: readonly { pane: MobilePane; label: string }[] = [
-    { pane: 'files', label: 'Notebooks' },
-    { pane: 'reader', label: 'Editor' },
-    { pane: 'details', label: 'AI / Links' },
-  ]
-  return (
-    <nav class="mobile-pane-nav" aria-label="Mobile workspace">
-      {items.map((item) => (
-        <button
-          type="button"
-          classList={{ 'mobile-pane-button': true, active: props.active === item.pane }}
-          aria-current={props.active === item.pane ? 'page' : undefined}
-          onClick={() => props.onSelect(item.pane)}
-        >{item.label}</button>
-      ))}
-    </nav>
-  )
-}
 
 /** A draggable divider beside a side pane: dragging it resizes the pane. The
  * new width persists with the fold state. Inert while the pane is collapsed. */
@@ -242,67 +290,5 @@ function PaneSplitter(props: { side: 'left' | 'right' }): JSX.Element {
       onPointerDown={down}
       onDblClick={() => app.resetPaneWidths()}
     />
-  )
-}
-
-/** The header search form: query, scope (all notebooks / the open notebook)
- * and method (agentic by default, or grep). Submitting navigates to the
- * search results screen. */
-function HeaderSearch(): JSX.Element {
-  const app = useApp()
-  const [query, setQuery] = createSignal('')
-  const [scope, setScope] = createSignal<SearchScope>('all')
-  const [method, setMethod] = createSignal<SearchMethod>('agentic')
-
-  // Landing on (or navigating within) the search screen reflects the route
-  // back into the form so the fields show what is being searched.
-  createEffect(() => {
-    const route = app.state.route
-    if (route.kind !== 'search') return
-    setQuery(route.query)
-    setScope(route.scope)
-    setMethod(route.method)
-  })
-
-  const submit = (event: Event) => {
-    event.preventDefault()
-    const trimmed = query().trim()
-    if (trimmed.length === 0) return
-    app.openSearch(trimmed, scope(), method())
-  }
-
-  return (
-    <form class="header-search" role="search" onSubmit={submit}>
-      <label>
-        <span class="sr-only">Search query</span>
-        <input
-          type="search"
-          placeholder="Search notes and memos"
-          value={query()}
-          onInput={(event) => setQuery(event.currentTarget.value)}
-        />
-      </label>
-      <label>
-        <span class="sr-only">Search scope</span>
-        <select
-          value={scope()}
-          onChange={(event) => setScope(event.currentTarget.value as SearchScope)}
-        >
-          <option value="all">All notebooks</option>
-          <option value="notebook" disabled={!app.state.notebookId}>This notebook</option>
-        </select>
-      </label>
-      <label>
-        <span class="sr-only">Search method</span>
-        <select
-          value={method()}
-          onChange={(event) => setMethod(event.currentTarget.value as SearchMethod)}
-        >
-          <option value="agentic">Ask AI</option>
-          <option value="grep">Find text</option>
-        </select>
-      </label>
-      <button type="submit" class="secondary" disabled={query().trim().length === 0}>Search</button>
-    </form>
   )
 }

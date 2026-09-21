@@ -1789,6 +1789,7 @@ dependencies = [
 name = "kaiba-client"
 version = "0.1.16"
 dependencies = [
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-http",

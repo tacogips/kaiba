@@ -33,6 +33,7 @@ extension NoteService {
         status: .answered,
         userMarkdown: state.userMarkdown,
         model: state.model,
+        provider: state.provider,
         mode: state.mode,
         replyLibraryId: expectedLibraryId ?? state.replyLibraryId
       )
@@ -63,6 +64,7 @@ extension NoteService {
           status: .answered,
           userMarkdown: state.userMarkdown,
           model: state.model,
+          provider: state.provider,
           mode: state.mode,
           replyLibraryId: expectedLibraryId
         )
@@ -96,6 +98,7 @@ extension NoteService {
         userMarkdown: state.userMarkdown,
         errorMessage: message,
         model: state.model,
+        provider: state.provider,
         mode: state.mode,
         replyLibraryId: state.replyLibraryId
       )
@@ -122,6 +125,7 @@ extension NoteService {
         userMarkdown: state.userMarkdown,
         errorMessage: message,
         model: state.model,
+        provider: state.provider,
         mode: state.mode,
         replyLibraryId: state.replyLibraryId
       )

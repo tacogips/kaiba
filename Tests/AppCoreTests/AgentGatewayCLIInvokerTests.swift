@@ -513,6 +513,7 @@ final class AgentGatewayCLIInvokerTests: NoteTestCase {
       ))
     }
 
+    defer { task.cancel() }
     let writtenChildPID = await Self.processIDWritten(to: childPIDURL)
     let childPID = try XCTUnwrap(writtenChildPID)
     task.cancel()
@@ -818,7 +819,9 @@ final class AgentGatewayCLIInvokerTests: NoteTestCase {
 
   private static func processIDWritten(to url: URL) async -> pid_t? {
     guard await waitForCondition(timeout: .seconds(1), condition: {
-      FileManager.default.fileExists(atPath: url.path)
+      guard let text = try? String(contentsOf: url, encoding: .utf8),
+        let value = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+      return value > 0
     }), let text = try? String(contentsOf: url, encoding: .utf8), let value = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines))
     else {
       return nil

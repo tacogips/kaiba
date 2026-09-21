@@ -1,5 +1,8 @@
 # Document Import
 
+Dedicated Google Document AI OCR is supported through `google-document-ocr-gateway`;
+see [configuration and authentication](google-document-ai-ocr.md).
+
 ## Status
 
 Accepted
@@ -142,3 +145,128 @@ credential environment-variable names, never credential values.
   snapshotting; DI7 deliberately excludes them).
 - Embedded-image recovery for CMYK/indexed color spaces and
   Linux-side extraction (DI7 is Apple-platform only).
+
+## Page-preserving import migration (September 13, 2026)
+
+The CLI now routes PDF and standalone image imports through kaiba's page
+processor. Each physical page becomes one note with a dedicated
+`source-page-image`, including pages whose OCR has been deferred. The default
+OCR limit is three pages. Use `--max-ocr-pages 0` for originals only,
+`--max-ocr-pages N` for the first N pages, or `--max-ocr-pages all` for every page.
+`page-ocr <note-id>` completes a pending page using its stored original image.
+Pending pages edited by a user are refused instead of overwritten.
+
+`import.maximumOCRPages` accepts a nonnegative integer or `"all"`;
+`import.ocrEngine` selects `"vision"` or `"agent-gateway"`. Without an explicit
+engine, configured gateway OCR is used when present and local Apple Vision
+otherwise. `--ocr-engine` overrides the engine for an import. Analysis is a
+separate injectable provider; production analysis selection and client controls
+are under implementation in `impl-plans/page-preserving-document-import.md`.
+
+Page metadata resides in `notes.meta_json.documentPage` with `pageNumber`,
+`ocrState`, `analysis`, and `originFileId`. Pending notes also carry the digest
+of their initial body for edit protection. Notebook, notes and file references
+commit together; downstream actions dispatch only after commit. Embedded figure
+Markdown uses `/files/<fileId>` and the web reader resolves these through its
+authenticated file client. Imported notebooks have a Text/Original reader with
+physical page navigation and a manual OCR button. The button invokes
+`recognizeDocumentPage(noteId: String!): NoteMutationPayload!`; the default server
+recognizer is local Apple Vision. The server uses the same import provider configuration. Codex subscription
+execution additionally requires `ai.userAgent.allowCodexSubscription=true`.
+The previous heading-based path remains for Word, EPUB and other formats.
+
+### Independent visual providers
+
+`import.analysis` and `import.figures` accept the same gateway settings as
+`import.ocr` (command path, vendor, model and credential environment-variable
+name). They are independent: for example, use local Vision for text and Codex
+for classification/layout/title and figure detection:
+
+```json
+{
+  "import": {
+    "ocrEngine": "vision",
+    "maximumOCRPages": 2,
+    "analysis": { "vendor": "codex", "model": "gpt-5.6-luna" },
+    "figures": { "vendor": "codex", "model": "gpt-5.6-luna" }
+  }
+}
+```
+
+The analysis provider returns document status, language, writing mode, binding
+and a visible document title. Uncertain fields stay unknown. The figure provider
+returns normalized top-left bounding boxes; kaiba validates and crops the upright
+page raster into PNGs, including vector graphs and scanned illustrations. On
+macOS, local Vision line bounds expand crops to preserve whole intersected
+labels or captions; recognition uses separate pixels and discards its text.
+Analysis, OCR and visual figure detection run only within the OCR page limit.
+With a visual figure provider selected, later pages defer figure extraction too;
+`page-ocr` runs all configured stages and atomically stores text, analysis, figure
+files and Markdown references. Without that provider, existing PDF raster-image
+extraction remains the fallback. These configurations apply to CLI imports/completions and server-side manual
+OCR. API providers run in the served sandbox with their selected credential;
+Codex subscriptions require `ai.userAgent.allowCodexSubscription=true` and use
+an isolated authentication/configuration workspace with tools disabled.
+
+Local CLI imports also support `"vendor": "claude-code"` with an explicit
+Claude model in any of `import.ocr`, `import.analysis`, or `import.figures`.
+They use the installed Claude Code authentication, including subscription
+authentication. Kaiba sends a structured user message containing base64 image
+bytes through agent-gateway stdin and Claude's `stream-json` input. Tools,
+hooks, MCP servers and session persistence are disabled for these image calls.
+No image-reading filesystem tool is required. For server-side document processing,
+set `import.allowClaudeSubscription=true` and provide `CLAUDE_CODE_OAUTH_TOKEN`
+in the server environment. The macOS sandbox receives only that provider token,
+a private home/config/temp directory and restricted runtime variables. It does
+not inherit the user's Claude settings, API keys, hooks, tools or MCP servers.
+Without the explicit import opt-in, served document calls reject Claude even if
+Codex subscriptions are enabled. Local CLI calls keep their existing local
+Claude authentication behavior.
+
+### Automatic tags
+
+Configure `ai.autoTag.auto` as `"on"` and configure `ai.agent` for the
+agent-gateway text provider. `ai.autoTag.prompt` optionally supplies tag
+registration instructions, alongside the registered tag catalog and tag class
+descriptions. For example:
+
+```json
+{
+  "ai": {
+    "agent": {
+      "backend": "agent-gateway-cli",
+      "provider": "codex",
+      "model": "gpt-5.6-luna"
+    },
+    "autoTag": {
+      "auto": "on",
+      "prompt": "Reuse registered research-topic tags whenever possible."
+    }
+  }
+}
+```
+
+CLI import tags the notebook and each OCR-complete note after the import commits.
+Pending pages are skipped until their OCR completes. CLI `page-ocr` tags the
+completed note and refreshes notebook tags. Provider failures preserve the
+import/OCR result and appear as text warnings or the JSON `taggingWarnings`
+array; use `kaiba ai tag --note <id>` or `--notebook <id>` to retry. With tagging
+off, these commands make no tagging provider calls. Server auto-actions and
+manual tag requests use the same configured prompt; server note actions also
+skip pending document pages. Existing assignment rules preserve human tags.
+
+
+### UI upload
+
+The New Notebook screen includes a PDF/image import form with optional title and
+OCR-page controls. Blank uses the server limit; enter `0`, a count, or `all` to
+override it. Successful import opens the new notebook in the page reader. Server
+OCR/analysis/figure providers and normal creation auto-actions apply.
+
+`importDocument(input: ImportDocumentInput!)` accepts filename, contentBase64,
+optional title and optional maximumOCRPages (string), returning the notebook in
+NoteMutationPayload. Uploads are limited to 1 MiB within the existing 2 MiB HTTP
+envelope; macOS PDF preflight permits 1...500 readable pages. Larger documents can
+use `kaiba import`. Filenames cannot carry paths, staging is private, and imports
+share execution admission limits. This mutation is not idempotent: the UI does
+not automatically retry uncertain responses and asks users to check notebooks.

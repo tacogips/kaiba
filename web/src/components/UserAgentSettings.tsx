@@ -17,6 +17,8 @@ export interface UserAgentSettingsProps {
 }
 
 const providerLabels: Record<string, string> = {
+  codex: 'Codex (subscription on server)',
+  server: 'Server default',
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
@@ -66,21 +68,21 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
   const save = (event: Event): void => {
     event.preventDefault()
     const key = apiKey().trim()
-    if (!key) {
+    if (provider() !== 'codex' && !key) {
       setFailure('Enter the API key to save.')
       return
     }
     void run(async () => {
       const result = await client.setUserAgentCredential({
         provider: provider(),
-        apiKey: key,
+        apiKey: provider() === 'codex' ? '' : key,
         defaultModel: model().trim(),
-        baseURL: baseURL().trim() ? baseURL().trim() : null,
+        baseURL: provider() === 'codex' ? null : baseURL().trim() ? baseURL().trim() : null,
         enabled: true,
       })
       setApiKey('')
       return result
-    }, 'Credential saved. Your chats now run on your own key.')
+    }, 'AI settings saved.')
   }
 
   const toggle = (enabled: boolean): void => {
@@ -106,14 +108,15 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
             fallback={<p class="pane-note">Personal agents are turned off on this server.</p>}
           >
             <p class="pane-note">
-              Store your own provider API key and the chat agent answers you with it,
-              using kaiba's notes as tools (search, read, create, edit, tag, undo) under
-              your own permissions. The key is never shown again after saving.
+              Choose a provider and default model. Saved API keys remain hidden.
             </p>
+            <Show when={!value().providers.includes('codex')}>
+              <p class="pane-note">Codex subscription requires the server operator to enable ai.userAgent.allowCodexSubscription and sign in to Codex on the server.</p>
+            </Show>
             <Show when={value().credential}>{(credential) =>
               <p class="user-agent-status" data-testid="user-agent-status">
                 Stored: {providerLabel(credential().provider)} / {credential().defaultModel} /
-                key ending in {credential().keyHint} /{' '}
+                {credential().provider === 'codex' ? 'server subscription' : `key ending in ${credential().keyHint}`} /{' '}
                 {credential().enabled ? 'enabled' : 'disabled'}
               </p>}
             </Show>
@@ -130,6 +133,7 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
                   </For>
                 </select>
               </label>
+              <Show when={provider() !== 'codex'} fallback={<p class="pane-note">Uses the server’s Codex ChatGPT login through agent-gateway. No API key is needed.</p>}>
               <label>
                 <span>API key</span>
                 <input
@@ -142,6 +146,7 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
                   onInput={(event) => setApiKey(event.currentTarget.value)}
                 />
               </label>
+              </Show>
               <label>
                 <span>Model</span>
                 <input
@@ -153,7 +158,7 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
                   onInput={(event) => setModel(event.currentTarget.value)}
                 />
               </label>
-              <Show when={value().customBaseURLAllowed || provider() === 'openai-compatible'}>
+              <Show when={provider() !== 'codex' && (value().customBaseURLAllowed || provider() === 'openai-compatible')}>
                 <label>
                   <span>Base URL{value().customBaseURLAllowed ? ' (optional)' : ' (not permitted on this server)'}</span>
                   <input
@@ -167,7 +172,7 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
                 </label>
               </Show>
               <div class="user-agent-actions">
-                <button type="submit" disabled={busy()}>Save key</button>
+                <button type="submit" disabled={busy()}>{provider() === 'codex' ? 'Save subscription settings' : 'Save key'}</button>
                 <Show when={value().credential}>{(credential) => <>
                   <button
                     type="button"

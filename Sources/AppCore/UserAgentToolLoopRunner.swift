@@ -63,7 +63,7 @@ struct UserAgentToolLoopRunner: AgentStreamingInvoking {
       do {
         turn = try await client.complete(
           ToolLoopModelRequest(
-            model: model,
+            model: request.model ?? model,
             systemPrompt: systemPrompt,
             messages: messages,
             tools: definitions

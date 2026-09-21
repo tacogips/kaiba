@@ -50,6 +50,8 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
   public var apiKeyEnvironment: String?
   public var environment: [String: String]
   public var prompt: String
+  public var executionMode: AgentGatewayExecutionMode
+  public var timeoutNanoseconds: UInt64
 
   public init(
     commandPath: String? = nil,
@@ -57,7 +59,9 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
     model: String,
     apiKeyEnvironment: String? = nil,
     environment: [String: String] = ProcessInfo.processInfo.environment,
-    prompt: String = Self.defaultPrompt
+    prompt: String = Self.defaultPrompt,
+    executionMode: AgentGatewayExecutionMode = .local,
+    timeoutNanoseconds: UInt64 = 120_000_000_000
   ) {
     self.commandPath = commandPath
     self.vendor = vendor
@@ -65,13 +69,22 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
     self.apiKeyEnvironment = apiKeyEnvironment
     self.environment = environment
     self.prompt = prompt
+    self.executionMode = executionMode
+    self.timeoutNanoseconds = timeoutNanoseconds
   }
 
   public func convert(inputPath: String) throws -> DocumentConversionResult {
+    do { return try performConversion(inputPath: inputPath) } catch {
+      if executionMode != .local { throw DocumentConversionError.failed("agent-gateway image processing failed") }
+      throw error
+    }
+  }
+
+  private func performConversion(inputPath: String) throws -> DocumentConversionResult {
     guard Self.supportedVendors.contains(vendor) else {
       throw DocumentConversionError.failed(
         "OCR vendor \(vendor) is not image-capable through agent-gateway; "
-          + "use codex, openai, anthropic, gemini, or openrouter"
+          + "use claude-code, codex, openai, anthropic, gemini, or openrouter"
       )
     }
     let binary: String
@@ -87,20 +100,40 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
       "client", "--vendor", vendor, "--model", model,
       "--prompt", "-"
     ]
-    if vendor != "codex" {
+    if vendor != "codex", vendor != "claude-code", executionMode == .local {
       arguments += ["--image", inputPath]
     }
     if let apiKeyEnvironment, !apiKeyEnvironment.isEmpty {
       arguments += ["--api-key-environment", apiKeyEnvironment]
     }
-    if vendor == "codex" {
+    if vendor == "codex", executionMode == .local {
       // agent-gateway 0.1.2 accepts ACP image blocks but does not yet forward
       // them to CLI vendors. Vendor arguments after `--` reach `codex exec`,
       // whose native --image option supplies the same file without bypassing
       // gateway-owned model/provider routing.
       arguments += ["--", "--image", inputPath]
     }
-    let execution = try run(binary: binary, arguments: arguments, stdin: Data(prompt.utf8))
+    if vendor == "claude-code", executionMode == .local {
+      arguments += ["--"] + ClaudeImageInput.arguments
+    }
+    var context = try AgentGatewayCLIInvoker.executionContext(
+      mode: executionMode, vendor: vendor, binary: binary, arguments: arguments,
+      environment: environment, apiKeyEnvironment: apiKeyEnvironment
+    )
+    defer { context.cleanUp() }
+    if executionMode != .local, vendor != "claude-code" {
+      guard let workspace = context.workspace else { throw DocumentConversionError.failed("image workspace unavailable") }
+      let image = workspace.appendingPathComponent("page").appendingPathExtension(URL(fileURLWithPath: inputPath).pathExtension)
+      try FileManager.default.copyItem(at: URL(fileURLWithPath: inputPath), to: image)
+      context.arguments += ["--image", image.path]
+    }
+    if executionMode != .local, vendor == "claude-code" {
+      context.arguments += ["--input-format", "stream-json"]
+    }
+    let input = try vendor == "claude-code"
+      ? ClaudeImageInput.encode(prompt: prompt, imageURL: URL(fileURLWithPath: inputPath))
+      : Data(prompt.utf8)
+    let execution = try run(context: context, stdin: input)
     let parsed = AgentGatewayCLIInvoker.parseACPOutput(execution.stdout)
     if let message = parsed.errorMessage {
       throw DocumentConversionError.failed(message)
@@ -127,42 +160,18 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
     )
   }
 
-  private func run(
-    binary: String,
-    arguments: [String],
-    stdin: Data
-  ) throws -> ImageOCRProcessExecution {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: binary)
-    process.arguments = arguments
-    process.environment = environment
-    let input = Pipe()
-    let output = Pipe()
-    let error = Pipe()
-    process.standardInput = input
-    process.standardOutput = output
-    process.standardError = error
-    let stdoutCollector = ImageOCRPipeCollector(handle: output.fileHandleForReading)
-    let stderrCollector = ImageOCRPipeCollector(handle: error.fileHandleForReading)
-    do {
-      try process.run()
-    } catch {
-      throw DocumentConversionError.failed("could not launch agent-gateway: \(error)")
+  private func run(context: AgentGatewayExecutionContext, stdin: Data) throws -> AgentGatewayCLIInvoker.Execution {
+    let completion = SynchronousGatewayResult()
+    Task.detached {
+      do {
+        completion.finish(.success(try await AgentGatewayCLIInvoker.run(
+          binary: context.binary, arguments: context.arguments, stdin: stdin,
+          environment: context.environment, timeoutNanoseconds: timeoutNanoseconds,
+          workingDirectory: context.workingDirectory
+        )))
+      } catch { completion.finish(.failure(error)) }
     }
-    input.fileHandleForWriting.write(stdin)
-    try? input.fileHandleForWriting.close()
-    process.waitUntilExit()
-    let maximumBytes = AgentGatewayCLIInvoker.maximumOutputBytes
-    let stdout = stdoutCollector.finish(limit: maximumBytes + 1)
-    let stderr = stderrCollector.finish(limit: 64 * 1_024)
-    guard stdout.count <= maximumBytes else {
-      throw DocumentConversionError.failed("agent-gateway OCR output exceeded the size limit")
-    }
-    return ImageOCRProcessExecution(
-      exitCode: process.terminationStatus,
-      stdout: stdout,
-      stderr: stderr
-    )
+    return try completion.wait()
   }
 
   private func resolveBinary() throws -> String {
@@ -187,47 +196,6 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
   }
 
   private static let supportedVendors: Set<String> = [
-    "anthropic", "codex", "gemini", "openai", "openrouter"
+    "anthropic", "claude-code", "codex", "gemini", "openai", "openrouter"
   ]
-}
-
-private struct ImageOCRProcessExecution {
-  var exitCode: Int32
-  var stdout: Data
-  var stderr: Data
-}
-
-/// Drains a process pipe while it runs so a verbose child cannot deadlock on
-/// a full stdout or stderr buffer.
-private final class ImageOCRPipeCollector: @unchecked Sendable {
-  private let lock = NSLock()
-  private var buffer = Data()
-  private let handle: FileHandle
-
-  init(handle: FileHandle) {
-    self.handle = handle
-    handle.readabilityHandler = { [weak self] readable in
-      let data = readable.availableData
-      guard let self else { return }
-      if data.isEmpty {
-        readable.readabilityHandler = nil
-        return
-      }
-      lock.lock()
-      buffer.append(data)
-      lock.unlock()
-    }
-  }
-
-  func finish(limit: Int) -> Data {
-    handle.readabilityHandler = nil
-    if let remaining = try? handle.readToEnd(), !remaining.isEmpty {
-      lock.lock()
-      buffer.append(remaining)
-      lock.unlock()
-    }
-    lock.lock()
-    defer { lock.unlock() }
-    return buffer.prefix(limit)
-  }
 }

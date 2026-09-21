@@ -3,6 +3,7 @@ import { useApp } from '../state/appStore'
 import { clampFontScale, fontScaleBounds } from '../notes/settings'
 import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
 import { UserAgentSettings } from '../components/UserAgentSettings'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
 
 // The config screen. Settings live in the kaiba store's sqlite
 // (`app_settings`), so they follow the store across browsers and devices;
@@ -22,15 +23,11 @@ export function ConfigView(): JSX.Element {
   return (
     <main class="config-view" id="main-content" tabindex="-1">
       <header class="search-head">
-        <span class="eyebrow">Configuration</span>
         <h1>Settings</h1>
       </header>
 
       <section class="config-section">
         <h2>Font size</h2>
-        <p class="pane-note">
-          Applies to the whole app and is shared across clients connected to this knowledge store.
-        </p>
         <div class="config-presets" role="group" aria-label="Font size presets">
           <For each={fontPresets}>{(preset) =>
             <button
@@ -66,12 +63,8 @@ export function ConfigView(): JSX.Element {
 
       <section class="config-section">
         <h2>Layout</h2>
-        <p class="pane-note">
-          Pane widths are resizable by dragging the borders beside the left and
-          right panes (kept per browser).
-        </p>
-        <button type="button" class="secondary" onClick={app.resetPaneWidths}>
-          Reset pane widths
+        <button type="button" class="secondary" aria-label="Reset pane widths" title="Reset pane widths" onClick={app.resetPaneWidths}>
+          <WorkspaceIcon name="refresh" />
         </button>
       </section>
     </main>

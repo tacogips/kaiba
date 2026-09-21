@@ -47,6 +47,7 @@ final class NoteGraphQLSchemaInventoryTests: XCTestCase {
       "removeNotebookTagById",
       "setNotebookReadOnly",
       "setNoteReadOnly",
+      "recognizeDocumentPage", "importDocument",
       "applyNoteTags",
       "removeNoteTag",
       "addNoteComment",

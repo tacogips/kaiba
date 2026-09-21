@@ -172,3 +172,23 @@ describe('UserAgentSettings', () => {
     expect(providerLabel('custom')).toBe('custom')
   })
 })
+
+
+test('Codex subscription settings save without an API key or endpoint', async () => {
+  const client = fakeClient({ providers: ['openai', 'codex'] })
+  const { container, dispose } = mount(client)
+  cleanups.push(dispose)
+  await settle()
+  const provider = container.querySelector<HTMLSelectElement>('#user-agent-provider')!
+  provider.value = 'codex'
+  provider.dispatchEvent(new Event('change', { bubbles: true }))
+  expect(container.querySelector('#user-agent-api-key')).toBeNull()
+  expect(container.querySelector('#user-agent-base-url')).toBeNull()
+  setInput(container, 'user-agent-model', 'configured-codex-model')
+  container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  await settle()
+  expect(client.setCalls).toEqual([{
+    provider: 'codex', apiKey: '', defaultModel: 'configured-codex-model', baseURL: null, enabled: true,
+  }])
+  expect(container.textContent).toContain('server subscription')
+})

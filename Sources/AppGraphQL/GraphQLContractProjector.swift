@@ -40,7 +40,7 @@ public enum GraphQLContractProjector {
     notebookComments(notebookId: String!): NoteCommentsQueryPayload!
     tagDetail(tagId: String!): TagDetailQueryPayload!
     tagComments(tagId: String!, limit: Int, offset: Int): TagCommentsQueryPayload!
-    agentModels: AgentModelsPayload!
+    agentModels(provider: String): AgentModelsPayload!
     agenticSearch(query: String!, notebookId: String, limit: Int): AgenticSearchPayload!
     appSetting(key: String!): AppSettingPayload!
     userAgentCredential: UserAgentCredentialPayload!
@@ -60,6 +60,8 @@ public enum GraphQLContractProjector {
     removeNotebookTag(notebookId: String!, tagName: String!, provenance: String): NoteMutationPayload!
     removeNotebookTagById(notebookId: String!, tagId: String!, provenance: String): NoteMutationPayload!
     setNotebookReadOnly(notebookId: String!, readOnly: Boolean!): NoteMutationPayload!
+    importDocument(input: ImportDocumentInput!): NoteMutationPayload!
+    recognizeDocumentPage(noteId: String!): NoteMutationPayload!
     setNoteReadOnly(noteId: String!, readOnly: Boolean!): NoteMutationPayload!
     applyNoteTags(input: ApplyNoteTagsInput!): NoteMutationPayload!
     removeNoteTag(noteId: String!, tagName: String!, provenance: String): NoteMutationPayload!

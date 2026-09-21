@@ -111,6 +111,7 @@ input IngestNotebookPageInput {
   noteNumber: Int
   pageImage: IngestAttachmentInput
 }
+input ImportDocumentInput { filename: String!, contentBase64: String!, title: String, maximumOCRPages: String }
 input IngestNotebookPagesInput {
   idempotencyKey: String!
   title: String!
@@ -165,7 +166,7 @@ type UndoRedoPayload { result: ControlPlaneResult!, status: String!, applied: No
 type AgenticSearchPayload { result: ControlPlaneResult!, status: String!, answerMarkdown: String }
 type AgentConversationsQueryPayload { result: ControlPlaneResult!, value: [AgentConversation!] }
 type AgentModel { modelId: String!, displayName: String, description: String }
-type AgentModelsPayload { result: ControlPlaneResult!, models: [AgentModel!]!, discoveryAvailable: Boolean!, configuredModel: String }
+type AgentModelsPayload { result: ControlPlaneResult!, models: [AgentModel!]!, discoveryAvailable: Boolean!, configuredModel: String, providers: [String!]!, configuredProvider: String }
 # sendAgentChatMessage persists the user turn even when no agent runtime is
 # available (agentStatus "agent-unavailable"); replies arrive asynchronously via
 # the note change feed once the chat-reply auto-action completes the turn.
@@ -178,6 +179,7 @@ input SendAgentChatMessageInput {
   conversationNotebookId: String
   userMarkdown: String!
   idempotencyKey: String
+  provider: String
   model: String
   mode: String
   attachments: [AgentChatAttachmentInput!]

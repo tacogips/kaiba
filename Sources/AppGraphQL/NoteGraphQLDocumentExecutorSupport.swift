@@ -120,6 +120,8 @@ let supportedNoteGraphQLFields: Set<String> = [
   "removeNotebookTagById",
   "setNotebookReadOnly",
   "setNoteReadOnly",
+  "importDocument",
+  "recognizeDocumentPage",
   "applyNoteTags",
   "removeNoteTag",
   "addNoteComment",
@@ -348,6 +350,8 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "undoAction": "UndoRedoPayload",
   "redoAction": "UndoRedoPayload",
   "sendAgentChatMessage": "AgentChatMessagePayload",
+  "importDocument": "NoteMutationPayload",
+  "recognizeDocumentPage": "NoteMutationPayload",
   "requestTagExtraction": "TagExtractionRequestPayload",
   "requestNotebookTranslation": "NotebookTranslationRequestPayload",
   "deleteNote": "ControlPlaneResult",
@@ -402,7 +406,9 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "result": "ControlPlaneResult",
     "models": "AgentModel",
     "discoveryAvailable": nil,
-    "configuredModel": nil
+    "configuredModel": nil,
+    "providers": nil,
+    "configuredProvider": nil
   ],
   "AgentModel": [
     "modelId": nil,

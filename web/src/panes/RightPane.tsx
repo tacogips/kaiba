@@ -1,5 +1,5 @@
-import { Show, createMemo, type JSX } from 'solid-js'
-import type { TagId } from '../notes/ids'
+import { For, Show, createMemo, type JSX } from 'solid-js'
+import type { NotebookId, TagId } from '../notes/ids'
 import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
 import { MemoTab } from '../components/MemoTab'
 import { NoteInfoTab } from '../components/NoteInfoTab'
@@ -15,21 +15,16 @@ import type { RightTab } from '../state/paneState'
 // all links). Agent chat and plain memos share the Agent tab. A tag selection
 // (`?tag=` on the route) replaces all of it with the cross-notebook tag pane.
 
-export function RightPane(props: { onClose?: () => void } = {}): JSX.Element {
+export function RightPane(props: { onClose?: () => void; conversationId?: NotebookId; onConversation?: (id: NotebookId) => void } = {}): JSX.Element {
   const app = useApp()
   const noteMode = createMemo(() => Boolean(app.state.noteId))
   const tagId = createMemo(() => app.tagPaneTagId())
-  const tabs = createMemo<readonly TabDescriptor<RightTab>[]>(() => noteMode()
-    ? [
-        { value: 'memo', label: 'AI' },
-        { value: 'info', label: 'Info' },
-        { value: 'links', label: 'Links' },
-      ]
-    : [
+  const tabs: readonly TabDescriptor<RightTab>[] = [
         { value: 'memo', label: 'AI' },
         { value: 'info', label: 'Tags' },
         { value: 'links', label: 'Links' },
-      ])
+        { value: 'history', label: 'History' },
+      ]
   return (
     <aside class="pane pane-right" aria-label={tagId() ? 'Tag details' : noteMode() ? 'Note details' : 'Notebook details'}>
       <Show
@@ -43,11 +38,10 @@ export function RightPane(props: { onClose?: () => void } = {}): JSX.Element {
               aria-expanded={false}
               onClick={app.toggleRightPane}
             >‹</button>
-            <span class="rail-label">AI / Links</span>
+            <span class="rail-label">AI / Tags / Links</span>
           </div>
         }
       >
-        <Show when={!tagId()} fallback={<TagPane tagId={tagId() as TagId} />}>
         <div class="pane-head">
           <button
             type="button"
@@ -61,15 +55,28 @@ export function RightPane(props: { onClose?: () => void } = {}): JSX.Element {
           >›</button>
           <Tabs
             label={noteMode() ? 'Note details' : 'Notebook details'}
-            tabs={tabs()}
+            tabs={tabs}
             active={app.state.pane.rightTab}
             idPrefix="right"
-            onSelect={app.setRightTab}
+            onSelect={(tab) => { app.closeTagPane(); app.setRightTab(tab) }}
           />
         </div>
+        <Show when={!tagId()} fallback={<TagPane tagId={tagId() as TagId} />}>
         <div class="pane-body">
           <TabPanel idPrefix="right" value="memo" active={app.state.pane.rightTab}>
-            <MemoTab />
+            <Show keyed when={props.conversationId} fallback={<MemoTab />}>
+              {(id) => <MemoTab conversationNotebookId={id} />}
+            </Show>
+          </TabPanel>
+          <TabPanel idPrefix="right" value="history" active={app.state.pane.rightTab}>
+            <div class="agent-history">
+              <For each={app.state.notebooks.filter((notebook) => notebook.type === 'AGENT_CHAT')}
+                fallback={<p class="pane-empty">No conversations yet.</p>}>
+                {(notebook) => <button type="button" class="tree-label" onClick={() => props.onConversation?.(notebook.notebookId)}>
+                  <span class="tree-label-text">{notebook.title}</span>
+                </button>}
+              </For>
+            </div>
           </TabPanel>
           <TabPanel idPrefix="right" value="info" active={app.state.pane.rightTab}>
             <Show when={noteMode()} fallback={<NotebookTagsTab />}>

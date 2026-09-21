@@ -3,18 +3,18 @@
    remain owned by their existing stylesheets. */
 :root {
   color-scheme: light;
-  --ink: #203529;
-  --muted: #5e7163;
-  --line: #d6e3d5;
+  --ink: #242529;
+  --muted: #777980;
+  --line: #e5e5e8;
   --surface: #ffffff;
-  --surface-subtle: #f5f9f3;
-  --green-soft: #edf6e8;
-  --green-selected: #dcefcf;
-  --green-primary: #b9df9e;
-  --green-hover: #a8d488;
-  --green-line: #96ba80;
-  --green-ink: #315d29;
-  --green-focus: #467836;
+  --surface-subtle: #f9f9fa;
+  --green-soft: #f5f5f7;
+  --green-selected: #eaeaf0;
+  --green-primary: #eeeef1;
+  --green-hover: #e4e4e9;
+  --green-line: #d5d5dc;
+  --green-ink: #565a91;
+  --green-focus: #6967bb;
   --warning-ink: #805b17;
   --warning-line: #dec996;
   --danger-ink: #a3313c;
@@ -168,3 +168,156 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 @media (max-width: 800px) {
   .note-modal { border-radius: 8px 8px 0 0; }
 }
+
+/* Compact workspace chrome, with document space taking priority. */
+.chatbook { --pane-left: 216px; --pane-right: 280px; --rail: 32px; }
+.chatbook .workspace-menu { min-height: 34px; padding: 2px 10px; background: var(--surface-subtle); }
+.chatbook button { font-weight: 450; box-shadow: none; }
+.chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card) {
+  min-height: 26px; padding: 3px 8px; font-size: calc(11px * var(--fs, 1)); border-radius: 3px !important;
+}
+.chatbook button.workspace-icon, .chatbook .pane-fold, .chatbook .tree-twisty {
+  width: 26px; min-width: 26px; height: 26px; padding: 0; background: transparent; border: 0;
+}
+.chatbook .workspace-icon svg { width: 15px; height: 15px; }
+.pane-head, .pane-right .pane-head { min-height: 34px; padding: 0 8px; }
+.pane-body { padding: 8px; }
+.notebook-tree-title { padding: 8px 4px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.tree-row, .tree-group { min-height: 28px; border-radius: 3px; }
+.tree-label { min-height: 26px; font-size: calc(11px * var(--fs, 1)); }
+.pane-tab { min-height: 32px; padding: 5px 9px !important; font-size: calc(11px * var(--fs, 1)); }
+.pane-tab.active { color: var(--ink) !important; border-bottom-color: var(--ink) !important; }
+.pane-right { background: var(--surface-subtle); }
+.reader-head { padding: 8px 24px; min-height: 42px; }
+.reader-title h1 { font-size: calc(14px * var(--fs, 1)); font-weight: 550; }
+.reader-title .eyebrow { display: none; }
+.reader-body { padding: 8px 12px 12px; }
+.reader-onboarding, .reader-empty-selection { color: var(--muted); font-size: 13px; }
+.chatbook .notebook-create { margin: 0 0 8px; }
+.chatbook .notebook-create > button { min-width: 26px; min-height: 26px; padding: 0 7px; background: transparent; border: 0; color: var(--muted); }
+.chatbook .notebook-create-form input { min-height: 28px; padding: 5px 7px; }
+.chatbook .note-capture { padding: 0 0 6px; margin: 0 0 8px; max-width: none; }
+.chatbook .note-editor { margin-top: 8px; padding-top: 6px; }
+.chatbook .note-editor form, .chatbook .note-editor label,
+.chatbook .note-capture form, .chatbook .note-capture label { gap: 4px; }
+/* Writing surfaces stay flat on focus; keyboard controls keep their focus rings. */
+.chatbook :is(.note-capture, .note-editor, .memo-composer, .footer-agent-composer),
+.chatbook :is(.note-capture, .note-editor, .memo-composer, .footer-agent-composer) textarea {
+  border-radius: 0 !important;
+}
+.chatbook :is(.note-capture, .note-editor) textarea { padding: 4px 0; margin: 0; }
+.chatbook :is(.note-capture, .note-editor, .memo-composer, .footer-agent-composer) textarea:focus {
+  outline: none; box-shadow: none; border-color: var(--line);
+}
+.chatbook .memo-composer { padding: 4px; gap: 4px; border-radius: 0; }
+.chatbook .composer-mode, .chatbook .composer-submit { min-height: 26px; padding: 3px 7px !important; }
+.chatbook .composer-main textarea { min-height: 54px; padding: 4px; font-size: calc(12px * var(--fs, 1)); }
+.composer-model { max-width: 145px; font-size: 11px; }
+.learning-context { padding: 4px 0 8px; }
+.learning-context strong { font-size: 11px; font-weight: 450; color: var(--muted); }
+.chat-actions { align-self: flex-end; position: relative; }
+.chat-actions > summary { cursor: pointer; list-style: none; padding: 2px 8px; color: var(--muted); }
+.chat-actions > summary::-webkit-details-marker { display: none; }
+.chat-actions[open] { padding: 4px; border: 1px solid var(--line); background: var(--surface); }
+.chat-actions button { display: block; width: 100%; text-align: left; border: 0; background: transparent; }
+.learning-starters > summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.memo, .chat-message, .info-grid div { border: 0; padding: 4px 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.config-view { max-width: 760px; width: 100%; margin: 0 auto; }
+.config-section { padding: 16px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
+.config-section h2 { font-size: 13px; }
+.config-section p { font-size: 12px; }
+.search-head h1 { font-size: 18px; }
+.chatbook .server-connection select { width: 100%; margin: 6px 0; padding: 6px 8px; }
+.chatbook .pane-right .pane-head { padding: 0 3px; gap: 0; }
+.chatbook .pane-right .pane-tab { padding: 5px 6px !important; font-size: 11px; }
+.chatbook .pane-right .pane-fold { min-width: 22px; width: 22px; }
+.chatbook .pane-left .pane-head { gap: 0; }
+.chatbook .notebook-tree-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chatbook .learning-actions button:has(svg), .chatbook .note-editor button:has(svg),
+.chatbook .reader-actions button:has(svg), .chatbook .composer-submit {
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  padding: 3px !important; border: 0; background: transparent;
+}
+.chatbook button svg { flex: none; width: 15px; height: 15px; }
+.chatbook .composer-main { min-width: 0; flex-basis: 100%; }
+.agent-footer { flex: none; border-top: 1px solid var(--line); padding: 3px 10px; background: var(--surface-subtle); }
+.footer-agent-composer { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px 0; margin: 0; }
+.footer-agent-composer textarea { flex: 1; min-width: 0; padding: 4px; resize: vertical; font: inherit; font-size: 13px; }
+.footer-agent-composer [role="alert"] { flex-basis: 100%; }
+.agent-history { display: grid; gap: 3px; }
+.chatbook .agent-history button { text-align: left; border: 0; background: transparent; width: 100%; }
+.chatbook .pane-right .pane-tab { padding: 5px 3px !important; font-size: 10px; }
+.new-notebook-editor .note-capture { border: 0; }
+.chatbook .new-notebook-editor textarea { width: 100%; min-height: 45vh; resize: vertical; }
+.chatbook .composer-model { min-width: 0; max-width: 100%; flex: 1; }
+@media (min-width: 601px) and (max-width: 900px) {
+  .chatbook { --pane-left: 170px; --pane-right: 240px; }
+}
+@media (pointer: coarse) {
+  .chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card),
+  .chatbook .tree-label, .chatbook .pane-tab { min-height: 36px; }
+}
+
+/* Square corners throughout the app, including portalled dialogs and chat. */
+:is(#kaiba-square-surfaces, body) *,
+:is(#kaiba-square-surfaces, body) *::before,
+:is(#kaiba-square-surfaces, body) *::after { border-radius: 0 !important; }
+
+/* Shared conversational composer: text first, compact controls beneath it. */
+.chatbook .memo-composer {
+  display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 4px;
+  padding: 6px; min-width: 0; width: 100%; border: 1px solid var(--line);
+  background: var(--surface-subtle); position: sticky; bottom: 0; z-index: 2;
+}
+.chatbook .memo-composer.composer-dragging { background: var(--green-selected); border-style: dashed; }
+.chatbook .composer-main { flex: none; width: 100%; }
+.chatbook .composer-main textarea {
+  display: block; width: 100%; min-height: 44px; max-height: 180px; margin: 0;
+  padding: 4px; resize: none; line-height: 1.5; font-family: inherit; border: 0;
+}
+.chatbook .composer-toolbar { display: flex; align-items: center; gap: 3px; min-width: 0; width: 100%; max-width: 100%; }
+.chatbook .composer-toolbar .composer-icon,
+.chatbook .composer-toolbar .composer-submit {
+  display: inline-grid; place-items: center; flex: none; width: 28px; min-width: 28px;
+  height: 28px; min-height: 28px; padding: 0 !important; border: 0;
+}
+.chatbook .composer-toolbar .composer-icon { color: var(--ink); background: transparent; }
+.chatbook .composer-toolbar .composer-submit { color: white !important; background: var(--ink) !important; margin-left: auto; }
+.chatbook .composer-toolbar .composer-submit:disabled { opacity: .3; }
+.chatbook .composer-toolbar .composer-submit svg { width: 18px; height: 18px; stroke-width: 2; }
+.chatbook .composer-model { flex: 1; width: 0; min-width: 0; max-width: 220px; height: 28px; padding: 0 2px; font-size: 11px; background: transparent; border: 0; text-overflow: ellipsis; }
+.composer-options { position: relative; flex: none; }
+.composer-options > summary { display: grid; place-items: center; cursor: pointer; width: 22px; height: 28px; list-style: none; }
+.composer-options > summary::-webkit-details-marker { display: none; }
+.composer-options-menu { position: absolute; bottom: 32px; right: 0; min-width: 140px; padding: 4px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 4px 12px #0001; }
+.chatbook .composer-options-menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; }
+.chatbook .composer-options-menu button[aria-pressed="true"] { background: var(--green-selected); }
+.composer-active-mode { font-size: 10px; color: var(--muted); padding: 0 4px; }
+.chatbook .attachment-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 0; }
+.attachment-card { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 5px; background: var(--surface); border: 1px solid var(--line); }
+.attachment-card > svg { flex: none; }
+.attachment-description { display: grid; min-width: 0; }
+.attachment-description strong { font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-description small { font-size: 9px; color: var(--muted); }
+.chatbook .attachment-card button { padding: 0 !important; min-width: 22px; width: 22px; height: 22px; border: 0; background: transparent; }
+.footer-agent-composer { display: block; width: 100%; padding: 4px 0; }
+.footer-agent-composer .memo-composer { position: static; }
+.chat-transcript { gap: 18px; overflow-wrap: anywhere; }
+.chat-turn { gap: 8px; min-width: 0; }
+.chatbook .chat-message { border: 0; min-width: 0; font-size: 13px; }
+.chatbook .chat-user { justify-self: end; max-width: 92%; padding: 8px 10px; background: var(--green-soft); }
+.chatbook .chat-agent { padding: 4px 0; background: transparent; }
+.chat-turn-actions { display: flex; gap: 2px; order: 3; opacity: .5; }
+.chat-turn:hover .chat-turn-actions, .chat-turn:focus-within .chat-turn-actions { opacity: 1; }
+.chat-message .markdown-body > :first-child { margin-top: 0; }
+.chat-message .markdown-body > :last-child { margin-bottom: 0; }
+.chat-message .markdown-body pre { max-width: 100%; overflow-x: auto; }
+.chat-message .chat-role { min-height: 0; }
+.composer-working { display: inline-block; width: 8px; height: 8px; background: currentColor; animation: chat-pulse 1s ease-in-out infinite alternate; }
+@keyframes chat-pulse { to { opacity: .25; } }
+.chat.chat-expanded { padding: 12px max(12px, calc((100vw - 760px) / 2)); }
+.pane-right #right-panel-memo:not([hidden]) { height: 100%; }
+.chatbook .chat { display: flex; flex-direction: column; min-height: 0; gap: 8px; }
+.pane-right .chat { height: 100%; }
+.chatbook .chat > :not(.chat-transcript) { flex-shrink: 0; }
+.chatbook .chat-transcript { flex: 1; min-height: 80px; overflow-y: auto; align-content: start; }

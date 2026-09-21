@@ -86,6 +86,37 @@ final class NoteStoreSchemaTests: NoteTestCase {
     }
   }
 
+  func testVersion19UpgradePreservesCredentialsAndAcceptsCodex() throws {
+    let driver = try makeNoteDriver()
+    try NoteStoreSchema.prepare(on: driver)
+    try driver.withDatabase { db in
+      try db.execute("DROP TABLE user_agent_credentials")
+      try db.execute("""
+        CREATE TABLE user_agent_credentials (
+          user_id TEXT PRIMARY KEY REFERENCES users(user_id),
+          provider TEXT NOT NULL CHECK (provider IN ('anthropic','openai','openrouter','openai-compatible')),
+          api_key TEXT NOT NULL, base_url TEXT, default_model TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        ) STRICT
+        """)
+      try db.execute("""
+        INSERT INTO user_agent_credentials VALUES ('user-default', 'openai', 'fixture-secret', NULL, 'old-model', 1, 'then', 'then')
+        """)
+      try db.execute("DELETE FROM note_schema_version")
+      try db.execute("INSERT INTO note_schema_version VALUES (19, 'then')")
+    }
+    try NoteStoreSchema.prepare(on: driver)
+    try NoteStoreSchema.prepare(on: driver)
+    try driver.withDatabase { db in
+      let credential = try db.query("SELECT api_key, default_model FROM user_agent_credentials").first
+      XCTAssertEqual(credential?["api_key"], "fixture-secret")
+      XCTAssertEqual(credential?["default_model"], "old-model")
+      try db.execute("UPDATE user_agent_credentials SET provider = 'codex', api_key = ''")
+      XCTAssertEqual(try schemaVersions(in: db), [19, NoteStoreSchema.currentVersion])
+    }
+  }
+
   func testPrepareRejectsOlderSchemaVersion() throws {
     let driver = try makeNoteDriver()
     try driver.withDatabase { database in

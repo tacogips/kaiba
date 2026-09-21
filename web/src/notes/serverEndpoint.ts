@@ -1,5 +1,46 @@
 export const serverEndpointStorageKey = 'kaiba-server-endpoint'
-export const defaultServerEndpoint = 'http://127.0.0.1:8787'
+export const connectionModeStorageKey = 'kaiba-connection-mode'
+export type ConnectionMode = 'local' | 'remote'
+
+export function supportsLocalService(): boolean {
+  return !/iPhone|iPad|iPod|Android/.test(globalThis.navigator?.userAgent ?? '')
+}
+
+export function readConnectionMode(storage?: EndpointStorage): ConnectionMode {
+  const resolved = storage ?? availableEndpointStorage()
+  const mode = resolved?.getItem(connectionModeStorageKey)
+  if (mode === 'remote' || mode === 'local') return mode
+  // Preserve an existing installation's explicitly configured server.
+  return resolved?.getItem(serverEndpointStorageKey) || !supportsLocalService() ? 'remote' : 'local'
+}
+
+export function usesLocalService(): boolean {
+  return isTauriRuntime() && readConnectionMode() === 'local'
+}
+
+let localService: Promise<string> | undefined
+export async function localServerEndpoint(): Promise<string> {
+  localService ??= import('@tauri-apps/api/core')
+    .then(({ invoke }) => invoke<string>('start_local_server'))
+    .then(normalizeServerEndpoint)
+    .catch((error: unknown) => { localService = undefined; throw error })
+  return localService
+}
+
+export async function saveConnectionMode(mode: ConnectionMode): Promise<void> {
+  const storage = availableEndpointStorage()
+  if (!storage) throw new Error('Server settings are unavailable in this environment.')
+  if (mode === 'local') {
+    if (!supportsLocalService()) throw new Error('Local storage is available on macOS.')
+    await localServerEndpoint()
+  }
+  storage.setItem(connectionModeStorageKey, mode)
+  // Reload cancels the outgoing UI's requests before the next store is shown.
+}
+// Keep packaged clients on the conventional local endpoint while allowing a
+// development server to move when another workspace already owns port 8787.
+export const defaultServerEndpoint = import.meta.env.VITE_KAIBA_SERVER_ENDPOINT?.trim()
+  || 'http://127.0.0.1:8787'
 /** The bearer issued by one server is meaningless to another and must never
  * travel to a host that did not issue it, so the endpoint module owns the key
  * and `client.ts` imports it. Declaring it here keeps the credential and the
@@ -20,6 +61,7 @@ export function serverCredentialKey(endpoint: string): string {
 
 /** The credential key for the endpoint currently in effect. */
 export function currentServerCredentialKey(storage?: EndpointStorage): string {
+  if (!storage && usesLocalService()) return `${serverCredentialStorageKey}:local`
   return serverCredentialKey(readServerEndpoint(storage))
 }
 
@@ -111,9 +153,20 @@ export function resolveServerRequest(input: RequestInfo | URL, endpoint: string)
 export async function serverRequest(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (!isTauriRuntime()) return fetch(input, init)
   const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http')
-  const endpoint = readServerEndpoint()
+  const local = usesLocalService()
+  const endpoint = local ? await localServerEndpoint() : readServerEndpoint()
   const target = resolveServerRequest(input, endpoint)
   assertServerOrigin(target, endpoint)
+  if (local) {
+    const headers = new Headers(init?.headers)
+    headers.delete('Authorization')
+    try {
+      return await tauriFetch(target, { ...init, headers })
+    } catch (error) {
+      if (!init?.signal?.aborted) localService = undefined
+      throw error
+    }
+  }
   return tauriFetch(target, init)
 }
 

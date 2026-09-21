@@ -163,10 +163,22 @@ struct ServeCommand {
     // Flush the ready lines without accessing Glibc's mutable stdout global
     // from this asynchronous function.
     fflush(nil)
-    do {
-      try await Task.sleep(nanoseconds: .max)
-    } catch is CancellationError {
-      // SIGINT/SIGTERM cancel the entry-point task.
+    if ProcessInfo.processInfo.environment["KAIBA_EXIT_ON_STDIN_CLOSE"] == "1" {
+      // A native host owns the pipe's writer. EOF also arrives if the host
+      // crashes or its development runner replaces it, preventing orphaned
+      // services. Read on a blocking worker, outside the cooperative executor.
+      await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .utility).async {
+          _ = try? FileHandle.standardInput.readToEnd()
+          continuation.resume()
+        }
+      }
+    } else {
+      do {
+        try await Task.sleep(nanoseconds: .max)
+      } catch is CancellationError {
+        // SIGINT/SIGTERM cancel the entry-point task.
+      }
     }
     await runtime.stop()
   }

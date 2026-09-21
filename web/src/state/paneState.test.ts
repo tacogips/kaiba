@@ -24,6 +24,7 @@ function storage(initial?: string): PaneStateStorage & { values: Map<string, str
 }
 
 const folded: PaneState = {
+  notebookView: 'timeline',
   leftOpen: false,
   rightOpen: true,
   leftTab: 'contents',
@@ -36,6 +37,12 @@ describe('pane state persistence', () => {
     const store = storage()
     writePaneState(folded, store)
     expect(readPaneState(store)).toEqual(folded)
+  })
+
+  test('migrates old notebook view preferences and rejects unknown modes', () => {
+    expect(parsePaneState('{"leftOpen":false}').notebookView).toBe('tree')
+    expect(parsePaneState('{"notebookView":"unknown"}').notebookView).toBe('tree')
+    expect(parsePaneState('{"notebookView":"timeline"}').notebookView).toBe('timeline')
   })
 
   test('defaults when nothing was stored', () => {
@@ -59,7 +66,7 @@ describe('pane state persistence', () => {
     expect(parsePaneState('{"leftWidth":300,"rightWidth":500}'))
       .toEqual({ ...defaultPaneState, leftWidth: 300, rightWidth: 500 })
     expect(parsePaneState('{"leftWidth":5,"rightWidth":99999}'))
-      .toEqual({ ...defaultPaneState, leftWidth: 170, rightWidth: 1100 })
+      .toEqual({ ...defaultPaneState, leftWidth: 120, rightWidth: 1100 })
     expect(parsePaneState('{"leftWidth":"wide"}')).toEqual(defaultPaneState)
     const resized: PaneState = { ...defaultPaneState, leftWidth: 320 }
     expect(parsePaneState(serializePaneState(resized))).toEqual(resized)

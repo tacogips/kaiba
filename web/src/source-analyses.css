@@ -1,0 +1,9 @@
+.source-analyses { flex-shrink: 0; padding: 8px 20px; border-bottom: 1px solid var(--chatbook-border); }
+.source-analyses-body { display: grid; gap: 10px; max-height: 60vh; overflow: auto; padding: 12px 0; }
+.source-analyses-body > label { display: grid; gap: 5px; }
+.source-analyses-body textarea, .source-analyses-body select, .source-analyses-body input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }
+.source-analyses-body p { margin: 0; }
+.analysis-sources { max-height: 180px; overflow: auto; margin-top: 8px; }
+.analysis-sources label { display: flex; align-items: baseline; gap: 8px; padding: 4px; }
+.source-analyses-body > button { justify-self: start; }
+.source-analyses-body li { margin-bottom: 8px; }

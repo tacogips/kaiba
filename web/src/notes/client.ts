@@ -1,4 +1,5 @@
 import type { FileId, NoteId, NotebookId, TagClassId, TagId } from './ids'
+import { derivedNoteTitle } from './noteText'
 import type {
   AgentChatMessageResult,
   AgentChatAttachmentInput,
@@ -29,6 +30,7 @@ import {
   isTauriRuntime,
   serverCredentialStorageKey,
   serverRequest,
+  usesLocalService,
 } from './serverEndpoint'
 export const notebookPageLimit = 200
 
@@ -84,6 +86,7 @@ export class NoteGraphQLClient {
    * one unscoped value; it belongs to the endpoint in effect, so it is filed
    * under that origin on first read rather than discarded. */
   private readBearer(): string | null {
+    if (usesLocalService()) return null
     const key = currentServerCredentialKey()
     const scoped = this.environment.getStoredItem(key)
     if (scoped) return scoped
@@ -431,6 +434,7 @@ export class NoteGraphQLClient {
     userMarkdown: string
     idempotencyKey?: string
     model?: string
+    provider?: string
     mode?: 'edit'
     attachments?: AgentChatAttachmentInput[]
   }): Promise<AgentChatMessageResult> {
@@ -451,6 +455,7 @@ export class NoteGraphQLClient {
         userMarkdown: input.userMarkdown,
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
         ...(input.model ? { model: input.model } : {}),
+        ...(input.provider ? { provider: input.provider } : {}),
         ...(input.mode ? { mode: input.mode } : {}),
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       },
@@ -465,21 +470,25 @@ export class NoteGraphQLClient {
     }
   }
 
-  async agentModels(): Promise<AgentModelsResult> {
+  async agentModels(provider?: string): Promise<AgentModelsResult> {
     const data = await this.request<{ agentModels: AgentModelsResult & { result: ControlResult } }>('AgentModels', `
-      query AgentModels {
-        agentModels {
+      query AgentModels($provider: String) {
+        agentModels(provider: $provider) {
           result { accepted status diagnostics }
           models { modelId displayName description }
           discoveryAvailable
           configuredModel
+          providers
+          configuredProvider
         }
       }
-    `, {})
+    `, { provider: provider ?? null })
     if (!data.agentModels) throw new NoteTransportError('GraphQL response omitted agentModels.', 'graphql')
     ensureAccepted(data.agentModels.result)
     return {
       models: data.agentModels.models,
+      providers: data.agentModels.providers,
+      configuredProvider: data.agentModels.configuredProvider,
       discoveryAvailable: data.agentModels.discoveryAvailable,
       configuredModel: data.agentModels.configuredModel ?? null,
     }
@@ -619,6 +628,41 @@ export class NoteGraphQLClient {
     `, { input: { title: title.trim() } }, 'createNotebook')
   }
 
+  async importDocument(file: File, title?: string, maximumOCRPages?: string): Promise<Notebook> {
+    if (file.size > 1_048_576) throw new Error('Uploads are limited to 1 MiB. Use the local import command for larger files.')
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    return this.notebookMutation('ImportDocument', `
+      mutation ImportDocument($input: ImportDocumentInput!) {
+        importDocument(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: { filename: file.name, contentBase64: btoa(binary), title, maximumOCRPages } }, 'importDocument')
+  }
+
+  async saveNewNotebook(bodyMarkdown: string, idempotencyKey: string): Promise<Notebook> {
+    return this.notebookMutation('SaveNewNotebook', `
+      mutation SaveNewNotebook($input: IngestNotebookPagesInput!) {
+        ingestNotebookPages(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: {
+      idempotencyKey, title: derivedNoteTitle(bodyMarkdown),
+      pages: [{ bodyMarkdown, readOnly: false }],
+    } }, 'ingestNotebookPages')
+  }
+
   async createNote(notebookId: NotebookId, bodyMarkdown: string): Promise<Note> {
     const payload = await this.mutation('CreateNote', `
       mutation CreateNote($input: CreateNoteInput!) {
@@ -629,6 +673,19 @@ export class NoteGraphQLClient {
       }
     `, { input: { notebookId, bodyMarkdown, provenance: 'human', assignedBy: 'kaiba-web' } }, 'createNote')
     if (!payload.note) throw new NoteTransportError('The server did not return the saved note.', 'result')
+    return payload.note
+  }
+
+  async recognizeDocumentPage(noteId: NoteId): Promise<Note> {
+    const payload = await this.mutation('RecognizeDocumentPage', `
+      mutation RecognizeDocumentPage($noteId: String!) {
+        recognizeDocumentPage(noteId: $noteId) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
+        }
+      }
+    `, { noteId }, 'recognizeDocumentPage')
+    if (!payload.note) throw new NoteTransportError('The server did not return the recognized page.', 'result')
     return payload.note
   }
 

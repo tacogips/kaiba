@@ -2,10 +2,14 @@ import { noteId as asNoteId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { MarkdownBody } from '../components/Markdown'
 import { MemoTab } from '../components/MemoTab'
+import { DocumentNotebookReader } from '../components/DocumentNotebookReader'
+import { documentPageMetadata } from '../notes/documentPages'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
 import { NoteCapture } from '../components/NoteCapture'
 import { NoteEditor } from '../components/NoteEditor'
-import { NotebookCreate } from '../components/NotebookCreate'
+import { NewNotebookEditor } from '../components/NewNotebookEditor'
+import { SourceAnalyses } from '../components/SourceAnalyses'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
 import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
 import { normalizeSelectionTagName, tagTermsFromAssignments } from '../notes/tagMatch'
@@ -194,26 +198,7 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
         when={app.state.notebookId || notes().length > 0}
         fallback={
           <Show when={!app.state.noteLoading}>
-            <Show
-              when={app.state.notebooks.length === 0}
-              fallback={
-                <div class="empty-state reader-empty-selection">
-                  <span aria-hidden="true">KAIBA</span>
-                  <strong>Continue learning</strong>
-                  <p>Choose a notebook to review your notes, add what you learn, or ask AI about the material.</p>
-                  <button type="button" onClick={props.onBrowseNotebooks}>Browse notebooks</button>
-                  <button type="button" class="secondary" onClick={() => app.setSearchOpen(true)}>Find a note</button>
-                </div>
-              }
-            >
-              <div class="empty-state reader-onboarding">
-                <span aria-hidden="true">KAIBA</span>
-                <strong>Start with something you want to understand</strong>
-                <p>Create a notebook for a topic, question, or project. Add rough notes as you learn; AI can help you explain, connect, and test them.</p>
-                <NotebookCreate buttonLabel="Create your first notebook" />
-                <button type="button" class="secondary" onClick={() => app.setSearchOpen(true)}>Open an existing note</button>
-              </div>
-            </Show>
+            <NewNotebookEditor />
           </Show>
         }
       >
@@ -224,11 +209,11 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           </div>
           <div class="reader-actions">
             <Show when={app.state.returnStack.length > 0}>
-              <button type="button" class="secondary reader-back" onClick={app.goBack}>← Back</button>
+              <button type="button" class="secondary reader-back" aria-label="Back" title="Back" onClick={app.goBack}><WorkspaceIcon name="back" /></button>
             </Show>
             <span class="reader-position">{pageLabel(index(), notes().length)}</span>
             <Show when={app.state.note}>
-              <button type="button" class="secondary" onClick={app.deselectNote}>Notebook context</button>
+              <button type="button" class="secondary" aria-label="Notebook context" title="Notebook context" onClick={app.deselectNote}><WorkspaceIcon name="files" /></button>
             </Show>
             <details class="reader-tools">
               <summary aria-label="Notebook tools">•••</summary>
@@ -276,6 +261,9 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
             </details>
           </div>
         </header>
+        <Show keyed when={!chatNotebook() && app.state.notebookId}>
+          {(notebookId) => <SourceAnalyses app={app} notebookId={notebookId} />}
+        </Show>
         <Show when={chatNotebook() && !app.state.noteId} fallback={<article
           class="reader-body"
           ref={setBody}
@@ -291,6 +279,7 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           <Show when={notes().length === 0 && app.notebook()?.readOnly}>
             <p class="pane-empty">This notebook has no notes. Make it writable to add your own.</p>
           </Show>
+          <Show when={notes().some((note) => documentPageMetadata(note) !== undefined)} fallback={<>
           <For each={notes()}>{(note, noteIndex) => (
             <NoteSection
               note={note}
@@ -301,8 +290,20 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
             />
           )}</For>
           <LoadMoreSentinel />
+          </>}>
+            <Show when={app.state.notebookId} keyed>{(notebookId) => <DocumentNotebookReader
+              notes={notes()} selectedNoteId={app.state.noteId} totalCount={app.notebook()?.noteCount}
+              notebookTags={app.notebook()?.tags} onTagClick={(tagId) => app.openTagPane(tagId)}
+              onSelect={(note) => app.openNote(note.noteId, notebookId)} onLoadMore={() => app.loadMoreNotes(notebookId)}
+              onRecognize={async (note) => {
+                await app.client.recognizeDocumentPage(note.noteId)
+                await app.loadNotes(notebookId)
+                await app.refreshNote()
+              }}
+            />}</Show>
+          </Show>
         </article>}>
-          <div class="reader-body">
+          <div class="reader-body reader-conversation">
             <MemoTab conversationNotebookId={app.state.notebookId} />
           </div>
         </Show>

@@ -37,6 +37,19 @@ function environment(
 }
 
 describe('Note GraphQL transport', () => {
+  test('transmits the selected subscription provider and model for chat dispatch', async () => {
+    const harness = environment([{ data: { sendAgentChatMessage: {
+      result: { accepted: true, status: 'ok', diagnostics: [] },
+      conversationNotebookId: 'conversation', turnNoteId: 'turn', agentStatus: 'pending',
+    } } }])
+    await new NoteGraphQLClient(harness.value).sendAgentChatMessage({
+      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-5.6-luna',
+    })
+    expect(requestBody(harness.requests[0]).variables).toEqual({ input: {
+      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-5.6-luna',
+    } })
+  })
+
   test('creates learning material in the canonical store and rejects failed saves', async () => {
     const notebook = { notebookId: asNotebookId('learning'), type: 'DOCUMENT', title: 'Learning', readOnly: false, tags: [] }
     const note = { noteId: asNoteId('note-1'), notebookId: notebook.notebookId, bodyMarkdown: 'My understanding',
@@ -276,3 +289,14 @@ async function expectErrorKind(
     if (status !== undefined) expect((error as NoteTransportError).status).toBe(status)
   }
 }
+
+test('manual document OCR sends only the note ID and retains returned page metadata', async () => {
+  const note = { noteId: asNoteId('page-1'), notebookId: asNotebookId('book'), noteNumber: 1, title: null,
+    bodyMarkdown: 'Recognized text', readOnly: false, createdAt: '', updatedAt: '', metaJSON: '{"documentPage":{"ocrState":"complete"}}' }
+  const harness = environment([{ data: { recognizeDocumentPage: { result: { accepted: true, status: 'ok', diagnostics: [] }, note } } }])
+  const result = await new NoteGraphQLClient(harness.value).recognizeDocumentPage(note.noteId)
+  expect(result).toEqual(note)
+  const request = JSON.parse(String(harness.requests[0]?.init?.body))
+  expect(request.variables).toEqual({ noteId: 'page-1' })
+  expect(request.query).toContain('metaJSON')
+})

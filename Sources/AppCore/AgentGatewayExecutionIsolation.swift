@@ -1,4 +1,7 @@
 import Foundation
+#if os(macOS)
+import Darwin
+#endif
 
 /// Selects whether a gateway invocation is a local operator command or work
 /// initiated by an HTTP server. Served work receives a deliberately narrow
@@ -6,6 +9,8 @@ import Foundation
 public enum AgentGatewayExecutionMode: Sendable {
   case local
   case served
+  /// Explicitly enabled server subscription with isolated provider configuration.
+  case subscription
 }
 
 struct AgentGatewayExecutionContext {
@@ -47,6 +52,9 @@ extension AgentGatewayCLIInvoker {
       environment: environment,
       apiKeyEnvironment: apiKeyEnvironment
     )
+    if mode == .subscription {
+      return try subscriptionExecutionContext(vendor: vendor, binary: binary, arguments: arguments, environment: environment)
+    }
     guard mode == .served else {
       return AgentGatewayExecutionContext(
         binary: binary,
@@ -61,7 +69,16 @@ extension AgentGatewayCLIInvoker {
       throw AgentInvocationError.unavailable("server agent-gateway credential preflight changed unexpectedly")
     }
 
-    let workspace = FileManager.default.temporaryDirectory
+    #if os(macOS)
+    guard let physicalPath = realpath(FileManager.default.temporaryDirectory.path, nil) else {
+      throw AgentInvocationError.unavailable("server gateway temporary directory is unavailable")
+    }
+    defer { free(physicalPath) }
+    let temporaryDirectory = URL(fileURLWithPath: String(cString: physicalPath), isDirectory: true)
+    #else
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+    #endif
+    let workspace = temporaryDirectory
       .appendingPathComponent("kaiba-agent-gateway-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
     try FileManager.default.createDirectory(
@@ -119,6 +136,10 @@ extension AgentGatewayCLIInvoker {
     environment: [String: String],
     apiKeyEnvironment: String?
   ) throws {
+    if mode == .subscription {
+      try validateSubscriptionRequirements(vendor: vendor, environment: environment)
+      return
+    }
     guard mode == .served else { return }
     let normalizedVendor = vendor.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !servedToolCapableVendors.contains(normalizedVendor) else {
@@ -149,7 +170,7 @@ extension AgentGatewayCLIInvoker {
     _ diagnostic: String,
     executionMode: AgentGatewayExecutionMode
   ) -> String {
-    guard executionMode == .served else { return diagnostic }
+    guard executionMode != .local else { return diagnostic }
     return "agent-gateway request failed"
   }
 
@@ -169,7 +190,7 @@ extension AgentGatewayCLIInvoker {
   }
 
   #if os(macOS)
-  private static func servedSandboxProfile(binary: String, workspace: URL) -> String {
+  static func servedSandboxProfile(binary: String, workspace: URL) -> String {
     let binaryPath = URL(fileURLWithPath: binary).standardizedFileURL.path
     let readableDirectories = [
       "/System", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/share",
@@ -189,7 +210,7 @@ extension AgentGatewayCLIInvoker {
     """
   }
 
-  private static func sandboxLiteral(_ value: String) -> String {
+  static func sandboxLiteral(_ value: String) -> String {
     "\"\(value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
   }
   #endif

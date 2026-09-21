@@ -21,6 +21,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
   public var invoker: (any AgentInvoking)?
   public var provider: String?
   public var model: String?
+  public var tagRegistrationPrompt: String?
   /// Translation-only vendor overrides (`ai.translate` in config.json);
   /// nil falls back to the agent defaults above.
   public var translateProvider: String?
@@ -38,6 +39,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     invoker: (any AgentInvoking)?,
     provider: String? = nil,
     model: String? = nil,
+    tagRegistrationPrompt: String? = nil,
     translateProvider: String? = nil,
     translateModel: String? = nil,
     streamPublisher: (any AgentReplyStreamPublishing)? = nil,
@@ -47,6 +49,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     self.invoker = invoker
     self.provider = provider
     self.model = model
+    self.tagRegistrationPrompt = tagRegistrationPrompt
     self.translateProvider = translateProvider
     self.translateModel = translateModel
     self.streamPublisher = streamPublisher
@@ -237,9 +240,15 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       service: service,
       invoker: invoker,
       provider: provider,
-      model: model
+      model: model,
+      registrationPrompt: tagRegistrationPrompt
     )
     do {
+      if case .note(let noteId) = subject,
+        let metadata = try? NoteService.importedPageMetadata(service.getNote(noteId)),
+        metadata.ocrState == "pending" {
+        return .succeeded
+      }
       _ = try await extraction.extractTags(subject: subject)
       return .succeeded
     } catch {
@@ -312,7 +321,15 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       if let state = NoteService.chatTurnState(of: turn), state.status == .cancelled {
         return .cancelled(state.errorMessage ?? "agent chat reply was cancelled")
       }
-      let selection = try resolveChatRuntime(for: service)
+      let state = NoteService.chatTurnState(of: turn)
+      let selection: ChatRuntimeSelection
+      if state?.status == .answered {
+        // Recovery only reconciles the persisted reply; changing credentials
+        // must not prevent an already answered stream from finishing.
+        selection = ChatRuntimeSelection(invoker: UnavailableAgentInvoker(), usesPersonalRuntime: false)
+      } else {
+        selection = try resolveChatRuntime(for: service, selectedProvider: state?.provider)
+      }
       try await service.generateAgentChatReply(
         turnNoteId: noteId,
         invoker: selection.invoker,
@@ -352,9 +369,18 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
   /// UA5 routing: an authenticated principal with an enabled credential gets
   /// the personal runtime built over the already scoped and fenced service;
   /// everyone else gets the gateway; with neither, the turn fails clearly.
-  func resolveChatRuntime(for service: NoteService) throws -> ChatRuntimeSelection {
-    if let userAgentRuntime, let personal = try userAgentRuntime.makeInvoker(for: service) {
+  func resolveChatRuntime(for service: NoteService, selectedProvider: String? = nil) throws -> ChatRuntimeSelection {
+    if let selectedProvider, selectedProvider != "server" {
+      guard let summary = try service.userAgentCredentialSummary(), summary.enabled,
+        summary.provider.rawValue == selectedProvider else {
+        throw AgentInvocationError.unavailable("Selected chat provider is no longer enabled")
+      }
+    }
+    if selectedProvider != "server", let userAgentRuntime, let personal = try userAgentRuntime.makeInvoker(for: service) {
       return ChatRuntimeSelection(invoker: personal, usesPersonalRuntime: true)
+    }
+    if let selectedProvider, selectedProvider != "server" {
+      throw AgentInvocationError.unavailable("Selected chat provider is unavailable")
     }
     if let invoker {
       return ChatRuntimeSelection(invoker: invoker, usesPersonalRuntime: false)

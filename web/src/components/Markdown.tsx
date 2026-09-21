@@ -1,3 +1,5 @@
+import { NoteFileImage } from './NoteFileImage'
+import { storedImageFileId } from '../notes/documentPages'
 import { Dynamic } from 'solid-js/web'
 import { For, Show, createMemo } from 'solid-js'
 import type { JSX } from 'solid-js'
@@ -31,6 +33,13 @@ function InlineText(props: { text: string } & TagDecoration): JSX.Element {
         case 'bold': return <strong>{segment.text}</strong>
         case 'italic': return <em>{segment.text}</em>
         case 'code': return <code class="md-inline-code">{segment.text}</code>
+        case 'image': {
+          const id = storedImageFileId(segment.href)
+          if (id) return <NoteFileImage fileId={id} alt={segment.text} />
+          return /^https?:\/\//i.test(segment.href)
+            ? <img class="document-file-image" src={segment.href} alt={segment.text} loading="lazy" referrerPolicy="no-referrer" />
+            : <span>{segment.text}</span>
+        }
         case 'link':
           return isSafeHref(segment.href)
             ? <a href={segment.href} target="_blank" rel="noopener noreferrer">{segment.text}</a>

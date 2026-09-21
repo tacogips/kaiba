@@ -4,9 +4,9 @@
   "version": "0.1.16",
   "identifier": "com.tacogips.kaiba",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "bash ../scripts/build-tauri-local-service.sh debug && bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bash ../scripts/build-tauri-local-service.sh release && bun run build",
     "frontendDist": "../dist"
   },
   "app": {

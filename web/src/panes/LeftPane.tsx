@@ -1,6 +1,7 @@
 import { Show, type JSX } from 'solid-js'
-import { NotebookCreate } from '../components/NotebookCreate'
 import { FileTreeTab } from '../components/FileTreeTab'
+import { NotebookTimeline } from '../components/NotebookTimeline'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { TocTab } from '../components/TocTab'
 import { useApp } from '../state/appStore'
 
@@ -26,6 +27,12 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
       >
         <div class="pane-head">
           <span class="notebook-tree-title">Notebooks</span>
+          <div class="notebook-view-controls" role="group" aria-label="Notebook view">
+            <button type="button" class="workspace-icon" aria-label="Tree view" title="Tree view"
+              aria-pressed={app.state.pane.notebookView === 'tree'} onClick={() => app.setNotebookView('tree')}><WorkspaceIcon name="tree" /></button>
+            <button type="button" class="workspace-icon" aria-label="Timeline view" title="Timeline view (⌘/Ctrl Shift T to toggle)"
+              aria-pressed={app.state.pane.notebookView === 'timeline'} onClick={() => app.setNotebookView('timeline')}><WorkspaceIcon name="timeline" /></button>
+          </div>
           <button
             type="button"
             class="pane-fold"
@@ -38,8 +45,9 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
           >‹</button>
         </div>
         <div class="pane-body">
-          <NotebookCreate onCreated={props.onNavigate} />
-          <FileTreeTab onNavigate={props.onNavigate} />
+          <Show when={app.state.pane.notebookView === 'timeline'} fallback={<FileTreeTab onNavigate={props.onNavigate} />}>
+            <NotebookTimeline onNavigate={props.onNavigate} />
+          </Show>
           <Show when={hasContents()}>
             <details class="notebook-outline">
               <summary>Outline</summary>

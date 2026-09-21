@@ -18,6 +18,7 @@ export type InlineSegment =
   | { kind: 'italic'; text: string }
   | { kind: 'code'; text: string }
   | { kind: 'link'; text: string; href: string }
+  | { kind: 'image'; text: string; href: string }
 
 export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = []
@@ -100,7 +101,7 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
 
 export function parseInlineSegments(text: string): InlineSegment[] {
   const segments: InlineSegment[] = []
-  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)|(\[([^\]]+)\]\(([^)\s]+)\))/g
+  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)|(!?\[([^\]]*)\]\(([^)\s]+)\))/g
   let cursor = 0
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
     if (match.index > cursor) segments.push({ kind: 'text', text: text.slice(cursor, match.index) })
@@ -109,8 +110,8 @@ export function parseInlineSegments(text: string): InlineSegment[] {
       segments.push({ kind: 'code', text: token.slice(1, -1) })
     } else if (token.startsWith('**') || token.startsWith('__')) {
       segments.push({ kind: 'bold', text: token.slice(2, -2) })
-    } else if (token.startsWith('[') && match[7] !== undefined && match[8] !== undefined) {
-      segments.push({ kind: 'link', text: match[7], href: match[8] })
+    } else if ((token.startsWith('[') || token.startsWith('![')) && match[7] !== undefined && match[8] !== undefined) {
+      segments.push({ kind: token.startsWith('!') ? 'image' : 'link', text: match[7], href: match[8] })
     } else {
       segments.push({ kind: 'italic', text: token.slice(1, -1) })
     }

@@ -138,17 +138,20 @@ public struct AITagExtractionService: Sendable {
   public var invoker: any AgentInvoking
   public var provider: String?
   public var model: String?
+  public var registrationPrompt: String?
 
   public init(
     service: NoteService,
     invoker: any AgentInvoking,
     provider: String? = nil,
-    model: String? = nil
+    model: String? = nil,
+    registrationPrompt: String? = nil
   ) {
     self.service = service
     self.invoker = invoker
     self.provider = provider
     self.model = model
+    self.registrationPrompt = registrationPrompt
   }
 
   /// Extracts tags for the subject and applies them unless `dryRun`.
@@ -164,7 +167,7 @@ public struct AITagExtractionService: Sendable {
     let existingTags = try service.listTags().filter { $0.classId != .folder }
     let request = AgentInvocationRequest(
       purpose: .tagExtraction,
-      systemPrompt: Self.systemPrompt(classes: classes, existingTags: existingTags),
+      systemPrompt: Self.systemPrompt(classes: classes, existingTags: existingTags, registrationPrompt: registrationPrompt),
       turns: [AgentInvocationTurn(role: .user, markdown: context.markdown)],
       contextMarkdown: nil,
       provider: provider,
@@ -189,7 +192,9 @@ public struct AITagExtractionService: Sendable {
 
   // MARK: - Prompt
 
-  static func systemPrompt(classes: [TagClass], existingTags: [Tag]) -> String {
+  static func systemPrompt(
+    classes: [TagClass], existingTags: [Tag], registrationPrompt: String? = nil
+  ) -> String {
     let classLines = classes
       .map { "- \($0.classId): \($0.label)\($0.description.map { " (\($0))" } ?? "")" }
       .joined(separator: "\n")
@@ -202,6 +207,9 @@ public struct AITagExtractionService: Sendable {
     \(classLines)
 
     Existing tags (reuse exact names when they fit): \(tagNames)
+
+    Tag registration instructions:
+    \(registrationPrompt ?? "Use concise tags that describe the subject.")
 
     Reply with ONLY a JSON array, no prose, no code fences, of objects:
     [{"name": "tag-name", "class": "class-id", "parent": "parent-tag-name"}]

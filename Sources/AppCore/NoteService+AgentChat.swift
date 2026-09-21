@@ -35,6 +35,7 @@ public struct AgentChatTurnState: Equatable, Sendable {
   public var errorMessage: String?
   /// Immutable model snapshot selected when the turn was created.
   public var model: String?
+  public var provider: String?
   /// Immutable mode snapshot; nil means `memo`.
   public var mode: AgentChatTurnMode?
   /// Immutable library that authorized the provider context for an answered
@@ -47,6 +48,7 @@ public struct AgentChatTurnState: Equatable, Sendable {
     userMarkdown: String,
     errorMessage: String? = nil,
     model: String? = nil,
+    provider: String? = nil,
     mode: AgentChatTurnMode? = nil,
     replyLibraryId: LibraryID? = nil
   ) {
@@ -54,6 +56,7 @@ public struct AgentChatTurnState: Equatable, Sendable {
     self.userMarkdown = userMarkdown
     self.errorMessage = errorMessage
     self.model = model
+    self.provider = provider
     self.mode = mode
     self.replyLibraryId = replyLibraryId
   }
@@ -180,6 +183,7 @@ public extension NoteService {
     agentAvailable: Bool,
     idempotencyKey: String? = nil,
     model: String? = nil,
+    provider: String? = nil,
     mode: AgentChatTurnMode? = nil,
     attachments: [AgentChatAttachment] = []
   ) throws -> Note {
@@ -274,7 +278,7 @@ public extension NoteService {
           assistantMarkdown: nil
         )
         let metaJSON = try Self.chatTurnMetaJSON(
-          state: AgentChatTurnState(status: status, userMarkdown: trimmed, model: model, mode: mode),
+          state: AgentChatTurnState(status: status, userMarkdown: trimmed, model: model, provider: provider, mode: mode),
           idempotencyKey: idempotencyKey
         )
         try db.execute(
@@ -458,6 +462,7 @@ public extension NoteService {
       userMarkdown: userMarkdown,
       errorMessage: chat["error"]?.asString,
       model: chat["model"]?.asString,
+      provider: chat["provider"]?.asString,
       mode: chat["mode"]?.asString.flatMap(AgentChatTurnMode.init(rawValue:)),
       replyLibraryId: chat.identifier("replyLibraryId", as: LibraryID.self)
     )
@@ -862,6 +867,7 @@ public extension NoteService {
     chat["idempotencyKey"] = idempotencyKey.map(JSONValue.string)
     chat["error"] = state.errorMessage.map(JSONValue.string)
     chat["model"] = state.model.map(JSONValue.string)
+    chat["provider"] = state.provider.map(JSONValue.string)
     chat["mode"] = state.mode.map { .string($0.rawValue) }
     chat["replyLibraryId"] = state.replyLibraryId.map(JSONValue.id)
     do {

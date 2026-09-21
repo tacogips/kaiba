@@ -1,4 +1,5 @@
 import { Show, createSignal, type JSX } from 'solid-js'
+import { WorkspaceIcon } from './WorkspaceIcon'
 import type { Note } from '../notes/types'
 import { errorMessage, useApp } from '../state/appStore'
 
@@ -34,21 +35,21 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
   }
   return <Show when={writable() || open()}>
     <div class="note-editor">
-      <Show when={open()} fallback={<button type="button" class="secondary" onClick={() => {
+      <Show when={open()} fallback={<button type="button" class="secondary" aria-label={record.text() ? 'Resume editing' : 'Edit my note'} title="Edit note" onClick={() => {
         if (!record.text()) {
           record.setText(props.note.bodyMarkdown)
           record.setBaseText(props.note.bodyMarkdown)
         }
         setOpen(true)
-      }}>{record.text() ? 'Resume editing' : 'Edit my note'}</button>}>
+      }}><WorkspaceIcon name="edit" /></button>}>
         <form onSubmit={(event) => void save(event)}>
           <label>Edit note text
             <textarea rows={10} value={record.text()} disabled={record.busy()}
               onInput={(event) => record.setText(event.currentTarget.value)} />
           </label>
           <div class="learning-actions">
-            <button type="submit" disabled={!writable() || record.busy() || !record.text().trim()}>{record.busy() ? 'Saving…' : 'Save changes'}</button>
-            <button type="button" class="secondary" disabled={record.busy()} onClick={() => setOpen(false)}>Close draft</button>
+            <button type="submit" aria-label="Save changes" title="Save changes" disabled={!writable() || record.busy() || !record.text().trim()}><WorkspaceIcon name="save" /></button>
+            <button type="button" class="secondary" aria-label="Close draft" title="Close draft" disabled={record.busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button>
           </div>
           <Show when={!writable()}><p role="status">This note is now read-only. Your draft is kept for this session.</p></Show>
           <Show when={record.error()}><p role="alert" class="note-inline-error">{record.error()}</p></Show>

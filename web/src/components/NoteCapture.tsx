@@ -1,6 +1,7 @@
 import { Show, createSignal, type JSX } from 'solid-js'
 import type { NotebookId } from '../notes/ids'
 import { errorMessage, routeHref, useApp } from '../state/appStore'
+import { WorkspaceIcon } from './WorkspaceIcon'
 
 export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): JSX.Element {
   const app = useApp()
@@ -33,19 +34,18 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
   }
 
   return <section class="note-capture" aria-label="Write a note">
-    <Show when={open() || props.empty} fallback={<button type="button" class="secondary" onClick={() => {
+    <Show when={open() || props.empty} fallback={<button type="button" class="secondary" aria-label={draft() ? 'Resume draft' : 'Add a note'} title={draft() ? 'Resume draft' : 'Add a note'} onClick={() => {
       setOpen(true)
       queueMicrotask(() => textarea?.focus())
-    }}>{draft() ? 'Resume draft' : 'Add a note'}</button>}>
+    }}><WorkspaceIcon name="add" /></button>}>
       <form onSubmit={(event) => void save(event)}>
         <label><span class="sr-only">Write a note</span>
           <textarea ref={textarea} rows={6} value={draft()} disabled={busy()}
-            placeholder="Write…"
             onInput={(event) => setDraft(event.currentTarget.value)} />
         </label>
         <div class="learning-actions">
-          <button type="submit" disabled={busy() || !draft().trim()}>{busy() ? 'Saving…' : 'Save note'}</button>
-          <Show when={!props.empty}><button type="button" class="secondary" disabled={busy()} onClick={() => setOpen(false)}>Close draft</button></Show>
+          <button type="submit" aria-label="Save note" title="Save note" disabled={busy() || !draft().trim()}><WorkspaceIcon name="save" /></button>
+          <Show when={!props.empty}><button type="button" class="secondary" aria-label="Close draft" title="Close draft" disabled={busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button></Show>
         </div>
         <Show when={error()}><p role="alert" class="note-inline-error">{error()}</p></Show>
       </form>

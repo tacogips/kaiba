@@ -38,6 +38,10 @@ public struct GraphQLNoteQueryResult<Value: Codable & Equatable & Sendable>: Cod
 
 public struct GraphQLNoteGraphQLService: Sendable {
   public var service: NoteService
+  public var documentMaximumOCRPages: DocumentOCRPageLimit
+  public var documentPageRecognizer: any DocumentPageRecognizing
+  public var documentPageAnalyzer: (any DocumentPageAnalyzing)?
+  public var documentPageFigureExtractor: (any DocumentPageFigureExtracting)?
   /// When set, `agenticSearch` runs synchronously against this agent runtime;
   /// nil reports `agent-unavailable` (mirrors every other AI surface).
   public var agentInvoker: (any AgentInvoking)?
@@ -90,9 +94,17 @@ public struct GraphQLNoteGraphQLService: Sendable {
     agentModel: String? = nil,
     agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)? = nil,
     agentModelCatalogCache: AgentModelCatalogCache = AgentModelCatalogCache(),
-    userAgentConfiguration: KaibaUserAgentConfiguration = KaibaUserAgentConfiguration()
+    userAgentConfiguration: KaibaUserAgentConfiguration = KaibaUserAgentConfiguration(),
+    documentPageRecognizer: any DocumentPageRecognizing = VisionDocumentPageRecognizer(),
+    documentPageAnalyzer: (any DocumentPageAnalyzing)? = nil,
+    documentPageFigureExtractor: (any DocumentPageFigureExtracting)? = nil,
+    documentMaximumOCRPages: DocumentOCRPageLimit = .first(3)
   ) {
     self.service = service
+    self.documentMaximumOCRPages = documentMaximumOCRPages
+    self.documentPageRecognizer = documentPageRecognizer
+    self.documentPageAnalyzer = documentPageAnalyzer
+    self.documentPageFigureExtractor = documentPageFigureExtractor
     self.agentInvoker = agentInvoker
     self.agentProvider = agentProvider
     self.agentModel = agentModel

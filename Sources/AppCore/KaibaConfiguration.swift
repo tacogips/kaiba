@@ -89,9 +89,29 @@ public struct KaibaLibraryBinding: Codable, Equatable, Sendable {
 /// never do.
 public struct KaibaImportConfiguration: Codable, Equatable, Sendable {
   public var ocr: KaibaOCRConfiguration?
+  public var googleDocumentAI: GoogleDocumentAIConfiguration?
+  public var ocrEngine: DocumentOCREngine?
+  public var maximumOCRPages: DocumentOCRPageLimit?
+  public var analysis: KaibaOCRConfiguration?
+  public var figures: KaibaOCRConfiguration?
+  public var allowClaudeSubscription: Bool?
 
-  public init(ocr: KaibaOCRConfiguration? = nil) {
+  public init(
+    ocr: KaibaOCRConfiguration? = nil,
+    ocrEngine: DocumentOCREngine? = nil,
+    maximumOCRPages: DocumentOCRPageLimit? = nil,
+    analysis: KaibaOCRConfiguration? = nil,
+    figures: KaibaOCRConfiguration? = nil,
+    allowClaudeSubscription: Bool? = nil,
+    googleDocumentAI: GoogleDocumentAIConfiguration? = nil
+  ) {
     self.ocr = ocr
+    self.googleDocumentAI = googleDocumentAI
+    self.ocrEngine = ocrEngine
+    self.maximumOCRPages = maximumOCRPages
+    self.analysis = analysis
+    self.figures = figures
+    self.allowClaudeSubscription = allowClaudeSubscription
   }
 }
 
@@ -162,11 +182,14 @@ public struct KaibaUserAgentConfiguration: Codable, Equatable, Sendable {
   public var allowCustomBaseURL: Bool?
   /// Upper bound on provider round trips per chat turn.
   public var maxToolRounds: Int?
+  /// Opt in to sharing the server Codex login with authenticated chat users.
+  public var allowCodexSubscription: Bool?
 
-  public init(enabled: Bool? = nil, allowCustomBaseURL: Bool? = nil, maxToolRounds: Int? = nil) {
+  public init(enabled: Bool? = nil, allowCustomBaseURL: Bool? = nil, maxToolRounds: Int? = nil, allowCodexSubscription: Bool? = nil) {
     self.enabled = enabled
     self.allowCustomBaseURL = allowCustomBaseURL
     self.maxToolRounds = maxToolRounds
+    self.allowCodexSubscription = allowCodexSubscription
   }
 
   public var isEnabled: Bool { enabled ?? true }
@@ -243,9 +266,12 @@ public struct KaibaAutoTagConfiguration: Codable, Equatable, Sendable {
   }
 
   public var auto: Toggle
+  /// Additional tag registration instructions, combined with the current tag catalog.
+  public var prompt: String?
 
-  public init(auto: Toggle = .off) {
+  public init(auto: Toggle = .off, prompt: String? = nil) {
     self.auto = auto
+    self.prompt = prompt
   }
 }
 

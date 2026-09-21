@@ -1,77 +1,22 @@
-import { For, Show, createMemo, type JSX } from 'solid-js'
+import { For, Show, type JSX } from 'solid-js'
 import { useApp } from '../state/appStore'
-import { buildFolderTree, directFolderAssignments, type TagTreeNode } from '../notes/tree'
 import type { Note, Notebook } from '../notes/types'
 import { noteDisplayTitle } from '../notes/noteText'
 
-// Files tab: the folder tag tree from `notes/tree.ts`, the notebooks filed in
-// each folder, and each notebook's notes. Notes load the first time a notebook
-// is expanded so opening the tree never fetches the whole store.
+// Show notebooks directly; expanding a notebook lazily loads its notes.
 
 export function FileTreeTab(props: { onNavigate?: () => void } = {}): JSX.Element {
   const app = useApp()
-  const folders = createMemo(() => buildFolderTree(app.state.tags))
-  const unfiled = createMemo(() =>
-    app.state.notebooks.filter((notebook) => directFolderAssignments(notebook).length === 0))
+  const notebooks = () => app.state.notebooks.filter((notebook) => notebook.type !== 'AGENT_CHAT')
 
   return (
-    <div class="file-tree" role="tree" aria-label="Folders, notebooks and notes">
+    <div class="file-tree" role="tree" aria-label="Notebooks and notes">
       <Show when={app.state.loading && app.state.notebooks.length === 0}>
         <div class="loading-state"><span class="loader" />Loading library…</div>
       </Show>
-      <For each={folders()}>{(node) => <FolderBranch node={node} level={1} onNavigate={props.onNavigate} />}</For>
-      <Show when={unfiled().length > 0}>
-        <div class="tree-group" role="treeitem" aria-level={1} aria-expanded={true}>
-          <span class="tree-label tree-static">Unfiled</span>
-        </div>
-        <div role="group">
-          <For each={unfiled()}>{(notebook) => <NotebookBranch notebook={notebook} level={2} onNavigate={props.onNavigate} />}</For>
-        </div>
-      </Show>
-    </div>
-  )
-}
-
-function FolderBranch(props: { node: TagTreeNode; level: number; onNavigate?: () => void }): JSX.Element {
-  const app = useApp()
-  const expanded = () => app.state.expandedFolders.includes(props.node.tag.tagId)
-  const notebooks = createMemo(() => app.state.notebooks.filter((notebook) =>
-    directFolderAssignments(notebook).some((tag) => tag.tagId === props.node.tag.tagId)))
-  return (
-    <div>
-      <div
-        class="tree-row"
-        role="treeitem"
-        aria-level={props.level}
-        aria-expanded={expanded()}
-        style={{ '--tree-level': props.level }}
-      >
-        <button
-          type="button"
-          class="tree-twisty"
-          aria-label={`${expanded() ? 'Collapse' : 'Expand'} ${props.node.tag.name}`}
-          onClick={() => app.toggleFolder(props.node.tag.tagId)}
-        >{expanded() ? '⌄' : '›'}</button>
-        <button
-          type="button"
-          class="tree-label"
-          title={props.node.tag.name}
-          onClick={() => app.toggleFolder(props.node.tag.tagId)}
-        ><span class="tree-icon" aria-hidden="true">▰</span><span class="tree-label-text">{props.node.tag.name}</span></button>
-        <span class="tree-count">{notebooks().length}</span>
-      </div>
-      <Show when={expanded()}>
-        <div role="group">
-          <For each={props.node.children}>{(child) =>
-            <FolderBranch node={child} level={props.level + 1} onNavigate={props.onNavigate} />}
-          </For>
-          <For each={notebooks()}>{(notebook) =>
-            <NotebookBranch notebook={notebook} level={props.level + 1} onNavigate={props.onNavigate} />}
-          </For>
-          <Show when={props.node.children.length === 0 && notebooks().length === 0}>
-            <p class="pane-empty" style={{ '--tree-level': props.level + 1 }}>Empty folder.</p>
-          </Show>
-        </div>
+      <For each={notebooks()}>{(notebook) => <NotebookBranch notebook={notebook} level={1} onNavigate={props.onNavigate} />}</For>
+      <Show when={!app.state.loading && notebooks().length === 0}>
+        <p class="pane-empty">No notebooks yet.</p>
       </Show>
     </div>
   )

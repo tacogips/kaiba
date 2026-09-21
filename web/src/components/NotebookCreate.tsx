@@ -1,5 +1,6 @@
 import { Show, createSignal, type JSX } from 'solid-js'
 import { errorMessage, routeHref, useApp } from '../state/appStore'
+import { WorkspaceIcon } from './WorkspaceIcon'
 
 /** Inline creation keeps a learner's place and retains input after a failure. */
 export function NotebookCreate(props: { onCreated?: () => void; buttonLabel?: string } = {}): JSX.Element {
@@ -37,7 +38,7 @@ export function NotebookCreate(props: { onCreated?: () => void; buttonLabel?: st
     <Show when={open()} fallback={<button type="button" onClick={() => {
       setOpen(true)
       queueMicrotask(() => input?.focus())
-    }} aria-label={closedLabel()} title={closedLabel()}>{title() ? 'Resume notebook draft' : props.buttonLabel ?? '+'}</button>}>
+    }} aria-label={closedLabel()} title={closedLabel()}><WorkspaceIcon name={title() ? 'edit' : 'add'} /></button>}>
       <form class="notebook-create-form" onSubmit={(event) => void submit(event)}>
         <label>Notebook name
           <input ref={input} value={title()} disabled={busy()} required maxlength={200}
@@ -45,8 +46,8 @@ export function NotebookCreate(props: { onCreated?: () => void; buttonLabel?: st
             onInput={(event) => setTitle(event.currentTarget.value)} />
         </label>
         <div class="learning-actions">
-          <button type="submit" disabled={busy() || !title().trim()}>{busy() ? 'Creating…' : 'Create notebook'}</button>
-          <button type="button" class="secondary" disabled={busy()} onClick={() => setOpen(false)}>Cancel</button>
+          <button type="submit" aria-label="Create notebook" title="Create notebook" disabled={busy() || !title().trim()}><WorkspaceIcon name="add" /></button>
+          <button type="button" class="secondary" aria-label="Cancel" title="Cancel" disabled={busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button>
         </div>
         <Show when={error()}><p role="alert" class="note-inline-error">{error()}</p></Show>
       </form>

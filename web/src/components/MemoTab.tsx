@@ -3,6 +3,8 @@ import { notebookPageLimit } from '../notes/client'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX, type Setter } from 'solid-js'
 import { formatTimestamp } from '../notes/format'
 import { MarkdownBody } from './Markdown'
+import { WorkspaceIcon } from './WorkspaceIcon'
+import { MemoComposerControls } from './ChatComposer'
 import { noteDisplayTitle } from '../notes/noteText'
 import { errorMessage, useApp, type AppStore } from '../state/appStore'
 import { createWritingDrafts } from '../state/writingDrafts'
@@ -25,11 +27,8 @@ import {
   canEnableNoteEdit,
   composerAttachmentMediaType,
   composerSubmitKind,
-  memoOnlyControlAttributes,
   memoOnlyToggleResult,
-  handleComposerKeyDown,
   normalizeSelectedAgentModel,
-  noteEditControlAttributes,
   noteEditToggleResult,
   removeComposerAttachment,
   resetComposerForNewChat,
@@ -99,6 +98,8 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   let catalogGeneration = 0
   let streamGeneration = 0
   let chatRoot: HTMLDivElement | undefined
+  let transcript: HTMLDivElement | undefined
+  let followLatest = true
 
   const subject = createMemo<MemoSubject | undefined>(() => {
     if (props.conversationNotebookId) return { kind: 'notebook', id: props.conversationNotebookId }
@@ -122,6 +123,13 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   const busy = () => draftRecord().busy()
   const entries = createMemo<MemoTimelineEntry[]>(() =>
     memoTimeline(memos(), turnsByConversation()))
+  createEffect(() => {
+    void entries()
+    void streamText()
+    queueMicrotask(() => {
+      if (transcript && followLatest) transcript.scrollTop = transcript.scrollHeight
+    })
+  })
   const entriesBeforeBoundary = createMemo(() => {
     if (!newConversationBoundary()) return entries()
     const activeId = activeConversationId()
@@ -155,6 +163,9 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     if (noteEdit() && !noteEditAvailable()) setNoteEdit(false)
   })
 
+  const [providers, setProviders] = createSignal<string[]>([])
+  const [configuredProvider, setConfiguredProvider] = createSignal<string>()
+
   // Model discovery populates the picker. It re-runs when the app's own
   // catalog reload succeeds (`catalogRevision` is bumped only on success), so a
   // failed request gets another chance once the server is reachable again.
@@ -163,8 +174,13 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // Runs can overlap: `catalogRevision` is bumped by a debounced refresh, so
     // a slow request can settle after a newer one. Same guard idiom as `load()`.
     const requested = ++catalogGeneration
-    void app.client.agentModels().then((catalog) => {
+    void app.client.agentModels(app.state.settings.agentProvider).then((catalog) => {
       if (requested !== catalogGeneration) return
+      setProviders(catalog.providers ?? [])
+      setConfiguredProvider(catalog.configuredProvider ?? undefined)
+      if (app.state.settings.agentProvider && catalog.providers && !catalog.providers.includes(app.state.settings.agentProvider)) {
+        app.updateSettings({ agentProvider: catalog.configuredProvider ?? undefined, agentModel: undefined })
+      }
       setModels(catalog.models)
       setConfiguredModel(catalog.configuredModel)
       setCatalogError('')
@@ -405,6 +421,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // accepted, or the composer would confirm a removal the wire ignored.
     const stagedAttachments = retry ? [] : attachments()
     const effectiveModel = app.state.settings.agentModel
+    const effectiveProvider = app.state.settings.agentProvider ?? configuredProvider()
     const directConversationId = props.conversationNotebookId
     // The New chat button is gated on `busy()` so a click during the await
     // window cannot reroute an already-submitted message; the captures settle
@@ -431,6 +448,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         userMarkdown: body,
         idempotencyKey: newIdempotencyKey(),
         selectedModel: effectiveModel,
+        selectedProvider: effectiveProvider,
         noteEdit: effectiveNoteEdit,
         attachments: attachmentInputs,
       })
@@ -497,7 +515,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     setError(reset.error)
   }
 
-  const stageFiles = async (files: FileList | null) => {
+  const stageFiles = async (files: FileList | readonly File[] | null) => {
     if (!files) return
     const stagedDraft = draftRecord()
     const next = [...attachments(), ...Array.from(files)]
@@ -551,22 +569,28 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     const streamingHere = () => streamTurnId() === turn.noteId && streamText().length > 0
     return (
       <article class="chat-turn">
+        <div class="chat-turn-actions">
         <Show when={!props.conversationNotebookId}>
-          <button type="button" class="secondary" onClick={() => {
+          <button type="button" class="workspace-icon" aria-label="Open as notebook" title="Open as notebook" onClick={() => {
             setExpanded(false)
             app.openNotebookWithReturn(entry.conversationId)
-          }}>Open as notebook</button>
+          }}><WorkspaceIcon name="expand" /><span class="sr-only">Open as notebook</span></button>
         </Show>
-        <button type="button" class="secondary" onClick={() => {
+        <button type="button" class="workspace-icon" aria-label="Branch from here" title="Branch from here" onClick={() => {
           app.openNote(turn.noteId, entry.conversationId)
-        }}>Branch from here</button>
-        <div class="chat-message chat-user">
-          <span class="chat-role">You</span>
+        }}><WorkspaceIcon name="edit" /><span class="sr-only">Branch from here</span></button>
+        <button type="button" class="workspace-icon" aria-label="Copy message" title="Copy message" onClick={() => {
+          void navigator.clipboard.writeText(turn.assistantMarkdown || turn.userMarkdown)
+            .catch((error) => setError(errorMessage(error)))
+        }}><WorkspaceIcon name="copy" /></button>
+        </div>
+        <div class="chat-message chat-user" aria-label="You">
+          <span class="chat-role sr-only">You</span>
           <MarkdownBody markdown={turn.userMarkdown} anchorIds={false} />
         </div>
         <Show when={!turn.memoOnly}><div class="chat-message chat-agent">
           <span class="chat-role">
-            Agent
+            <span class="sr-only">Assistant</span>
             <Show when={turn.mode === 'edit'}>
               <em class="chat-badge mode-edit">Note edit</em>
             </Show>
@@ -586,7 +610,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
                     when={turn.status === 'pending'}
                     fallback={<p class="pane-empty">{turn.error ?? 'No reply yet.'}</p>}
                   >
-                    <div class="loading-state"><span class="loader" />Waiting for the agent…</div>
+                    <div class="loading-state" role="status"><span class="composer-working" />Thinking…</div>
                   </Show>
                 }
               >
@@ -597,13 +621,15 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           <Show when={turn.status === 'failed' || turn.status === 'unavailable'}>
             <button
               type="button"
-              class="secondary"
+              class="workspace-icon"
+              aria-label="Retry"
+              title="Retry"
               disabled={busy()}
               onClick={() => void send(turn.userMarkdown, {
                 conversationId: entry.conversationId,
                 noteEdit: turn.mode === 'edit',
               })}
-            >Retry</button>
+            ><WorkspaceIcon name="refresh" /><span class="sr-only">Retry</span></button>
           </Show>
         </div></Show>
       </article>
@@ -624,9 +650,11 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         when={Boolean(subject()) || Boolean(props.ensureSubject)}
         fallback={<div class="pane-empty">No selection</div>}
       >
-        <div class="learning-context">
+        <Show when={!props.conversationNotebookId}><div class="learning-context">
           <strong>{props.subject !== undefined ? 'Selected topic' : app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</strong>
-        </div>
+        </div></Show>
+        <details class="chat-actions">
+        <summary aria-label="Chat actions">···</summary>
         <button type="button" class="secondary" aria-expanded={expanded()}
           onClick={() => setExpanded(!expanded())}>
           {expanded() ? 'Close chat view' : 'Expand chat view'}
@@ -634,20 +662,26 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
         <Show when={!props.conversationNotebookId}>
           <button type="button" class="secondary" aria-label="New chat" title="Start a separate discussion about the same material" disabled={busy()} onClick={startNewChat}>New discussion</button>
         </Show>
+        </details>
         <Show when={loading() && entries().length === 0}>
           <div class="loading-state"><span class="loader" />Loading memos…</div>
         </Show>
         <Show when={unavailable()}>
           <p class="chat-banner" role="status">
-            Agent runtime not configured. Sent messages are saved and answered once an agent is available.
+            Configure an AI provider in Settings to receive replies.
           </p>
         </Show>
         <Show when={catalogError()}><p class="note-inline-error" role="alert">{catalogError()}</p></Show>
         <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
 
-        <div class="chat-transcript" aria-label="Memo timeline" aria-busy={Boolean(streamTurnId())}>
+        <div ref={transcript} class="chat-transcript" aria-label="Memo timeline" aria-busy={Boolean(streamTurnId())}
+          onScroll={(event) => {
+            const element = event.currentTarget
+            followLatest = element.scrollHeight - element.scrollTop - element.clientHeight < 48
+          }}>
           <Show when={!loading() && entries().length === 0 && !error()}>
-            <div class="learning-starters">
+            <details class="learning-starters">
+              <summary>Suggestions</summary>
               <Show when={props.emptyMessage}><p class="pane-empty">{props.emptyMessage}</p></Show>
               <div class="learning-actions">
                 <For each={[
@@ -660,7 +694,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
                   setNoteEdit(false)
                 }}>{starter.label}</button>}</For>
               </div>
-            </div>
+            </details>
           </Show>
           <For each={entriesBeforeBoundary()}>{renderTimelineEntry}</For>
           <Show when={newConversationBoundary()}>
@@ -676,11 +710,15 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           noteEdit={noteEdit()}
           canNoteEdit={noteEditAvailable()}
           busy={busy()}
+          generating={Boolean(streamTurnId())}
           placeholder={props.composerPlaceholder}
           draft={draft()}
           attachments={attachments()}
           models={models()}
           selectedModel={app.state.settings.agentModel}
+          providers={providers()}
+          selectedProvider={app.state.settings.agentProvider ?? configuredProvider()}
+          onProviderChange={(agentProvider) => app.updateSettings({ agentProvider, agentModel: undefined })}
           extensionsEnabled={extensionControlsEnabled()}
           onStageFiles={stageFiles}
           onToggleMemoOnly={() => {
@@ -706,96 +744,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
   )
 }
 
-export interface MemoComposerControlsProps {
-  memoOnly: boolean
-  noteEdit: boolean
-  /** Whether the current subject is a writable note (both read-only flags
-   * clear); the toggle renders disabled otherwise. */
-  canNoteEdit: boolean
-  busy: boolean
-  /** Agent-mode placeholder override (memo-only keeps its own wording). */
-  placeholder?: string
-  draft: string
-  attachments: readonly File[]
-  models: readonly AgentModel[]
-  selectedModel?: string
-  extensionsEnabled: boolean
-  onStageFiles(files: FileList | null): void | Promise<void>
-  onToggleMemoOnly(): void
-  onToggleNoteEdit(): void
-  onDraftChange(value: string): void
-  onRemoveAttachment(index: number): void
-  onModelChange(model: string): void
-  onSubmit(): void
-}
-
-/** The actual composer subtree is isolated so static accessibility rendering
- * and event decisions are covered independently of async timeline loading. */
-export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Element {
-  const memoOnlyAttributes = () => memoOnlyControlAttributes(props.memoOnly)
-  const noteEditAttributes = () => noteEditControlAttributes(props.noteEdit)
-  let attachmentPicker: HTMLInputElement | undefined
-  return (
-    <div class="memo-composer">
-      <input
-        class="sr-only"
-        type="file"
-        multiple
-        tabIndex={-1}
-        ref={(element) => { attachmentPicker = element }}
-        disabled={!props.extensionsEnabled}
-        onChange={(event) => void props.onStageFiles(event.currentTarget.files)}
-      />
-      <button
-        type="button"
-        class="composer-icon"
-        title="Attach text files"
-        aria-label="Attach text files"
-        aria-disabled={!props.extensionsEnabled}
-        disabled={!props.extensionsEnabled}
-        onClick={() => attachmentPicker?.click()}
-      >+</button>
-      <button type="button" class={`composer-icon composer-mode ${props.memoOnly ? 'selected' : ''}`} aria-pressed={memoOnlyAttributes().ariaPressed} aria-label={memoOnlyAttributes().ariaLabel} title={memoOnlyAttributes().title} disabled={props.busy} onClick={props.onToggleMemoOnly}>{props.memoOnly ? 'Memo only' : 'Ask AI'}</button>
-      <button
-        type="button"
-        class={`composer-icon composer-mode ${props.noteEdit ? 'selected' : ''}`}
-        aria-pressed={noteEditAttributes().ariaPressed}
-        aria-label={noteEditAttributes().ariaLabel}
-        title={props.canNoteEdit || props.noteEdit ? noteEditAttributes().title : 'Note edit mode requires a writable note'}
-        aria-disabled={!props.canNoteEdit && !props.noteEdit}
-        disabled={props.busy || (!props.canNoteEdit && !props.noteEdit)}
-        onClick={props.onToggleNoteEdit}
-      >Edit note</button>
-      <div class="composer-main">
-        <textarea
-          aria-label="New memo or agent message"
-          rows={2}
-          placeholder={props.memoOnly
-            ? 'Write a memo'
-            : props.noteEdit
-              ? 'Describe the change to make to this note'
-              : props.placeholder ?? 'Ask about this document'}
-          value={props.draft}
-          disabled={props.busy}
-          onInput={(event) => props.onDraftChange(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            handleComposerKeyDown(event, { busy: props.busy, hasDraft: Boolean(props.draft.trim()) }, props.onSubmit)
-          }}
-        />
-        <Show when={props.attachments.length > 0}>
-          <div class="attachment-chips">{props.attachments.map((file, index) =>
-            <button type="button" title={`Remove ${file.name}`} disabled={props.busy} onClick={() => props.onRemoveAttachment(index)}>{file.name} ×</button>
-          )}</div>
-        </Show>
-      </div>
-      <select class="composer-model" aria-label="Agent model" title="Agent model" disabled={!props.extensionsEnabled} value={props.selectedModel ?? ''} onInput={(event) => props.onModelChange(event.currentTarget.value)}>
-        <For each={props.models}>{(model) => <option value={model.modelId}>{model.displayName ?? model.modelId}</option>}</For>
-      </select>
-      <button type="button" class="composer-submit" aria-label={props.memoOnly ? 'Save memo' : 'Send message'} disabled={props.busy || !props.draft.trim()} onClick={props.onSubmit}>{props.busy ? 'Saving…' : props.memoOnly ? 'Save memo' : 'Send'}</button>
-    </div>
-  )
-}
-
+export { MemoComposerControls } from './ChatComposer'
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }

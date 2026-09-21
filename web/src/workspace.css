@@ -4,11 +4,12 @@ body { background: #1e1e20; }
 .chatbook { --pane-left: 240px; --pane-right: 310px; --chatbook-border: #343438; background: #202022; }
 .chatbook-head { gap: 16px; padding: 6px 12px; min-height: 44px; background: #18181b; border-color: #343438; }
 .workspace-tools { display: flex; align-items: center; gap: 3px; }
-.chatbook button.workspace-icon { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 4px; color: #a5a5af; background: transparent; }
+.chatbook .workspace-menu { display: flex; flex-wrap: nowrap; min-height: 38px; padding: 2px 8px; }
+.chatbook button.workspace-icon { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 2px; color: #a5a5af; background: transparent; }
 .chatbook button.workspace-icon:hover { background: #303036; color: #e5e5ed; }
-.chatbook button:not(.pane-tab):not(.workspace-icon):not(.tree-label):not(.tree-twisty):not(.notebook-card):not(.composer-icon) { border-radius: 4px; background-image: none; }
+.chatbook button:not(.pane-tab):not(.workspace-icon):not(.tree-label):not(.tree-twisty):not(.notebook-card):not(.composer-icon) { border-radius: 2px; background-image: none; }
 .chatbook button.secondary { background: #29292e; border-color: #414148; color: #c0c0cc; }
-.chatbook input, .chatbook textarea, .chatbook select { background: #202023; border-color: #414148; color: #dedee5; border-radius: 4px; }
+.chatbook input, .chatbook textarea, .chatbook select { background: #202023; border-color: #414148; color: #dedee5; border-radius: 2px; }
 .chatbook :focus-visible { outline-color: #ac91ed; }
 .header-search { max-width: 640px; gap: 5px; margin-inline: auto; }
 .header-search label:first-child { min-width: 100px; }
@@ -25,7 +26,7 @@ body { background: #1e1e20; }
 .pane-tab { min-height: 36px; font-size: calc(12px * var(--fs, 1)); }
 .pane-tab.active { border-bottom-color: #a88be8 !important; color: #e0d7f8 !important; }
 .pane-fold, .rail-button { background: transparent !important; border: 0 !important; color: #9c9ca8 !important; }
-.tree-row, .tree-group { border-radius: 3px; min-height: 28px; color: #aaaab5; }
+.tree-row, .tree-group { border-radius: 1px; min-height: 28px; color: #aaaab5; }
 .tree-row.selected { background: #34303f; color: #e0d7f8; }
 .tree-label { font-size: calc(12px * var(--fs, 1)); }
 .reader { background: #202022; }
@@ -69,7 +70,21 @@ body { background: #1e1e20; }
 .learning-starters { padding: 8px 0; }
 .learning-starters .learning-actions { gap: 5px; }
 .learning-starters button { padding: 5px 7px; font-size: 11px; }
-.memo-composer { background: #232327; border-color: #414148; border-radius: 6px; }
+.memo-composer { background: #232327; border-color: #414148; border-radius: 2px; }
+.chatbook :is(
+  .error-banner,
+  .notes-message,
+  .learning-context,
+  .reader-tools summary,
+  .note-editor,
+  .memo,
+  .info-grid div,
+  .tag-pane,
+  .chat-panel,
+  .chat-message,
+  .config-section,
+  .login-card
+) { border-radius: 2px !important; }
 .pane-empty { color: #8d8d99; }
 .mobile-pane-nav { background: #19191c; }
 .mobile-pane-button.active { color: #d3c2f6 !important; background: #34303f !important; }
@@ -93,3 +108,36 @@ body { background: #1e1e20; }
   .header-search label:first-child { flex: 0 0 100%; }
   .header-search label:not(:first-child) { flex: 1; }
 }
+@media (min-width: 601px) and (max-width: 900px) {
+  .chatbook { --pane-left: 180px; --pane-right: 220px; }
+}
+
+/* Imported documents retain physical page identity in both reader modes. */
+.document-reader { outline-offset: 4px; }
+.document-reader-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.document-reader-toolbar [role="group"], .document-reader-toolbar form { display: flex; gap: .4rem; align-items: center; }
+.document-reader-toolbar button[aria-pressed="true"] { border-color: currentColor; font-weight: 700; }
+.document-reader-toolbar input { width: 5rem; }
+.document-page-navigation { display: flex; align-items: center; gap: .75rem; }
+.document-page-navigation.right-binding { flex-direction: row-reverse; }
+.document-origin-stage { display: flex; justify-content: center; min-height: 20rem; touch-action: pan-y; }
+.document-origin-stage .document-file-image { max-height: calc(100dvh - 17rem); width: auto; object-fit: contain; }
+.document-file-image { display: inline-block; max-width: 100%; height: auto; }
+.document-image-status { display: inline-flex; gap: .5rem; align-items: center; min-height: 4rem; }
+.document-page-text { overflow: auto; max-width: 100%; min-height: 12rem; }
+.document-page-text[style*="vertical-rl"] { max-height: calc(100dvh - 17rem); min-height: 24rem; width: 100%; }
+.document-ocr-pending { color: var(--muted); }
+
+.notebook-view-controls { display: flex; margin-left: auto; gap: 2px; }
+.chatbook .notebook-view-controls button.workspace-icon[aria-pressed="true"] { background: var(--green-selected, #80808030); color: var(--green-ink, inherit); }
+.notebook-timeline { list-style: none; margin: 0 0 0 12px; padding: 0; border-left: 1px solid var(--line, #80808050); }
+.notebook-timeline li { position: relative; padding: 3px 0 3px 10px; }
+.notebook-timeline li::before { content: ''; position: absolute; left: -4px; top: 18px; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.notebook-timeline-entry { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; padding: 10px; text-align: left; background: transparent; color: inherit; border: 0; border-radius: 5px; }
+.notebook-timeline-entry strong { overflow-wrap: anywhere; }
+.notebook-timeline-entry time, .notebook-timeline-entry > span { font-size: 11px; opacity: .65; }
+.notebook-timeline-entry:hover, .notebook-timeline-entry[aria-current="page"] { background: var(--bg-hover, #80808030); }
+.keyboard-reference { max-width: min(480px, 90vw); max-height: 80vh; overflow: auto; color: inherit; background: var(--surface, #fff); border: 1px solid #80808060; border-radius: 8px; padding: 20px; }
+.keyboard-reference::backdrop { background: #0005; }
+.keyboard-reference dl { display: grid; grid-template-columns: 1fr auto; gap: 10px 24px; }
+.keyboard-reference dd { margin: 0; }

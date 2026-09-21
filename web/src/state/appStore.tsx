@@ -32,6 +32,7 @@ import {
   writePaneState,
   type CenterTab,
   type LeftTab,
+  type NotebookView,
   type PaneState,
   type PaneStateStorage,
   type RightTab,
@@ -128,6 +129,7 @@ export interface AppStore {
   setLeftTab(tab: LeftTab): void
   setCenterTab(tab: CenterTab): void
   setRightTab(tab: RightTab): void
+  setNotebookView(view: NotebookView): void
   toggleLeftPane(): void
   toggleRightPane(): void
   setActiveHeading(id: string): void
@@ -567,6 +569,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     setLeftTab: (tab) => setPane(withLeftTab(state.pane, tab)),
     setCenterTab: (tab) => setPane(withCenterTab(state.pane, tab)),
     setRightTab: (tab) => setPane(withRightTab(state.pane, tab)),
+    setNotebookView: (notebookView) => setPane({ ...state.pane, notebookView }),
     toggleLeftPane: () => setPane({ ...state.pane, leftOpen: !state.pane.leftOpen }),
     toggleRightPane: () => setPane({ ...state.pane, rightOpen: !state.pane.rightOpen }),
     setActiveHeading: (id) => setState('activeHeadingId', id),

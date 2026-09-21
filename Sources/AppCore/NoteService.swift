@@ -822,10 +822,13 @@ public struct NoteService: Sendable {
     bodyMarkdown: String,
     provenance: NoteProvenance,
     originatingActionId: AutoActionID?,
+    completingPendingDocumentOCR: Bool = false,
     in database: SQLiteDatabase
   ) throws -> (note: Note, dispatches: [QueuedAutoActionDispatch]) {
     try requireEnabledActingUser(in: database)
-    let existing = try requireWritableNote(noteId, in: database)
+    let existing = try completingPendingDocumentOCR
+      ? requirePendingDocumentOCRNote(noteId, in: database)
+      : requireWritableNote(noteId, in: database)
     let previous = try ftsPayload(noteId: noteId, in: database)
     let now = NoteStoreClock.system.now()
     // Explicit titles (set via the `title` argument on create) are preserved

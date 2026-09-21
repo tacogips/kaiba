@@ -29,6 +29,12 @@ public struct UserAgentRuntimeFactory: Sendable {
     guard let credential = try enabledCredential(for: service) else {
       return nil
     }
+    if credential.provider == .codex {
+      guard configuration.allowCodexSubscription == true else {
+        throw AgentInvocationError.unavailable("Codex subscription is disabled on this server")
+      }
+      return AgentGatewayCLIInvoker(vendor: "codex", model: credential.defaultModel, executionMode: .subscription)
+    }
     guard let baseURL = credential.resolvedBaseURL else {
       throw AgentInvocationError.unavailable(
         "personal agent credential for provider \(credential.provider.rawValue) has no endpoint"
@@ -36,6 +42,8 @@ public struct UserAgentRuntimeFactory: Sendable {
     }
     let client: any ToolLoopModelClient
     switch credential.provider.wireFormat {
+    case .agentGateway:
+      throw AgentInvocationError.unavailable("Gateway provider requires the subscription runtime")
     case .anthropicMessages:
       client = AnthropicMessagesToolLoopClient(baseURL: baseURL, apiKey: credential.apiKey, streamer: streamer)
     case .openAIChatCompletions:
@@ -54,7 +62,8 @@ public struct UserAgentRuntimeFactory: Sendable {
       let userId = service.actingUserId,
       !service.isUnauthenticatedPrincipal,
       let credential = try service.storedUserAgentCredential(userId: userId),
-      credential.enabled
+      credential.enabled,
+      credential.provider != .codex || configuration.allowCodexSubscription == true
     else {
       return nil
     }

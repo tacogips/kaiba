@@ -371,6 +371,8 @@ public struct GraphQLAgentModelsResult: Codable, Equatable, Sendable {
   public var models: [GraphQLAgentModelDTO]
   public var discoveryAvailable: Bool
   public var configuredModel: String?
+  public var providers: [String] = []
+  public var configuredProvider: String?
 
   public init(
     result: GraphQLControlPlaneResult,
@@ -411,7 +413,7 @@ public struct GraphQLUserAgentCredentialResult: Codable, Equatable, Sendable {
     result: GraphQLControlPlaneResult,
     featureEnabled: Bool,
     customBaseURLAllowed: Bool,
-    providers: [String] = UserAgentProvider.allCases.map(\.rawValue),
+    providers: [String] = UserAgentProvider.allCases.filter { $0 != .codex }.map(\.rawValue),
     credential: UserAgentCredentialSummary? = nil
   ) {
     self.result = result

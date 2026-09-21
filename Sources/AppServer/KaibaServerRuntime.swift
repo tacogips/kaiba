@@ -146,6 +146,7 @@ public actor KaibaServerRuntime {
         invoker: invoker,
         provider: aiConfiguration?.agent?.provider,
         model: aiConfiguration?.agent?.model,
+        tagRegistrationPrompt: aiConfiguration?.autoTag?.prompt,
         translateProvider: aiConfiguration?.translate?.provider,
         translateModel: aiConfiguration?.translate?.model,
         streamPublisher: AgentReplyStreamHubPublisher(hub: agentReplyStreamHub),
@@ -189,6 +190,8 @@ public actor KaibaServerRuntime {
       configuration: config.configuration,
       environment: config.environment
     )
+    let importSettings = config.configuration.importSettings ?? KaibaImportConfiguration()
+    let importExecutionMode: AgentGatewayExecutionMode = userAgentConfiguration.allowCodexSubscription == true ? .subscription : .served
     let executor = NoteGraphQLDocumentExecutor(
       service: GraphQLNoteGraphQLService(
         service: service,
@@ -199,7 +202,11 @@ public actor KaibaServerRuntime {
           configuration: aiConfiguration,
           environment: config.environment
         ),
-        userAgentConfiguration: userAgentConfiguration
+        userAgentConfiguration: userAgentConfiguration,
+        documentPageRecognizer: try importSettings.makePageRecognizer(environment: config.environment, executionMode: importExecutionMode),
+        documentPageAnalyzer: importSettings.makePageAnalyzer(environment: config.environment, executionMode: importExecutionMode),
+        documentPageFigureExtractor: importSettings.makeFigureExtractor(environment: config.environment, executionMode: importExecutionMode),
+        documentMaximumOCRPages: importSettings.maximumOCRPages ?? .first(3)
       ),
       s3Profiles: s3Profiles
     )

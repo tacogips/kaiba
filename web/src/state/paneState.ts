@@ -3,11 +3,14 @@
 // stored value is user-editable, and unrecognized values fall back to the
 // defaults.
 
+export type NotebookView = 'tree' | 'timeline'
+
 export type LeftTab = 'files' | 'contents'
 export type CenterTab = 'list' | 'notebook'
-export type RightTab = 'memo' | 'info' | 'links'
+export type RightTab = 'memo' | 'info' | 'links' | 'history'
 
 export interface PaneState {
+  notebookView: NotebookView
   leftOpen: boolean
   rightOpen: boolean
   leftTab: LeftTab
@@ -19,8 +22,8 @@ export interface PaneState {
 }
 
 export const paneWidthBounds = {
-  left: { minimum: 170, maximum: 700 },
-  right: { minimum: 240, maximum: 1100 },
+  left: { minimum: 120, maximum: 700 },
+  right: { minimum: 160, maximum: 1100 },
 } as const
 
 export function clampPaneWidth(side: 'left' | 'right', width: number): number {
@@ -31,9 +34,10 @@ export function clampPaneWidth(side: 'left' | 'right', width: number): number {
 export const paneStateStorageKey = 'kaiba-chatbook-panes'
 export const leftTabs: readonly LeftTab[] = ['files', 'contents']
 export const centerTabs: readonly CenterTab[] = ['list', 'notebook']
-export const rightTabs: readonly RightTab[] = ['memo', 'info', 'links']
+export const rightTabs: readonly RightTab[] = ['memo', 'info', 'links', 'history']
 
 export const defaultPaneState: PaneState = {
+  notebookView: 'tree',
   leftOpen: true,
   rightOpen: true,
   leftTab: 'files',
@@ -57,6 +61,7 @@ export function parsePaneState(raw: string | null): PaneState {
   if (typeof value !== 'object' || value === null) return defaultPaneState
   const record = value as Record<string, unknown>
   return {
+    notebookView: record.notebookView === 'timeline' ? 'timeline' : 'tree',
     leftOpen: typeof record.leftOpen === 'boolean' ? record.leftOpen : defaultPaneState.leftOpen,
     rightOpen: typeof record.rightOpen === 'boolean' ? record.rightOpen : defaultPaneState.rightOpen,
     leftTab: leftTabs.includes(record.leftTab as LeftTab)

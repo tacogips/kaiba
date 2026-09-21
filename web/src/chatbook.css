@@ -426,6 +426,12 @@
   font-size: calc(11px * var(--fs, 1)); line-height: 1.45;
 }
 .chat-transcript { display: grid; gap: 12px; }
+/* Full-page discussions reserve space for their composer. The transcript,
+   rather than the outer reader, scrolls so long answers stay unobscured. */
+.reader-conversation { display: flex; overflow: hidden; }
+.reader-conversation > .chat { flex: 1; min-width: 0; }
+.chatbook .reader-conversation .chat-transcript { min-height: 0; }
+.chatbook .reader-conversation .memo-composer { position: static; }
 .chat-turn { display: grid; gap: 6px; }
 .chat-message { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid #1b2b37; border-radius: 8px; }
 .chat-user { background: #101d27; }
@@ -545,7 +551,7 @@
 @media (max-width: 1100px) {
   .chatbook { --pane-left: 232px; --pane-right: minmax(260px, .8fr); }
 }
-@media (max-width: 900px) {
+@media (max-width: 600px) {
   .chatbook-head {
     display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px;
     padding: 8px 12px;
@@ -563,7 +569,7 @@
   }
 
   .chatbook-grid {
-    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
   }
   .chatbook-grid > .pane, .chatbook-grid > .reader { display: none; grid-area: 1 / 1; }

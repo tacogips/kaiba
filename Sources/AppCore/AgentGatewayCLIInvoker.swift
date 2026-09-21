@@ -134,7 +134,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     guard let reply = parsed.resultText ?? (parsed.streamedText.isEmpty ? nil : parsed.streamedText)
     else {
       let diagnostic: String
-      if case .served = executionMode {
+      if executionMode != .local {
         diagnostic = "agent-gateway produced no reply (exit \(execution.exitCode))"
       } else {
         let stderrTail = String(data: execution.stderr.suffix(500), encoding: .utf8) ?? ""
@@ -784,7 +784,7 @@ public struct AgentGatewayCLIModelCatalog: Sendable {
       workingDirectory: executionContext.workingDirectory
     )
     guard execution.exitCode == 0 else {
-      if case .served = executionMode {
+      if executionMode != .local {
         throw AgentInvocationError.failed(
           "agent-gateway model listing exited with status \(execution.exitCode)"
         )

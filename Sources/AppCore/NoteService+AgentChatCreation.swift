@@ -1,6 +1,45 @@
 import Foundation
 
 public extension NoteService {
+  /// A general chat is its own notebook subject, so it can use the same
+  /// permission checks, turn storage, and continuation path as scoped chats.
+  func startGeneralAgentConversation(title: String, idempotencyKey: String? = nil) throws -> Notebook {
+    let result = try driver.withDatabase { database in
+      try database.transaction { db in
+        if let idempotencyKey,
+          let row = try db.query(
+            """
+            SELECT notebook_id FROM notebooks
+            WHERE owner_user_id = ? AND library_id = ?
+              AND json_extract(meta_json, '$.generalChatRequest') = ?
+            """, bindings: [.id(writeOwnerUserId()), .id(writeLibraryId()), .text(idempotencyKey)]
+          ).first,
+          let notebookId = row.identifier("notebook_id", as: NotebookID.self) {
+          return (notebook: try requireNotebook(notebookId, in: db), dispatches: [QueuedAutoActionDispatch]())
+        }
+        let inserted = try insertNotebook(
+          title: title,
+          kindTagName: NoteStoreSchema.agentConversationNotebookKindTag,
+          metaJSON: nil,
+          originatingActionId: nil,
+          in: db
+        )
+        let chatMetadata = try Self.chatNotebookMetaJSON(
+          subjectNoteId: nil, subjectNotebookId: inserted.notebook.notebookId,
+          branchContext: "General conversation. No source notebook is selected."
+        )
+        var metadata = try JSONValue(parsing: chatMetadata).asObject ?? [:]
+        if let idempotencyKey { metadata["generalChatRequest"] = .string(idempotencyKey) }
+        try db.execute("UPDATE notebooks SET meta_json = jsonb(?) WHERE notebook_id = ?",
+          bindings: [.text(try JSONValue.object(metadata).encodedString()), .id(inserted.notebook.notebookId)])
+        return inserted
+      }
+    }
+    dispatchQueuedAutoActions(result.dispatches)
+    publishChange(NoteChangeEvent(kind: NoteChangeEventKind.notebookCreated, notebookId: result.notebook.notebookId))
+    return try getNotebook(result.notebook.notebookId)
+  }
+
   /// Creates the conversation notebook for a subject note.
   @discardableResult
   func startAgentConversation(

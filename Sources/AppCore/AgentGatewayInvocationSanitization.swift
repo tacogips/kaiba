@@ -9,7 +9,7 @@ extension AgentGatewayCLIInvoker {
     _ error: Error,
     executionMode: AgentGatewayExecutionMode
   ) -> Error {
-    guard executionMode == .served else { return error }
+    guard executionMode != .local else { return error }
     guard !(error is CancellationError) else { return error }
     if let invocationError = error as? AgentInvocationError {
       switch invocationError {

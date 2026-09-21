@@ -38,7 +38,7 @@ final class UserAgentCredentialGraphQLTests: XCTestCase {
     let setPayload = try payload(set.body, field: "setUserAgentCredential")
     XCTAssertEqual(setPayload["result"]?["accepted"]?.asBool, true)
     XCTAssertEqual(setPayload["featureEnabled"]?.asBool, true)
-    XCTAssertEqual(setPayload["providers"]?.asArray?.count, UserAgentProvider.allCases.count)
+    XCTAssertEqual(setPayload["providers"]?.asArray?.count, UserAgentProvider.allCases.filter { $0 != .codex }.count)
     XCTAssertEqual(setPayload["credential"]?["keyHint"]?.asString, "4242")
     XCTAssertEqual(setPayload["credential"]?["provider"]?.asString, "openrouter")
     let rendered = try JSONValue.object(set.body).encodedString()

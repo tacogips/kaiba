@@ -309,7 +309,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50)
       ))
     case "agentModels":
-      return try await encodedJSONValue(service.agentModels())
+      return try await encodedJSONValue(service.agentModels(provider: try optionalString("provider", variables: variables)))
     case "noteComments":
       return try await encodedJSONValue(service.noteComments(
         noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)
@@ -406,6 +406,13 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.setNotebookReadOnly(
         notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
         readOnly: requiredBool("readOnly", variables: variables)
+      ))
+    case "importDocument":
+      let input: GraphQLDocumentImportInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.importDocument(input))
+    case "recognizeDocumentPage":
+      return try await encodedJSONValue(service.recognizeDocumentPage(
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)
       ))
     case "setNoteReadOnly":
       return try await encodedJSONValue(service.setReadOnly(

@@ -81,6 +81,7 @@ public struct AppCommand: Sendable {
     case "redo": return try runRedo(context)
     case "notebook": return try runNotebook(context)
     case "import": return try runImport(context)
+    case "page-ocr": return try runDocumentPageOCR(context)
     case "storage": return try runStorage(context)
     case "db": return try runDb(context)
     case "client": return try runClient(context)
@@ -201,7 +202,8 @@ public struct AppCommand: Sendable {
       notebook   readonly <notebook-id> (--on|--off)
 
     Import:
-      import     <file-path> [--title <t>] [--kind-tag <tag>]
+      page-ocr   <note-id>
+      import     <file-path> [--title <t>] [--kind-tag <tag>] [--max-ocr-pages <N|all>] [--ocr-engine <vision|agent-gateway|google-document-ai>]
                  [--output json|text]
                  # convert a document (pdf, docx, pptx, epub, ...) with
                  # AnydocKit, or OCR an image (png, jpeg, gif, webp) with

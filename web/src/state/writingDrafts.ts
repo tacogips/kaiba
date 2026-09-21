@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js'
+import type { AgentChatAttachmentInput } from '../notes/types'
 
 /** Session-only drafts belong to one app store. They never enter shared settings. */
 export function createWritingDrafts() {
@@ -16,6 +17,7 @@ export function createWritingDrafts() {
       for (const draft of drafts.values()) draft.setText('')
       for (const draft of drafts.values()) draft.setFiles([])
       for (const draft of drafts.values()) draft.setBaseText(undefined)
+      for (const draft of drafts.values()) draft.setSubmission(undefined)
       drafts.clear()
     },
     /** True only for user-authored content that would be lost on reload. An
@@ -37,5 +39,6 @@ function createWritingDraft() {
   const [files, setFiles] = createSignal<File[]>([])
   const [memoOnly, setMemoOnly] = createSignal(false)
   const [baseText, setBaseText] = createSignal<string>()
-  return { text, setText, busy, setBusy, error, setError, files, setFiles, memoOnly, setMemoOnly, baseText, setBaseText }
+  const [submission, setSubmission] = createSignal<{ key: string; body: string; model?: string; provider?: string; attachments?: AgentChatAttachmentInput[] }>()
+  return { text, setText, busy, setBusy, error, setError, files, setFiles, memoOnly, setMemoOnly, baseText, setBaseText, submission, setSubmission }
 }

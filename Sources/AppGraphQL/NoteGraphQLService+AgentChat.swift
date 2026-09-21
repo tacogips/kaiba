@@ -59,14 +59,26 @@ public extension GraphQLNoteGraphQLService {
   /// Authenticated callers receive models for the configured provider.
   /// Discovery failure is non-fatal: the configured model remains the
   /// server-authoritative fallback and the status reports the degradation.
-  func agentModels() async -> GraphQLAgentModelsResult {
+  func agentModels(provider requestedProvider: String? = nil) async -> GraphQLAgentModelsResult {
+    let personalProvider = personalAgentProvider()
+    let providers = (agentInvoker == nil ? [] : ["server"]) + (personalProvider.map { [$0] } ?? [])
+    let selected = requestedProvider.flatMap { providers.contains($0) ? $0 : nil }
+      ?? personalProvider ?? (agentInvoker == nil ? nil : "server")
+    var catalog = await agentModelCatalogForProvider(selected)
+    catalog.providers = providers
+    catalog.configuredProvider = selected
+    return catalog
+  }
+
+  private func agentModelCatalogForProvider(_ requestedProvider: String?) async -> GraphQLAgentModelsResult {
     // A user with an enabled personal credential chats through their own
     // provider, so their default model is the configured model for them
     // (`design-docs/specs/user-agent-tools.md`, UA5). No discovery runs.
-    if let personal = personalAgentModel() {
+    if requestedProvider != "server", let personal = personalAgentModel() {
       return GraphQLAgentModelsResult(
         result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
-        models: [GraphQLAgentModelDTO(modelId: personal)],
+        models: (personalAgentProvider() == "codex"
+          ? AgentGatewayCLIInvoker.subscriptionModels(defaultModel: personal) : [personal]).map { GraphQLAgentModelDTO(modelId: $0) },
         discoveryAvailable: false, configuredModel: personal
       )
     }
@@ -75,6 +87,13 @@ public extension GraphQLNoteGraphQLService {
       return GraphQLAgentModelsResult(
         result: GraphQLControlPlaneResult(accepted: true, status: "agent-unavailable"),
         models: [], discoveryAvailable: false, configuredModel: nil
+      )
+    }
+    if agentProvider == "codex", userAgentConfiguration.allowCodexSubscription == true {
+      return GraphQLAgentModelsResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "fallback"),
+        models: AgentGatewayCLIInvoker.subscriptionModels(defaultModel: configured).map { GraphQLAgentModelDTO(modelId: $0) },
+        discoveryAvailable: false, configuredModel: configured
       )
     }
     guard let agentModelCatalog else {
@@ -133,7 +152,8 @@ public extension GraphQLNoteGraphQLService {
         )
       }
       let attachments = try validatedAgentChatAttachments(input.attachments ?? [])
-      let selectedModel = try await selectedAgentChatModel(input.model)
+      let selectedProvider = try selectedAgentChatProvider(input.provider)
+      let selectedModel = try await selectedAgentChatModel(input.model, provider: selectedProvider)
       let mode = try agentChatTurnMode(input.mode)
       let conversationNotebookId = try conversationNotebookId(for: input, mode: mode)
       let turn = try service.appendPendingAgentChatTurn(
@@ -142,6 +162,7 @@ public extension GraphQLNoteGraphQLService {
         agentAvailable: chatAgentAvailable(),
         idempotencyKey: input.idempotencyKey,
         model: selectedModel,
+        provider: selectedProvider,
         mode: mode,
         attachments: attachments
       )
@@ -159,8 +180,18 @@ public extension GraphQLNoteGraphQLService {
     }
   }
 
-  private func selectedAgentChatModel(_ input: String?) async throws -> String? {
-    let catalog = await agentModels()
+  private func selectedAgentChatProvider(_ input: String?) throws -> String? {
+    guard let requested = input?.trimmingCharacters(in: .whitespacesAndNewlines), !requested.isEmpty else {
+      return personalAgentProvider() ?? (agentInvoker == nil ? nil : "server")
+    }
+    guard (requested == "server" && agentInvoker != nil) || requested == personalAgentProvider() else {
+      throw GraphQLNoteServiceError.invalidRequest("unsupported agent provider")
+    }
+    return requested
+  }
+
+  private func selectedAgentChatModel(_ input: String?, provider: String?) async throws -> String? {
+    let catalog = await agentModels(provider: provider)
     guard let requested = input?.trimmingCharacters(in: .whitespacesAndNewlines), !requested.isEmpty else {
       return catalog.configuredModel
     }
@@ -201,9 +232,12 @@ public extension GraphQLNoteGraphQLService {
       return existing
     }
     guard let subject = try requestedAgentChatSubject(input) else {
-      throw GraphQLNoteServiceError.invalidRequest(
-        "subjectNoteId or subjectNotebookId is required to start a conversation"
-      )
+      guard mode == nil else {
+        throw GraphQLNoteServiceError.invalidRequest("note edit mode requires a note subject")
+      }
+      return try service.startGeneralAgentConversation(
+        title: NoteTitleDerivation.fallbackTitle(from: input.userMarkdown), idempotencyKey: input.idempotencyKey
+      ).notebookId
     }
     try validateEditModeSubject(mode, subject: subject)
     switch subject {
@@ -338,6 +372,9 @@ public extension GraphQLNoteGraphQLService {
       )
     }
     do {
+      guard provider != .codex || userAgentConfiguration.allowCodexSubscription == true else {
+        throw GraphQLNoteServiceError.invalidRequest("Codex subscription is disabled; enable ai.userAgent.allowCodexSubscription on the server")
+      }
       let summary = try service.setUserAgentCredential(
         UserAgentCredentialInput(
           provider: provider,
@@ -407,12 +444,18 @@ public extension GraphQLNoteGraphQLService {
 
   /// The acting user's personal-agent model when they chat through their own
   /// credential; nil otherwise (including when the feature is off).
+  internal func personalAgentProvider() -> String? {
+    guard personalAgentModel() != nil, let summary = try? service.userAgentCredentialSummary() else { return nil }
+    return summary.provider.rawValue
+  }
+
   internal func personalAgentModel() -> String? {
     guard userAgentConfiguration.isEnabled,
       service.actingUserId != nil,
       !service.isUnauthenticatedPrincipal,
       let summary = try? service.userAgentCredentialSummary(),
-      summary.enabled
+      summary.enabled,
+      summary.provider != .codex || userAgentConfiguration.allowCodexSubscription == true
     else {
       return nil
     }
@@ -428,6 +471,7 @@ public extension GraphQLNoteGraphQLService {
       result: GraphQLControlPlaneResult(accepted: accepted, status: status),
       featureEnabled: userAgentConfiguration.isEnabled,
       customBaseURLAllowed: userAgentConfiguration.customBaseURLAllowed,
+      providers: UserAgentProvider.allCases.filter { $0 != .codex || userAgentConfiguration.allowCodexSubscription == true }.map(\.rawValue),
       credential: credential
     )
   }

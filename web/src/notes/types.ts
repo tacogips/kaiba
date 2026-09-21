@@ -163,6 +163,8 @@ export interface AgentModel {
 }
 
 export interface AgentModelsResult {
+  providers?: string[]
+  configuredProvider?: string | null
   models: AgentModel[]
   discoveryAvailable: boolean
   configuredModel: string | null

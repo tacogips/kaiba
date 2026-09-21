@@ -1,11 +1,15 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createComponent } from 'solid-js'
 import { render } from 'solid-js/web'
 import {
   serverCredentialKey,
   serverEndpointStorageKey,
+  connectionModeStorageKey,
 } from '../notes/serverEndpoint'
 import { ServerConnectionSettings } from './ServerConnectionSettings'
+
+const invoke = vi.hoisted(() => vi.fn(async () => 'http://127.0.0.1:54321'))
+vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 
 /** happy-dom does not provide localStorage here, and the component reads and
  * writes it through the endpoint module, so the suite installs an in-memory
@@ -107,7 +111,7 @@ describe('ServerConnectionSettings', () => {
     container.remove()
   })
 
-  test('keeps each origin credential under its own key across a switch and back', () => {
+  test('keeps each origin credential under its own key across a switch and back', async () => {
     localStorage.setItem(serverEndpointStorageKey, 'https://notes.example.com')
     localStorage.setItem(serverCredentialKey('https://notes.example.com'), 'bearer-issued-by-notes')
     const reload = reloadSpy()
@@ -116,6 +120,7 @@ describe('ServerConnectionSettings', () => {
 
     // A mistyped origin: valid enough to save, so it must not cost the credential.
     submit(container, 'https://notes.exmaple.com')
+    await vi.waitFor(() => expect(reload.count()).toBe(1))
     expect(localStorage.getItem(serverEndpointStorageKey)).toBe('https://notes.exmaple.com')
     expect(localStorage.getItem(serverCredentialKey('https://notes.exmaple.com'))).toBeNull()
     expect(localStorage.getItem(serverCredentialKey('https://notes.example.com')))
@@ -124,6 +129,7 @@ describe('ServerConnectionSettings', () => {
 
     // Correcting the typo makes the original credential readable again.
     submit(container, 'https://notes.example.com')
+    await vi.waitFor(() => expect(reload.count()).toBe(2))
     expect(localStorage.getItem(serverCredentialKey('https://notes.example.com')))
       .toBe('bearer-issued-by-notes')
     expect(reload.count()).toBe(2)
@@ -131,6 +137,30 @@ describe('ServerConnectionSettings', () => {
     dispose()
     container.remove()
     reload.restore()
+  })
+
+  test('starts local storage before switching and retains the remote URL and credential', async () => {
+    localStorage.setItem(serverEndpointStorageKey, 'https://notes.example.com')
+    localStorage.setItem(serverCredentialKey('https://notes.example.com'), 'remote-secret')
+    const reload = reloadSpy()
+    const container = mount()
+    const dispose = render(() => createComponent(ServerConnectionSettings, {}), container)
+    try {
+      const select = container.querySelector('select')!
+      select.value = 'local'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      expect(container.querySelector('input[type="url"]')).toBeNull()
+      container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await vi.waitFor(() => expect(reload.count()).toBe(1))
+      expect(invoke).toHaveBeenCalledWith('start_local_server')
+      expect(localStorage.getItem(connectionModeStorageKey)).toBe('local')
+      expect(localStorage.getItem(serverEndpointStorageKey)).toBe('https://notes.example.com')
+      expect(localStorage.getItem(serverCredentialKey('https://notes.example.com'))).toBe('remote-secret')
+    } finally {
+      dispose()
+      container.remove()
+      reload.restore()
+    }
   })
 
   test('renders the validation failure and neither saves nor reloads on an invalid URL', () => {

@@ -4,6 +4,7 @@ import Foundation
 /// (`design-docs/specs/user-agent-tools.md`, UA2). The raw values are the
 /// stored `provider` column and the strings accepted by every surface.
 public enum UserAgentProvider: String, Codable, Equatable, Sendable, CaseIterable {
+  case codex
   case anthropic
   case openai
   case openrouter
@@ -13,6 +14,7 @@ public enum UserAgentProvider: String, Codable, Equatable, Sendable, CaseIterabl
   public var wireFormat: UserAgentWireFormat {
     switch self {
     case .anthropic: return .anthropicMessages
+    case .codex: return .agentGateway
     case .openai, .openrouter, .openaiCompatible: return .openAIChatCompletions
     }
   }
@@ -24,16 +26,17 @@ public enum UserAgentProvider: String, Codable, Equatable, Sendable, CaseIterabl
     case .anthropic: return URL(string: "https://api.anthropic.com")
     case .openai: return URL(string: "https://api.openai.com/v1")
     case .openrouter: return URL(string: "https://openrouter.ai/api/v1")
-    case .openaiCompatible: return nil
+    case .codex, .openaiCompatible: return nil
     }
   }
 
   public var requiresBaseURL: Bool {
-    defaultBaseURL == nil
+    self != .codex && defaultBaseURL == nil
   }
 }
 
 public enum UserAgentWireFormat: String, Codable, Equatable, Sendable {
+  case agentGateway = "agent-gateway"
   case anthropicMessages = "anthropic-messages"
   case openAIChatCompletions = "openai-chat-completions"
 }

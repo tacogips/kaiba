@@ -155,8 +155,8 @@ final class DocumentConverterRoutingTests: NoteTestCase {
   func testUnsupportedCLIVendorFailsClearly() throws {
     let converter = AgentGatewayImageOCRConverter(
       commandPath: "/not-used",
-      vendor: "claude-code",
-      model: "claude-test",
+      vendor: "cursor",
+      model: "cursor-test",
       environment: [:]
     )
 

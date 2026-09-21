@@ -105,7 +105,8 @@ public enum AgentInvokerFactory {
       model: model,
       apiKeyEnvironment: agent.apiKeyEnvironmentVariable,
       environment: environment,
-      executionMode: executionMode
+      executionMode: executionMode == .served && vendor == "codex" && configuration?.userAgent?.allowCodexSubscription == true
+        ? .subscription : executionMode
     )
     do {
       try invoker.validateAvailability()
@@ -144,7 +145,8 @@ public enum AgentInvokerFactory {
       model: model,
       apiKeyEnvironment: agent.apiKeyEnvironmentVariable,
       environment: environment,
-      executionMode: executionMode
+      executionMode: executionMode == .served && vendor == "codex" && configuration?.userAgent?.allowCodexSubscription == true
+        ? .subscription : executionMode
     )
     do {
       let binary = try invoker.resolveBinary()
