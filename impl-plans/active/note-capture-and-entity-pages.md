@@ -407,6 +407,14 @@ through the arm64 login shell (see Applicable prior knowledge):
   a note on a tag and verify CLI `kaiba tag <name>` agrees with GraphQL
   `tagDetail`. The phone-browser walk-through remains a post-merge manual
   step for the operator.
+  **EXECUTED 2026-09-21 (session-8, attempt-2), all assertions passed** —
+  201/400/405/401/SPA-bootstrap bodies and the CLI-vs-GraphQL agreement, each
+  against a short-lived `kaiba serve` on a throwaway note root, killed inside
+  the same foreground command. Logs:
+  `tmp/note-capture-entity-pages-20260921-session8/note-capture-and-entity-pages/attempt-2/smoke/`
+  (`smoke-unauthenticated.log`, `smoke-authenticated.log`,
+  `smoke-entity-cli-vs-graphql-2.log`); details in the attempt-2 progress-log
+  entry. Only the phone-browser walk-through stays outstanding.
 
 ## Progress Log
 
@@ -684,9 +692,100 @@ through the arm64 login shell (see Applicable prior knowledge):
   them would reopen accepted files for zero behavior change. RC-4 held: every
   commit staged explicit paths and `.riela/` stayed untracked and uncommitted.
 
-  **Not executed** (recorded as a gap, not as a pass): the local `kaiba serve`
-  curl smoke listed under Verification, and the phone-browser walk-through.
-  Both need a running server and a device; the route, the SPA rewrite and the
-  page are covered by `NoteCaptureRouteTests`, the static-asset tests and the
-  vitest integration files instead. The manual walk-through stays a post-merge
-  operator step.
+  **Not executed at the time of this entry** (recorded as a gap, not as a
+  pass): the local `kaiba serve` curl smoke listed under Verification, and the
+  phone-browser walk-through. *Superseded by the attempt-2 entry below: the
+  independent review (R-1) correctly rejected the stated reason — a
+  short-lived server started and killed inside one foreground command is not a
+  shell orphan — and the smoke has since been executed in full.* The
+  phone-browser walk-through remains a post-merge operator step.
+- 2026-09-21 (session-8, attempt-2 — independent review returned
+  `changes_requested` with findings R-1/R-2/R-3; all three are now closed.
+  Evidence root:
+  `tmp/note-capture-entity-pages-20260921-session8/note-capture-and-entity-pages/attempt-2/`):
+
+  **R-1 (required, verification-gap) — CLOSED by execution, not by wording.**
+  The review was right that "needs a running server" is not a valid reason
+  here: a server started, curled and killed inside one foreground command is
+  not a detached orphan. The plan's smoke ran in three parts, each a single
+  foreground `arch -arm64 /bin/zsh -lc '…'` invocation that kills its own
+  server before returning (`trap` + `kill` + `wait`; `pgrep` afterwards
+  confirmed nothing survived, and the two `kaiba serve` processes on the
+  machine belong to another operator's `~/.riela/kb/` store and were never
+  touched). Every run used a throwaway `mktemp -d` note root, since deleted.
+  - `smoke/smoke-unauthenticated.log` (exit 0, server on 127.0.0.1:8797,
+    `--allow-unauthenticated`, `--web-root web/dist`): `POST /note/capture`
+    `{"text":"smoke capture from curl"}` → **201** with
+    `{noteId, noteNumber, notebookId}`; `{}` → **400**
+    `{"error":"capture request body must be a JSON object with a non-empty
+    text string"}`; malformed JSON → the **same single 400 body** (C6);
+    `PUT` → **405** `{"error":"unsupported method","method":"PUT",…}`;
+    `GET /note/capture` → **200 text/html**, the SPA bootstrap (`<title>Kaiba`
+    + the hashed module script), so the C5 rewrite works end to end through
+    the assembled runtime. `kaiba notebook list` on that store then showed the
+    server-created **Quick Memos** notebook carrying
+    `notebook-kind:quick-memo` (`isSystem`, `deletable:false`) with the
+    captured note in it — C3 singleton resolution proven outside the unit
+    tests.
+  - `smoke/smoke-authenticated.log` (exit 0, server on 127.0.0.1:8798, auth
+    ON): no bearer → **401** `note API requires a bearer token`; a bogus
+    bearer → **401** `note API bearer token is invalid or revoked`; the key
+    from `kaiba client issue` → **201**. (The throwaway key and the
+    registration code in that log are redacted; their store is deleted.)
+  - `smoke/smoke-entity-cli-vs-graphql-2.log` (exit 0, server on
+    127.0.0.1:8803): seeded two notes sharing tags, `kaiba tag promote --tag
+    kaiba --note <id>` exit 0, then compared `kaiba tag kaiba --output json`
+    with a curl `tagDetail` over `POST /graphql` using the same selection the
+    web client sends — canonical note id, co-occurring tags with counts
+    (`notes` 2, `swift` 1) and the aggregate counts are identical:
+    **AGREEMENT: PASS**. `kaiba tag unpromote` then cleared it on both
+    surfaces. A promote against `notebook-kind:quick-memo` was refused with
+    `notebook kind tags cannot carry a canonical note` (E2), live.
+    (`smoke/smoke-entity-cli-vs-graphql.log` is the first attempt, kept: it
+    passed `--output json` to `tag promote`, which the documented usage does
+    not accept, so nothing was promoted and the agreement check correctly
+    reported FAIL. The CLI matches its own usage text; the invocation was
+    wrong, not the command.)
+
+  **R-2 (recommended, correctness) — CLOSED.** The review was right that
+  `/note/capture/` never loads the bundle, and the smoke proved it live:
+  `GET /note/capture/` → **404** `{"error":"unknown path"}`. Resolution taken:
+  the client predicate now matches exactly (`web/src/views/CaptureView.tsx`),
+  rather than adding `/note/capture/` to `kaibaSPABootstrapPaths`. Reason
+  recorded here because the review offered both options: that Set holds exact
+  paths and `/note/register` has no trailing-slash arm either, so adding one
+  only for capture would either split the two bootstrap paths' behavior or
+  change the registration page — outside this plan's scope and outside C5,
+  which names the exact path. The comment claiming a working fallback is gone
+  and `CaptureView.integration.tsx` now asserts `/note/capture/` is **not** a
+  capture path, pinning the server's real contract.
+
+  **R-3 (optional, edge-case) — CLOSED.** `web/src/components/TagPane.tsx`:
+  (a) the unbound header withholds both promote controls when the server would
+  refuse the tag, showing a short explanation instead. The gate mirrors
+  `NoteService.requireCanonicalPromotable` exactly — the two refused tag
+  *classes* `folder` and `document-kind`. Note the review's suggested
+  `tag.isSystem` is **not** the server's rule (a system tag of an ordinary
+  class is promotable), so gating on it would have hidden a control that
+  works; the constant is documented against the Swift symbol.
+  (b) `createDescriptionNote` now remembers the note it wrote in
+  `pendingDescriptionNoteId`, so a retry after a refused promote re-promotes
+  that note instead of depositing a second one in the memo notebook; the
+  submit button reads "Retry promoting it" while one is pending, and the
+  pending id, draft and composer state all reset on a tag switch.
+  Two tests added (folder-class tag hides the controls; a refused promote then
+  a successful retry calls `createNote` once and `promoteTagNote` twice with
+  the same note id).
+
+  **Verification after the revision** (logs under `attempt-2/gates/`):
+  - `arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test'`
+    → exit 0, XCTest **894 executed / 1 skipped / 0 failures**, Swift Testing
+    **135 in 9 suites passed** (`gates/swift-build-and-test-full.log`).
+  - `mise run web:check` → exit 0; bun **163 pass / 0 fail**, vitest **51
+    pass** across 10 files (49 before this round, +2 for R-3)
+    (`gates/mise-web-check.log`).
+  - `arch -arm64 /bin/zsh -lc 'mise run lint'` → exit 0, the same 3
+    pre-existing violations (`gates/mise-lint.log`).
+  - `mise run tauri:check` → exit 0 (`gates/mise-tauri-check.log`).
+  No Swift source changed this round, so the smoke and the suite describe the
+  same binary.

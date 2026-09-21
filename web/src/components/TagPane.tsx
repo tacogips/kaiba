@@ -7,7 +7,7 @@ import { errorMessage, useApp } from '../state/appStore'
 import { noteDisplayTitle } from '../notes/noteText'
 import { loadTagOccurrences, transitionTagOccurrences } from '../notes/tagOccurrences'
 import type { Note, TagComment, TagDetail } from '../notes/types'
-import type { NotebookId, TagId } from '../notes/ids'
+import type { NotebookId, NoteId, TagId } from '../notes/ids'
 
 // The right pane's tag mode (design-docs/specs/tag-detail-pane.md): the
 // cross-notebook analogue of the per-note panes for one tag. Memo binds the
@@ -24,6 +24,13 @@ type TagPaneTab = 'memo' | 'history' | 'links'
 
 const tagCommentsPageLimit = 50
 
+/** The tag classes `NoteService.requireCanonicalPromotable` refuses (E2):
+ * folder tags shape the notebook tree and document-kind tags mark notebook
+ * kinds, so neither is a subject a description could be about. The header
+ * withholds its promote controls for them rather than letting the refusal be
+ * discovered by attempting it. */
+const unpromotableTagClasses = ['folder', 'document-kind']
+
 export function TagPane(props: { tagId: TagId }): JSX.Element {
   const app = useApp()
   const [tab, setTab] = createSignal<TagPaneTab>('memo')
@@ -34,6 +41,9 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
   const [entityError, setEntityError] = createSignal('')
   const [composing, setComposing] = createSignal(false)
   const [draft, setDraft] = createSignal('')
+  /** A description note already written but not yet bound, kept so a retry
+   * after a refused promote re-promotes it instead of creating another. */
+  const [pendingDescriptionNoteId, setPendingDescriptionNoteId] = createSignal<NoteId>()
   let generation = 0
   let loadedTagId: TagId | null = null
 
@@ -55,6 +65,9 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
       loadedTagId = tagId
       setDetail(undefined)
       setMemoNotebookId(undefined)
+      setComposing(false)
+      setDraft('')
+      setPendingDescriptionNoteId(undefined)
     }
     setError('')
     setEntityError('')
@@ -93,16 +106,26 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
 
   /** E3: a description written here lives in the tag's own memo notebook and
    * is promoted in the same flow, so "write one now" needs no note picker.
-   * Promotion assigns no tag — the note is the header, not an occurrence. */
+   * Promotion assigns no tag — the note is the header, not an occurrence.
+   *
+   * The flow is three server calls, so it can stop half-way: if the promote
+   * fails the note is already written. Its id is kept, and a retry promotes
+   * that note instead of writing a second one into the memo notebook. */
   const createDescriptionNote = async (): Promise<void> => {
     const tagId = props.tagId
-    const notebook = await app.client.ensureTagMemoNotebook(tagId)
-    const note = await app.client.createNote(notebook.notebookId, draft())
-    await app.client.promoteTagNote(tagId, note.noteId)
-    // A tag switched mid-flight keeps its own notebook out of the new tag's
+    let noteId = pendingDescriptionNoteId()
+    if (!noteId) {
+      const notebook = await app.client.ensureTagMemoNotebook(tagId)
+      const note = await app.client.createNote(notebook.notebookId, draft())
+      if (tagId === props.tagId) setMemoNotebookId(notebook.notebookId)
+      noteId = note.noteId
+      setPendingDescriptionNoteId(noteId)
+    }
+    await app.client.promoteTagNote(tagId, noteId)
+    // A tag switched mid-flight keeps its own draft state out of the new tag's
     // pane; the promotion that was already in flight still completes.
     if (tagId !== props.tagId) return
-    setMemoNotebookId(notebook.notebookId)
+    setPendingDescriptionNoteId(undefined)
     setComposing(false)
     setDraft('')
   }
@@ -122,6 +145,10 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
   }
 
   const tagLabel = createMemo(() => detail()?.tag.name ?? '…')
+  const promotable = createMemo(() => {
+    const classId = detail()?.tag.classId
+    return !(classId && unpromotableTagClasses.includes(classId))
+  })
 
   return (
     <>
@@ -164,44 +191,53 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
               fallback={
                 <>
                   <p class="pane-empty">No description note for this tag yet.</p>
-                  <div class="detail-chips">
-                    <Show when={app.state.noteId}>{(noteId) => (
+                  <Show when={promotable()} fallback={
+                    <p class="pane-empty">
+                      Organizational tags carry no description: this one groups
+                      notes rather than naming a subject.
+                    </p>
+                  }>
+                    <div class="detail-chips">
+                      <Show when={app.state.noteId}>{(noteId) => (
+                        <button
+                          type="button"
+                          class="secondary"
+                          disabled={entityBusy()}
+                          onClick={() => void runEntityAction(() => app.client.promoteTagNote(props.tagId, noteId()))}
+                        >Use the open note</button>
+                      )}</Show>
                       <button
                         type="button"
                         class="secondary"
                         disabled={entityBusy()}
-                        onClick={() => void runEntityAction(() => app.client.promoteTagNote(props.tagId, noteId()))}
-                      >Use the open note</button>
-                    )}</Show>
-                    <button
-                      type="button"
-                      class="secondary"
-                      disabled={entityBusy()}
-                      onClick={() => setComposing((open) => !open)}
-                    >{composing() ? 'Cancel' : 'Write a description'}</button>
-                  </div>
-                  <Show when={composing()}>
-                    <form
-                      class="login-form"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        if (!draft().trim()) return
-                        void runEntityAction(createDescriptionNote)
-                      }}
-                    >
-                      <label class="login-label" for="tag-description">Description note</label>
-                      <textarea
-                        id="tag-description"
-                        class="login-input"
-                        rows={5}
-                        placeholder={`What is #${tagLabel()}?`}
-                        value={draft()}
-                        onInput={(event) => setDraft(event.currentTarget.value)}
-                      />
-                      <button type="submit" disabled={entityBusy() || !draft().trim()}>
-                        {entityBusy() ? 'Saving…' : 'Save as description'}
-                      </button>
-                    </form>
+                        onClick={() => setComposing((open) => !open)}
+                      >{composing() ? 'Cancel' : 'Write a description'}</button>
+                    </div>
+                    <Show when={composing()}>
+                      <form
+                        class="login-form"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          if (!draft().trim()) return
+                          void runEntityAction(createDescriptionNote)
+                        }}
+                      >
+                        <label class="login-label" for="tag-description">Description note</label>
+                        <textarea
+                          id="tag-description"
+                          class="login-input"
+                          rows={5}
+                          placeholder={`What is #${tagLabel()}?`}
+                          value={draft()}
+                          onInput={(event) => setDraft(event.currentTarget.value)}
+                        />
+                        <button type="submit" disabled={entityBusy() || !draft().trim()}>
+                          {entityBusy()
+                            ? 'Saving…'
+                            : pendingDescriptionNoteId() ? 'Retry promoting it' : 'Save as description'}
+                        </button>
+                      </form>
+                    </Show>
                   </Show>
                 </>
               }

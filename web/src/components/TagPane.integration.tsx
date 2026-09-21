@@ -205,6 +205,69 @@ describe('tag entity header', () => {
     } finally { dispose(); host.remove() }
   })
 
+  test('withholds the promote controls for tags the server always refuses', async () => {
+    // E2 / NoteService.requireCanonicalPromotable rejects folder-class and
+    // document-kind tags, so offering the controls would only teach the
+    // refusal by attempting it.
+    const { host, dispose } = mount(client({
+      tagDetail: async () => detail({ tag: { ...subject, classId: 'folder' } }),
+      note: async () => description,
+    }))
+    try {
+      await settle()
+      expect(button(host, 'Use the open note')).toBeUndefined()
+      expect(button(host, 'Write a description')).toBeUndefined()
+      expect(host.querySelector('[aria-label="Tag description"]')?.textContent)
+        .toContain('Organizational tags carry no description')
+    } finally { dispose(); host.remove() }
+  })
+
+  test('a refused promote keeps the written note so a retry binds it instead of writing another', async () => {
+    const created: string[] = []
+    const promotes: string[] = []
+    let refuse = true
+    let bound = false
+    const { host, dispose } = mount(client({
+      tagDetail: async () => bound ? detail({ canonicalNote: description }) : detail(),
+      ensureTagMemoNotebook: async () => ({ notebookId: description.notebookId, type: 'DOCUMENT',
+        title: '#kaiba', readOnly: false, createdAt: '2026-09-21', updatedAt: '2026-09-21', tags: [] }),
+      createNote: async (_notebook: string, body: string) => {
+        created.push(body)
+        return description
+      },
+      promoteTagNote: async (_tag: string, note: string) => {
+        promotes.push(note)
+        if (refuse) throw new Error('promote refused')
+        bound = true
+      },
+    }))
+    try {
+      await settle()
+      button(host, 'Write a description')!.click()
+      const draft = host.querySelector<HTMLTextAreaElement>('#tag-description')!
+      draft.value = 'A note store with a chatbook reader.'
+      draft.dispatchEvent(new Event('input', { bubbles: true }))
+      const submit = () => host.querySelector('[aria-label="Tag description"] form')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+
+      submit()
+      await settle()
+      expect(created).toEqual(['A note store with a chatbook reader.'])
+      expect(host.querySelector('[aria-label="Tag description"] [role="alert"]')?.textContent)
+        .toContain('promote refused')
+      // The already-written note is remembered, and the control says so.
+      expect(button(host, 'Retry promoting it')).toBeDefined()
+
+      refuse = false
+      submit()
+      await settle()
+      // Retry re-promotes the same note; the memo notebook gains nothing new.
+      expect(created).toEqual(['A note store with a chatbook reader.'])
+      expect(promotes).toEqual(['note-description', 'note-description'])
+      expect(host.querySelector('#tag-description')).toBeNull()
+    } finally { dispose(); host.remove() }
+  })
+
   test('co-occurring chips open their own entity page and Back returns to this one', async () => {
     const routes = router('#/note/open-note')
     const { host, dispose, store, hash } = mount(client({

@@ -64,9 +64,11 @@ afterEach(() => {
 describe('anywhere capture page', () => {
   test('boots only on the path the server rewrites to the SPA', () => {
     expect(isCapturePathname('/note/capture')).toBe(true)
-    expect(isCapturePathname('/note/capture/')).toBe(true)
     expect(isCapturePathname('/')).toBe(false)
     expect(isCapturePathname('/note/register')).toBe(false)
+    // kaibaSPABootstrapPaths matches exactly, so these never load the bundle
+    // at all; the predicate must not claim a page the server cannot serve.
+    expect(isCapturePathname('/note/capture/')).toBe(false)
     expect(isCapturePathname('/note/capture/extra')).toBe(false)
   })
 

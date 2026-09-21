@@ -16,11 +16,14 @@ import type { NoteCaptureResult } from '../notes/types'
 // registration surface: `NoteGraphQLClient.initialize()` has already consumed
 // any `?code=` from the QR registration link by the time this renders.
 
-/** True for the path C5 rewrites to the SPA bootstrap. A trailing slash is
- * accepted because a phone keyboard adds one and the server rewrite does
- * not. */
+/** True for the exact path C5 rewrites to the SPA bootstrap. The match is
+ * exact because `kaibaSPABootstrapPaths`
+ * (`Sources/AppServer/KaibaStaticAssetResolver.swift`) holds exact paths:
+ * `/note/capture/` is a `/note/` service path that no route answers, so the
+ * bundle never loads there and a looser predicate here would only describe a
+ * page the server does not serve. */
 export function isCapturePathname(pathname: string): boolean {
-  return pathname === '/note/capture' || pathname === '/note/capture/'
+  return pathname === '/note/capture'
 }
 
 export function CaptureView(): JSX.Element {
