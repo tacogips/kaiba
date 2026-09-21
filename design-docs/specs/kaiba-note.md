@@ -229,6 +229,20 @@ starts a local HTTP server (Network.framework listener, default bind
   unauthenticated` skips auth for trusted local use.
 - `GET /note/events` — long-poll change feed backed by
   `NoteChangeFeed` wired as the store's change observer.
+- `POST /note/capture` — anywhere capture
+  (`design-docs/specs/note-capture-and-entity-pages.md`, C6). JSON body
+  `{ "text": string, "title"?: string }`; authenticated with the same
+  bearer as every other note route. The server resolves (or creates) the
+  calling account's `notebook-kind:quick-memo` singleton notebook and
+  writes through the ordinary note-creation path, so auto-actions run.
+  Statuses: `201` `{ noteId, notebookId, noteNumber }`; `400` for a body
+  that is not a JSON object with a non-empty `text`; `401` for a missing
+  or revoked bearer; `405` for any other method on the path when no SPA
+  asset answers first; `503` when no note service is configured; `500`
+  for any service error on an already validated request. `GET
+  /note/capture` serves the SPA capture page through the same
+  rewrite-to-`/` bootstrap as `/note/register`
+  (`KaibaStaticSPAHTTPRouter.response(for:)`).
 - Static SPA serving from `--web-root` (the built viewer), with SPA
   fallback for non-API paths.
 

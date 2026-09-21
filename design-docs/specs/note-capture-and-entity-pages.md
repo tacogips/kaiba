@@ -194,7 +194,8 @@ symbol in this tree:
   own `note-created`.
 - **C5 — The capture page is an SPA route.** `GET /note/capture` serves the
   SPA bootstrap through the same rewrite-to-`/` special case
-  `GET /note/register` already uses in `KaibaNoteFileHTTPRouterChain`; the
+  `GET /note/register` already uses in
+  `KaibaStaticSPAHTTPRouter.response(for:)`; the
   SPA adds a `/note/capture` view: a textarea, a submit button, and reuse of
   the registered client's stored bearer credential from the existing app
   state (`web/src/state/appStore.tsx`). An unregistered visitor is sent to

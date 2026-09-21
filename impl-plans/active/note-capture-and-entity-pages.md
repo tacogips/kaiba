@@ -1,7 +1,7 @@
 # Anywhere Capture and Entity Pages
 
-**Status**: In Progress (implementation run; starting material `ba7ef12` under
-line-by-line review — TASK-000)
+**Status**: Complete (2026-09-21, session-8; every checkbox closed with the
+per-box evidence recorded in the progress log)
 **Design Reference**: `design-docs/specs/note-capture-and-entity-pages.md`
 
 ## Purpose
@@ -96,19 +96,19 @@ the keep/correct/remove outcome is recorded in the progress log.
       keep/correct/remove log recorded in the progress log (evidence:
       `tmp/note-capture-entity-pages-20260921-opus3/TASK-000/progress.md`,
       summarized in the 2026-09-21 resumed-run progress-log entries below)
-- [ ] Schema v20: `tags.canonical_note_id` column and
+- [x] Schema v20: `tags.canonical_note_id` column and
       `notebook-kind:quick-memo` seed (`Sources/AppCore/NoteStoreSchema.swift`)
-- [ ] `NoteService.ensureQuickMemoNotebook()` / `captureQuickMemo(...)`
-- [ ] `NoteService` promote/unpromote + `coOccurringTags` (TagDetail extension)
-- [ ] `POST /note/capture` route + `GET /note/capture` SPA rewrite
+- [x] `NoteService.ensureQuickMemoNotebook()` / `captureQuickMemo(...)`
+- [x] `NoteService` promote/unpromote + `coOccurringTags` (TagDetail extension)
+- [x] `POST /note/capture` route + `GET /note/capture` SPA rewrite
       (`Sources/AppServer/ServerContracts.swift`,
       `Sources/AppServer/KaibaStaticAssetResolver.swift`)
-- [ ] GraphQL: extended `tagDetail`, `promoteTagNote`, `unpromoteTagNote`
+- [x] GraphQL: extended `tagDetail`, `promoteTagNote`, `unpromoteTagNote`
       (`Sources/AppGraphQL/`)
-- [ ] CLI: `kaiba tag promote|unpromote`, enriched `kaiba tag <name>`
+- [x] CLI: `kaiba tag promote|unpromote`, enriched `kaiba tag <name>`
       (`Sources/AppCore/CommandTags.swift`, `Command.swift` help text)
-- [ ] Web viewer: capture view + TagPane entity header (`web/src/`)
-- [ ] Tests for every layer above; spec docs cross-referenced
+- [x] Web viewer: capture view + TagPane entity header (`web/src/`)
+- [x] Tests for every layer above; spec docs cross-referenced
 
 ## Tasks
 
@@ -229,10 +229,10 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] `tags` DDL carries `canonical_note_id TEXT REFERENCES notes(note_id) ON DELETE SET NULL`
-- [ ] `quickMemoNotebookKindTag = "notebook-kind:quick-memo"` constant + stable id, appended to `systemNotebookKindTags`
-- [ ] `currentVersion = 20`; fresh store seeds the kind tag; v19 store still refused by `unsupportedLegacyVersion`
-- [ ] New tests cover column presence, SET NULL on note deletion, seed, version guard
+- [x] `tags` DDL carries `canonical_note_id TEXT REFERENCES notes(note_id) ON DELETE SET NULL`
+- [x] `quickMemoNotebookKindTag = "notebook-kind:quick-memo"` constant + stable id, appended to `systemNotebookKindTags`
+- [x] `currentVersion = 20`; fresh store seeds the kind tag; v19 store still refused by `unsupportedLegacyVersion`
+- [x] New tests cover column presence, SET NULL on note deletion, seed, version guard
 
 ### TASK-002: Quick Memos capture service
 
@@ -240,11 +240,11 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] `ensureQuickMemoNotebook()` mirrors `bootstrapLongTermMemoryNotebook()` (single transaction, singleton invariant error, title `Quick Memos`, system kind tag `deletable: false`)
-- [ ] **F-000-2 closed (C3 delta)**: `quickMemoNotebookIds` joins `notebooks` and filters `owner_user_id = writeOwnerUserId() AND library_id = writeLibraryId()`; the multi-holder invariant is per-scope; a second account's capture resolves or creates **its own** notebook. Replace `testASecondAccountCannotCaptureIntoAnotherAccountsQuickMemosNotebook` with per-principal assertions (distinct notebooks per account, each containing only its own captures)
-- [ ] **F-000-6 recorded (C4 delta)**: the once-only `notebookCreated` publish stays as implemented; no code change, delta already in the design doc
-- [ ] `captureQuickMemo(bodyMarkdown:title:)` routes through `createNote`, returning the created note; auto-action enqueue and change event proven by tests
-- [ ] Concurrency/idempotency and duplicate-kind-tag failure tests pass (duplicate-kind-tag scoped per principal)
+- [x] `ensureQuickMemoNotebook()` mirrors `bootstrapLongTermMemoryNotebook()` (single transaction, singleton invariant error, title `Quick Memos`, system kind tag `deletable: false`)
+- [x] **F-000-2 closed (C3 delta)**: `quickMemoNotebookIds` joins `notebooks` and filters `owner_user_id = writeOwnerUserId() AND library_id = writeLibraryId()`; the multi-holder invariant is per-scope; a second account's capture resolves or creates **its own** notebook. Replace `testASecondAccountCannotCaptureIntoAnotherAccountsQuickMemosNotebook` with per-principal assertions (distinct notebooks per account, each containing only its own captures)
+- [x] **F-000-6 recorded (C4 delta)**: the once-only `notebookCreated` publish stays as implemented; no code change, delta already in the design doc
+- [x] `captureQuickMemo(bodyMarkdown:title:)` routes through `createNote`, returning the created note; auto-action enqueue and change event proven by tests
+- [x] Concurrency/idempotency and duplicate-kind-tag failure tests pass (duplicate-kind-tag scoped per principal)
 
 ### TASK-003: Canonical note + co-occurring tags service
 
@@ -252,10 +252,10 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] `promoteTagCanonicalNote(tagId:noteId:)` / `unpromoteTagCanonicalNote(tagId:)` with the E2 validation matrix (missing tag/note, folder-class and document-kind rejection, replace semantics, no-op unpromote), publishing change events
-- [ ] `coOccurringTags(tagId:limit:)` per E4, excluding system kind and folder tags
-- [ ] `tagDetail(tagId:)` payload extended with `canonicalNote` and co-occurrence
-- [ ] EXPLAIN QUERY PLAN test asserts `idx_note_tags_tag` use (no full scan)
+- [x] `promoteTagCanonicalNote(tagId:noteId:)` / `unpromoteTagCanonicalNote(tagId:)` with the E2 validation matrix (missing tag/note, folder-class and document-kind rejection, replace semantics, no-op unpromote), publishing change events
+- [x] `coOccurringTags(tagId:limit:)` per E4, excluding system kind and folder tags
+- [x] `tagDetail(tagId:)` payload extended with `canonicalNote` and co-occurrence
+- [x] EXPLAIN QUERY PLAN test asserts `idx_note_tags_tag` use (no full scan)
 
 ### TASK-004: `POST /note/capture` + SPA rewrite
 
@@ -263,10 +263,10 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] `ServerContracts.route` gains `POST /note/capture` → `routeNoteCapture` implementing the amended C6 contract exactly (201/400/401/405/503/500 bodies)
-- [ ] **F-000-1 + F-000-3 closed (C6 delta)**: the `404` arm and `noteCaptureNotebookUnavailableMessage` are deleted (unreachable under the C3 delta) together with `testASecondAccountAnswersAGeneric404ThatNamesNoForeignNotebook`; the blanket `catch NoteServiceError.invalidInput → 400` mapping is removed so a service error on a route-validated request (including the singleton-invariant violation) answers the existing generic 500; the route doc comment states the amended contract; tests pin invariant-failure → 500 and second-account capture → 201 into that account's own notebook
-- [ ] `GET /note/capture` serves the SPA bootstrap via the `/note/register` rewrite pattern
-- [ ] Route tests cover every status body, authenticated and `--allow-unauthenticated` modes
+- [x] `ServerContracts.route` gains `POST /note/capture` → `routeNoteCapture` implementing the amended C6 contract exactly (201/400/401/405/503/500 bodies)
+- [x] **F-000-1 + F-000-3 closed (C6 delta)**: the `404` arm and `noteCaptureNotebookUnavailableMessage` are deleted (unreachable under the C3 delta) together with `testASecondAccountAnswersAGeneric404ThatNamesNoForeignNotebook`; the blanket `catch NoteServiceError.invalidInput → 400` mapping is removed so a service error on a route-validated request (including the singleton-invariant violation) answers the existing generic 500; the route doc comment states the amended contract; tests pin invariant-failure → 500 and second-account capture → 201 into that account's own notebook
+- [x] `GET /note/capture` serves the SPA bootstrap via the `/note/register` rewrite pattern
+- [x] Route tests cover every status body, authenticated and `--allow-unauthenticated` modes
 
 ### TASK-005: GraphQL surface
 
@@ -274,10 +274,10 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] `tagDetail` payload exposes `canonicalNote` and `coOccurringTags`; the limit is the root-field argument `coOccurringTagLimit` per the ratified E6 delta (**F-000-4 recorded**; implementation already conforms, no code change for the argument shape)
-- [ ] **F-000-5 closed**: the limit is threaded through `NoteService.tagDetail(tagId:coOccurringTagLimit:)` (defaulted parameter) so `NoteGraphQLService+TagEntity.swift` computes the aggregate once on a non-default limit instead of discarding and re-running it
-- [ ] `promoteTagNote` / `unpromoteTagNote` mutations return `NoteMutationPayload`; operation allow-lists updated
-- [ ] Schema contract doc string (`GraphQLNoteSchemaContract.swift`) updated; executor tests pass
+- [x] `tagDetail` payload exposes `canonicalNote` and `coOccurringTags`; the limit is the root-field argument `coOccurringTagLimit` per the ratified E6 delta (**F-000-4 recorded**; implementation already conforms, no code change for the argument shape)
+- [x] **F-000-5 closed**: the limit is threaded through `NoteService.tagDetail(tagId:coOccurringTagLimit:)` (defaulted parameter) so `NoteGraphQLService+TagEntity.swift` computes the aggregate once on a non-default limit instead of discarding and re-running it
+- [x] `promoteTagNote` / `unpromoteTagNote` mutations return `NoteMutationPayload`; operation allow-lists updated
+- [x] Schema contract doc string (`GraphQLNoteSchemaContract.swift`) updated; executor tests pass
 
 ### TASK-006: CLI surface
 
@@ -285,10 +285,10 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] `kaiba tag promote --tag <name-or-id> --note <note-id>` and `kaiba tag unpromote --tag <name-or-id>` implemented in `CommandTags.swift` following `tag define` conventions
-- [ ] `kaiba tag <name-or-id>` prints canonical note and top co-occurring tags
-- [ ] **F-000-8 closed**: when the positional argument parses as a `NoteID` and resolves to no tag, the error restores the pre-`ba7ef12` hint (`tag requires --add <name> or --remove <name>`) instead of the bare `tag not found: note-…`; covered by a command test
-- [ ] `Command.swift` usage text updated; command tests extended
+- [x] `kaiba tag promote --tag <name-or-id> --note <note-id>` and `kaiba tag unpromote --tag <name-or-id>` implemented in `CommandTags.swift` following `tag define` conventions
+- [x] `kaiba tag <name-or-id>` prints canonical note and top co-occurring tags
+- [x] **F-000-8 closed**: when the positional argument parses as a `NoteID` and resolves to no tag, the error restores the pre-`ba7ef12` hint (`tag requires --add <name> or --remove <name>`) instead of the bare `tag not found: note-…`; covered by a command test
+- [x] `Command.swift` usage text updated; command tests extended
 
 ### TASK-007: Web capture page
 
@@ -296,20 +296,20 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] New view `web/src/views/CaptureView.tsx` (the name `NoteCapture.tsx` is
+- [x] New view `web/src/views/CaptureView.tsx` (the name `NoteCapture.tsx` is
       taken by an unrelated pre-existing inline composer in
       `web/src/components/` — do not repurpose or collide with it, nor with
       the `canonical` notebook cache in `web/src/notes/controller.ts`)
-- [ ] Boot detection: the SPA is served at path `/note/capture` by the C5
+- [x] Boot detection: the SPA is served at path `/note/capture` by the C5
       rewrite while routing is hash-based, so App boot checks
       `location.pathname === '/note/capture'` and renders the capture view;
       registration reuses the existing `?code=` initialize flow and per-origin
       bearer storage in `NoteGraphQLClient`
-- [ ] The view renders textarea + submit; posts to `POST /note/capture` with
+- [x] The view renders textarea + submit; posts to `POST /note/capture` with
       the stored bearer credential; success shows the note id and clears;
       a visitor with no stored credential is shown the existing
       unregistered/registration surface, not a new one
-- [ ] Vitest coverage for submit, error body rendering, unregistered redirect
+- [x] Vitest coverage for submit, error body rendering, unregistered redirect
 
 **Implementation notes (session-7 fact-finding, verified on disk):**
 
@@ -343,8 +343,8 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] Tag mode header shows canonical note (excerpt + open link) or promote control; *create description note* flow per E3; co-occurring tag chips navigate via the return stack
-- [ ] Vitest coverage for bound/unbound states and chip navigation
+- [x] Tag mode header shows canonical note (excerpt + open link) or promote control; *create description note* flow per E3; co-occurring tag chips navigate via the return stack
+- [x] Vitest coverage for bound/unbound states and chip navigation
 
 **Implementation notes (session-7 fact-finding, verified on disk):**
 
@@ -373,9 +373,9 @@ upstream).
 
 **Completion Criteria**:
 
-- [ ] `kaiba-note.md` HTTP API section lists `/note/capture` with the amended
+- [x] `kaiba-note.md` HTTP API section lists `/note/capture` with the amended
       C6 status set (201/400/401/405/503/500)
-- [ ] Full verification suite (below) green; results recorded in the progress
+- [x] Full verification suite (below) green; results recorded in the progress
       log with exit statuses. The prior run's
       `TASK-000/attempt-1/swift-test-full.log` is truncated at the OOM kill
       and is NOT a completed run; the full suite must re-run to completion.
@@ -384,7 +384,7 @@ upstream).
       (file untouched by this branch) — if it fails again, prove it
       pre-existing with the identical filter on a clean checkout of `bab58cd`
       and record both results
-- [ ] (F-000-7 was closed by the resumed-run design step: the design doc now
+- [x] (F-000-7 was closed by the resumed-run design step: the design doc now
       names `KaibaStaticSPAHTTPRouter.response(for:)`; verify no other doc
       references the nonexistent `KaibaNoteFileHTTPRouterChain`)
 
@@ -573,3 +573,120 @@ through the arm64 login shell (see Applicable prior knowledge):
     (kb-recall-prior, session-8), so no external prior knowledge applies
     beyond what this plan already embeds (arm64 login shell, anydoc
     bootstrap, bun-via-mise web gates, bab58cd baseline protocol).
+- 2026-09-21 (session-8 implementation run — TASK-007, TASK-008, TASK-009;
+  the work package is COMPLETE and every checkbox above is now checked):
+
+  **Commits added this session** (branch `feat/note-capture-and-entity-pages`,
+  base `87c4320`): `68112d8` TASK-007 web capture page, `2d66afa` TASK-008 tag
+  entity header, and the TASK-009 docs/sweep commit that carries this entry.
+  Evidence root: `tmp/note-capture-entity-pages-20260921-session8/note-capture-and-entity-pages/attempt-1/`
+  (`task-007/`, `task-008/`, `task-009/`, `intent/`; `tmp/` is gitignored).
+
+  **Final verification, all foreground, complete logs kept (never tailed into
+  the record):**
+  - `arch -arm64 /bin/zsh -lc 'mise run anydoc:native'` → exit 0
+    (`attempt-1/anydoc-native.log`), run once before any swift command because
+    `.build/anydoc-native/` was absent again at session start.
+  - `arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test'`
+    → **exit 0**, XCTest **894 executed / 1 skipped / 0 failures**, Swift
+    Testing **135 tests in 9 suites passed**
+    (`task-009/swift-build-and-test-full.log`, `START 2026-09-21T09:57:26Z` …
+    `SWIFT_TEST_EXIT=0 END 2026-09-21T09:58:18Z`). Zero failures, so the
+    `bab58cd` baseline-comparison protocol was not needed; the pre-kill
+    candidate
+    `AgentGatewayCLIInvokerLifecycleTests.testProductionZombieDescendantWaitsForDisappearanceWithoutSIGKILL`
+    passed in this run.
+  - `arch -arm64 /bin/zsh -lc 'mise run lint'` → exit 0, `Found 3 violations,
+    0 serious in 287 files` — the three known pre-existing ones
+    (`NoteService.swift:719` large_tuple, `ResendGatewayCLIMailSender.swift:75`
+    large_tuple, `AITranslationTests.swift:71` type_body_length); none in a
+    file this branch touches (`task-009/mise-lint.log`).
+  - `mise run web:check` → exit 0 (`task-009/mise-web-check.log`);
+    `mise run tauri:check` → exit 0 (`task-009/mise-tauri-check.log`, macOS
+    local, `cargo fmt --check` clean).
+  - Per-step web gates: `tsc --noEmit`, `bun test src` (163 pass / 0 fail),
+    `bunx vitest run` (49 pass / 10 files after TASK-008), `bun run lint`,
+    `bun run build` — all exit 0
+    (`task-007/{tsc,bun-test,vitest-2,lint,build}.log`,
+    `task-008/{tsc-1,bun-test,web-gates-2}.log`). Targeted Swift regression
+    guard after each step: `swift build` exit 0
+    (`task-007/swift-build.log`, `task-008/swift-build.log`).
+
+  **Per-box evidence.**
+  - *TASK-000 (4 boxes)* — unchanged from the opus3 record
+    `tmp/note-capture-entity-pages-20260921-opus3/TASK-000/progress.md`:
+    build gate green, all 24 `ba7ef12` files reviewed against C1–C7/E1–E8,
+    disposition restated here: **20 KEEP / 4 CORRECT / 0 REMOVE** (the four
+    CORRECT files routed as findings F-000-1..6 to their owning tasks; nothing
+    was deleted because nothing fell outside the design).
+  - *Deliverables + TASK-001..006 (25 boxes)* — closed by the two opus4
+    integration-review waves (`tmp/note-capture-entity-pages-20260921-opus4/integration-review/`
+    and `integration-review-wave2/acceptance-record.json`, which pinned all
+    eleven accepted files by SHA-256) plus commit `0c01432`, which committed
+    the wave-2-accepted C3/C6/E6/F-000-8 delta closures after byte-identical
+    hash re-verification. Re-confirmed on disk this session
+    (`task-009/acceptance-spot-check.log`): `NoteStoreSchema.swift:11`
+    `currentVersion = 20`, `:35-36` `quickMemoNotebookKindTag` + stable id,
+    `:369` in the system kind-tag list, `:527` the
+    `canonical_note_id … ON DELETE SET NULL` column, `:535`
+    `idx_tags_canonical_note`; `NoteService+QuickMemo.swift:32`
+    `ensureQuickMemoNotebook()`, `:104` `captureQuickMemo(bodyMarkdown:title:)`,
+    `:146-153` the C3 per-principal `owner_user_id`/`library_id` filter;
+    `NoteService+TagDetail.swift:158/188/217` promote/unpromote/coOccurringTags
+    and `:99-142` the F-000-5 `coOccurringTagLimit` threading;
+    `TagEntityPageTests.swift:403,439` the EXPLAIN QUERY PLAN assertions;
+    `ServerContracts.swift` `routeNoteCapture` with **no** 404 arm and **no**
+    `noteCaptureNotebookUnavailableMessage` (grep empty),
+    `KaibaStaticAssetResolver.swift:27-30` `kaibaSPABootstrapPaths` carrying
+    `/note/capture`, `Tests/AppServerTests/NoteCaptureRouteTests.swift`;
+    `NoteGraphQLDocumentExecutorSupport.swift:154-155` the two mutations in the
+    allow-list and `Tests/AppGraphQLTests/TagEntityGraphQLTests.swift`;
+    `CommandTags.swift:13-22,116-131` the promote/unpromote subcommands,
+    `:205` the restored F-000-8 hint, `Command.swift:187-188` the usage text.
+    Every one of those files is exercised by the zero-failure full suite above.
+  - *TASK-007 (4 boxes)* — commit `68112d8`. New `web/src/views/CaptureView.tsx`
+    (the pre-existing `web/src/components/NoteCapture.tsx` inline composer and
+    the `canonical` cache in `web/src/notes/controller.ts` were left untouched);
+    boot detection `isCapturePathname(location.pathname)` in `web/src/App.tsx`
+    with hash routing unchanged; textarea + submit through the new
+    `NoteGraphQLClient.captureNote()` (plain HTTP, bearer built like
+    `streamHeaders()`, C6 bodies parsed, 401 drops the bearer), success shows
+    the note id and clears, unregistered visitors get the existing `LoginView`.
+    Coverage: `web/src/views/CaptureView.integration.tsx` (path predicate,
+    submit success, error body, unregistered fallback, revoked bearer) and the
+    new capture cases in `web/src/notes/client.test.ts`.
+  - *TASK-008 (2 boxes)* — commit `2d66afa`. `TagDetail` gained `canonicalNote`
+    + `coOccurringTags` (`web/src/notes/types.ts`), the `tagDetail` selection
+    reads both and `promoteTagNote`/`unpromoteTagNote` follow the
+    `ensureTagMemoNotebook` pattern (`web/src/notes/client.ts`); the TagPane
+    header renders the excerpt with Open/Unbind when bound and
+    "Use the open note" + the E3 `ensureTagMemoNotebook → createNote →
+    promoteTagNote` flow when not; co-occurring chips navigate through the new
+    `openTagPaneWithReturn` (shared `web/src/state/appStore.tsx`, read fresh
+    after TASK-007 landed). Coverage:
+    `web/src/components/TagPane.integration.tsx` (bound, unbound, E3 call
+    order and target notebook, refused promote, chip navigation with Back).
+  - *TASK-009 (3 boxes)* — `design-docs/specs/kaiba-note.md` now lists
+    `POST /note/capture` in the HTTP API section with the amended C6 status set
+    (201/400/401/405/503/500), the body contract and the `GET /note/capture`
+    SPA rewrite. Full verification suite as recorded above. F-000-7 sweep:
+    `grep -rn KaibaNoteFileHTTPRouterChain --include=*.md --include=*.swift`
+    found one live reference left in design decision **C5** — corrected in
+    place to `KaibaStaticSPAHTTPRouter.response(for:)`, matching the already
+    corrected "registration page precedent" paragraph. That one-identifier
+    factual correction is the single edit made outside this run's declared
+    writePaths, and it is recorded here rather than made silently; no design
+    decision changed.
+
+  **Carried findings at completion**: RC-7 (the co-occurrence bound `200`
+  stated in both `NoteService.maximumCoOccurringTagLimit` and the GraphQL input
+  validation) and RC-8 (MARK ordering) remain DEFERRED as cosmetic — closing
+  them would reopen accepted files for zero behavior change. RC-4 held: every
+  commit staged explicit paths and `.riela/` stayed untracked and uncommitted.
+
+  **Not executed** (recorded as a gap, not as a pass): the local `kaiba serve`
+  curl smoke listed under Verification, and the phone-browser walk-through.
+  Both need a running server and a device; the route, the SPA rewrite and the
+  page are covered by `NoteCaptureRouteTests`, the static-asset tests and the
+  vitest integration files instead. The manual walk-through stays a post-merge
+  operator step.
