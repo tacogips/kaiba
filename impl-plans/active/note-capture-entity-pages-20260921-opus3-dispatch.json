@@ -1,0 +1,179 @@
+{
+  "taskId": "note-capture-entity-pages-20260921-opus3",
+  "workflowMode": "fable-and-improve-opus",
+  "implementationBranch": "feat/note-capture-and-entity-pages",
+  "baseBranch": "feat/note-capture-and-entity-pages",
+  "remote": "origin",
+  "originalHead": "83a4be56b09343aa3bf77d9fcb7c922a3abfd5a2",
+  "designDocPaths": [
+    "design-docs/specs/note-capture-and-entity-pages.md"
+  ],
+  "evidenceRoot": "tmp/note-capture-entity-pages-20260921-opus3",
+  "notes": {
+    "supersedes": "impl-plans/active/note-capture-entity-pages-20260921-dispatch.json is stale (it names branch design/note-capture-and-entity-pages and originalHead 2035fda). This manifest is the authoritative dispatch record for the current run; the stale file is left untouched.",
+    "sharedPlanDocument": "impl-plans/active/note-capture-and-entity-pages.md holds all ten task definitions and is READ-ONLY for workers. Its Progress Log and its checkboxes are edited only in the serial reconciliation wave (TASK-009).",
+    "perPlanProgress": "Each plan writes its own progress file at progressPath under the untracked evidenceRoot; per-attempt logs go in <evidenceRoot>/<planId>/attempt-<n>/. No worker edits this manifest.",
+    "serialReconciliation": "Shared docs cross-references, the plan checkbox sweep, any broad formatting and the single commit/push belong to TASK-009.",
+    "startingMaterial": "Commit ba7ef12 carries 3209 unreviewed lines across 24 files that have never compiled. TASK-000 gates every other plan: build first, then review each file against the design and record a keep/correct/remove verdict. Repairs land inside the owning task, not in TASK-000.",
+    "shellRequirement": "Every Swift command runs through an arm64 login shell (arch -arm64 /bin/zsh -lc '...'); the default shell is Rosetta and the xctest bundle refuses to dlopen there. Run mise run anydoc:native once, then export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig for build and test.",
+    "baselineProtocol": "A failure may be called pre-existing only after the identical filter is run on a clean checkout of bab58cd outside this worktree and both results are recorded.",
+    "commitPolicy": "AGENTS.md governs: no AI attribution or co-authorship lines, no emojis, no machine-local absolute paths in commit messages. Push only feat/note-capture-and-entity-pages (first push creates it on origin). Never commit .riela/. Never touch main, /Users/taco/gits/tacogips/kaiba, riela, or riela-worktrees."
+  },
+  "plans": [
+    {
+      "planId": "TASK-000",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-000/progress.md",
+      "dependsOn": [],
+      "writePaths": [],
+      "sharedPaths": [],
+      "acceptanceCriteria": "arm64 anydoc:native and swift build both succeed on the starting material; every file touched by ba7ef12 carries a recorded keep/correct/remove verdict against design decisions C1-C7 and E1-E8 including the exact C6 response bodies; material the design does not call for is deleted; the ratified E1 undo delta is confirmed against Sources/AppCore/NoteService+ActionHistory.swift and Sources/AppCore/NoteStoreSchema.swift (verify, do not re-litigate); the GET vs POST /note/capture 405-shadowing question is explicitly examined. No TASK-001..006 checkbox may be checked before this verdict exists.",
+      "verification": "arch -arm64 /bin/zsh -lc 'mise run anydoc:native' ; arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build'"
+    },
+    {
+      "planId": "TASK-001",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-001/progress.md",
+      "dependsOn": ["TASK-000"],
+      "writePaths": [
+        "Sources/AppCore/NoteStoreSchema.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaCanonicalTests.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "tags DDL carries canonical_note_id TEXT REFERENCES notes(note_id) ON DELETE SET NULL plus the unfiltered idx_tags_canonical_note; quickMemoNotebookKindTag = notebook-kind:quick-memo constant with a stable id appended to systemNotebookKindTags; currentVersion = 20 with the unsupportedLegacyVersion guard intact and v19 refused; tests cover column presence, SET NULL on note deletion, the kind-tag seed and the version guard (design E1 and the C3 seed).",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter NoteStoreSchema'"
+    },
+    {
+      "planId": "TASK-002",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-002/progress.md",
+      "dependsOn": ["TASK-001"],
+      "writePaths": [
+        "Sources/AppCore/NoteService+QuickMemo.swift",
+        "Tests/AppCoreTests/QuickMemoCaptureTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "ensureQuickMemoNotebook mirrors bootstrapLongTermMemoryNotebook (single transaction, title Quick Memos, deletable false, loud duplicate-kind-tag error, recreated after deletion); captureQuickMemo(bodyMarkdown:title:) rides the ordinary createNote path so auto-actions enqueue and a NoteChangeFeed event is published, both proven by test (design C3, C4).",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter QuickMemo'"
+    },
+    {
+      "planId": "TASK-003",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-003/progress.md",
+      "dependsOn": ["TASK-001"],
+      "writePaths": [
+        "Sources/AppCore/NoteService+TagDetail.swift",
+        "Sources/AppCore/NoteService+ActionHistory.swift",
+        "Tests/AppCoreTests/TagEntityPageTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "promoteTagCanonicalNote / unpromoteTagCanonicalNote implement the E2 validation matrix (folder-class and notebook-kind tags rejected as invalid input, last promote wins, unpromote on an unbound tag is a no-op success) and publish change events; coOccurringTags(tagId:limit:) excludes system-kind and folder tags per E4 and an EXPLAIN QUERY PLAN assertion proves it rides idx_note_tags_tag with no full scan; tagDetail exposes canonicalNote and the co-occurrence list; the ratified undo snapshot re-binds only tags whose canonical_note_id IS NULL, tested both with and without an intervening promote.",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter TagEntity'"
+    },
+    {
+      "planId": "TASK-004",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-004/progress.md",
+      "dependsOn": ["TASK-002"],
+      "writePaths": [
+        "Sources/AppServer/ServerContracts.swift",
+        "Sources/AppServer/KaibaStaticAssetResolver.swift",
+        "Tests/AppServerTests/NoteCaptureRouteTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "POST /note/capture authenticates through the injected NoteAPIAuthenticating bearer check exactly as /graphql does and implements the C6 contract exactly: 201 {noteId, notebookId, noteNumber}, the single fixed 400 body for empty/whitespace text, non-object body and wrong content type, 401 noteAPIUnauthorizedResponse, the existing 405 body, 503 noteAPIUnavailableResponse; GET /note/capture serves the SPA bootstrap through the existing /note/register rewrite without shadowing the POST case in the known-path 405 handling; tests cover every body in both the authenticated and --allow-unauthenticated modes.",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter NoteCaptureRoute'"
+    },
+    {
+      "planId": "TASK-005",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-005/progress.md",
+      "dependsOn": ["TASK-003"],
+      "writePaths": [
+        "Sources/AppGraphQL/GraphQLContractProjector.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentInputs.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLContracts.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+TagEntity.swift",
+        "Tests/AppGraphQLTests/TagEntityGraphQLTests.swift",
+        "Tests/AppGraphQLTests/NoteGraphQLSchemaInventoryTests.swift"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": "tagDetail exposes canonicalNote and coOccurringTags(limit) returning [{tag, count}]; mutations promoteTagNote(input:{tagId, noteId}) and unpromoteTagNote(input:{tagId}) return NoteMutationPayload and are registered in the NoteGraphQLDocumentExecutorSupport allow-lists; GraphQLNoteSchemaContract is updated in lockstep so NoteGraphQLSchemaInventoryTests (the drift gate) stays green (design E6).",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter TagEntityGraphQL' ; arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter NoteGraphQLSchemaInventory'"
+    },
+    {
+      "planId": "TASK-006",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-006/progress.md",
+      "dependsOn": ["TASK-003"],
+      "writePaths": [
+        "Sources/AppCore/CommandTags.swift",
+        "Tests/AppCoreTests/CommandTests.swift"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/Command.swift"
+      ],
+      "acceptanceCriteria": "kaiba tag promote --tag <name-or-id> --note <note-id> and kaiba tag unpromote --tag <name-or-id> follow the existing tag define argument conventions; kaiba tag <name-or-id> additionally prints the canonical note and the top co-occurring tags; usage/help text updated; CommandTests extended for all three (design E7).",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter Command'"
+    },
+    {
+      "planId": "TASK-007",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-007/progress.md",
+      "dependsOn": ["TASK-004"],
+      "writePaths": [
+        "web/src/router.ts",
+        "web/src/views/NoteCaptureView.tsx",
+        "web/src/views/NoteCaptureView.test.tsx"
+      ],
+      "sharedPaths": [
+        "web/src/state/appStore.tsx"
+      ],
+      "acceptanceCriteria": "The SPA gains a /note/capture route with a textarea and submit that posts through the stored bearer credential; success shows the created note id and clears the field; an unregistered client is sent through the existing registration flow; vitest covers submit, the C6 error body and the unregistered redirect (design C5). Greenfield work: no web changes exist yet.",
+      "verification": "arch -arm64 /bin/zsh -lc 'cd web && mise exec -- bunx tsc --noEmit && mise exec -- bun test src'"
+    },
+    {
+      "planId": "TASK-008",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-008/progress.md",
+      "dependsOn": ["TASK-005", "TASK-007"],
+      "writePaths": [
+        "web/src/components/TagPane.tsx",
+        "web/src/components/TagPane.test.tsx"
+      ],
+      "sharedPaths": [
+        "web/src/state/appStore.tsx"
+      ],
+      "acceptanceCriteria": "TagPane gains the entity header: bound tags show the canonical note excerpt with an open link, unbound tags show the promote control and the create-description-note flow reusing the tag-memo notebook per E3; co-occurring tags render as chips that navigate through the existing return stack; vitest covers the bound and unbound states and chip navigation (design E5). Depends on TASK-007 because both edit web/src/state/appStore.tsx: take a fresh read and repair serially rather than overwriting.",
+      "verification": "arch -arm64 /bin/zsh -lc 'cd web && mise exec -- bunx tsc --noEmit && mise exec -- bun test src && mise exec -- bun run lint && mise exec -- bun run build'"
+    },
+    {
+      "planId": "TASK-009",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus3/TASK-009/progress.md",
+      "dependsOn": [
+        "TASK-000",
+        "TASK-001",
+        "TASK-002",
+        "TASK-003",
+        "TASK-004",
+        "TASK-005",
+        "TASK-006",
+        "TASK-007",
+        "TASK-008"
+      ],
+      "writePaths": [
+        "design-docs/specs/kaiba-note.md"
+      ],
+      "sharedPaths": [
+        "impl-plans/active/note-capture-and-entity-pages.md"
+      ],
+      "acceptanceCriteria": "kaiba-note.md HTTP API section lists /note/capture; the full arm64 swift build && swift test reports zero failures, or every failure is proven pre-existing by the identical filter run on a clean checkout of bab58cd with both results recorded; mise run lint (swiftlint) and the full web suite are green; a curl-level smoke of POST and GET /note/capture plus CLI-vs-GraphQL agreement on a promoted tag is recorded; every checkbox in the plan is checked with per-box evidence in the progress log including the TASK-000 keep/correct/remove accounting; work is committed on feat/note-capture-and-entity-pages per AGENTS.md (no AI attribution, no emojis, no machine-local absolute paths) and pushed to that branch only, with .riela/ never committed and main untouched.",
+      "verification": "arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test' ; arch -arm64 /bin/zsh -lc 'mise run lint' ; arch -arm64 /bin/zsh -lc 'cd web && mise exec -- bunx tsc --noEmit && mise exec -- bun test src && mise exec -- bun run lint && mise exec -- bun run build'"
+    }
+  ]
+}

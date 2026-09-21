@@ -1,6 +1,7 @@
 # Anywhere Capture and Entity Pages
 
-**Status**: In Progress (planning complete, no code written)
+**Status**: In Progress (implementation run; starting material `ba7ef12` under
+line-by-line review — TASK-000)
 **Design Reference**: `design-docs/specs/note-capture-and-entity-pages.md`
 
 ## Purpose
@@ -27,9 +28,55 @@ environment facts implementers must apply:
 - Swift gotcha: an overload added for protocol conformance that calls a
   same-named method can recurse into itself (silent OOM SIGKILL). Name
   internal cores distinctly.
+- 2026-09-21 implementation run additions (team KB recall for
+  `note-capture-entity-pages` again returned zero entries):
+  - Every Swift command must run through an arm64 login shell — the default
+    shell is Rosetta and the xctest bundle refuses to dlopen there. Combined
+    with the anydoc prerequisite the working sequence is:
+    `arch -arm64 /bin/zsh -lc 'mise run anydoc:native'` once, then
+    `arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test'`
+    (verified: that login shell has swift 6.3.3 arm64, mise, and mise-managed
+    bun; `.build/anydoc-native/host/pkgconfig` does not exist until
+    `anydoc:native` runs).
+  - Test-baseline protocol: the suite's health at branch point `bab58cd`
+    (merge-base with main) is unknown. Before calling any failure
+    pre-existing, run the same `--filter` on a clean checkout of `bab58cd`
+    and record both results; never label a failure environmental without
+    that evidence.
+  - AGENTS.md commit policy: no AI attribution or co-authorship lines in
+    commit messages; no emojis in any output; this repository is public —
+    never commit machine-local absolute paths.
+  - `origin` has no `feat/note-capture-and-entity-pages` yet: the first
+    `git push -u origin feat/note-capture-and-entity-pages` creates it. Never
+    push main; never force push. The untracked `.riela/` directory is riela
+    runtime state and must never be committed.
+
+## Starting material (2026-09-21)
+
+Commit `ba7ef12` ("wip: unreviewed F1/F2 implementation from an overrunning
+planning run") is the only delta between this branch and main (24 files,
++3209/−14). It has never been built, tested or reviewed. Coverage map from the
+implementation-run analysis:
+
+- Candidate implementations exist for TASK-001..006 (schema v20 + quick-memo
+  seed, `NoteService+QuickMemo.swift`, `NoteService+TagDetail.swift` +
+  `NoteService+ActionHistory.swift` undo snapshot, capture route + SPA
+  rewrite, GraphQL surface, CLI surface) with test files for each.
+- Entirely absent: TASK-007 (web capture view), TASK-008 (TagPane entity
+  header), TASK-009 (`kaiba-note.md` row + verification sweep). No `web/src`
+  path is touched by the commit.
+- The commit also amended design decision E1 (undo snapshot
+  `canonicalTagIds`, unfiltered `idx_tags_canonical_note`); that delta was
+  ratified by design review — see the progress log and the design doc Status.
+
+TASK-000 below gates everything: no TASK-001..006 checkbox may be checked on
+the strength of `ba7ef12` until its file has passed line-by-line review, and
+the keep/correct/remove outcome is recorded in the progress log.
 
 ## Deliverables
 
+- [ ] TASK-000 review: every `ba7ef12` file verified against the design;
+      keep/correct/remove log recorded in the progress log
 - [ ] Schema v20: `tags.canonical_note_id` column and
       `notebook-kind:quick-memo` seed (`Sources/AppCore/NoteStoreSchema.swift`)
 - [ ] `NoteService.ensureQuickMemoNotebook()` / `captureQuickMemo(...)`
@@ -51,6 +98,7 @@ are reconciled serially in dependency order):
 
 | Task | Deliverable | Primary write scope | Depends on | Parallelizable |
 | --- | --- | --- | --- | --- |
+| TASK-000 | Review of starting material `ba7ef12` (build + line-by-line vs design) | none (read + progress log; repairs land inside the owning task) | — | No (wave 0, gates all) |
 | TASK-001 | Schema v20 + quick-memo kind seed | `Sources/AppCore/NoteStoreSchema.swift`, `Tests/AppCoreTests/NoteStoreSchemaCanonicalTests.swift` (new) | — | No (wave 1, shared root of everything) |
 | TASK-002 | Quick Memos service (`ensureQuickMemoNotebook`, `captureQuickMemo`) | `Sources/AppCore/NoteService+QuickMemo.swift` (new), `Tests/AppCoreTests/QuickMemoCaptureTests.swift` (new) | TASK-001 | Yes, with TASK-003 |
 | TASK-003 | Canonical note + co-occurrence service | `Sources/AppCore/NoteService+TagDetail.swift`, `Tests/AppCoreTests/TagEntityPageTests.swift` (new) | TASK-001 | Yes, with TASK-002 |
@@ -66,6 +114,22 @@ TASK-008 — land 007 before 008 or coordinate), `Sources/AppCore/Command.swift`
 help text (TASK-006 only). Implementers must take fresh reads before editing
 shared files and re-verify after each wave; overlapping edits are repaired
 serially, never in parallel.
+
+### TASK-000: Review the starting material
+
+**Parallelizable**: No (wave 0; gates every other task)
+
+**Completion Criteria**:
+
+- [ ] `arch -arm64 /bin/zsh -lc 'mise run anydoc:native'` then
+      `arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build'`
+      succeed (fix compile errors inside the owning task's scope first)
+- [ ] Every file of `git show ba7ef12` reviewed against design decisions
+      C1–C7 / E1–E8 and the C6 contract; per-file keep / correct / remove
+      verdicts recorded in the progress log
+- [ ] Anything the design does not call for is deleted; anything wrong is
+      fixed under its owning TASK; the E1 delta ratification is confirmed
+      against the actual `NoteService+ActionHistory.swift` behavior
 
 ### TASK-001: Schema v20 — canonical column and quick-memo kind
 
@@ -158,15 +222,23 @@ serially, never in parallel.
 
 ## Verification
 
-Run from the repository root unless noted; record exit statuses in the
-progress log:
+Run from the repository root unless noted; record exact commands, exit
+statuses and result counts in the progress log. Every Swift command goes
+through the arm64 login shell (see Applicable prior knowledge):
 
-- `mise run build`
-- `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test`
-- In `web/`: `tsc --noEmit`, `bun test src`, `bun run lint`, `bun run build`
-- Manual smoke: `kaiba serve`, register via QR, open `/note/capture` from a
-  phone browser, capture a memo, watch it appear live in the viewer; open a
-  tag, promote a note, verify CLI `kaiba tag <name>` agrees.
+- Once: `arch -arm64 /bin/zsh -lc 'mise run anydoc:native'`
+- Iterate: `arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift test --filter <QuickMemo|NoteCaptureRoute|TagEntity|NoteStoreSchema|NoteGraphQLSchemaInventory>'`
+- Final gate: `arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test'`
+  — zero failures, or each failure proven pre-existing by the same filter on
+  a clean checkout of branch point `bab58cd`, both results recorded
+- In `web/` (bun via mise): `tsc --noEmit`, `bun test src`, `bun run lint`, `bun run build`
+- `arch -arm64 /bin/zsh -lc 'mise run lint'` (swiftlint) after Swift edits
+- Smoke (no physical phone available to the run): `kaiba serve` locally,
+  then curl-level `POST /note/capture` (bearer and unauthenticated) and
+  `GET /note/capture` asserting the C6 bodies and the SPA bootstrap; promote
+  a note on a tag and verify CLI `kaiba tag <name>` agrees with GraphQL
+  `tagDetail`. The phone-browser walk-through remains a post-merge manual
+  step for the operator.
 
 ## Progress Log
 
@@ -202,3 +274,25 @@ progress log:
   consistent with design decisions E1 and C3 but are outside the planning
   run's scope: they are deliberately left uncommitted and unreverted as a
   head start for TASK-001, and no planning-run commit may include them.
+  (Historical note: in the implementation worktree those drafts arrived
+  committed inside `ba7ef12`; the tree there is clean.)
+- 2026-09-21 (implementation run, analysis + design step): Recorded git
+  context — worktree
+  `/Users/taco/gits/tacogips/kaiba-worktrees/note-capture-entity-pages`,
+  branch `feat/note-capture-and-entity-pages`, originalHead `83a4be5`,
+  merge-base with main `bab58cd`, sole delta vs main = `ba7ef12`
+  (24 files, +3209/−14, never built/tested/reviewed). `origin` carries only
+  `main`; the feature branch is created by the first push. Coverage map: the
+  commit contains candidate TASK-001..006 material with tests; TASK-007,
+  TASK-008 and TASK-009 are entirely absent (zero `web/src` changes). Plan
+  revised accordingly: TASK-000 review gate added, arm64/anydoc verification
+  commands recorded, baseline-comparison protocol added.
+- 2026-09-21 (implementation run, design step): **Accepted delta ratified.**
+  `ba7ef12` amended design decision E1 with the undo-snapshot rule
+  (`captureNoteSnapshot` records `canonicalTagIds`; `restoreNoteSnapshot`
+  re-binds only still-unbound tags, preserving E2 last-promote-wins) and the
+  unfiltered `idx_tags_canonical_note` index. Design review verified the
+  implementation matches the text (`NoteService+ActionHistory.swift:285`
+  snapshot query, `:416-425` unbound-only restore; `NoteStoreSchema.swift:527`
+  column, `:535` index) and ratified the delta as part of the accepted
+  design. The design doc Status section records the same delta.

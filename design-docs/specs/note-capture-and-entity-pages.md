@@ -2,8 +2,17 @@
 
 ## Status
 
-Accepted (2026-09-21) — implementation pending; see
+Accepted (2026-09-21) — implementation in progress; see
 `impl-plans/active/note-capture-and-entity-pages.md`.
+
+Accepted delta (2026-09-21, design review of starting material `ba7ef12`):
+E1 was extended with the undo-snapshot rule (`captureNoteSnapshot` records
+`canonicalTagIds`; `restoreNoteSnapshot` re-binds only tags still unbound so a
+later promote is never reversed by undo) and the unfiltered
+`idx_tags_canonical_note` index. The delta was introduced by the overrunning
+planning run, verified against `Sources/AppCore/NoteService+ActionHistory.swift`
+and the `tags` DDL, and is ratified as part of this design. The matching entry
+lives in the plan's progress log.
 
 ## Summary
 
