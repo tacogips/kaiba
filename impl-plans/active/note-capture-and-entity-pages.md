@@ -134,6 +134,34 @@ help text (TASK-006 only). Implementers must take fresh reads before editing
 shared files and re-verify after each wave; overlapping edits are repaired
 serially, never in parallel.
 
+### Resumed-run ordering (2026-09-21, session-7)
+
+TASK-000..006 are ACCEPTED (two integration-review waves, records at
+`tmp/note-capture-entity-pages-20260921-opus4/integration-review/` and
+`integration-review-wave2/`; full suite exit 0: XCTest 894 executed /
+1 skipped / 0 failures, Swift Testing 135/135). The accepted TASK-002/004/005/006
+delta-closure work sits UNCOMMITTED in the working tree and was verified
+byte-identical (SHA-256, all eleven files) to the wave-2
+`acceptedFileHashesSha256` at session-7 analysis. Remaining execution order:
+
+1. **COMMIT-A** — re-verify the eleven hashes against the wave-2 acceptance
+   record; on any mismatch STOP and report (do not repair silently). Then
+   commit exactly the ten modified files (explicit paths; never `.riela/`,
+   never `tmp/`) with a message describing the C3/C6/E6/F-000-8 delta
+   closures. No content edits of any kind in this commit.
+2. **TASK-007** then **TASK-008** (serial across the shared
+   `web/src/state/appStore.tsx`; each commits its own files when green).
+3. **TASK-009** — docs row, plan checkbox sweep with per-box evidence,
+   final full Swift + web verification, final commit, then the branch's
+   first push (`git push -u origin feat/note-capture-and-entity-pages`).
+
+Accepted-material rule: TASK-001..006 files are frozen. Reopening one
+requires a recorded finding, and re-running that task's filter afterward.
+Findings RC-7 (the co-occurrence bound `200` appears in both
+`NoteService.maximumCoOccurringTagLimit` and the GraphQL input validation)
+and RC-8 (MARK ordering) are explicitly DEFERRED as cosmetic: closing them
+would reopen accepted files for zero behavior change.
+
 ### TASK-000: Review the starting material
 
 **Parallelizable**: No (wave 0; gates every other task)
@@ -244,6 +272,32 @@ serially, never in parallel.
       unregistered/registration surface, not a new one
 - [ ] Vitest coverage for submit, error body rendering, unregistered redirect
 
+**Implementation notes (session-7 fact-finding, verified on disk):**
+
+- The server side is DONE and committed: `kaibaSPABootstrapPaths` in
+  `Sources/AppServer/KaibaStaticAssetResolver.swift` already rewrites both
+  `/note/register` and `/note/capture` to the SPA bootstrap (RC-5 closed).
+- Boot branch: `web/src/App.tsx` currently renders `<ChatbookView />`
+  unconditionally inside `AppStoreProvider`; add the
+  `location.pathname === '/note/capture'` branch there rendering
+  `CaptureView` inside the same provider. Routing stays hash-based
+  (`web/src/router.ts` never sees path routes).
+- Credential reuse is free: `NoteGraphQLClient.initialize()` already consumes
+  `?code=` and stores the bearer per origin; `hasCredential()` reports
+  registration; `appStore` exposes `auth`
+  (`'unknown' | 'authenticated' | 'unauthenticated'`) and ChatbookView's
+  gating pattern is `<Show when={auth !== 'unauthenticated'}
+  fallback={<LoginView />}>` — reuse `LoginView` as the unregistered surface.
+- The POST is plain HTTP, not GraphQL: add a `NoteGraphQLClient` method (for
+  example `captureNote(text, title?)`) using `this.environment.request(
+  '/note/capture', …)` with the bearer header the way `streamHeaders()`
+  builds it, parsing the C6 bodies (201 `{noteId, notebookId, noteNumber}`;
+  error `{error}` for 400/401/503/500).
+- Test layout: `web/package.json` runs `bun test src && vitest run` — put
+  pure-logic tests beside the module as `*.test.ts` (bun) and use vitest
+  integration files only if DOM behavior needs pinning, following
+  `ChatbookView.integration.tsx`.
+
 ### TASK-008: Web entity header on TagPane
 
 **Parallelizable**: Yes (with TASK-006/007)
@@ -252,6 +306,27 @@ serially, never in parallel.
 
 - [ ] Tag mode header shows canonical note (excerpt + open link) or promote control; *create description note* flow per E3; co-occurring tag chips navigate via the return stack
 - [ ] Vitest coverage for bound/unbound states and chip navigation
+
+**Implementation notes (session-7 fact-finding, verified on disk):**
+
+- The server GraphQL surface is DONE and accepted (TASK-005):
+  `GraphQLContractProjector.swift` declares
+  `promoteTagNote(input: PromoteTagNoteInput!)` /
+  `unpromoteTagNote(input: UnpromoteTagNoteInput!)` and `tagDetail` carries
+  `canonicalNote` + `coOccurringTags` with root-field `coOccurringTagLimit`.
+- Web client work: extend the `TagDetail` interface in
+  `web/src/notes/types.ts` (currently tag/tagClass/noteCount/notebookCount/
+  memoNotebookId) with `canonicalNote` and `coOccurringTags`; extend the
+  `tagDetail` selection in `web/src/notes/client.ts:286` to match; add
+  `promoteTagNote` / `unpromoteTagNote` client methods following the
+  `ensureTagMemoNotebook` mutation pattern.
+- `TagPane.tsx` already loads `TagDetail` via `app.client.tagDetail(tagId)`
+  and refreshes on `catalogRevision`; the entity header renders from that
+  same load. *Create description note* composes three existing client
+  calls: `ensureTagMemoNotebook(tagId)` → `createNote(notebookId,
+  bodyMarkdown)` → `promoteTagNote`.
+- Land after TASK-007 and take a fresh read of
+  `web/src/state/appStore.tsx` before editing it (shared path).
 
 ### TASK-009: Docs and verification sweep
 
@@ -386,3 +461,44 @@ through the arm64 login shell (see Applicable prior knowledge):
   `NoteCapture.tsx`. Environment note: `.build/anydoc-native/` was cleaned
   after the kill, so `mise run anydoc:native` must re-run before any swift
   command despite the warm 6G `.build` cache.
+- 2026-09-21 (session-7 resumed run, analysis + design step; the session-6
+  implementation run was killed by the same external OOM class after its
+  wave-2 integration review had ACCEPTED TASK-000..006):
+  - **State on disk**: HEAD `600cd5b`, tree dirty with exactly the accepted
+    wave-1/wave-2 work (10 modified files, +678/−125). All eleven SHA-256
+    hashes in `integration-review-wave2/acceptance-record.json`
+    (`acceptedFileHashesSha256`) re-verified byte-identical to the working
+    tree this session — zero drift since the kill. Wave-2 independent
+    verification had run the FULL suite on this exact tree:
+    `swift build && swift test` exit 0, XCTest 894 executed / 1 skipped /
+    0 failures, Swift Testing 135/135
+    (`integration-review-wave2/swift-build-and-test-full.log`, ends
+    `SWIFT_TEST_EXIT=0 END 2026-09-21T08:34:15Z`), `mise run lint` exit 0
+    with only the 3 pre-existing violations. TASK-007/008/009 evidence dirs
+    are empty; `web/` is untouched by branch and tree.
+  - **Consequence**: the accepted material is NOT re-reviewed and NOT
+    re-derived. Execution resumes at COMMIT-A (see "Resumed-run ordering"),
+    then TASK-007 → TASK-008 → TASK-009. Dispatch manifest for this run:
+    `impl-plans/active/note-capture-entity-pages-20260921-opus5-dispatch.json`
+    (supersedes the opus4 manifest, which stays as history).
+  - **Carried findings disposition** (wave-2 record RC-1..8): RC-1 closed by
+    the opus5 dispatch; RC-2/RC-3 remain TASK-009 criteria; RC-4 standing
+    rule (`.riela/` is untracked and NOT gitignored — every commit stages
+    explicit paths); RC-5 CLOSED by inspection (`kaibaSPABootstrapPaths` in
+    `KaibaStaticAssetResolver.swift` already rewrites `/note/capture`);
+    RC-6 CLOSED by inspection (`scripts/build-anydoc-native.sh` on macOS
+    resolves the SwiftPM XCFramework and creates no
+    `.build/anydoc-native/host/pkgconfig`; the `PKG_CONFIG_PATH` export is
+    harmless there — run `mise run anydoc:native` once anyway, it is cheap);
+    RC-7/RC-8 DEFERRED as cosmetic (recorded under "Resumed-run ordering";
+    closing them would reopen accepted files for zero behavior change).
+  - **Web fact-finding recorded** into TASK-007/TASK-008 implementation
+    notes: `?code=` registration and per-origin bearer live in
+    `NoteGraphQLClient.initialize()`/`hasCredential()`; `App.tsx` renders
+    `ChatbookView` unconditionally today (capture branch goes there);
+    `LoginView` is the existing unregistered surface; web `TagDetail` type
+    and `client.tagDetail` selection need the F2 fields;
+    `client.createNote`/`ensureTagMemoNotebook` already exist for the E3
+    flow; web tests run `bun test src && vitest run`.
+  - Team KB recall for `note-capture-entity-pages` again returned zero
+    entries (kb-recall-prior, session-7).

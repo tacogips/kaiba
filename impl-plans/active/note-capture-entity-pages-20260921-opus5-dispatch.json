@@ -1,0 +1,132 @@
+{
+  "taskId": "note-capture-entity-pages-20260921-opus5",
+  "workflowMode": "fable-and-improve-opus",
+  "workflowExecutionId": "fable-and-improve-opus-session-7",
+  "implementationBranch": "feat/note-capture-and-entity-pages",
+  "baseBranch": "feat/note-capture-and-entity-pages",
+  "remote": "origin",
+  "originalHead": "600cd5b29e02ca1acb5dba01d59e8a7571869924",
+  "designDocPaths": [
+    "design-docs/specs/note-capture-and-entity-pages.md"
+  ],
+  "planDocPath": "impl-plans/active/note-capture-and-entity-pages.md",
+  "evidenceRoot": "tmp/note-capture-entity-pages-20260921-opus5",
+  "notes": {
+    "supersedes": "impl-plans/active/note-capture-entity-pages-20260921-opus4-dispatch.json is the session-6 manifest; that run was killed by an external OOM AFTER its wave-2 integration review accepted TASK-000..006. Its acceptance records and logs under tmp/note-capture-entity-pages-20260921-opus4/ are authoritative evidence and must be cited, not re-derived. THIS manifest is authoritative for session-7.",
+    "acceptedAndFrozen": "TASK-000..006 are accepted. The wave-1/wave-2 delta-closure work sits UNCOMMITTED in the working tree; session-7 analysis re-verified all eleven SHA-256 hashes byte-identical to integration-review-wave2/acceptance-record.json acceptedFileHashesSha256. These files are frozen: no edits, no re-review. COMMIT-A commits them verbatim. Reopening one requires a recorded finding plus a re-run of that task's test filter.",
+    "ratifiedDeltas": "C3 (per-write-principal Quick Memos singleton), C6 (201/400/401/405/503/500; route-owned 400 only; no 404 arm), C4 (once-only notebookCreated publish), E1 (undo snapshot canonicalTagIds + unfiltered idx_tags_canonical_note), E6 (root-field coOccurringTagLimit). All are already written into the design doc; no further design decisions are permitted in implementation.",
+    "deferredFindings": "RC-7 (duplicated 200 co-occurrence bound between NoteService.maximumCoOccurringTagLimit and GraphQL input validation) and RC-8 (cosmetic MARK ordering) are DEFERRED, recorded in the plan's Resumed-run ordering section. Do not close them in this run.",
+    "sharedPlanDocument": "impl-plans/active/note-capture-and-entity-pages.md holds every task definition and is READ-ONLY for workers. Its Progress Log and checkboxes are edited only in TASK-009.",
+    "perPlanProgress": "Each plan writes its own progress file at progressPath under the untracked evidenceRoot; per-attempt logs go in <evidenceRoot>/<planId>/attempt-<n>/. No worker edits this manifest.",
+    "sharedFiles": "web/src/state/appStore.tsx is touched by TASK-007 and TASK-008: land TASK-007 first, take a fresh read in TASK-008, immutable pre/post edit snapshots, overwrite detection, serial repair. No worktrees, no parallel Git.",
+    "environment": "Every Swift command runs through an arm64 login shell: arch -arm64 /bin/zsh -lc '...' (the default shell is Rosetta; xctest refuses to dlopen there). Run arch -arm64 /bin/zsh -lc 'mise run anydoc:native' once first; on macOS it resolves the SwiftPM XCFramework and creates no host/pkgconfig directory, and the PKG_CONFIG_PATH export is harmless. web/ uses bun via mise; web gates are: tsc --noEmit, bun test src, bun run lint, bun run build (and vitest run via bun run test).",
+    "baselineProtocol": "A failure may be called pre-existing only after the identical filter runs on a clean checkout of branch point bab58cd outside this worktree, with both results recorded. Known candidate to re-check in the final full run: AgentGatewayCLIInvokerLifecycleTests.testProductionZombieDescendantWaitsForDisappearanceWithoutSIGKILL (file untouched by this branch). The wave-2 full-suite log is complete and green; the opus3 full-suite log is OOM-truncated and inadmissible.",
+    "commitPolicy": "AGENTS.md governs: no AI attribution or co-authorship lines, no emojis, no machine-local absolute paths. Stage explicit paths only; .riela/ is untracked and NOT gitignored and must never be committed; tmp/ is ignored. Push only feat/note-capture-and-entity-pages (the first push creates it on origin); never main; never force push, reset or delete branches. Never touch the primary checkout, riela, or riela-worktrees. Foreground commands only; keep exit statuses and complete log paths."
+  },
+  "plans": [
+    {
+      "planId": "COMMIT-A",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus5/COMMIT-A/progress.md",
+      "dependsOn": [],
+      "writePaths": [],
+      "sharedPaths": [],
+      "committedFiles": [
+        "Sources/AppCore/CommandTags.swift",
+        "Sources/AppCore/NoteService+QuickMemo.swift",
+        "Sources/AppCore/NoteService+TagDetail.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+TagEntity.swift",
+        "Sources/AppServer/ServerContracts.swift",
+        "Tests/AppCoreTests/CommandTests.swift",
+        "Tests/AppCoreTests/QuickMemoCaptureTests.swift",
+        "Tests/AppCoreTests/TagEntityPageTests.swift",
+        "Tests/AppGraphQLTests/TagEntityGraphQLTests.swift",
+        "Tests/AppServerTests/NoteCaptureRouteTests.swift"
+      ],
+      "acceptanceCriteria": [
+        "Before committing, re-compute SHA-256 for the eleven files named in tmp/note-capture-entity-pages-20260921-opus4/integration-review-wave2/acceptance-record.json acceptedFileHashesSha256 and confirm byte-identity (Command.swift stays clean vs HEAD and is not committed); on ANY mismatch stop and report instead of repairing",
+        "Exactly the ten modified files above are committed, no content changes, explicit paths, .riela/ and tmp/ excluded; message describes the C3/C6/E6/F-000-8 delta closures per AGENTS.md commit policy",
+        "git status is clean afterward except untracked .riela/ (and any new evidence under ignored tmp/); HEAD advances by exactly one commit on feat/note-capture-and-entity-pages"
+      ],
+      "verification": [
+        "shasum -a 256 of all eleven files recorded in progress.md against the wave-2 record before the commit",
+        "git show --stat HEAD recorded after the commit; git status --porcelain recorded"
+      ]
+    },
+    {
+      "planId": "TASK-007",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus5/TASK-007/progress.md",
+      "dependsOn": ["COMMIT-A"],
+      "writePaths": [
+        "web/src/App.tsx",
+        "web/src/views/CaptureView.tsx",
+        "web/src/notes/client.ts",
+        "web/src/notes/client.test.ts"
+      ],
+      "sharedPaths": [
+        "web/src/state/appStore.tsx"
+      ],
+      "acceptanceCriteria": [
+        "New view web/src/views/CaptureView.tsx (never repurpose the unrelated web/src/components/NoteCapture.tsx or the canonical cache in web/src/notes/controller.ts)",
+        "App boot branch: location.pathname === '/note/capture' renders CaptureView inside AppStoreProvider; hash routing untouched; the server-side rewrite already exists in KaibaStaticAssetResolver.swift kaibaSPABootstrapPaths",
+        "Registered visitor: textarea + submit posts the C6 body to POST /note/capture with the stored per-origin bearer (new NoteGraphQLClient method using environment.request, header built like streamHeaders); success shows the created note id and clears the textarea; C6 error bodies are rendered",
+        "Unregistered visitor sees the existing LoginView surface (auth gating pattern from ChatbookView), reusing the ?code= initialize flow; no new registration surface",
+        "Tests per repository layout (bun test src beside modules; vitest integration only if DOM behavior needs pinning) cover submit success, error body rendering, and the unregistered fallback"
+      ],
+      "verification": [
+        "In web/: tsc --noEmit; bun test src; bun run lint; bun run build (all exit 0, logs under attempt dir)",
+        "arch -arm64 /bin/zsh -lc swift build still exit 0 (no Swift paths touched; cheap regression guard)",
+        "Commit TASK-007 files (explicit paths) when green"
+      ]
+    },
+    {
+      "planId": "TASK-008",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus5/TASK-008/progress.md",
+      "dependsOn": ["TASK-007"],
+      "writePaths": [
+        "web/src/components/TagPane.tsx",
+        "web/src/notes/types.ts",
+        "web/src/notes/client.ts"
+      ],
+      "sharedPaths": [
+        "web/src/state/appStore.tsx"
+      ],
+      "acceptanceCriteria": [
+        "web/src/notes/types.ts TagDetail gains canonicalNote and coOccurringTags matching the server contract; client.ts tagDetail selection extended; promoteTagNote/unpromoteTagNote client methods added following the ensureTagMemoNotebook mutation pattern",
+        "TagPane tag-mode header: canonical note (markdown excerpt + open link) when bound, promote control when not; create-description-note flow composes ensureTagMemoNotebook then createNote then promoteTagNote (E3); co-occurring tag chips navigate via the existing return stack",
+        "Fresh read of web/src/state/appStore.tsx after TASK-007 lands; immutable pre/post snapshots for the shared file",
+        "Tests cover bound and unbound header states and chip navigation"
+      ],
+      "verification": [
+        "In web/: tsc --noEmit; bun test src; bun run lint; bun run build (all exit 0, logs under attempt dir)",
+        "Commit TASK-008 files (explicit paths) when green"
+      ]
+    },
+    {
+      "planId": "TASK-009",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-opus5/TASK-009/progress.md",
+      "dependsOn": ["COMMIT-A", "TASK-007", "TASK-008"],
+      "writePaths": [
+        "design-docs/specs/kaiba-note.md",
+        "impl-plans/active/note-capture-and-entity-pages.md"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": [
+        "kaiba-note.md HTTP API section lists /note/capture with the amended C6 status set 201/400/401/405/503/500",
+        "Every checkbox in the plan is checked with per-box evidence in the progress log: TASK-001..006 boxes cite the opus4 acceptance records plus COMMIT-A; TASK-007/008 cite fresh session-7 evidence; the TASK-000 keep/correct/remove disposition (20 KEEP / 4 CORRECT / 0 REMOVE) is restated",
+        "Verify no doc references the nonexistent KaibaNoteFileHTTPRouterChain outside historical design quotes (F-000-7 follow-through)",
+        "Final gate: arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test' runs to completion with zero failures, or each failure is proven pre-existing via the identical filter on a clean checkout of bab58cd with both results recorded (candidate: AgentGatewayCLIInvokerLifecycleTests zombie-descendant test); never tail the log",
+        "Web gates green in web/: tsc --noEmit, bun test src, bun run lint, bun run build; arch -arm64 mise run lint shows only the 3 known pre-existing swiftlint violations",
+        "Smoke: kaiba serve locally; curl POST /note/capture bearer 201, unauthenticated 401, malformed 400; GET /note/capture serves the SPA bootstrap; promote a note on a tag and confirm kaiba tag <name> agrees with GraphQL tagDetail",
+        "Final commit (docs + plan, explicit paths), then first push: git push -u origin feat/note-capture-and-entity-pages; main untouched; no force push"
+      ],
+      "verification": [
+        "Complete logs with exit statuses for every command above stored under the attempt dir and cited per checkbox in the plan progress log",
+        "git log origin/feat/note-capture-and-entity-pages..HEAD empty after push; git status clean except .riela/"
+      ]
+    }
+  ]
+}
