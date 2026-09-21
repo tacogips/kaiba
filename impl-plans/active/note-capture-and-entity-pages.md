@@ -183,3 +183,22 @@ progress log:
   `git status --porcelain`). The commit closing the planning run carries
   exactly those two files; this line is to be re-verified against
   `git diff --stat main..HEAD` after that commit.
+- 2026-09-21 (resumed run): Post-commit re-verification. The planning commit
+  is `2ae17f8` and `git diff --stat main..HEAD` reads exactly:
+
+  ```
+   design-docs/specs/note-capture-and-entity-pages.md | 289 +++++++++++++++++++++
+   impl-plans/active/note-capture-and-entity-pages.md | 185 +++++++++++++
+   ...ote-capture-entity-pages-20260921-dispatch.json | 168 ++++++++++++
+   3 files changed, 642 insertions(+)
+  ```
+
+  No `Sources/` or `Tests/` path appears in the branch diff; the third file
+  is the dispatch manifest for the future implementation run. Note for that
+  run: the working tree additionally holds *uncommitted* TASK-001-shaped
+  drafts (`Sources/AppCore/NoteStoreSchema.swift`,
+  `Tests/AppCoreTests/NoteStoreSchemaTests.swift`, untracked
+  `Tests/AppCoreTests/NoteStoreSchemaCanonicalTests.swift`). They are
+  consistent with design decisions E1 and C3 but are outside the planning
+  run's scope: they are deliberately left uncommitted and unreverted as a
+  head start for TASK-001, and no planning-run commit may include them.
