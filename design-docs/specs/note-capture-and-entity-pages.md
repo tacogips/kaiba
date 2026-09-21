@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted (2026-09-21) — implementation in progress; see
-`impl-plans/active/note-capture-and-entity-pages.md`.
+Accepted (2026-09-21) — implemented and verified (session-8); see
+`impl-plans/completed/note-capture-and-entity-pages.md`.
 
 Accepted delta (2026-09-21, design review of starting material `ba7ef12`):
 E1 was extended with the undo-snapshot rule (`captureNoteSnapshot` records
