@@ -15,6 +15,20 @@ private func isKaibaSPAServicePath(_ path: String) -> Bool {
   }
 }
 
+/// SPA views that live under the `/note` service prefix and therefore have to
+/// be rewritten to the bootstrap document by hand: `isKaibaSPAServicePath`
+/// would otherwise hand them to the note API, which answers them as unknown
+/// or method-mismatched service routes.
+///
+/// `/note/register` is the original QR registration page; `/note/capture` is
+/// the anywhere-capture page
+/// (`design-docs/specs/note-capture-and-entity-pages.md` C5) and reuses this
+/// same mechanism rather than adding a second one.
+private let kaibaSPABootstrapPaths: Set<String> = [
+  "/note/register",
+  "/note/capture"
+]
+
 public struct KaibaStaticAssetResolver: Sendable {
   public var rootURL: URL
 
@@ -101,7 +115,7 @@ public struct KaibaStaticSPAHTTPRouter: KaibaHTTPRouteHandling {
   }
 
   public func response(for request: KaibaHTTPRequest) async -> KaibaHTTPResponse {
-    if request.method == "GET", request.path == "/note/register" {
+    if request.method == "GET", kaibaSPABootstrapPaths.contains(request.path) {
       var bootstrapRequest = request
       bootstrapRequest.path = "/"
       bootstrapRequest.percentEncodedPath = "/"

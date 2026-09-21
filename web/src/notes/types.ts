@@ -90,7 +90,15 @@ export interface NoteComment {
   createdAt: string
 }
 
-/** Cross-notebook tag detail (design-docs/specs/tag-detail-pane.md). */
+/** A tag sharing notes with another tag, with the number of notes they share
+ * (design-docs/specs/note-capture-and-entity-pages.md, E4). */
+export interface TagCoOccurrence {
+  tag: NoteTag
+  noteCount: number
+}
+
+/** Cross-notebook tag detail (design-docs/specs/tag-detail-pane.md), extended
+ * with the entity-page fields (note-capture-and-entity-pages.md, E1/E4/E6). */
 export interface TagDetail {
   tag: NoteTag
   tagClass: NoteTagClass | null
@@ -98,6 +106,22 @@ export interface TagDetail {
   notebookCount: number
   /** The tag's memo/chat notebook, once one has been created. */
   memoNotebookId: NotebookId | null
+  /** The note designated as this tag's description, null when nothing is
+   * bound and when the binding points at a note outside the caller's reach —
+   * an entity header must not disclose a note the caller cannot open. */
+  canonicalNote: Note | null
+  /** Tags sharing notes with this one, most shared notes first, without the
+   * organizational (system kind and folder-class) tags. */
+  coOccurringTags: TagCoOccurrence[]
+}
+
+/** The `201` body of `POST /note/capture` (design-docs/specs/
+ * note-capture-and-entity-pages.md, C6): the quick memo the server wrote and
+ * the singleton Quick Memos notebook it resolved for this account. */
+export interface NoteCaptureResult {
+  noteId: NoteId
+  notebookId: NotebookId
+  noteNumber: number
 }
 
 /** A memo in a tag's cross-notebook history, attributed with the titles of

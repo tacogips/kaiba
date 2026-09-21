@@ -277,12 +277,22 @@ extension NoteService {
         "position": .optionalInt(row["position"].flatMap(Int.init))
       ])
     }
+    // Tags this note is the canonical description of
+    // (`design-docs/specs/note-capture-and-entity-pages.md`, E1). The column's
+    // ON DELETE SET NULL clears them as the note goes, so undo can only put
+    // them back if the deletion snapshot carries them. Indexed by
+    // `idx_tags_canonical_note`.
+    let canonicalTagIds = try db.query(
+      "SELECT tag_id FROM tags WHERE canonical_note_id = ? ORDER BY tag_id",
+      bindings: [.id(noteId)]
+    ).map { JSONValue.optionalString($0["tag_id"]) }
     return .object([
       "note": .object(note),
       "tags": .array(tags),
       "links": .array(links),
       "comments": .array(comments),
-      "files": .array(files)
+      "files": .array(files),
+      "canonicalTagIds": .array(canonicalTagIds)
     ])
   }
 
@@ -398,6 +408,20 @@ extension NoteService {
       try db.execute(
         "INSERT OR IGNORE INTO note_files (note_id, file_id, role, position) VALUES (?, ?, ?, ?)",
         bindings: [.id(noteId), .id(fileId), .text(role), .int(Int64(file["position"]?.asInt ?? 0))]
+      )
+    }
+    // Canonical bindings come back only where the tag is still unbound: a tag
+    // promoted onto another note after the deletion keeps that newer binding,
+    // so undo never silently reverses a later promote (E2, last promote wins).
+    for canonicalTagId in snapshot["canonicalTagIds"]?.asArray ?? [] {
+      guard let rawTagId = canonicalTagId.asString, !rawTagId.isEmpty else { continue }
+      let tagId = TagID(rawTagId)
+      try db.execute(
+        """
+        UPDATE tags SET canonical_note_id = ?
+        WHERE tag_id = ? AND canonical_note_id IS NULL
+        """,
+        bindings: [.id(noteId), .id(tagId)]
       )
     }
     return (noteId, notebookId)

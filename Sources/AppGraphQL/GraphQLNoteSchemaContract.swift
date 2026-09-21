@@ -72,10 +72,41 @@ type NoteCommentsQueryPayload { result: ControlPlaneResult!, value: [NoteComment
 # tagComments aggregates memos of notes/notebooks carrying the tag (descendant
 # tags included), newest first; ensureTagMemoNotebook (a NoteMutationPayload
 # mutation) lazily finds or creates the tag's memo/chat notebook.
-type TagDetail { tag: NoteTag!, tagClass: NoteTagClass, noteCount: Int!, notebookCount: Int!, memoNotebookId: String }
+#
+# The tag entity page (design-docs/specs/note-capture-and-entity-pages.md,
+# E1/E2/E4/E6) adds two fields. canonicalNote is the note designated as the
+# tag's description, null when nothing is bound AND when the bound note lies
+# outside the caller's reach -- an entity header must not disclose a note the
+# caller could not open. coOccurringTags lists the tags sharing notes with this
+# one, most shared notes first, excluding system, folder-class and
+# document-kind tags because those are organizational rather than subjects.
+# Its size comes from the root field's coOccurringTagLimit argument: this
+# engine resolves a payload eagerly and then projects it, so no nested field
+# accepts arguments.
+#
+# Reach asymmetry, deliberate and load-bearing for callers of promoteTagNote:
+# reading canonicalNote and calling unpromoteTagNote are BOTH reach-aware, so a
+# binding to an unreachable note reads as unbound and unpromoting it is a no-op
+# success. promoteTagNote is NOT reach-aware -- it issues an unconditional
+# update, so a caller told the tag is unbound can still replace a binding it
+# cannot see. That is E2's last-promote-wins rule applied to a store-global
+# tag table, and it leaks nothing: the caller learns nothing about the note it
+# overwrote. Do not re-derive a different rule at any surface.
+type TagCoOccurrence { tag: NoteTag!, noteCount: Int! }
+type TagDetail { tag: NoteTag!, tagClass: NoteTagClass, noteCount: Int!, notebookCount: Int!, memoNotebookId: String, canonicalNote: Note, coOccurringTags: [TagCoOccurrence!]! }
 type TagDetailQueryPayload { result: ControlPlaneResult!, value: TagDetail }
 type TagComment { comment: NoteComment!, noteTitle: String, notebookTitle: String }
 type TagCommentsQueryPayload { result: ControlPlaneResult!, value: [TagComment!] }
+# promoteTagNote designates an existing note as the tag's canonical description
+# and replaces any previous binding (E2, last promote wins). It creates no tag
+# assignment: the canonical note is rendered in the entity header, not as an
+# occurrence (E3). Folder-class and document-kind tags are refused -- they are
+# organizational, not subjects. unpromoteTagNote clears the binding and is a
+# no-op success when nothing is bound, in which case note is null. Both carry
+# the affected note; re-read tagDetail for the tag itself. Neither is recorded
+# as an undoable action.
+input PromoteTagNoteInput { tagId: String!, noteId: String! }
+input UnpromoteTagNoteInput { tagId: String! }
 input NoteTagInput { name: String!, classId: String }
 input CreateNoteInput {
   notebookId: String

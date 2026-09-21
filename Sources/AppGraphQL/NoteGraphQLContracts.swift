@@ -215,12 +215,30 @@ public struct GraphQLNoteCommentDTO: Codable, Equatable, Sendable {
   }
 }
 
+/// One tag sharing notes with the subject tag
+/// (`design-docs/specs/note-capture-and-entity-pages.md`, E4).
+public struct GraphQLTagCoOccurrenceDTO: Codable, Equatable, Sendable {
+  public var tag: GraphQLNoteTagDTO
+  public var noteCount: Int
+
+  public init(coOccurrence: TagCoOccurrence) {
+    tag = GraphQLNoteTagDTO(tag: coOccurrence.tag)
+    noteCount = coOccurrence.noteCount
+  }
+}
+
 public struct GraphQLTagDetailDTO: Codable, Equatable, Sendable {
   public var tag: GraphQLNoteTagDTO
   public var tagClass: GraphQLNoteTagClassDTO?
   public var noteCount: Int
   public var notebookCount: Int
   public var memoNotebookId: NotebookID?
+  /// The tag's canonical description note (E1/E2), nil when nothing is bound
+  /// and also when the bound note is out of this principal's reach. The
+  /// service decides which; this projection adds no boundary of its own.
+  public var canonicalNote: GraphQLNoteDTO?
+  /// Tags sharing notes with this one, most shared notes first (E4).
+  public var coOccurringTags: [GraphQLTagCoOccurrenceDTO]
 
   public init(detail: TagDetail) {
     tag = GraphQLNoteTagDTO(tag: detail.tag)
@@ -228,6 +246,8 @@ public struct GraphQLTagDetailDTO: Codable, Equatable, Sendable {
     noteCount = detail.noteCount
     notebookCount = detail.notebookCount
     memoNotebookId = detail.memoNotebookId
+    canonicalNote = detail.canonicalNote.map(GraphQLNoteDTO.init)
+    coOccurringTags = detail.coOccurringTags.map(GraphQLTagCoOccurrenceDTO.init)
   }
 }
 

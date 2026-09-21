@@ -1,0 +1,59 @@
+{
+  "taskId": "note-capture-entity-pages-20260921-session8",
+  "workflowMode": "fable-and-improve-opus",
+  "workflowExecutionId": "fable-and-improve-opus-session-8",
+  "has_feature_fanout": false,
+  "implementationBranch": "feat/note-capture-and-entity-pages",
+  "baseBranch": "feat/note-capture-and-entity-pages",
+  "remote": "origin",
+  "originalHead": "8c6380865ca76bf20c3b4c3648c25290f19c459f",
+  "mergeBaseWithMain": "bab58cde06cdfe5336c5248a7dd99fda41583462",
+  "designDocPaths": [
+    "design-docs/specs/note-capture-and-entity-pages.md"
+  ],
+  "planDocPath": "impl-plans/active/note-capture-and-entity-pages.md",
+  "evidenceRoot": "tmp/note-capture-entity-pages-20260921-session8",
+  "notes": {
+    "singlePlan": "This manifest carries EXACTLY ONE plan on one branch with has_feature_fanout false. Every earlier manifest split the work into fanout plans and the runtime refused the join; all of them were deleted in commit 8c63808 and none may be recreated. Do not write another manifest and do not split this plan.",
+    "alreadyDone": "TASK-000..006 are ACCEPTED and COMMITTED. The line-by-line review of starting material ba7ef12 (24 files: 20 KEEP, 4 CORRECT via findings F-000-1..8, 0 REMOVE) is recorded at tmp/note-capture-entity-pages-20260921-opus3/TASK-000/progress.md. The wave-2 integration review accepted the delta closures with a COMPLETE full-suite run: swift build && swift test exit 0, XCTest 894 executed / 1 skipped / 0 failures, Swift Testing 135/135 (tmp/note-capture-entity-pages-20260921-opus4/integration-review-wave2/swift-build-and-test-full.log). COMMIT-A landed them verbatim as 0c01432 after byte-identical SHA-256 re-verification. None of this is re-reviewed or re-derived; cite it.",
+    "frozen": "All Sources/ and Tests/ Swift files accepted through TASK-000..006 are FROZEN. Reopening one requires a recorded finding in the plan progress log plus a re-run of that task's test filter. RC-7 (duplicated 200 co-occurrence bound) and RC-8 (MARK ordering) stay DEFERRED as cosmetic.",
+    "ratifiedDeltas": "C3 (per-write-principal Quick Memos singleton), C6 (201/400/401/405/503/500; route-owned 400 only; no 404 arm), C4 (once-only notebookCreated publish), E1 (undo snapshot canonicalTagIds + unfiltered idx_tags_canonical_note), E6 (root-field coOccurringTagLimit). All are written into the design doc; no further design decisions are permitted during implementation.",
+    "sharedFiles": "web/src/state/appStore.tsx is touched by both TASK-007 and TASK-008 steps of the single plan: strictly serial, fresh read before each edit, immutable pre/post edit snapshots, overwrite detection, serial repair. No worktrees, no parallel Git.",
+    "environment": "Every Swift command runs through an arm64 login shell: arch -arm64 /bin/zsh -lc '...' (the default shell is Rosetta; xctest refuses to dlopen there). Run arch -arm64 /bin/zsh -lc 'mise run anydoc:native' once first (.build/anydoc-native/ is absent again; on macOS the PKG_CONFIG_PATH export is harmless). web/ uses bun via mise; web gates: tsc --noEmit, bun test src, bun run lint, bun run build (vitest runs via bun run test / bun run check).",
+    "baselineProtocol": "A failure may be called pre-existing only after the identical filter runs on a clean checkout of branch point bab58cd outside this worktree, with both results recorded. Known candidate in the final full run: AgentGatewayCLIInvokerLifecycleTests.testProductionZombieDescendantWaitsForDisappearanceWithoutSIGKILL (file untouched by this branch). The wave-2 full-suite log is complete and green; the opus3 full-suite log is OOM-truncated and inadmissible; TASK-009 still re-runs the full suite to completion at final HEAD.",
+    "commitPolicy": "AGENTS.md governs: no AI attribution or co-authorship lines, no emojis, no machine-local absolute paths. Stage explicit paths only; .riela/ is untracked, NOT gitignored, and never committed; tmp/ is ignored. The riela/git-commit add-on refuses unchanged committedFiles entries: list only paths that actually differ against HEAD. Push only feat/note-capture-and-entity-pages (the first push creates it on origin: git push -u origin feat/note-capture-and-entity-pages); never main; never force push, reset or delete branches. Never touch the primary checkout /Users/taco/gits/tacogips/kaiba, riela, or riela-worktrees. Foreground commands only; keep exit statuses and complete log paths."
+  },
+  "plans": [
+    {
+      "planId": "note-capture-and-entity-pages",
+      "planPath": "impl-plans/active/note-capture-and-entity-pages.md",
+      "progressPath": "tmp/note-capture-entity-pages-20260921-session8/progress.md",
+      "dependsOn": [],
+      "writePaths": [
+        "web/src/App.tsx",
+        "web/src/views/CaptureView.tsx",
+        "web/src/components/TagPane.tsx",
+        "web/src/notes/client.ts",
+        "web/src/notes/types.ts",
+        "design-docs/specs/kaiba-note.md",
+        "impl-plans/active/note-capture-and-entity-pages.md"
+      ],
+      "sharedPaths": [
+        "web/src/state/appStore.tsx"
+      ],
+      "acceptanceCriteria": [
+        "STEP 1 (TASK-007, web capture view): new web/src/views/CaptureView.tsx (never repurpose the unrelated web/src/components/NoteCapture.tsx or the canonical notebook cache in web/src/notes/controller.ts). App boot branch in web/src/App.tsx: location.pathname === '/note/capture' renders CaptureView inside AppStoreProvider; hash routing untouched (the server-side rewrite already exists in kaibaSPABootstrapPaths). Registered visitor: textarea + submit posts to POST /note/capture through a new NoteGraphQLClient plain-HTTP method (environment.request with the bearer header built like streamHeaders), parsing the C6 bodies (201 {noteId, notebookId, noteNumber}; {error} for 400/401/503/500); success shows the note id and clears; unregistered visitor sees the existing LoginView surface via the auth gating pattern, reusing the ?code= initialize flow. Tests: bun *.test.ts beside modules, vitest integration only if DOM pinning is needed, covering submit success, error body rendering, unregistered fallback. Commit TASK-007 files (explicit paths) when web gates are green.",
+        "STEP 2 (TASK-008, TagPane entity header, strictly after STEP 1): TagDetail in web/src/notes/types.ts gains canonicalNote and coOccurringTags matching the server contract; tagDetail selection in web/src/notes/client.ts extended; promoteTagNote/unpromoteTagNote client methods follow the ensureTagMemoNotebook mutation pattern. TagPane tag-mode header: canonical note excerpt + open link when bound, promote control when not; create-description-note composes ensureTagMemoNotebook -> createNote -> promoteTagNote (E3); co-occurring tag chips navigate via the existing return stack. Fresh read of web/src/state/appStore.tsx after STEP 1 lands. Tests cover bound/unbound states and chip navigation. Commit TASK-008 files when green.",
+        "STEP 3 (TASK-009, docs + sweep + verification + push): design-docs/specs/kaiba-note.md HTTP API section lists /note/capture with status set 201/400/401/405/503/500. Every checkbox in the plan is checked with per-box evidence in the progress log (TASK-001..006 boxes cite the opus4 acceptance records plus commit 0c01432; TASK-007/008 cite fresh session-8 evidence; TASK-000 disposition 20 KEEP / 4 CORRECT / 0 REMOVE restated). Verify no doc references the nonexistent KaibaNoteFileHTTPRouterChain outside historical quotes. Final gate: arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test' runs TO COMPLETION with zero failures, or each failure is proven pre-existing on bab58cd with both results recorded. Web gates green; arch -arm64 mise run lint shows only the 3 known pre-existing swiftlint violations; mise run tauri:check green (web/ touched; macOS-local). Final commit (explicit paths), then first push git push -u origin feat/note-capture-and-entity-pages; main untouched."
+      ],
+      "verification": [
+        "Once: arch -arm64 /bin/zsh -lc 'mise run anydoc:native' (exit 0, log under evidenceRoot)",
+        "Per web step, in web/: tsc --noEmit; bun test src; bun run lint; bun run build (all exit 0, complete logs under evidenceRoot attempt dirs)",
+        "Targeted Swift regression guard after each step: arch -arm64 /bin/zsh -lc 'swift build' exit 0",
+        "Final: arch -arm64 /bin/zsh -lc 'export PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; swift build && swift test' to completion, exit status and result counts recorded; never tail the log",
+        "mise run web:check and mise run tauri:check exit 0",
+        "After push: git log origin/feat/note-capture-and-entity-pages..HEAD is empty; git status clean except untracked .riela/"
+      ]
+    }
+  ]
+}

@@ -69,6 +69,8 @@ final class NoteGraphQLSchemaInventoryTests: XCTestCase {
       "saveNoteConversation",
       "sendAgentChatMessage",
       "ensureTagMemoNotebook",
+      "promoteTagNote",
+      "unpromoteTagNote",
       "requestTagExtraction",
       "requestNotebookTranslation",
       "migrateNoteFileStorage",

@@ -14,19 +14,43 @@ public struct TagDetail: Equatable, Sendable {
   public var notebookCount: Int
   /// The tag's memo notebook, when one has been created.
   public var memoNotebookId: NotebookID?
+  /// The note designated as this tag's canonical description
+  /// (`design-docs/specs/note-capture-and-entity-pages.md`, E1/E2). Nil when
+  /// nothing is bound, and also when the bound note lies outside this
+  /// principal's reach — an entity header must not leak a note the caller
+  /// could not open.
+  public var canonicalNote: Note?
+  /// Tags sharing notes with this tag, most shared notes first (E4).
+  public var coOccurringTags: [TagCoOccurrence]
 
   public init(
     tag: Tag,
     tagClass: TagClass?,
     noteCount: Int,
     notebookCount: Int,
-    memoNotebookId: NotebookID?
+    memoNotebookId: NotebookID?,
+    canonicalNote: Note? = nil,
+    coOccurringTags: [TagCoOccurrence] = []
   ) {
     self.tag = tag
     self.tagClass = tagClass
     self.noteCount = noteCount
     self.notebookCount = notebookCount
     self.memoNotebookId = memoNotebookId
+    self.canonicalNote = canonicalNote
+    self.coOccurringTags = coOccurringTags
+  }
+}
+
+/// One tag that appears alongside the subject tag, with the number of notes
+/// the two share (`design-docs/specs/note-capture-and-entity-pages.md`, E4).
+public struct TagCoOccurrence: Equatable, Sendable {
+  public var tag: Tag
+  public var noteCount: Int
+
+  public init(tag: Tag, noteCount: Int) {
+    self.tag = tag
+    self.noteCount = noteCount
   }
 }
 
@@ -52,9 +76,29 @@ private struct TagMemoNotebookCreationResult {
 }
 
 public extension NoteService {
+  /// How many co-occurring tags a `tagDetail` payload carries by default (E4).
+  /// The entity header shows chips, not a catalog, so the default is small and
+  /// callers that want more pass an explicit limit.
+  static let defaultCoOccurringTagLimit = 10
+
+  /// The largest co-occurrence limit any surface may ask for. It matches the
+  /// transport's own bound, so an over-large document limit is refused there
+  /// before it ever reaches the service rather than being bounded twice.
+  static let maximumCoOccurringTagLimit = 200
+
   /// The tag plus its class and cross-notebook aggregate counts. Counts expand
   /// to descendant tags like every tag filter (D16/D17).
-  func tagDetail(tagId: TagID) throws -> TagDetail {
+  ///
+  /// `coOccurringTagLimit` sizes the co-occurrence chips the payload carries
+  /// (E4). It is a defaulted parameter rather than a second entry point so a
+  /// caller wanting a different size gets it from the one aggregate this read
+  /// already runs, instead of taking the default payload, discarding its chips
+  /// and re-running the query at its own size.
+  func tagDetail(
+    tagId: TagID,
+    coOccurringTagLimit: Int = NoteService.defaultCoOccurringTagLimit
+  ) throws -> TagDetail {
+    try requireValidCoOccurringTagLimit(coOccurringTagLimit)
     return try driver.withDatabase { database in
       let tag = try requireTag(id: tagId, in: database)
       let tagClass = try tag.classId.map { try requireTagClass(classId: $0, in: database) }
@@ -91,8 +135,113 @@ public extension NoteService {
           libraryIds: reachableLibraryIds,
           excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
           in: database
+        ),
+        canonicalNote: try canonicalNote(tagId: tagId, in: database),
+        coOccurringTags: try coOccurringTags(
+          tagId: tagId,
+          limit: coOccurringTagLimit,
+          in: database
         )
       )
+    }
+  }
+
+  /// Designates `noteId` as the tag's canonical description (E2). The binding
+  /// is a column on the tag row, so promoting replaces any previous one —
+  /// last promote wins — and no tag assignment is created: the canonical note
+  /// is rendered in the entity header, not as an occurrence (E3).
+  ///
+  /// Organizational tags are refused: folder-class tags shape the notebook
+  /// tree and document-kind tags mark notebook kinds, so neither is a subject
+  /// that can have a description (the T1 exclusion rationale).
+  @discardableResult
+  func promoteTagCanonicalNote(tagId: TagID, noteId: NoteID) throws -> Note {
+    let result = try driver.withDatabase { database in
+      try database.transaction { db -> (tag: Tag, note: Note) in
+        try requireEnabledActingUser(in: db)
+        let tag = try requireTag(id: tagId, in: db)
+        try requireCanonicalPromotable(tag)
+        let note = try requireNote(noteId, in: db)
+        try db.execute(
+          "UPDATE tags SET canonical_note_id = ? WHERE tag_id = ?",
+          bindings: [.id(noteId), .id(tagId)]
+        )
+        return (tag, note)
+      }
+    }
+    // The entity header is part of every tag surface, so live clients need the
+    // same wake-up a tag assignment gives them.
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteTags,
+      notebookId: result.note.notebookId,
+      tagNames: [result.tag.name]
+    ))
+    return result.note
+  }
+
+  /// Clears the tag's canonical binding (E2), returning the note that was
+  /// bound. Unpromoting an unbound tag is a no-op success and publishes
+  /// nothing. A binding whose note is out of this principal's reach reads as
+  /// unbound here for the same reason `tagDetail` hides it: the caller is told
+  /// nothing about a note it cannot see.
+  @discardableResult
+  func unpromoteTagCanonicalNote(tagId: TagID) throws -> Note? {
+    let result = try driver.withDatabase { database in
+      try database.transaction { db -> (tag: Tag, note: Note?) in
+        try requireEnabledActingUser(in: db)
+        let tag = try requireTag(id: tagId, in: db)
+        guard let note = try canonicalNote(tagId: tagId, in: db) else {
+          return (tag, nil)
+        }
+        try db.execute(
+          "UPDATE tags SET canonical_note_id = NULL WHERE tag_id = ?",
+          bindings: [.id(tagId)]
+        )
+        return (tag, note)
+      }
+    }
+    guard let note = result.note else { return nil }
+    publishChange(NoteChangeEvent(
+      kind: NoteChangeEventKind.noteTags,
+      notebookId: note.notebookId,
+      tagNames: [result.tag.name]
+    ))
+    return note
+  }
+
+  /// Tags that share notes with `tagId`, most shared notes first (E4). Work is
+  /// proportional to the tag's own assignment count times the average number of
+  /// tags per note — `idx_note_tags_tag` drives both sides of the join — never
+  /// the size of the store. Folder-class, document-kind and system tags are
+  /// excluded: they are organizational, not subjects (T1).
+  func coOccurringTags(
+    tagId: TagID,
+    limit: Int = NoteService.defaultCoOccurringTagLimit
+  ) throws -> [TagCoOccurrence] {
+    try requireValidCoOccurringTagLimit(limit)
+    return try driver.withDatabase { database in
+      _ = try requireTag(id: tagId, in: database)
+      return try coOccurringTags(tagId: tagId, limit: limit, in: database)
+    }
+  }
+
+  /// The single co-occurrence bound, shared by `tagDetail` and the standalone
+  /// aggregate so the two entry points can never disagree about what they
+  /// accept or about how they word the refusal.
+  private func requireValidCoOccurringTagLimit(_ limit: Int) throws {
+    guard (0...Self.maximumCoOccurringTagLimit).contains(limit) else {
+      throw NoteServiceError.invalidInput(
+        "limit must be between 0 and \(Self.maximumCoOccurringTagLimit)"
+      )
+    }
+  }
+
+  /// The note bound as this tag's canonical description, or nil when nothing
+  /// is bound or the bound note is unreachable for this principal.
+  func canonicalNote(tagId: TagID) throws -> Note? {
+    try driver.withDatabase { database in
+      _ = try requireTag(id: tagId, in: database)
+      return try canonicalNote(tagId: tagId, in: database)
     }
   }
 
@@ -371,6 +520,131 @@ public extension NoteService {
     } catch {
       throw NoteServiceError.invalidInput("tag memo notebook meta JSON must be UTF-8")
     }
+  }
+}
+
+extension NoteService {
+  /// Refuses the organizational tag classes a canonical description makes no
+  /// sense for (E2). Folder tags shape the notebook tree and document-kind
+  /// tags mark notebook kinds; neither is a subject.
+  func requireCanonicalPromotable(_ tag: Tag) throws {
+    guard tag.classId != .folder else {
+      throw NoteServiceError.invalidInput(
+        "folder tags cannot carry a canonical note: \(tag.name)"
+      )
+    }
+    guard tag.classId != .documentKind else {
+      throw NoteServiceError.invalidInput(
+        "notebook kind tags cannot carry a canonical note: \(tag.name)"
+      )
+    }
+  }
+
+  /// The raw binding on the tag row, without any reachability check.
+  func canonicalNoteId(tagId: TagID, in database: SQLiteDatabase) throws -> NoteID? {
+    try database.query(
+      "SELECT canonical_note_id FROM tags WHERE tag_id = ? LIMIT 1",
+      bindings: [.id(tagId)]
+    ).first?.identifier("canonical_note_id", as: NoteID.self)
+  }
+
+  func canonicalNote(tagId: TagID, in database: SQLiteDatabase) throws -> Note? {
+    guard let noteId = try canonicalNoteId(tagId: tagId, in: database) else {
+      return nil
+    }
+    do {
+      return try requireNote(noteId, in: database)
+    } catch NoteServiceError.notFound {
+      // Tags are store-global while notes are library-scoped, so a binding can
+      // outlive this principal's reach to its note. Reporting it as unbound
+      // matches how every other read hides an unreachable row.
+      return nil
+    }
+  }
+
+  func coOccurringTags(
+    tagId: TagID,
+    limit: Int,
+    in database: SQLiteDatabase
+  ) throws -> [TagCoOccurrence] {
+    guard let statement = try coOccurringTagsStatement(
+      tagId: tagId,
+      limit: limit,
+      in: database
+    ) else {
+      return []
+    }
+    let rows = try database.query(statement.sql, bindings: statement.bindings)
+    return try rows.map { row in
+      guard let rawCount = row["note_count"], let noteCount = Int(rawCount) else {
+        throw NoteServiceError.invalidRow("co-occurring tag row is missing required fields")
+      }
+      return TagCoOccurrence(tag: try tag(from: row), noteCount: noteCount)
+    }
+  }
+
+  /// The co-occurrence query itself, so the query-plan test measures the
+  /// statement production runs rather than a copy of it. Nil means the
+  /// principal reaches nothing and the query is skipped entirely.
+  func coOccurringTagsStatement(
+    tagId: TagID,
+    limit: Int,
+    in database: SQLiteDatabase
+  ) throws -> (sql: String, bindings: [SQLiteValue])? {
+    guard limit > 0 else { return nil }
+    var predicates = ["subject.tag_id = ?", "peer.is_system = 0"]
+    // Folder tags and notebook-kind tags are organizational, not subjects, so
+    // they never become a co-occurrence chip (T1).
+    predicates.append("(peer.class_id IS NULL OR peer.class_id NOT IN (?, ?))")
+    var bindings: [SQLiteValue] = [
+      .id(tagId),
+      .id(TagClassID.folder),
+      .id(TagClassID.documentKind)
+    ]
+    let reachableLibraryIds = try reachableLibraryIds(in: database)
+    if let reachableLibraryIds, reachableLibraryIds.isEmpty { return nil }
+    appendLibraryScopePredicate(
+      alias: "n",
+      reachableLibraryIds: reachableLibraryIds,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+    appendOwnerScopePredicate(
+      alias: "n",
+      actingUserId: actingUserId,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+    appendLongTermMemoryExclusionPredicate(
+      alias: "n",
+      excludesLongTermMemory: actingUserId != nil || isUnauthenticatedPrincipal,
+      predicates: &predicates,
+      bindings: &bindings
+    )
+    appendPendingNotebookIngestExclusionPredicate(
+      alias: "n",
+      excludesPendingNotebookIngests: !allowsPendingNotebookIngestAccess,
+      predicates: &predicates
+    )
+    bindings.append(.int(Int64(limit)))
+    return (
+      """
+      SELECT peer.tag_id AS tag_id, peer.name AS name, peer.class_id AS class_id,
+        peer.parent_tag_id AS parent_tag_id, peer.is_system AS is_system,
+        peer.created_at AS created_at,
+        COUNT(DISTINCT shared.note_id) AS note_count
+      FROM note_tags subject
+      JOIN note_tags shared
+        ON shared.note_id = subject.note_id AND shared.tag_id <> subject.tag_id
+      JOIN notes n ON n.note_id = subject.note_id
+      JOIN tags peer ON peer.tag_id = shared.tag_id
+      WHERE \(predicates.joined(separator: " AND "))
+      GROUP BY peer.tag_id
+      ORDER BY note_count DESC, peer.name, peer.tag_id
+      LIMIT ?
+      """,
+      bindings
+    )
   }
 }
 
