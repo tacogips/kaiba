@@ -1,5 +1,12 @@
 # Document import completion audit
 
+Superseded in part (2026-10-01): the "Graph/figure crops in Markdown" and
+"Original/Text page reader" rows describe behaviour that
+[specs/design-document-page-images.md](specs/design-document-page-images.md)
+replaces with an image-only reader, hidden OCR search text and no figure
+extraction. The other rows remain a historical record of the September 13
+state.
+
 Audit date: 2026-09-13. Scope is the user's full PDF/image → analysis/OCR/figures
 → notebook/page-note → original/text reader → configurable tags workflow.
 Current-state implementation and evidence were inspected, rather than inferring

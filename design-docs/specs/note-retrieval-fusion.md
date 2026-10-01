@@ -210,6 +210,20 @@ low `term_coverage` as weak evidence, and to use `include_linked` for
 guidance; no extra provider round is forced, so simple lookups stay one call
 (the Adaptive-RAG caution in the survey).
 
+## Retrieval text for document page notes (2026-10-01)
+
+The FTS `body` column is indexed with the note's retrieval text. Snippets and
+the LIKE fallback use the same text. For a note that is not a page note,
+`search_text` is NULL, so the retrieval text is exactly `body_markdown`.
+
+For a document page note, the retrieval text is `body_markdown` joined with the
+hidden OCR text in `notes.search_text`. Its `body_markdown` is empty after
+version 22. Because OCR stays in the `body` column at weight 1.0, page notes
+rank exactly as they did when OCR lived in the body.
+
+See [design-document-page-images.md](design-document-page-images.md) DP2 and
+DP4.
+
 ## Non-goals
 
 - No embedding model, no vector table, no learned reranker.

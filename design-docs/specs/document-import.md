@@ -5,7 +5,18 @@ see [configuration and authentication](google-document-ai-ocr.md).
 
 ## Status
 
-Accepted
+Accepted. PDF and standalone image imports follow
+[design-document-page-images.md](design-document-page-images.md) (2026-10-01):
+
+- Page notes are read as deterministic page images only.
+- OCR text is stored in hidden `notes.search_text` and used only for search and
+  RAG.
+- Figure extraction and `import.figures` are removed.
+
+That spec supersedes the Text/Original reader, the figure Markdown, and the
+body-digest statements in the "Page-preserving import migration" section below.
+The heading-split Markdown path (DI1 to DI5, DI7) for every other format is
+unchanged.
 
 ## Summary
 
@@ -145,6 +156,26 @@ credential environment-variable names, never credential values.
   snapshotting; DI7 deliberately excludes them).
 - Embedded-image recovery for CMYK/indexed color spaces and
   Linux-side extraction (DI7 is Apple-platform only).
+
+## Page-image reader (October 1, 2026)
+
+PDF and standalone image page notes no longer carry OCR text in `bodyMarkdown`.
+
+- **Reader**: shows only the stored origin image, which comes from the PDFKit
+  raster or the uploaded image bytes. The Text/Original toggle is removed.
+- **OCR storage**: OCR output from the first N pages at import, from `page-ocr`,
+  and from `recognizeDocumentPage` is written only to `notes.search_text`.
+  Search indexes it, and agent chat and tagging use it.
+- **Figure extraction**: there is no figure extraction and no `/files/` figure
+  Markdown. `import.figures` is ignored.
+- **Page note bodies**: they cannot be edited. Annotate pages with comments.
+- **Existing stores**: schema version 22 moves existing page bodies to
+  `search_text` in one idempotent transaction.
+
+Agent chat on a page sends the page image plus retrieved OCR text. See
+[design-document-page-images.md](design-document-page-images.md) DP1 to DP10
+for the behaviour, migration, budgets and provider transport. Statements below
+that conflict with this section are historical.
 
 ## Page-preserving import migration (September 13, 2026)
 

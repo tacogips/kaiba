@@ -862,6 +862,44 @@ not claimed as coverage.
   text-only because comments have no file relation; adding a comment-file
   schema is outside this change.
 
+  **Amended by AI12:** for a document page subject, the subject page's
+  `source-page-image` is the one implicitly disclosed subject file. Other
+  subject note and notebook files are still never disclosed.
+
+- **AI12 — Document page chat: page image plus RAG text (2026-10-01).**
+  When the chat subject is a document page note (PDF page or imported image),
+  the reply request carries:
+  - `AgentInvocationRequest.images` with exactly one image, the current page's
+    deterministic origin. The image must be at most 3,750,000 bytes and be JPEG,
+    PNG, GIF or WebP.
+  - the page's hidden OCR text, at most 8,000 characters;
+  - the previous and next pages' OCR text, at most 2,000 characters each;
+  - up to six windows of retrieved related notes, at most 1,500 characters each.
+    They come from the existing fusion search, use the latest user message as
+    the query, are scoped to the conversation's library and user, and are framed
+    as reference data.
+
+  Images are transported as follows:
+  - agent-gateway: claude-code uses `stream-json` stdin, including the server
+    Claude subscription; codex uses its native `--image`; anthropic, openai,
+    gemini and openrouter use ACP `--image`.
+  - Anthropic Messages: base64 image blocks.
+  - OpenAI chat completions, including openai and openrouter credentials: data
+    URL `image_url` parts.
+
+  Text fallback: `cursor` and other gateway vendors, and `openai-compatible`
+  credentials, drop the image. They add the line "The page image could not be
+  sent to this model; answer from the recognized text." and keep all text
+  context.
+
+  Further rules:
+  - Edit mode is refused for page subjects.
+  - Notebook-subject context, tag extraction and agent-tool previews read the
+    retrieval text (body plus hidden OCR).
+  - Full rules: [design-document-page-images.md](design-document-page-images.md),
+    DP8 and DP9. AI1's request shape gains the optional `images` list. All other
+    purposes send none.
+
 ## Chat Composer Security and Validation Boundary
 
 - Authentication, subject/conversation ownership, read-only enforcement,

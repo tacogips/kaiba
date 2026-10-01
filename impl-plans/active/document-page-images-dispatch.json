@@ -1,0 +1,580 @@
+{
+  "taskId": "document-page-images",
+  "workflowMode": "issue-resolution",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-242",
+  "implementationBranch": "main",
+  "baseBranch": "main",
+  "remote": "origin",
+  "originalHead": "cdfcca3e2c5f3e934f697e48b0f23c0df2eaadb0",
+  "evidenceRoot": "tmp/document-page-images",
+  "planDocPath": "impl-plans/active/document-page-images.md",
+  "designDocPaths": [
+    "design-docs/specs/design-document-page-images.md",
+    "design-docs/specs/document-import.md",
+    "design-docs/specs/ai-agent-integration.md",
+    "design-docs/specs/note-retrieval-fusion.md",
+    "design-docs/user-qa/document-page-images.md",
+    "design-docs/document-import-completion-audit.md"
+  ],
+  "planPaths": [
+    "impl-plans/active/document-page-images.md",
+    "impl-plans/active/document-page-images-p1-storage-contract.md",
+    "impl-plans/active/document-page-images-p2-agent-image-contract.md",
+    "impl-plans/active/document-page-images-p3-import-ocr-pipeline.md",
+    "impl-plans/active/document-page-images-p4-retrieval-consumers.md",
+    "impl-plans/active/document-page-images-p5-undo-snapshots.md",
+    "impl-plans/active/document-page-images-p6-page-chat-context.md",
+    "impl-plans/active/document-page-images-p7-gateway-image-transport.md",
+    "impl-plans/active/document-page-images-p8-toolloop-image-transport.md",
+    "impl-plans/active/document-page-images-p9-web-reader.md",
+    "impl-plans/active/document-page-images-p10-integration-contracts.md"
+  ],
+  "notes": {
+    "executionRules": "The index impl-plans/active/document-page-images.md 'Shared execution rules' are binding: all workers on branch main in one working directory; no git write commands, worktrees or branches by workers; fresh read plus pre/post shasum -a 256 per edited file recorded in the worker's own plan Progress Log; edit only own writePaths; sharedPaths are read-only unless a sharedPathNotes entry says otherwise; never touch .riela/, the index (except P10), other plans' files, lockfiles; no broad formatters.",
+    "evidenceLayout": "Evidence lives under the untracked, gitignored evidenceRoot tmp/document-page-images, one subdirectory per plan short id (P1..P10) as the plans specify. A re-run after a failed attempt writes into tmp/document-page-images/<P#>/attempt-<n>/ and keeps earlier logs. Create directories with mkdir -p first; tee does not create them.",
+    "shell": "Verification commands use bash-only ${PIPESTATUS[0]}; run them under bash (they are wrapped in bash -c). A blank exit= is not evidence. Tests need PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; run mise run build once first.",
+    "peerBreaks": "Concurrent wave-2 workers share one .build. A compile failure in a file outside the worker's writePaths owned by another in-flight plan is not edited; retry up to 3 times, then record 'blocked by peer <planId>' (not passed) for P10 to re-run.",
+    "commitPolicy": "AGENTS.md governs commits: no emojis, no machine-local absolute paths, no secrets, no downloaded PDFs or real recognized text. .riela/ is untracked and never committed; tmp/ is gitignored. Workers do not commit; P10 does not commit, push or archive plans; workflow finalization owns that."
+  },
+  "reviewContext": {
+    "issueReference": "No GitHub issue. Inline workflowInput 'PDF pages: show deterministic page images only; OCR text is search/RAG-only; agent Q&A uses page image + RAG context' (workflow opus-luna-design-and-implement-review-loop-session-242; plan review accepted in comm-003161, Step 4 output comm-003160).",
+    "userProblem": "kaiba OCRs PDFs and images into Markdown that the user reads, and the web reader offers a confusing Text/Original toggle. The user wants to read PDF and image imports only as deterministic page images, keep OCR text solely for search and RAG, and ask the agent about the page they are viewing with the page image plus retrieved related text.",
+    "requiredOutcomes": [
+      "Document page notebooks (PDF pages and standalone images) render page images only; no Text/Original toggle and no 'Page display mode' group in web/ (DP1).",
+      "OCR text moves to hidden server-internal notes.search_text; page bodies are ''; FTS, LIKE search, snippets, fusion, tagging, agent tools and notebook previews read one retrieval-text function (DP2, DP4).",
+      "Schema version 22 migration moves existing page bodies into search_text in one idempotent transaction; versions 19/20/21 upgrade through 21 to 22; existing notebooks keep images and searchability (DP5).",
+      "Manual/deferred per-page OCR updates only search_text, title, documentPage metadata and FTS; body writes and undo/redo body deltas on page notes are refused (DP3, DP6).",
+      "Rasterization stays deterministic PDFKit/CoreGraphics code with determinism tests; figure extraction and import.figures are dropped (DP7).",
+      "Agent chat on a page sends exactly one page origin image (<= 3,750,000 bytes, allowed media types) plus page OCR, neighbour OCR and up to 6 retrieved windows within a fixed budget, scoped to the conversation library and acting user (DP8, I5, I6).",
+      "Image transport for agent-gateway (mirroring ImageOCRDocumentConverter vendor matrix incl. Claude subscription), Anthropic Messages and OpenAI chat completions; text fallback notice for vendors without image support and openai-compatible (DP9).",
+      "GraphQL SDL, KaibaClient types and web DocumentPageMetadata unchanged; new semantic contract tests (DP10).",
+      "Non-PDF/non-image imports and normal notes unchanged, with a regression test; mise run check passes."
+    ],
+    "nonGoals": [
+      "Changing import or rendering of EPUB, DOCX, PPTX, XLSX, OpenDocument, RTF, CSV, HTML, Markdown, text or other heading-split formats.",
+      "Embedding models, vector stores or LLM calls at index time.",
+      "Sending adjacent page images, re-rasterizing at another resolution, or downscaling oversize standalone images.",
+      "Model-level vision detection or automatic text-only retry.",
+      "Translating page-image notebooks (open user-qa item).",
+      "Exposing search_text through GraphQL, KaibaClient or the CLI."
+    ],
+    "constraints": [
+      "Only PDF and standalone image imports switch to the page-image model; all other formats and user-authored notes stay Markdown exactly as today.",
+      "Rasterization must be deterministic code; no agent/LLM in the image path; no provider output stored as source-page-image (I4).",
+      "Swift files under 1000 lines; existing SwiftPM target boundaries; swiftlint (mise run lint) after Swift edits; no emojis.",
+      "Never print or commit secrets; no downloaded PDFs or real recognized text; synthetic fixtures only.",
+      "Do not touch the untracked .riela/ directory or unrelated files.",
+      "web/ server-credential rule tests must keep passing; run mise run web:check and mise run tauri:check when web/ changes."
+    ],
+    "designDecisionsAndRationale": [
+      "DP2: dedicated nullable notes.search_text column (last column) instead of bodyMarkdown or metaJSON, so OCR is hidden yet indexed and non-page notes keep NULL.",
+      "Retrieval text is one function of (body_markdown, search_text) used by every consumer, so FTS insert and contentless-delete replay stay byte-identical.",
+      "DP3: body writes on page notes throw 'document page text is managed by OCR; use a comment to annotate the page'; comments are the annotation path.",
+      "DP5: one-way migration on first open, pure SQLite, single transaction; upgradeToVersion21 records literal 21 so a crash cannot mark an unmigrated store as 22.",
+      "DP6: undo snapshots carry searchText; legacy snapshots are normalized with the same transform as the migration; applyNoteBodyDelta refuses page notes.",
+      "DP7: page images already show figures, so figure extraction is removed; previously attached figure files stay attached but unshown.",
+      "DP8: one image only, neighbours as OCR text, top-6 retrieved windows of 1,500 chars, subject OCR bounded to 8,000 chars; note edit mode is disabled for page subjects.",
+      "DP9: vision support decided per provider, not per model; gateway transport mirrors the live-verified ImageOCRDocumentConverter.performConversion matrix.",
+      "DP10: no SDL change, so older clients keep working."
+    ],
+    "intentionalTradeoffs": [
+      "Text a user typed into a page note before upgrade becomes hidden search/RAG text rather than being deleted.",
+      "A vision-incapable model under an image-capable provider fails the turn with the provider error; no automatic retry.",
+      "openai-compatible credentials always use the text fallback.",
+      "An older web client against a new server sees empty Text views but working Original views.",
+      "Transitional cross-wave test failures are expected; only P10's full check is authoritative."
+    ],
+    "supportedEdgeCases": [
+      "Pending pages store search_text '' (not NULL) and are skipped by the migration selector.",
+      "Migration is idempotent; a store with the column already present still migrates; version 23 is rejected as unsupported future.",
+      "Deferred OCR on a migrated page with existing search text prepends the recognized text.",
+      "Standalone PNG import follows the page model, including a maximumOCRPages: 0 pending variant.",
+      "Oversize (> 3,750,000 bytes) or unsupported media type origin, or missing origin file: no image, explicit notice line in context.",
+      "Retrieval excludes other libraries and agent-conversation notebooks; empty or punctuation-only queries produce no retrieval section.",
+      "Requests without images are byte-identical to today for gateway argv/stdin and tool-loop request bodies.",
+      "Legacy undo snapshots without a searchText key restore with the migration transform; non-page snapshots restore with search_text NULL.",
+      "Config JSON containing import.figures still decodes."
+    ],
+    "outOfScopeEdgeCases": [
+      "Notebook translation of page-image notebooks (receives empty bodies for now).",
+      "Per-model or per-credential image switches.",
+      "Multi-image or adjacent-page image requests."
+    ],
+    "sourcePaths": [
+      "Sources/AppCore/NoteStoreSchema.swift",
+      "Sources/AppCore/NoteSearchIndex.swift",
+      "Sources/AppCore/NoteService.swift",
+      "Sources/AppCore/NoteModels.swift",
+      "Sources/AppCore/DocumentPageProcessing.swift",
+      "Sources/AppCore/NoteService+PageImport.swift",
+      "Sources/AppCore/NoteService+DocumentPageOCR.swift",
+      "Sources/AppCore/PDFDocumentImageExtractor.swift",
+      "Sources/AppCore/NoteSearch.swift",
+      "Sources/AppCore/NoteSearchLexicalFusion.swift",
+      "Sources/AppCore/AITagExtraction.swift",
+      "Sources/AppCore/KaibaAgentToolbox.swift",
+      "Sources/AppCore/NoteService+NotebookStats.swift",
+      "Sources/AppCore/NoteService+ActionHistory.swift",
+      "Sources/AppCore/NoteService+UndoRedo.swift",
+      "Sources/AppCore/NoteService+AgentChatContext.swift",
+      "Sources/AppCore/NoteService+AgentChat.swift",
+      "Sources/AppCore/AgentInvoking.swift",
+      "Sources/AppCore/ToolLoopModelClient.swift",
+      "Sources/AppCore/AgentGatewayCLIInvoker.swift",
+      "Sources/AppCore/ClaudeImageInput.swift",
+      "Sources/AppCore/ImageOCRDocumentConverter.swift",
+      "Sources/AppCore/AnthropicMessagesToolLoopClient.swift",
+      "Sources/AppCore/OpenAIChatCompletionsToolLoopClient.swift",
+      "Sources/AppCore/UserAgentToolLoopRunner.swift",
+      "Sources/AppCore/UserAgentRuntime.swift",
+      "web/src/components/DocumentNotebookReader.tsx",
+      "web/src/notes/memoComposer.ts",
+      "web/src/notes/documentPages.ts",
+      "web/src/panes/ReaderPane.tsx"
+    ],
+    "residualRisksFromPlanReview": [
+      "P7 no-image byte-identity test is partly tautological; explicit no --image / stream-json / -- assertions guard it.",
+      "P7 vendor table says 'served' but the converter uses executionMode != .local (covers subscription); mirror the converter exactly.",
+      "P8 'memberwise init' wording: UserAgentToolLoopRunner has an explicit init; add a defaulted supportsImageInput parameter there.",
+      "P3 standalone-image test references a fixture in a test P3 replaces; read the fixture before replacing it."
+    ]
+  },
+  "plans": [
+    {
+      "planId": "P1-storage-contract",
+      "planPath": "impl-plans/active/document-page-images-p1-storage-contract.md",
+      "progressPath": "impl-plans/active/document-page-images-p1-storage-contract.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/NoteRetrievalText.swift",
+        "Sources/AppCore/NoteStoreSchema.swift",
+        "Sources/AppCore/NoteSearchIndex.swift",
+        "Sources/AppCore/NoteModels.swift",
+        "Sources/AppCore/NoteService.swift",
+        "Tests/AppCoreTests/NoteRetrievalTextTests.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaVersion22Tests.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaTests.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaCanonicalTests.swift",
+        "impl-plans/active/document-page-images-p1-storage-contract.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteService+DocumentPageOCR.swift",
+        "Sources/AppCore/NoteService+Maintenance.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteService+DocumentPageOCR.swift", "intendedEdit": "read-only: importedPageMetadata(_:) defines a page note"},
+        {"path": "Sources/AppCore/NoteService+Maintenance.swift", "intendedEdit": "read-only: checkStore used as FTS health check in tests"}
+      ],
+      "acceptanceCriteria": [
+        "Pinned P1 contracts from the index exist exactly: noteRetrievalText, noteSearchText, noteSearchTexts, isDocumentPageMetaJSON, NoteService.isDocumentPageNote, documentPageTextMigration, NoteService.retrievalText(for:)/retrievalTexts(for:), NotePageDraft.searchText defaulting to nil.",
+        "notes.search_text TEXT is the last column; NoteStoreSchema.currentVersion == 22; upgradeToVersion21 records literal 21; upgradeToVersion22 adds the column, moves page bodies to search_text, refreshes FTS and records 22 in one transaction.",
+        "ftsPayload and currentFTSPayload index retrieval text byte-identically.",
+        "updateNoteBodyInDatabase refuses document page notes with 'document page text is managed by OCR; use a comment to annotate the page' unless completingPendingDocumentOCR.",
+        "NoteService.swift and NoteStoreSchema.swift stay under 1000 lines; Progress Log records pre/post SHA-256 per edited file."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreSchema 2>&1 | tee tmp/document-page-images/P1/schema.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteRetrievalText 2>&1 | tee tmp/document-page-images/P1/retrieval.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteSearch 2>&1 | tee tmp/document-page-images/P1/search.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreMaintenance 2>&1 | tee tmp/document-page-images/P1/maintenance.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "wc -l Sources/AppCore/NoteService.swift Sources/AppCore/NoteStoreSchema.swift",
+        "grep -n 'currentVersion = 22' Sources/AppCore/NoteStoreSchema.swift",
+        "grep -n 'recordSchemaVersion(21' Sources/AppCore/NoteStoreSchema.swift",
+        "grep -n 'search_text' Sources/AppCore/NoteSearchIndex.swift"
+      ]
+    },
+    {
+      "planId": "P2-agent-image-contract",
+      "planPath": "impl-plans/active/document-page-images-p2-agent-image-contract.md",
+      "progressPath": "impl-plans/active/document-page-images-p2-agent-image-contract.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/AgentInvoking.swift",
+        "Sources/AppCore/ToolLoopModelClient.swift",
+        "Tests/AppCoreTests/AgentInvocationImageTests.swift",
+        "impl-plans/active/document-page-images-p2-agent-image-contract.md"
+      ],
+      "sharedPaths": [],
+      "acceptanceCriteria": [
+        "AgentInvocationImage (data, mediaType, maximumBytes 3_750_000, allowedMediaTypes jpeg/png/gif/webp, isTransportable) exists in AgentInvoking.swift.",
+        "AgentInvocationRequest.images with init parameter images: [] last; imageFallbackNotice and droppingImagesWithNotice() with the index semantics.",
+        "ToolLoopModelRequest gains images = [] and imageMessageIndex = nil with defaults so existing call sites compile unchanged.",
+        "No invoker, client, runner, chat code or ToolLoopMessage changes."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentInvocationImage 2>&1 | tee tmp/document-page-images/P2/contract.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter UserAgentToolLoop 2>&1 | tee tmp/document-page-images/P2/toolloop.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentGatewayCLIInvoker 2>&1 | tee tmp/document-page-images/P2/gateway.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "grep -n 'struct AgentInvocationImage' Sources/AppCore/AgentInvoking.swift",
+        "grep -n 'imageMessageIndex' Sources/AppCore/ToolLoopModelClient.swift"
+      ]
+    },
+    {
+      "planId": "P9-web-reader",
+      "planPath": "impl-plans/active/document-page-images-p9-web-reader.md",
+      "progressPath": "impl-plans/active/document-page-images-p9-web-reader.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "web/src/components/DocumentNotebookReader.tsx",
+        "web/src/components/DocumentNotebookReader.integration.tsx",
+        "web/src/notes/memoComposer.ts",
+        "web/src/notes/memoComposer.test.ts",
+        "impl-plans/active/document-page-images-p9-web-reader.md"
+      ],
+      "sharedPaths": [
+        "web/src/components/MemoTab.tsx",
+        "web/src/notes/documentPages.ts"
+      ],
+      "sharedPathNotes": [
+        {"path": "web/src/components/MemoTab.tsx", "intendedEdit": "read-only: verify canEnableNoteEdit receives the full Note with metaJSON and record the evidence"},
+        {"path": "web/src/notes/documentPages.ts", "intendedEdit": "read-only: use documentPageMetadata(note)"}
+      ],
+      "acceptanceCriteria": [
+        "DocumentNotebookReader always renders the origin image stage; mode signal, 'Page display mode' group and Text/Original buttons removed; bodyMarkdown never rendered for page notes.",
+        "Binding-aware keyboard, swipe and button navigation, page jump, batch loading and stale-response handling preserved.",
+        "OCR button labelled 'Make page searchable' (busy 'Making page searchable...'); pending notice 'Text on this page is not searchable yet.' when ocrState is pending.",
+        "canEnableNoteEdit returns false for document page subjects and true otherwise; existing cases unchanged.",
+        "ReaderPane.tsx, documentPages.ts, client.ts, web/src-tauri/ and server-credential code untouched."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P9 && cd web && mise exec -- bun test src/notes/memoComposer.test.ts 2>&1 | tee ../tmp/document-page-images/P9/unit.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P9 && cd web && mise exec -- bun x vitest run src/components/DocumentNotebookReader.integration.tsx src/components/MemoTab.integration.tsx 2>&1 | tee ../tmp/document-page-images/P9/dom.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P9 && mise run web:check 2>&1 | tee tmp/document-page-images/P9/web-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P9 && mise run tauri:check 2>&1 | tee tmp/document-page-images/P9/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c '! grep -rn \"Page display mode\" web/src'",
+        "grep -n 'documentPageMetadata' web/src/notes/memoComposer.ts"
+      ]
+    },
+    {
+      "planId": "P3-import-ocr-pipeline",
+      "planPath": "impl-plans/active/document-page-images-p3-import-ocr-pipeline.md",
+      "progressPath": "impl-plans/active/document-page-images-p3-import-ocr-pipeline.md",
+      "wave": 2,
+      "dependsOn": ["P1-storage-contract"],
+      "writePaths": [
+        "Sources/AppCore/DocumentPageProcessing.swift",
+        "Sources/AppCore/NoteService+PageImport.swift",
+        "Sources/AppCore/NoteService+DocumentPageOCR.swift",
+        "Sources/AppCore/DocumentPageFigureExtraction.swift",
+        "Sources/AppCore/DocumentFigureTextBounds.swift",
+        "Sources/AppCore/DocumentImportProviderFactory.swift",
+        "Sources/AppCore/KaibaConfiguration.swift",
+        "Sources/AppCore/CommandImport.swift",
+        "Sources/AppGraphQL/NoteGraphQLService.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+DocumentImport.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+DocumentPages.swift",
+        "Sources/AppServer/KaibaServerRuntime.swift",
+        "Tests/AppCoreTests/DocumentPageProcessingTests.swift",
+        "Tests/AppCoreTests/DocumentPageImportTests.swift",
+        "Tests/AppCoreTests/DocumentVisualProviderTests.swift",
+        "Tests/AppCoreTests/DocumentFigureTextBoundsTests.swift",
+        "Tests/AppCoreTests/GoogleDocumentAIPageRecognizerTests.swift",
+        "Tests/AppCoreTests/PDFPageRasterDeterminismTests.swift",
+        "Tests/AppGraphQLTests/DocumentPageOCRGraphQLTests.swift",
+        "Tests/AppGraphQLTests/DocumentUploadGraphQLTests.swift",
+        "Tests/AppGraphQLTests/GoogleDocumentAIOCRGraphQLTests.swift",
+        "impl-plans/active/document-page-images-p3-import-ocr-pipeline.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteService.swift",
+        "Sources/AppCore/NoteRetrievalText.swift",
+        "Sources/AppCore/PDFDocumentImageExtractor.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteService.swift", "intendedEdit": "remove the completingPendingDocumentOCR parameter and its requirePendingDocumentOCRNote branch from updateNoteBodyInDatabase and make the document-page body guard unconditional; no other change; fresh read and hash first"},
+        {"path": "Sources/AppCore/NoteRetrievalText.swift", "intendedEdit": "read-only: P1 helpers"},
+        {"path": "Sources/AppCore/PDFDocumentImageExtractor.swift", "intendedEdit": "read-only: used by the determinism test"}
+      ],
+      "acceptanceCriteria": [
+        "Page import writes body '' and OCR into search_text via NotePageDraft.searchText; pending pages store search_text '' and ocrState pending; pendingBodySHA256 not written but still decodes.",
+        "Only the source-page-image origin is attached per page; embedded extraction results ignored; figure extraction, makeFigureExtractor, import.figures and all figureExtractor wiring removed; DocumentPageFigureExtraction.swift and DocumentFigureTextBounds.swift (and DocumentFigureTextBoundsTests.swift) deleted.",
+        "recognizeDocumentPage(noteId:recognizer:analyzer:) writes only search_text (recognized prepended to existing), title, documentPage metadata, notebook updated_at and FTS; never writes body_markdown or records action history; conflict on concurrent change.",
+        "PDFPageRasterDeterminismTests proves identical pageCapture bytes across runs with 1600 px longest side; processing tests prove provider calls never change origin bytes.",
+        "Standalone PNG import test (and maximumOCRPages: 0 variant) passes; heading-split import path untouched; DocumentAutoTaggingTests not edited (P10 owns it)."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentPage 2>&1 | tee tmp/document-page-images/P3/document-page.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter PDFPageRasterDeterminism 2>&1 | tee tmp/document-page-images/P3/determinism.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentVisualProvider 2>&1 | tee tmp/document-page-images/P3/visual-provider.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter GoogleDocumentAI 2>&1 | tee tmp/document-page-images/P3/google-docai.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentUploadGraphQL 2>&1 | tee tmp/document-page-images/P3/upload-graphql.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentImport 2>&1 | tee tmp/document-page-images/P3/document-import.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run build",
+        "mise run lint",
+        "bash -c '! grep -rn \"figureExtractor\\|makeFigureExtractor\\|DocumentPageFigureExtracting\" Sources Tests'",
+        "bash -c 'test ! -e Sources/AppCore/DocumentPageFigureExtraction.swift && test ! -e Sources/AppCore/DocumentFigureTextBounds.swift'",
+        "wc -l Sources/AppCore/DocumentPageProcessing.swift Sources/AppCore/NoteService+PageImport.swift Sources/AppCore/NoteService+DocumentPageOCR.swift Sources/AppCore/NoteService.swift Sources/AppGraphQL/NoteGraphQLService.swift Sources/AppServer/KaibaServerRuntime.swift"
+      ]
+    },
+    {
+      "planId": "P4-retrieval-consumers",
+      "planPath": "impl-plans/active/document-page-images-p4-retrieval-consumers.md",
+      "progressPath": "impl-plans/active/document-page-images-p4-retrieval-consumers.md",
+      "wave": 2,
+      "dependsOn": ["P1-storage-contract"],
+      "writePaths": [
+        "Sources/AppCore/NoteSearch.swift",
+        "Sources/AppCore/NoteSearchLexicalFusion.swift",
+        "Sources/AppCore/AITagExtraction.swift",
+        "Sources/AppCore/KaibaAgentToolbox.swift",
+        "Sources/AppCore/NoteService+NotebookStats.swift",
+        "Tests/AppCoreTests/DocumentPageRetrievalTextTests.swift",
+        "Tests/AppCoreTests/KaibaAgentToolboxTests.swift",
+        "impl-plans/active/document-page-images-p4-retrieval-consumers.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteRetrievalText.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteRetrievalText.swift", "intendedEdit": "read-only: P1 retrieval-text helpers"}
+      ],
+      "acceptanceCriteria": [
+        "Snippets in NoteSearch and NoteSearchLexicalFusion use batch-loaded retrieval text; LIKE search also matches n.search_text with correct positional bindings.",
+        "AI tagging subject context, get_notebook preview and notebook list first-note previews use retrieval text; get_note adds page_text only for page notes.",
+        "Non-page behaviour byte-identical; no GraphQL, ranking, bm25 or fusion algorithm change; NoteSearch.swift under 1000 lines."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P4 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentPageRetrievalText 2>&1 | tee tmp/document-page-images/P4/retrieval-text.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P4 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteSearch 2>&1 | tee tmp/document-page-images/P4/note-search.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P4 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaAgentToolbox 2>&1 | tee tmp/document-page-images/P4/toolbox.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P4 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AITag 2>&1 | tee tmp/document-page-images/P4/ai-tag.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P4 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NotebookStats 2>&1 | tee tmp/document-page-images/P4/notebook-stats.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "wc -l Sources/AppCore/NoteSearch.swift",
+        "bash -c '! grep -n \"snippet(from: note.bodyMarkdown\" Sources/AppCore/NoteSearch.swift Sources/AppCore/NoteSearchLexicalFusion.swift'",
+        "grep -n 'search_text LIKE' Sources/AppCore/NoteSearch.swift",
+        "grep -n 'page_text' Sources/AppCore/KaibaAgentToolbox.swift"
+      ]
+    },
+    {
+      "planId": "P5-undo-snapshots",
+      "planPath": "impl-plans/active/document-page-images-p5-undo-snapshots.md",
+      "progressPath": "impl-plans/active/document-page-images-p5-undo-snapshots.md",
+      "wave": 2,
+      "dependsOn": ["P1-storage-contract"],
+      "writePaths": [
+        "Sources/AppCore/NoteService+ActionHistory.swift",
+        "Sources/AppCore/NoteService+UndoRedo.swift",
+        "Tests/AppCoreTests/DocumentPageUndoTests.swift",
+        "impl-plans/active/document-page-images-p5-undo-snapshots.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteRetrievalText.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteRetrievalText.swift", "intendedEdit": "read-only: documentPageTextMigration and NoteService.isDocumentPageNote"}
+      ],
+      "acceptanceCriteria": [
+        "captureNoteSnapshot (and notebook snapshots) carry searchText; restoreNoteSnapshot applies documentPageTextMigration and restores search_text (NULL for non-page, '' for pending pages).",
+        "applyNoteBodyDelta refuses document page notes with a conflict before any write; action-log cursor unchanged on refusal.",
+        "Non-page undo/redo unchanged; no action-history schema change."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P5 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentPageUndo 2>&1 | tee tmp/document-page-images/P5/page-undo.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P5 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteActionHistory 2>&1 | tee tmp/document-page-images/P5/action-history.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P5 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter UndoRedo 2>&1 | tee tmp/document-page-images/P5/undo-redo.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "grep -n 'searchText' Sources/AppCore/NoteService+ActionHistory.swift",
+        "grep -n 'isDocumentPageNote' Sources/AppCore/NoteService+UndoRedo.swift"
+      ]
+    },
+    {
+      "planId": "P6-page-chat-context",
+      "planPath": "impl-plans/active/document-page-images-p6-page-chat-context.md",
+      "progressPath": "impl-plans/active/document-page-images-p6-page-chat-context.md",
+      "wave": 2,
+      "dependsOn": ["P1-storage-contract", "P2-agent-image-contract"],
+      "writePaths": [
+        "Sources/AppCore/DocumentPageChatContext.swift",
+        "Sources/AppCore/NoteService+AgentChatContext.swift",
+        "Sources/AppCore/NoteService+AgentChat.swift",
+        "Tests/AppCoreTests/DocumentPageChatContextTests.swift",
+        "impl-plans/active/document-page-images-p6-page-chat-context.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteRetrievalText.swift",
+        "Sources/AppCore/AgentInvoking.swift",
+        "Sources/AppCore/NoteSearch.swift",
+        "Sources/AppCore/NoteService+Search.swift",
+        "Sources/AppCore/NoteService+Files.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteRetrievalText.swift", "intendedEdit": "read-only: P1 helpers"},
+        {"path": "Sources/AppCore/AgentInvoking.swift", "intendedEdit": "read-only: P2 AgentInvocationImage and AgentInvocationRequest.images"},
+        {"path": "Sources/AppCore/NoteSearch.swift", "intendedEdit": "read-only: call searchNotesInDatabase and NoteSearchScope; P4 owns edits"},
+        {"path": "Sources/AppCore/NoteService+Search.swift", "intendedEdit": "read-only: scope construction pattern"},
+        {"path": "Sources/AppCore/NoteService+Files.swift", "intendedEdit": "read-only: resolveFileContent, getFileRecord, attachFile"}
+      ],
+      "acceptanceCriteria": [
+        "DocumentPageChatBudget, DocumentPageChatAdditions, documentPageChatAdditions(subjectNoteId:libraryId:query:) and documentPageChatSystemPromptSuffix exist as pinned.",
+        "Page chat request carries at most one transportable origin image, page OCR bounded to 8,000 chars, neighbour OCR bounded to 2,000 chars, and at most 6 retrieved windows of 1,500 chars, scoped to the conversation library and acting user, excluding agent-conversation notebooks.",
+        "Oversize/unsupported or missing origin produces the specified notice line and no image.",
+        "Non-page chat context and system prompt byte-identical; edit mode refused for page subjects with 'note edit mode is not available for document pages'.",
+        "NoteService+AgentChat.swift additions <= 30 lines and file under 1000 lines."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentPageChatContext 2>&1 | tee tmp/document-page-images/P6/page-chat-context.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentChat 2>&1 | tee tmp/document-page-images/P6/agent-chat.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter MemoNotebook 2>&1 | tee tmp/document-page-images/P6/memo-notebook.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "wc -l Sources/AppCore/NoteService+AgentChat.swift Sources/AppCore/DocumentPageChatContext.swift",
+        "grep -n 'documentPageChatAdditions' Sources/AppCore/NoteService+AgentChat.swift",
+        "grep -n 'note edit mode is not available for document pages' Sources/AppCore/NoteService+AgentChat.swift"
+      ]
+    },
+    {
+      "planId": "P7-gateway-image-transport",
+      "planPath": "impl-plans/active/document-page-images-p7-gateway-image-transport.md",
+      "progressPath": "impl-plans/active/document-page-images-p7-gateway-image-transport.md",
+      "wave": 2,
+      "dependsOn": ["P2-agent-image-contract"],
+      "writePaths": [
+        "Sources/AppCore/AgentGatewayImageTransport.swift",
+        "Sources/AppCore/AgentGatewayCLIInvoker.swift",
+        "Sources/AppCore/ClaudeImageInput.swift",
+        "Sources/AppCore/ImageOCRDocumentConverter.swift",
+        "Tests/AppCoreTests/AgentGatewayImageTransportTests.swift",
+        "Tests/AppCoreTests/ClaudeImageInputTests.swift",
+        "impl-plans/active/document-page-images-p7-gateway-image-transport.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/AgentInvoking.swift",
+        "Sources/AppCore/AgentGatewayExecutionIsolation.swift",
+        "Sources/AppCore/AgentGatewaySubscription.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/AgentInvoking.swift", "intendedEdit": "read-only: P2 AgentInvocationImage and droppingImagesWithNotice()"},
+        {"path": "Sources/AppCore/AgentGatewayExecutionIsolation.swift", "intendedEdit": "read-only: AgentGatewayExecutionContext"},
+        {"path": "Sources/AppCore/AgentGatewaySubscription.swift", "intendedEdit": "read-only: executionContext(mode:vendor:binary:arguments:environment:apiKeyEnvironment:)"}
+      ],
+      "acceptanceCriteria": [
+        "Gateway chat image transport mirrors ImageOCRDocumentConverter.performConversion exactly per vendor and mode (claude-code stream-json, codex --image, anthropic/openai/gemini/openrouter --image, workspace copy for non-local modes); other vendors use droppingImagesWithNotice().",
+        "imageCapableVendors equals ImageOCRDocumentConverter.supportedVendors (visibility widened only).",
+        "ClaudeImageInput.encode(prompt:imageData:mediaType:) added; encode(prompt:imageURL:) output byte-identical.",
+        "Text-only argv and stdin byte-identical; temp image deleted after the run; no image bytes in errors or logs; AgentGatewayCLIInvoker.swift call-site change <= 15 lines and file under 1000 lines."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P7 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentGatewayImageTransport 2>&1 | tee tmp/document-page-images/P7/image-transport.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P7 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentGateway 2>&1 | tee tmp/document-page-images/P7/agent-gateway.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P7 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ClaudeImageInput 2>&1 | tee tmp/document-page-images/P7/claude-image-input.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P7 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentGatewayIsolation 2>&1 | tee tmp/document-page-images/P7/gateway-isolation.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "wc -l Sources/AppCore/AgentGatewayCLIInvoker.swift",
+        "grep -n 'AgentGatewayImageTransport' Sources/AppCore/AgentGatewayCLIInvoker.swift",
+        "bash -c '! grep -n \"private static let supportedVendors\" Sources/AppCore/ImageOCRDocumentConverter.swift'"
+      ]
+    },
+    {
+      "planId": "P8-toolloop-image-transport",
+      "planPath": "impl-plans/active/document-page-images-p8-toolloop-image-transport.md",
+      "progressPath": "impl-plans/active/document-page-images-p8-toolloop-image-transport.md",
+      "wave": 2,
+      "dependsOn": ["P2-agent-image-contract"],
+      "writePaths": [
+        "Sources/AppCore/AnthropicMessagesToolLoopClient.swift",
+        "Sources/AppCore/OpenAIChatCompletionsToolLoopClient.swift",
+        "Sources/AppCore/UserAgentToolLoopRunner.swift",
+        "Sources/AppCore/UserAgentRuntime.swift",
+        "Tests/AppCoreTests/ToolLoopImageInputTests.swift",
+        "impl-plans/active/document-page-images-p8-toolloop-image-transport.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/AgentInvoking.swift",
+        "Sources/AppCore/ToolLoopModelClient.swift",
+        "Sources/AppCore/UserAgentCredential.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/AgentInvoking.swift", "intendedEdit": "read-only: P2 images and droppingImagesWithNotice()"},
+        {"path": "Sources/AppCore/ToolLoopModelClient.swift", "intendedEdit": "read-only: P2 ToolLoopModelRequest.images and imageMessageIndex"},
+        {"path": "Sources/AppCore/UserAgentCredential.swift", "intendedEdit": "read-only: UserAgentProvider"}
+      ],
+      "acceptanceCriteria": [
+        "UserAgentToolLoopRunner gains supportsImageInput (default false via the explicit init); drops images with notice when unsupported; passes images and imageMessageIndex (last .user message of the current turn) in every loop request.",
+        "UserAgentRuntime.makeInvoker sets supportsImageInput true for anthropic, openai, openrouter and false for openai-compatible.",
+        "Anthropic requestBody emits base64 image blocks before the text block (cache_control preserved); OpenAI requestBody emits content array text then image_url data URL, only on the indexed user message.",
+        "Requests without images byte-identical to today; ToolLoopMessage unchanged."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P8 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ToolLoopImageInput 2>&1 | tee tmp/document-page-images/P8/toolloop-image.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P8 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter UserAgentToolLoop 2>&1 | tee tmp/document-page-images/P8/user-agent-toolloop.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P8 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter UserAgent 2>&1 | tee tmp/document-page-images/P8/user-agent.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "grep -n 'image_url' Sources/AppCore/OpenAIChatCompletionsToolLoopClient.swift",
+        "grep -n '\"base64\"' Sources/AppCore/AnthropicMessagesToolLoopClient.swift",
+        "grep -n 'supportsImageInput' Sources/AppCore/UserAgentRuntime.swift"
+      ]
+    },
+    {
+      "planId": "P10-integration-contracts",
+      "planPath": "impl-plans/active/document-page-images-p10-integration-contracts.md",
+      "progressPath": "impl-plans/active/document-page-images-p10-integration-contracts.md",
+      "wave": 3,
+      "dependsOn": [
+        "P3-import-ocr-pipeline",
+        "P4-retrieval-consumers",
+        "P5-undo-snapshots",
+        "P6-page-chat-context",
+        "P7-gateway-image-transport",
+        "P8-toolloop-image-transport",
+        "P9-web-reader"
+      ],
+      "writePaths": [
+        "Tests/AppCoreTests/DocumentPageAgentChatProviderTests.swift",
+        "Tests/AppCoreTests/DocumentImportFormatRegressionTests.swift",
+        "Tests/AppGraphQLTests/DocumentPageContractGraphQLTests.swift",
+        "Tests/AppCoreTests/DocumentAutoTaggingTests.swift",
+        "impl-plans/active/document-page-images.md",
+        "impl-plans/active/document-page-images-p10-integration-contracts.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore",
+        "Sources/AppGraphQL",
+        "Sources/AppServer",
+        "Tests/AppCoreTests",
+        "Tests/AppGraphQLTests",
+        "web/src"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore", "intendedEdit": "serial repair of compile or test breaks caused by two plans' interaction only, after re-reading the owning plan; pre/post hash logged in the P10 Progress Log"},
+        {"path": "Sources/AppGraphQL", "intendedEdit": "same serial-repair rule; GraphQLContractProjector.swift and GraphQLNoteSchemaContract.swift SDL must not change"},
+        {"path": "Sources/AppServer", "intendedEdit": "same serial-repair rule; expected integration point is KaibaServerRuntime provider wiring only"},
+        {"path": "Tests/AppCoreTests", "intendedEdit": "repair existing tests only when a cross-plan behaviour change makes an assertion stale, keeping original intent"},
+        {"path": "Tests/AppGraphQLTests", "intendedEdit": "same rule as Tests/AppCoreTests"},
+        {"path": "web/src", "intendedEdit": "repair only if mise run web:check fails due to P9 integration; never change server-credential rule test expectations"}
+      ],
+      "acceptanceCriteria": [
+        "End-to-end provider tests: imported page chat sends page-2 origin image plus retrieved 'Lighthouse maintenance log' via Anthropic Messages and OpenAI request bodies and agent-gateway (anthropic, codex, claude-code local); fallbacks (cursor, supportsImageInput false) send no image plus the fallback notice; each turn completes as answered.",
+        "Non-PDF regression: epub, docx, html, md, txt heading-split imports produce Markdown bodies with search_text NULL, no documentPage metadata, editable bodies and unchanged search; normal note create/update/search unchanged.",
+        "GraphQL contract semantics: page bodyMarkdown '' with OCR absent from metaJSON; searchNotes finds by OCR with OCR snippet; updateNote returns the DP3 error; recognizeDocumentPage returns empty body and ocrState complete; NoteGraphQLSchemaInventoryTests and KaibaClient tests pass unchanged.",
+        "DocumentAutoTaggingTests updated to expect body '' and OCR in search_text while tagging still sees the OCR.",
+        "Full mise run check exits 0; no Swift file reaches 1000 lines; no 'Page display mode' in web/src; git status shows no .riela/ change and only planned files plus logged repairs; git diff --check clean; index status updated with evidence paths; no commit, push or archive."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentPageAgentChatProvider 2>&1 | tee tmp/document-page-images/P10/agent-chat-provider.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentImportFormatRegression 2>&1 | tee tmp/document-page-images/P10/format-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentPageContractGraphQL 2>&1 | tee tmp/document-page-images/P10/contract-graphql.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentAutoTagging 2>&1 | tee tmp/document-page-images/P10/auto-tagging.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter DocumentPage 2>&1 | tee tmp/document-page-images/P10/document-page.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentChat 2>&1 | tee tmp/document-page-images/P10/agent-chat.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteSearch 2>&1 | tee tmp/document-page-images/P10/note-search.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreSchema 2>&1 | tee tmp/document-page-images/P10/note-store-schema.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteGraphQLSchemaInventory 2>&1 | tee tmp/document-page-images/P10/schema-inventory.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaClient 2>&1 | tee tmp/document-page-images/P10/kaiba-client.log; echo exit=${PIPESTATUS[0]}'",
+        "mise run lint",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && mise run web:check 2>&1 | tee tmp/document-page-images/P10/web-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && mise run tauri:check 2>&1 | tee tmp/document-page-images/P10/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P10 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise run check 2>&1 | tee tmp/document-page-images/P10/full-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c '! grep -rn \"Page display mode\" web/src'",
+        "bash -c 'find Sources -name \"*.swift\" -exec wc -l {} + | sort -n | tail -5'",
+        "git status --short",
+        "git diff --check"
+      ]
+    }
+  ]
+}
