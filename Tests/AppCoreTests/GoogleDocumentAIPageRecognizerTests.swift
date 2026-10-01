@@ -133,13 +133,16 @@ final class GoogleDocumentAIPageRecognizerTests: XCTestCase {
     let note = try XCTUnwrap(service.listNotes(notebookId: notebook.notebookId).first)
     XCTAssertEqual(try NoteService.importedPageMetadata(note).ocrState, "pending")
     _ = try AppCommand(arguments: base + ["page-ocr", note.noteId.rawValue], environment: environment).run()
-    XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "日本語の本文。")
+    XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(note.noteId, in: $0) }, "日本語の本文。")
     let previousIds = Set(try service.listNotebooks().map(\.notebookId))
     _ = try AppCommand(arguments: base + ["import", source.path, "--max-ocr-pages", "1"], environment: environment).run()
     let added = try service.listNotebooks().filter { !previousIds.contains($0.notebookId) }
     XCTAssertEqual(added.count, 1)
     let imported = try XCTUnwrap(added.first)
-    XCTAssertEqual(try service.listNotes(notebookId: imported.notebookId).first?.bodyMarkdown, "日本語の本文。")
+    let importedNote = try XCTUnwrap(service.listNotes(notebookId: imported.notebookId).first)
+    XCTAssertEqual(importedNote.bodyMarkdown, "")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(importedNote.noteId, in: $0) }, "日本語の本文。")
   }
 
   private var resource: String { "projects/test/locations/us/processors/ocr" }

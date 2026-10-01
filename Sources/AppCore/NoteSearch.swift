@@ -293,6 +293,7 @@ func searchNotesInDatabase(
 
   let rows = try database.query(sql, bindings: bindings)
   let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
+  let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
   var results = try rows.map { row in
     guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("search row is missing note_id")
@@ -303,7 +304,10 @@ func searchNotesInDatabase(
     let rank = Double(row["rank"] ?? "") ?? 0
     return NoteSearchResult(
       note: note,
-      snippet: snippet(from: note.bodyMarkdown, query: query),
+      snippet: snippet(
+        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId]),
+        query: query
+      ),
       rank: rank,
       matchedTags: note.tags.map(\.tag)
     )
@@ -442,6 +446,7 @@ private func searchNotesByFilters(
     bindings: bindings
   )
   let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
+  let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
   return try rows.map { row in
     guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("filtered search row is missing note_id")
@@ -451,7 +456,10 @@ private func searchNotesByFilters(
     }
     return NoteSearchResult(
       note: note,
-      snippet: snippet(from: note.bodyMarkdown, query: ""),
+      snippet: snippet(
+        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId]),
+        query: ""
+      ),
       rank: 0,
       matchedTags: note.tags.map(\.tag)
     )
@@ -478,6 +486,7 @@ private func searchNotesByTextLike(
     (
       n.title LIKE ? ESCAPE '\\'
       OR n.body_markdown LIKE ? ESCAPE '\\'
+      OR n.search_text LIKE ? ESCAPE '\\'
       OR EXISTS (
         SELECT 1
         FROM note_tags nt
@@ -488,7 +497,9 @@ private func searchNotesByTextLike(
     )
     """
   ]
-  var bindings: [SQLiteValue] = [.text(likePattern), .text(likePattern), .text(likePattern)]
+  var bindings: [SQLiteValue] = [
+    .text(likePattern), .text(likePattern), .text(likePattern), .text(likePattern)
+  ]
   appendLibraryScopePredicate(
     alias: "n",
     reachableLibraryIds: scope.reachableLibraryIds,
@@ -563,6 +574,7 @@ private func searchNotesByTextLike(
     bindings: bindings
   )
   let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
+  let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
   return try rows.map { row in
     guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("fallback search row is missing note_id")
@@ -572,7 +584,10 @@ private func searchNotesByTextLike(
     }
     return NoteSearchResult(
       note: note,
-      snippet: snippet(from: note.bodyMarkdown, query: query),
+      snippet: snippet(
+        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId]),
+        query: query
+      ),
       rank: 1,
       matchedTags: note.tags.map(\.tag)
     )
@@ -615,6 +630,7 @@ private func appendLinkedNeighborResults(
   guard !candidateIds.isEmpty else {
     return directResults
   }
+  let searchTexts = try noteSearchTexts(graphResults.map { $0.note.noteId }, in: database)
   var predicates: [String] = [
     "n.note_id IN (\(placeholders(count: candidateIds.count)))"
   ]
@@ -673,7 +689,13 @@ private func appendLinkedNeighborResults(
     }
     return NoteSearchResult(
       note: graphResult.note,
-      snippet: snippet(from: graphResult.note.bodyMarkdown, query: query),
+      snippet: snippet(
+        from: noteRetrievalText(
+          bodyMarkdown: graphResult.note.bodyMarkdown,
+          searchText: searchTexts[graphResult.note.noteId]
+        ),
+        query: query
+      ),
       rank: graphResult.weight,
       matchedTags: graphResult.note.tags.map(\.tag),
       isLinkedNeighbor: true

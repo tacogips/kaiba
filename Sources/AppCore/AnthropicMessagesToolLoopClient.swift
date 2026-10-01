@@ -88,7 +88,8 @@ struct AnthropicMessagesToolLoopClient: ToolLoopModelClient {
       "max_tokens": .integer(Int64(maxTokens)),
       "stream": .bool(true),
       "messages": .array(request.messages.enumerated().map { index, message in
-        messageJSON(message, cacheBreakpoint: index == lastIndex)
+        let images = index == request.imageMessageIndex ? request.images.filter(\.isTransportable) : []
+        return messageJSON(message, cacheBreakpoint: index == lastIndex, images: images)
       })
     ]
     if !request.systemPrompt.isEmpty {
@@ -112,14 +113,29 @@ struct AnthropicMessagesToolLoopClient: ToolLoopModelClient {
     return try JSONValue.object(body).encodedData()
   }
 
-  private static func messageJSON(_ message: ToolLoopMessage, cacheBreakpoint: Bool) -> JSONValue {
+  private static func messageJSON(
+    _ message: ToolLoopMessage,
+    cacheBreakpoint: Bool,
+    images: [AgentInvocationImage] = []
+  ) -> JSONValue {
     switch message {
     case .user(let text):
+      var blocks = images.map { image in
+        JSONValue.object([
+          "type": .string("image"),
+          "source": .object([
+            "type": .string("base64"),
+            "media_type": .string(image.mediaType),
+            "data": .string(image.data.base64EncodedString())
+          ])
+        ])
+      }
       var block: JSONObject = ["type": .string("text"), "text": .string(text)]
       if cacheBreakpoint {
         block["cache_control"] = cacheControl
       }
-      return .object(["role": .string("user"), "content": .array([.object(block)])])
+      blocks.append(.object(block))
+      return .object(["role": .string("user"), "content": .array(blocks)])
     case let .assistant(text, toolCalls):
       var blocks: [JSONValue] = []
       if !text.isEmpty {

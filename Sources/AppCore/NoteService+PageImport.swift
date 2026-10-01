@@ -54,31 +54,21 @@ public extension NoteService {
     ))
     var drafts: [NotePageDraft] = []
     for (index, page) in pages.enumerated() {
-      var body = page.markdown ?? ""
-      var originId: FileID?
-      for (imageIndex, image) in ([page.origin] + page.figures).enumerated() {
-        let fileId = FileID.generate()
-        staged.append(StagedImportFile(
-          id: fileId, stored: try store.store(data: image.data, fileId: fileId),
-          mediaType: image.mediaType, filename: image.suggestedFilename, pageIndex: index,
-          role: imageIndex == 0 ? .sourcePageImage : .embedded, position: imageIndex == 0 ? page.pageNumber : imageIndex
-        ))
-        if imageIndex == 0 {
-          originId = fileId
-        } else {
-          body += "\n\n![Figure \(imageIndex)](/files/\(fileId.rawValue))"
-        }
-      }
-      guard let originId else { throw NoteServiceError.invalidInput("page has no original image") }
+      let originId = FileID.generate()
+      staged.append(StagedImportFile(
+        id: originId, stored: try store.store(data: page.origin.data, fileId: originId),
+        mediaType: page.origin.mediaType, filename: page.origin.suggestedFilename, pageIndex: index,
+        role: .sourcePageImage, position: page.pageNumber
+      ))
       let metadata = ImportedPageMetadata(
         pageNumber: page.pageNumber, ocrState: page.markdown == nil ? "pending" : "complete",
-        analysis: page.analysis, originFileId: originId.rawValue,
-        pendingBodySHA256: page.markdown == nil ? sha256Hex(Data(body.utf8)) : nil
+        analysis: page.analysis, originFileId: originId.rawValue, pendingBodySHA256: nil
       )
       let pageJSON = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(metadata))
       drafts.append(NotePageDraft(
-        bodyMarkdown: body, readOnly: false,
-        metaJSON: try JSONValue.object(["documentPage": pageJSON]).encodedString(), noteNumber: page.pageNumber
+        bodyMarkdown: "", readOnly: false,
+        metaJSON: try JSONValue.object(["documentPage": pageJSON]).encodedString(), noteNumber: page.pageNumber,
+        searchText: page.markdown ?? ""
       ))
     }
     let metaJSON = try Self.importMetaJSON(

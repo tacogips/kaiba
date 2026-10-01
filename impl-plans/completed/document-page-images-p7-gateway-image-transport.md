@@ -3,7 +3,7 @@
 **planId**: P7-gateway-image-transport
 **Wave**: 2
 **dependsOn**: P2-agent-image-contract
-**Status**: Not started
+**Status**: Completed. Accepted in session-246 (test-integrity, adversarial and serial integration review). The combined-tree `mise run check` exited 0 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP9 (gateway rows), I5; `design-docs/specs/ai-agent-integration.md` AI12
 **Index**: `impl-plans/active/document-page-images.md`
 
@@ -175,10 +175,15 @@ and save logs to `tmp/document-page-images/P7/`.
 
 ## Done criteria
 
-- [ ] `grep -n "AgentGatewayImageTransport" Sources/AppCore/AgentGatewayCLIInvoker.swift` matches.
-- [ ] `grep -n "private static let supportedVendors" Sources/AppCore/ImageOCRDocumentConverter.swift` prints nothing.
-- [ ] All commands above exit 0, and logs are saved.
+- [x] `grep -n "AgentGatewayImageTransport" Sources/AppCore/AgentGatewayCLIInvoker.swift` matches.
+- [x] `grep -n "private static let supportedVendors" Sources/AppCore/ImageOCRDocumentConverter.swift` prints nothing.
+- [x] All commands above exit 0, and logs are saved.
 
 ## Progress Log
 
 - 2026-10-01: Plan created.
+- 2026-10-02: Implemented gateway image transport in `AgentGatewayImageTransport.swift` and wired the existing invocation seam. The live OCR vendor set is now internal and shared. Claude stream-json encoding now accepts image bytes and media type; the URL API delegates to it.
+- 2026-10-02: Added fake-gateway coverage for local Anthropic, Codex, Claude Code, unsupported-vendor fallback, exact image-free argv/stdin, served workspace staging, missing-workspace failure, and vendor-set parity. Added URL/data byte-identity and TIFF rejection coverage.
+- 2026-10-02: `AgentGatewayImageTransport` passed 7/7 and `AgentGateway` passed 46 tests with 0 failures and 1 live-subscription skip (`tmp/document-page-images/P7/attempt-7/image-transport.log`, `attempt-7/agent-gateway.log`). `ClaudeImageInput` passed 3/3 and `DocumentGatewayIsolation` passed 3/3 (`attempt-7/claude-image-input.log`, `attempt-7/gateway-isolation.log`). Each log includes the final exit marker.
+- 2026-10-02: `mise run lint` exited 0 with four diagnostics outside P7 files: `NoteService.swift:720`, `ResendGatewayCLIMailSender.swift:75`, `DocumentPageImportTests.swift:187`, and `AITranslationTests.swift:71` (`attempt-7/repository-lint.log`). Strict changed-file SwiftLint exited 0 (`attempt-7/changed-file-swiftlint.log`). `AgentGatewayCLIInvoker.swift` is 984 lines and the invocation call site adds 15 lines (`attempt-7/static-checks.log`).
+- 2026-10-02: An initial compile used the plan's filename shorthand for the converter type; corrected to the repository's `AgentGatewayImageOCRConverter` declaration (`attempt-1/image-transport.log`). The first transport execution exposed two fixture assertion issues, corrected before passing (`attempt-2/image-transport.log`). A later full test build saw transient concurrent GraphQL test compilation errors (`attempt-3/image-transport.log`); the required P7 test commands passed on the updated shared tree in `attempt-7/`.

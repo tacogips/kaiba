@@ -13,8 +13,7 @@ public extension GraphQLNoteGraphQLService {
       DispatchQueue.global(qos: .userInitiated).async {
         continuation.resume(returning: noteMutation {
           let note = try service.recognizeDocumentPage(
-            noteId: noteId, recognizer: documentPageRecognizer, analyzer: documentPageAnalyzer,
-            figureExtractor: documentPageFigureExtractor
+            noteId: noteId, recognizer: documentPageRecognizer, analyzer: documentPageAnalyzer
           )
           return .init(result: .init(accepted: true, status: "ok"), note: GraphQLNoteDTO(note: note))
         })

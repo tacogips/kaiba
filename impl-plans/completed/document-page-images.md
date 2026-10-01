@@ -1,6 +1,6 @@
 # Document Page Images: Implementation Plan Index
 
-**Status**: In progress. P1 and P9 are accepted and checkpointed (session-246). P2 is implemented but awaits verification and review. P3-P8 and P10 have not started.
+**Status**: Completed. All ten plans were accepted, and the combined-tree `mise run check` exited 0 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). The index and all plan files were archived to `impl-plans/completed/` at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` (DP1-DP10, I1-I6)
 **Related design updates**: `design-docs/specs/document-import.md`,
 `design-docs/specs/ai-agent-integration.md` (AI12), `design-docs/specs/note-retrieval-fusion.md`,
@@ -21,16 +21,20 @@ This index is edited only during serial reconciliation (P10).
 
 | Wave | planId | Plan file | dependsOn | State |
 | --- | --- | --- | --- | --- |
-| 1 | P1-storage-contract | `impl-plans/active/document-page-images-p1-storage-contract.md` | - | accepted (acceptedDependencies) |
-| 1 | P2-agent-image-contract | `impl-plans/active/document-page-images-p2-agent-image-contract.md` | - | implemented; resume verification and review |
-| 1 | P9-web-reader | `impl-plans/active/document-page-images-p9-web-reader.md` | - | accepted (acceptedDependencies) |
-| 2 | P3-import-ocr-pipeline | `impl-plans/active/document-page-images-p3-import-ocr-pipeline.md` | P1 | not started |
-| 2 | P4-retrieval-consumers | `impl-plans/active/document-page-images-p4-retrieval-consumers.md` | P1 | not started |
-| 2 | P5-undo-snapshots | `impl-plans/active/document-page-images-p5-undo-snapshots.md` | P1 | not started |
-| 2 | P6-page-chat-context | `impl-plans/active/document-page-images-p6-page-chat-context.md` | P1, P2 | not started |
-| 2 | P7-gateway-image-transport | `impl-plans/active/document-page-images-p7-gateway-image-transport.md` | P2 | not started |
-| 2 | P8-toolloop-image-transport | `impl-plans/active/document-page-images-p8-toolloop-image-transport.md` | P2 | not started |
-| 3 | P10-integration-contracts | `impl-plans/active/document-page-images-p10-integration-contracts.md` | P3, P4, P5, P6, P7, P8, P9 | not started |
+| 1 | P1-storage-contract | `impl-plans/completed/document-page-images-p1-storage-contract.md` | - | completed (accepted session-242) |
+| 1 | P2-agent-image-contract | `impl-plans/completed/document-page-images-p2-agent-image-contract.md` | - | completed (accepted session-246) |
+| 1 | P9-web-reader | `impl-plans/completed/document-page-images-p9-web-reader.md` | - | completed (accepted session-242) |
+| 2 | P3-import-ocr-pipeline | `impl-plans/completed/document-page-images-p3-import-ocr-pipeline.md` | P1 | completed (accepted session-246) |
+| 2 | P4-retrieval-consumers | `impl-plans/completed/document-page-images-p4-retrieval-consumers.md` | P1 | completed (accepted session-246) |
+| 2 | P5-undo-snapshots | `impl-plans/completed/document-page-images-p5-undo-snapshots.md` | P1 | completed (accepted session-246) |
+| 2 | P6-page-chat-context | `impl-plans/completed/document-page-images-p6-page-chat-context.md` | P1, P2 | completed (accepted session-246) |
+| 2 | P7-gateway-image-transport | `impl-plans/completed/document-page-images-p7-gateway-image-transport.md` | P2 | completed (accepted session-246) |
+| 2 | P8-toolloop-image-transport | `impl-plans/completed/document-page-images-p8-toolloop-image-transport.md` | P2 | completed (accepted session-246) |
+| 3 | P10-integration-contracts | `impl-plans/completed/document-page-images-p10-integration-contracts.md` | P3, P4, P5, P6, P7, P8, P9 | completed (accepted session-246) |
+
+The dispatch manifest `impl-plans/active/document-page-images-dispatch.json`
+is a workflow runtime artifact. It stays in `impl-plans/active/`, and its
+`planPath` values keep the paths used at dispatch time.
 
 Accepted plans are listed under `acceptedDependencies` in
 `impl-plans/active/document-page-images-dispatch.json`, not under `plans`. A
@@ -148,10 +152,10 @@ P2 owns these, in `Sources/AppCore/AgentInvoking.swift` and `Sources/AppCore/Too
 
 ## Completion criteria (whole feature)
 
-- [ ] All ten plans are marked done in their Progress Logs, with evidence logs.
-- [ ] `grep -rn "Page display mode" web/src` returns no matches.
-- [ ] `PKG_CONFIG_PATH=... mise run check` exits 0. Log path recorded in P10.
-- [ ] `git status --short` shows no change to `.riela/` and no unrelated files.
+- [x] All ten plans are marked done in their Progress Logs, with evidence logs.
+- [x] `grep -rn "Page display mode" web/src` returns no matches.
+- [x] `PKG_CONFIG_PATH=... mise run check` exits 0. Log path recorded in P10.
+- [x] `git status --short` shows no change to `.riela/` and no unrelated files.
 
 ## Progress Log
 
@@ -168,3 +172,28 @@ P2 owns these, in `Sources/AppCore/AgentInvoking.swift` and `Sources/AppCore/Too
   `.riela/`. P2 resumes from its existing code. The resume instructions are in
   the manifest `resume` field and the uncommitted P2 plan, and logs go to
   `tmp/document-page-images/P2/attempt-2/`.
+- 2026-10-02 (P10 Step 6): End-to-end page-2 chat tests pass through Anthropic
+  Messages, OpenAI chat completions and agent-gateway (anthropic, codex,
+  claude-code local); cursor and image-disabled fallbacks complete with the
+  fallback notice. EPUB, DOCX, HTML, Markdown, text, normal note and GraphQL
+  contract regressions pass. The final full check exited 0 (XCTest 1003 passed,
+  5 skipped; Swift Testing 135; Bun 173; Vitest 77). Evidence is recorded in
+  `tmp/document-page-images/P10/`, including `full-check.log`, focused test
+  logs, `web-check.log`, `tauri-check.log`, `attempt-2/repository-lint.log`,
+  `attempt-3/changed-file-swiftlint.log`, `page-display-search.log`,
+  `swift-file-line-counts.log`, `git-status.log` and `diff-check.log`.
+  `.riela/` was already untracked at the before-step6 boundary and was not
+  touched. No commit, push or archive was performed. Formal review and
+  finalization are downstream.
+- 2026-10-02 (Step 8 documentation refresh): Test-integrity, adversarial and
+  serial integration review accepted every plan. Serial reconciliation evidence
+  is under `tmp/document-page-images/reconcile-session-246/` (wave2 to wave5).
+  The final `mise run check` exited 0 (`wave5/full-check.log`), and
+  `wave5/page-display-grep.log` shows no "Page display mode" match. The status
+  headers and Done-criteria boxes were brought in line with that evidence, and
+  this index and the ten plan files moved to `impl-plans/completed/`.
+  `README.md`, `design-docs/specs/command.md`,
+  `design-docs/specs/document-import.md` and
+  `design-docs/specs/google-document-ai-ocr.md` now describe the image-only
+  reader, the hidden OCR text, page chat image transport and the removal of
+  `import.figures`.

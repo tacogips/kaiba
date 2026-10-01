@@ -3,7 +3,7 @@
 **planId**: P9-web-reader
 **Wave**: 1 (has no server dependency; it relies only on the existing `documentPage` metadata shape)
 **dependsOn**: none
-**Status**: Not started
+**Status**: Completed. Accepted in session-242 (test-integrity, adversarial and integration review). The combined-tree `mise run check` exited 0 in session-246 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP1, DP8 item 1 (web composer), DP10 (web)
 **Index**: `impl-plans/active/document-page-images.md`
 

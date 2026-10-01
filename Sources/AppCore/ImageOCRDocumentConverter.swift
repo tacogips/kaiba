@@ -195,7 +195,7 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
     )
   }
 
-  private static let supportedVendors: Set<String> = [
+  static let supportedVendors: Set<String> = [
     "anthropic", "claude-code", "codex", "gemini", "openai", "openrouter"
   ]
 }

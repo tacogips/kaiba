@@ -3,7 +3,7 @@
 **planId**: P4-retrieval-consumers
 **Wave**: 2
 **dependsOn**: P1-storage-contract
-**Status**: Not started
+**Status**: Completed. Accepted in session-246 (test-integrity, adversarial and serial integration review). The combined-tree `mise run check` exited 0 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP4 (all rows except the FTS row, which is P1, and the chat rows, which are P6); `design-docs/specs/note-retrieval-fusion.md` "Retrieval text for document page notes"
 **Index**: `impl-plans/active/document-page-images.md`
 
@@ -138,11 +138,15 @@ and save logs to `tmp/document-page-images/P4/`.
 
 ## Done criteria
 
-- [ ] `grep -n "snippet(from: note.bodyMarkdown" Sources/AppCore/NoteSearch.swift Sources/AppCore/NoteSearchLexicalFusion.swift` prints nothing.
-- [ ] `grep -n "search_text LIKE" Sources/AppCore/NoteSearch.swift` matches.
-- [ ] `grep -n "page_text" Sources/AppCore/KaibaAgentToolbox.swift` matches.
-- [ ] All commands above exit 0, and logs are saved.
+- [x] `grep -n "snippet(from: note.bodyMarkdown" Sources/AppCore/NoteSearch.swift Sources/AppCore/NoteSearchLexicalFusion.swift` prints nothing.
+- [x] `grep -n "search_text LIKE" Sources/AppCore/NoteSearch.swift` matches.
+- [x] `grep -n "page_text" Sources/AppCore/KaibaAgentToolbox.swift` matches.
+- [x] All assigned commands exit 0, and logs are saved.
 
 ## Progress Log
 
 - 2026-10-01: Plan created.
+- 2026-10-02: Implemented P4 retrieval consumers. FTS, filter, LIKE, relaxed, and graph search snippets now batch-load search_text and use noteRetrievalText; LIKE binds search_text after body_markdown. AI tagging note/notebook context, get_notebook previews, page-only get_note `page_text`, and notebook list first-note previews use retrieval text. Added synthetic page/normal note coverage for search, LIKE, relaxed coverage, tagging, toolbox fields, and notebook preview.
+- 2026-10-02 verification: `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter DocumentPageRetrievalText` passed 4 tests; `... swift test --filter NoteSearch` passed 1 test; `... swift test --filter KaibaAgentToolbox` passed 8; `... swift test --filter AITag` passed 12; `... swift test --filter NotebookStats` passed 6; supplemental `... swift test --filter NoteRetrievalFusion` passed 12 and `... swift test --filter NoteServiceTests` passed 40. Full logs are under `tmp/document-page-images/P4/`.
+- 2026-10-02 lint/static checks: the NUL-manifest selected-file command `xargs -0 swiftlint lint --strict --quiet --no-cache < tmp/document-page-images/P4/changed-swift-files.nul` passed. `mise run lint` exited 0 with 3 diagnostics in untouched baseline files (`NoteService.swift:720`, `ResendGatewayCLIMailSender.swift:75`, `AITranslationTests.swift:71`). `NoteSearch.swift` is 876 lines; diff check and all three required grep gates passed. First retrieval test attempt exposed two incorrect assertions (untitled heading assumption and out-of-scope single-notebook preview); corrected test assertions passed on rerun (`retrieval-text-final.log`).
+- 2026-10-02: Implementation-phase work is complete. Formal test-integrity, adversarial, and serial integration review remain downstream workflow steps.

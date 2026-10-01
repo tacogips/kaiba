@@ -37,8 +37,9 @@ struct OpenAIChatCompletionsToolLoopClient: ToolLoopModelClient {
     if !request.systemPrompt.isEmpty {
       messages.append(.object(["role": .string("system"), "content": .string(request.systemPrompt)]))
     }
-    for message in request.messages {
-      messages.append(contentsOf: try messageJSON(message))
+    for (index, message) in request.messages.enumerated() {
+      let images = index == request.imageMessageIndex ? request.images.filter(\.isTransportable) : []
+      messages.append(contentsOf: try messageJSON(message, images: images))
     }
     var body: JSONObject = [
       "model": .string(request.model),
@@ -60,10 +61,28 @@ struct OpenAIChatCompletionsToolLoopClient: ToolLoopModelClient {
     return try JSONValue.object(body).encodedData()
   }
 
-  private static func messageJSON(_ message: ToolLoopMessage) throws -> [JSONValue] {
+  private static func messageJSON(
+    _ message: ToolLoopMessage,
+    images: [AgentInvocationImage] = []
+  ) throws -> [JSONValue] {
     switch message {
     case .user(let text):
-      return [.object(["role": .string("user"), "content": .string(text)])]
+      let content: JSONValue
+      if images.isEmpty {
+        content = .string(text)
+      } else {
+        let textContent = JSONValue.object(["type": .string("text"), "text": .string(text)])
+        let imageContent = images.map { image in
+          JSONValue.object([
+            "type": .string("image_url"),
+            "image_url": .object([
+              "url": .string("data:\(image.mediaType);base64,\(image.data.base64EncodedString())")
+            ])
+          ])
+        }
+        content = .array([textContent] + imageContent)
+      }
+      return [.object(["role": .string("user"), "content": content])]
     case let .assistant(text, toolCalls):
       var object: JSONObject = ["role": .string("assistant")]
       object["content"] = text.isEmpty ? .null : .string(text)

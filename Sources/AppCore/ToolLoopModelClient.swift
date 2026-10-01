@@ -31,6 +31,9 @@ struct ToolLoopModelRequest: Equatable, Sendable {
   var systemPrompt: String
   var messages: [ToolLoopMessage]
   var tools: [AgentToolDefinition]
+  /// Images belong to the `.user` message at `imageMessageIndex`; clients ignore images when the index is nil, out of range, or not a user message.
+  var images: [AgentInvocationImage] = []
+  var imageMessageIndex: Int?
 }
 
 /// The provider seam: one streamed completion per call. Text deltas are

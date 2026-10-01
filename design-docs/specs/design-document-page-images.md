@@ -11,6 +11,9 @@ there) and adds one rule to [note-retrieval-fusion.md](note-retrieval-fusion.md)
 User-facing decisions taken without an explicit answer are listed in
 [../user-qa/document-page-images.md](../user-qa/document-page-images.md).
 
+Implemented (2026-10-02). The plan index and the ten per-plan files are archived
+under [../../impl-plans/completed/document-page-images.md](../../impl-plans/completed/document-page-images.md).
+
 ## Problem
 
 PDF and standalone image imports already create one note per physical page

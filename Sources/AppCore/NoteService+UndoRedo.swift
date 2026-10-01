@@ -213,6 +213,11 @@ extension NoteService {
   ) throws -> NoteActionApplication {
     let noteId = NoteID(base.entityId)
     let note = try requireWritableNote(noteId, in: db)
+    if Self.isDocumentPageNote(note) {
+      throw NoteServiceError.conflict(
+        "document page text is managed by OCR; this body edit can no longer be undone or redone: \(noteId)"
+      )
+    }
     guard let delta = base.delta else {
       throw NoteServiceError.conflict("body update entry carries no delta")
     }

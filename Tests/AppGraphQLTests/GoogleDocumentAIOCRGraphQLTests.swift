@@ -11,7 +11,13 @@ final class GoogleDocumentAIOCRGraphQLTests: XCTestCase {
     let response = await fixture.executor.execute(request(noteId: fixture.note.noteId))
     let payload = try XCTUnwrap(response.body["data"]?.asObject?["recognizeDocumentPage"]?.asObject)
     XCTAssertEqual(payload["result"]?.asObject?["accepted"], .bool(true))
-    XCTAssertEqual(payload["note"]?.asObject?["bodyMarkdown"], .string("右列。\n左列。"))
+    XCTAssertEqual(payload["note"]?.asObject?["bodyMarkdown"], .string(""))
+    XCTAssertEqual(
+      try fixture.executor.service.service.driver.withDatabase {
+        try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(fixture.note.noteId)]).first?["search_text"]
+      },
+      "右列。\n左列。"
+    )
     XCTAssertEqual(try fixture.executor.service.service.listFiles(noteId: fixture.note.noteId).filter { $0.role == .sourcePageImage }.count, 1)
   }
 

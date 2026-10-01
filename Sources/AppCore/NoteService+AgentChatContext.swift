@@ -13,6 +13,26 @@ struct AgentChatSubjectSnapshot {
 extension NoteService {
   func noteChatContext(_ note: Note, in database: SQLiteDatabase) throws -> String {
     let notebook = try requireNotebook(note.notebookId, in: database)
+    if Self.isDocumentPageNote(note) {
+      let metadata = try Self.importedPageMetadata(note)
+      let notebookCount = try database.query(
+        "SELECT COUNT(*) AS note_count FROM notes WHERE notebook_id = ?",
+        bindings: [.id(note.notebookId)]
+      ).first?["note_count"].flatMap(Int.init) ?? 0
+      let searchText = try noteSearchText(note.noteId, in: database) ?? ""
+      return """
+        # Source notebook
+        Title: \(notebook.title)
+        Notebook ID: \(notebook.notebookId)
+
+        # Source page
+        Note ID: \(note.noteId)
+        Page: \(metadata.pageNumber) of \(notebookCount)
+
+        ## Recognized text of this page (OCR, may contain errors)
+        \(searchText.isEmpty ? "(text not recognized yet)" : boundedDocumentPageText(searchText, limit: DocumentPageChatBudget.subjectPageCharacters))
+        """
+    }
     return """
       # Source notebook
       Title: \(notebook.title)
@@ -104,14 +124,20 @@ extension NoteService {
     let notebook = try requireNotebook(notebookId, in: database)
     let rows = try database.query(
       """
-      SELECT body_markdown
+      SELECT note_id, body_markdown, search_text
       FROM notes
       WHERE notebook_id = ?
       ORDER BY note_number, note_id
       """,
       bindings: [.id(notebookId)]
     )
-    return (["# \(notebook.title)"] + rows.compactMap { $0["body_markdown"] })
+    let searchTexts = try noteSearchTexts(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
+    let noteBodies = rows.compactMap { row -> String? in
+      guard let noteId = row.identifier("note_id", as: NoteID.self),
+            let body = row["body_markdown"] else { return nil }
+      return noteRetrievalText(bodyMarkdown: body, searchText: searchTexts[noteId])
+    }
+    return (["# \(notebook.title)"] + noteBodies)
       .joined(separator: "\n\n---\n\n")
   }
 

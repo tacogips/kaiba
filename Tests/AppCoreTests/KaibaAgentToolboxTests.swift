@@ -231,4 +231,35 @@ final class KaibaAgentToolboxTests: NoteTestCase {
     XCTAssertTrue(bounded.hasSuffix(AgentToolOutputLimits.truncationMarker))
     XCTAssertNotNil(bounded.data(using: .utf8))
   }
+
+  func testDocumentPageToolsExposeHiddenTextOnlyInPageFieldsAndPreviews() async throws {
+    let service = try makeService()
+    let metadata = ImportedPageMetadata(
+      pageNumber: 1,
+      ocrState: "complete",
+      analysis: DocumentPageAnalysis(),
+      originFileId: "synthetic-origin",
+      pendingBodySHA256: nil
+    )
+    let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(metadata))
+    let pageMetadata = try JSONValue.object(["documentPage": value]).encodedString()
+    let imported = try service.createNotebookWithNotes(
+      title: "Page notebook",
+      pages: [NotePageDraft(bodyMarkdown: "", metaJSON: pageMetadata, searchText: "Zephyrine harbor manifest")]
+    )
+    let page = try XCTUnwrap(imported.notes.first)
+    let normal = try service.createNote(bodyMarkdown: "ordinary markdown")
+    let tools = KaibaAgentToolbox(service: service)
+
+    let pageResult = try payload(await tools.execute(call("get_note", ["note_id": .id(page.noteId)])))
+    XCTAssertEqual(pageResult["body_markdown"]?.asString, "")
+    XCTAssertEqual(pageResult["page_text"]?.asString, "Zephyrine harbor manifest")
+
+    let normalResult = try payload(await tools.execute(call("get_note", ["note_id": .id(normal.noteId)])))
+    XCTAssertNil(normalResult["page_text"])
+
+    let notebookResult = try payload(await tools.execute(call("get_notebook", ["notebook_id": .id(page.notebookId)])))
+    let notes = try XCTUnwrap(notebookResult["notes"]?.asArray)
+    XCTAssertTrue(notes.first?["preview"]?.asString?.hasPrefix("Zephyrine") == true)
+  }
 }

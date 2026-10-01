@@ -25,15 +25,29 @@ final class DocumentPageProcessingTests: XCTestCase {
     XCTAssertEqual(pages[0].analysis.binding, .right)
     XCTAssertEqual(pages[0].analysis.writingMode, .vertical)
     XCTAssertEqual(pages[1].analysis, DocumentPageAnalysis())
-    XCTAssertEqual(pages[1].figures.count, 1)
     XCTAssertEqual(pages[1].origin.data, Data("2".utf8))
   }
 
-  func testVisualFigureProviderRunsOnlyWithinOCRLimit() throws {
-    let processor = DocumentPageProcessor(recognizer: PageRecognizer(), extractor: PageExtractor(), figureExtractor: FirstPageFigures())
-    let pages = try processor.prepare(fileURL: URL(fileURLWithPath: "/fixture.pdf"), maximumOCRPages: 1)
-    XCTAssertEqual(pages[0].figures.first?.suggestedFilename, "detected.png")
-    XCTAssertTrue(pages.dropFirst().allSatisfy { $0.figures.isEmpty })
+  func testEmbeddedExtractionResultsAreIgnoredAndProvidersDoNotChangeOrigins() throws {
+    let url = URL(fileURLWithPath: "/fixture.pdf")
+    let limitedRecognizer = CountingRecognizer()
+    let limitedAnalyzer = CountingAnalyzer()
+    let extractor = PageExtractor()
+    let pending = try DocumentPageProcessor(
+      recognizer: limitedRecognizer, analyzer: limitedAnalyzer, extractor: extractor
+    ).prepare(fileURL: url, maximumOCRPages: 0)
+    XCTAssertEqual(limitedRecognizer.calls, 0)
+    XCTAssertEqual(limitedAnalyzer.calls, 0)
+    XCTAssertEqual(pending.map(\.origin.data), [Data("1".utf8), Data("2".utf8), Data("3".utf8)])
+    XCTAssertTrue(pending.allSatisfy { $0.markdown == nil })
+
+    let recognizer = CountingRecognizer()
+    let analyzer = CountingAnalyzer()
+    let processed = try DocumentPageProcessor(recognizer: recognizer, analyzer: analyzer, extractor: extractor)
+      .prepare(fileURL: url, maximumOCRPages: nil)
+    XCTAssertEqual(recognizer.calls, 3)
+    XCTAssertEqual(analyzer.calls, 3)
+    XCTAssertEqual(processed.map(\.origin.data), pending.map(\.origin.data))
   }
 
   func testAllAndZeroLimits() throws {
@@ -86,9 +100,18 @@ private struct PageExtractor: DocumentImageExtracting {
   }
 }
 
-private struct FirstPageFigures: DocumentPageFigureExtracting {
-  func extractFigures(imageURL: URL, pageNumber: Int) throws -> [DocumentExtractedImage] {
-    XCTAssertEqual(pageNumber, 1)
-    return [DocumentExtractedImage(pageNumber: pageNumber, kind: .embedded, data: Data("crop".utf8), mediaType: "image/png", suggestedFilename: "detected.png")]
+private final class CountingRecognizer: DocumentPageRecognizing, @unchecked Sendable {
+  private(set) var calls = 0
+  func recognize(imageURL: URL) throws -> String {
+    calls += 1
+    return "recognized"
+  }
+}
+
+private final class CountingAnalyzer: DocumentPageAnalyzing, @unchecked Sendable {
+  private(set) var calls = 0
+  func analyze(imageURL: URL) throws -> DocumentPageAnalysis {
+    calls += 1
+    return DocumentPageAnalysis()
   }
 }

@@ -343,16 +343,17 @@ public struct AITagExtractionService: Sendable {
       let note = try service.getNote(noteId)
       let notebook = try service.getNotebook(note.notebookId)
       return SubjectContext(
-        markdown: Self.capped(note.bodyMarkdown),
+        markdown: Self.capped(try service.retrievalText(for: note)),
         isAgentConversation: Self.isAgentConversation(notebook)
       )
     case .notebook(let notebookId):
       let notebook = try service.getNotebook(notebookId)
       let notes = try service.listNotes(notebookId: notebookId, limit: 50, offset: 0)
+      let retrievalTexts = try service.retrievalTexts(for: notes)
       var markdown = "# Notebook: \(notebook.title)\n"
       for note in notes {
         markdown += "\n## \(note.title ?? "(untitled)")\n"
-        markdown += note.bodyMarkdown.prefix(4_000)
+        markdown += (retrievalTexts[note.noteId] ?? note.bodyMarkdown).prefix(4_000)
         markdown += "\n"
       }
       return SubjectContext(

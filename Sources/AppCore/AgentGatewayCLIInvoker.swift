@@ -95,7 +95,12 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     if let apiKeyEnvironment {
       arguments += ["--api-key-environment", apiKeyEnvironment]
     }
-    let promptText = Self.flattenedPrompt(request)
+    let selectedVendor = request.provider ?? vendor
+    let preparedRequest = try AgentGatewayImageTransport.prepare(
+      request: request, vendor: selectedVendor, mode: executionMode, arguments: &arguments
+    )
+    defer { preparedRequest.cleanup?() }
+    let promptText = Self.flattenedPrompt(preparedRequest.request)
     var lineHandler: (@Sendable (Data) -> Bool)?
     if let onChunk {
       lineHandler = { line in
@@ -105,8 +110,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
         return true
       }
     }
-    let selectedVendor = request.provider ?? vendor
-    let executionContext = try Self.executionContext(
+    var executionContext = try Self.executionContext(
       mode: executionMode,
       vendor: selectedVendor,
       binary: binary,
@@ -115,10 +119,17 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
       apiKeyEnvironment: apiKeyEnvironment
     )
     defer { executionContext.cleanUp() }
+    if let imageURL = preparedRequest.imageURL {
+      try AgentGatewayImageTransport.applyPostContext(
+        vendor: selectedVendor, mode: executionMode, imageURL: imageURL, context: &executionContext
+      )
+    }
     let execution = try await Self.run(
       binary: executionContext.binary,
       arguments: executionContext.arguments,
-      stdin: Data(promptText.utf8),
+      stdin: try AgentGatewayImageTransport.stdin(
+        prompt: promptText, vendor: selectedVendor, image: preparedRequest.image
+      ),
       environment: executionContext.environment,
       onStdoutLine: lineHandler,
       timeoutNanoseconds: invocationTimeoutNanoseconds,

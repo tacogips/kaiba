@@ -43,17 +43,34 @@ kaiba import scan.jpg --max-ocr-pages all
 kaiba page-ocr <note-id>
 ```
 
-Each physical page becomes a note with its original image. The reader switches
-between Text and Original modes, supports vertical text and binding-aware page
-navigation, and offers OCR for pending pages. Use `0` to import originals without
-OCR. The New Notebook screen also accepts PDF/image uploads up to 1 MiB.
+Each physical page becomes a note whose page image is rendered by deterministic
+PDFKit/CoreGraphics code (standalone images keep their own bytes); no AI provider
+produces page images. The reader shows only the page images, with vertical text
+and binding-aware page navigation, and offers OCR for pending pages. There is no
+Text/Original toggle. OCR text is hidden: it is used only for search and for
+agent context, and page bodies cannot be edited (annotate pages with comments).
+Use `0` to import originals without OCR. The New Notebook screen also accepts
+PDF/image uploads up to 1 MiB. Stores from earlier versions are migrated on first
+open (schema version 22): existing page text moves to the hidden search text, so
+those pages stay searchable.
 
-Native Vision handles local OCR. Configure `import.analysis`, `import.figures`,
-and optionally `import.ocr` for independent agent-gateway providers, including
-Codex and Claude Code subscriptions. Enable `ai.autoTag.auto` and set
+Asking the agent while viewing a page sends that page's image plus the page's
+OCR text, the neighbouring pages' OCR text and related text found by search.
+Anthropic Messages, OpenAI chat completions and agent-gateway (including the
+Claude Code subscription) receive the image. Providers that cannot accept
+images (for example `openai-compatible` and cursor) get only the text and a
+notice that the image was not sent.
+
+Native Vision handles local OCR. Configure `import.analysis` and optionally
+`import.ocr` for independent agent-gateway providers, including Codex and
+Claude Code subscriptions. Figure extraction has been removed, and an
+`import.figures` setting is ignored. Enable `ai.autoTag.auto` and set
 `ai.autoTag.prompt` to tag notebooks and recognized pages automatically.
-See [document import configuration](design-docs/specs/document-import.md) for
-examples, server subscription opt-ins, and upload limits.
+See [document import configuration](design-docs/specs/document-import.md) and
+[document page images](design-docs/specs/design-document-page-images.md) for
+examples, server subscription opt-ins, upload limits and the agent context budget.
+Other formats (EPUB, Word, HTML, Markdown, text, ...) still import as readable
+Markdown notes.
 
 ## Libraries
 

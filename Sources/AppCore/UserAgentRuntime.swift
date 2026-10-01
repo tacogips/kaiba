@@ -7,6 +7,15 @@ public struct UserAgentRuntimeFactory: Sendable {
   public var configuration: KaibaUserAgentConfiguration
   let streamer: any AgentHTTPStreaming
 
+  static func supportsImageInput(for provider: UserAgentProvider) -> Bool {
+    switch provider {
+    case .anthropic, .openai, .openrouter:
+      return true
+    case .openaiCompatible, .codex:
+      return false
+    }
+  }
+
   public init(configuration: KaibaUserAgentConfiguration) {
     self.init(configuration: configuration, streamer: URLSessionAgentHTTPStreamer())
   }
@@ -53,7 +62,8 @@ public struct UserAgentRuntimeFactory: Sendable {
       client: client,
       tools: KaibaAgentToolbox(service: service),
       model: credential.defaultModel,
-      maxToolRounds: configuration.resolvedMaxToolRounds
+      maxToolRounds: configuration.resolvedMaxToolRounds,
+      supportsImageInput: Self.supportsImageInput(for: credential.provider)
     )
   }
 

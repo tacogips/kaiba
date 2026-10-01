@@ -50,4 +50,21 @@ final class ClaudeImageInputTests: XCTestCase {
     try Data("image".utf8).write(to: unsupported)
     XCTAssertThrowsError(try ClaudeImageInput.encode(prompt: "Read", imageURL: unsupported))
   }
+
+  func testDataEncoderMatchesURLEncoderAndRejectsUnsupportedMediaType() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let bytes = Data([0x89, 0x50, 0x4e, 0x47, 0x00])
+    let imageURL = root.appendingPathComponent("page.png")
+    try bytes.write(to: imageURL)
+
+    XCTAssertEqual(
+      try ClaudeImageInput.encode(prompt: "RAG text", imageData: bytes, mediaType: "image/png"),
+      try ClaudeImageInput.encode(prompt: "RAG text", imageURL: imageURL)
+    )
+    XCTAssertThrowsError(
+      try ClaudeImageInput.encode(prompt: "RAG text", imageData: bytes, mediaType: "image/tiff")
+    )
+  }
 }

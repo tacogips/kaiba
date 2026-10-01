@@ -121,6 +121,15 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
     let comments = try service.listComments(noteId: noteId)
     let links = try service.listLinks(noteId: noteId)
     var payload = Self.noteJSON(note, includeBody: true)
+    if NoteService.isDocumentPageNote(note) {
+      let searchText = try service.driver.withDatabase { database in
+        try noteSearchText(noteId, in: database) ?? ""
+      }
+      payload["page_text"] = .string(AgentToolOutputLimits.bounded(
+        searchText,
+        maximumBytes: AgentToolOutputLimits.maximumNoteBodyBytes
+      ))
+    }
     payload["comments"] = .array(comments.map { comment in
       .object([
         "comment_id": .id(comment.commentId),
@@ -154,10 +163,11 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
     let offset = try input.optionalInt("offset", default: 0, range: 0...1_000_000)
     let notebook = try service.getNotebook(notebookId)
     let notes = try service.listNotes(notebookId: notebookId, limit: limit, offset: offset)
+    let retrievalTexts = try service.retrievalTexts(for: notes)
     var payload = Self.notebookJSON(notebook)
     payload["notes"] = .array(notes.map { note in
       var summary = Self.noteJSON(note, includeBody: false)
-      summary["preview"] = .string(String(note.bodyMarkdown.prefix(240)))
+      summary["preview"] = .string(String((retrievalTexts[note.noteId] ?? note.bodyMarkdown).prefix(240)))
       return .object(summary)
     })
     return .object(payload)

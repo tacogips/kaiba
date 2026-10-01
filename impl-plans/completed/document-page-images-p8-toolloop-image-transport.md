@@ -3,7 +3,7 @@
 **planId**: P8-toolloop-image-transport
 **Wave**: 2
 **dependsOn**: P2-agent-image-contract
-**Status**: Not started
+**Status**: Completed. Accepted in session-246 (test-integrity, adversarial and serial integration review). The combined-tree `mise run check` exited 0 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP9 (tool-loop rows), I5; `design-docs/specs/ai-agent-integration.md` AI12
 **Index**: `impl-plans/active/document-page-images.md`
 
@@ -125,11 +125,18 @@ and save logs to `tmp/document-page-images/P8/`.
 
 ## Done criteria
 
-- [ ] `grep -n "image_url" Sources/AppCore/OpenAIChatCompletionsToolLoopClient.swift` matches.
-- [ ] `grep -n "\"base64\"" Sources/AppCore/AnthropicMessagesToolLoopClient.swift` matches.
-- [ ] `grep -n "supportsImageInput" Sources/AppCore/UserAgentRuntime.swift` matches.
-- [ ] All commands above exit 0, and logs are saved.
+- [x] `grep -n "image_url" Sources/AppCore/OpenAIChatCompletionsToolLoopClient.swift` matches.
+- [x] `grep -n "\"base64\"" Sources/AppCore/AnthropicMessagesToolLoopClient.swift` matches.
+- [x] `grep -n "supportsImageInput" Sources/AppCore/UserAgentRuntime.swift` matches.
+- [x] All commands above exit 0, and logs are saved.
+
+Step 8 re-check (2026-10-02): the three greps match 2, 1 and 2 lines. The
+combined-tree check `tmp/document-page-images/reconcile-session-246/wave5/full-check.log`
+ends with `exit=0`.
 
 ## Progress Log
 
 - 2026-10-01: Plan created.
+- 2026-10-02: Implemented P8 in the runner, runtime, and provider clients. The runner now forwards images and the last current-turn user-message index on every tool-loop request; providers without image support and non-transportable images use P2's notice fallback. Anthropic emits base64 image blocks before text while preserving the text cache breakpoint; OpenAI emits text then image_url data URLs only on the indexed user message. Added six contract tests for both payloads, no-image byte equality, two-round forwarding, fallback, and provider mapping. Final gates passed: `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter ToolLoopImageInput` (6/6, log `tmp/document-page-images/P8/toolloop-image-final2.log`); the same prefix with `swift test --filter UserAgentToolLoop` (12/12, `tmp/document-page-images/P8/user-agent-toolloop.log`); the same prefix with `swift test --filter UserAgent` (30/30, `tmp/document-page-images/P8/user-agent.log`); `mise run build` (exit 0, `tmp/document-page-images/P8/build.log`); `mise run lint` (exit 0, three pre-existing warnings in unrelated `ResendGatewayCLIMailSender.swift:75`, `AITranslationTests.swift:71`, and `NoteService.swift:720`, `tmp/document-page-images/P8/mise-lint.log`); strict changed-file SwiftLint over `tmp/document-page-images/P8/changed-swift-files.nul` (exit 0, `tmp/document-page-images/P8/changed-file-swiftlint-rerun.log`). Earlier same-tree test attempts were blocked before test execution by concurrent P7 compile failure (`tmp/document-page-images/P8/toolloop-image.log`) and then concurrent AppGraphQL test references to internal `noteSearchText` (`tmp/document-page-images/P8/toolloop-image-rerun.log`); both shared-tree issues were corrected before the passing final test runs. No P8 implementation criteria remain outstanding; review and integration checks remain downstream workflow steps.
+- 2026-10-02: Final acceptance self-check aligned `supportsImageInput` to the plan's stored mutable property. Re-ran final-source gates successfully: `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter ToolLoopImageInput` (6 passed, 0 failed, `tmp/document-page-images/P8/toolloop-image-source-final.log`); corresponding `swift test --filter UserAgentToolLoop` (12 passed, 0 failed, `tmp/document-page-images/P8/user-agent-toolloop-source-final.log`); corresponding `swift test --filter UserAgent` (30 passed, 0 failed, `tmp/document-page-images/P8/user-agent-source-final.log`); `mise run lint` (exit 0, same three unrelated baseline warnings, `tmp/document-page-images/P8/mise-lint-source-final.log`); selected-file strict SwiftLint (exit 0, `tmp/document-page-images/P8/changed-file-swiftlint-final.log`).
+- 2026-10-02: Post-alignment production build also passed: `mise run build` (exit 0, `tmp/document-page-images/P8/build-source-final.log`).

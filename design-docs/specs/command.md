@@ -190,14 +190,20 @@ kaiba import <file-path> [--title <t>] [--kind-tag <tag>]
              [--output json|text]
 ```
 
-Converts a source document (pdf, doc/docx, ppt/pptx, excel, odt/ods/odp,
-rtf, epub, csv) to markdown in-process with the SwiftPM `AnydocKit` library,
+Converts a source document (doc/docx, ppt/pptx, excel, odt/ods/odp, rtf,
+epub, csv) to markdown in-process with the SwiftPM `AnydocKit` library,
 then stores an imported-material notebook with one note
 per top-level markdown section and the original file attached with the
-`source-document` role. Standalone PNG, JPEG, GIF, and WebP inputs use
-agent-gateway OCR configured under `import.ocr`; `vendor` and `model` are
-required. Document conversion requires no runtime path configuration. See
-`document-import.md`.
+`source-document` role. Document conversion requires no runtime path
+configuration.
+
+PDF and standalone PNG, JPEG, GIF, and WebP inputs become page-image
+notebooks instead: one note per physical page with a deterministically
+rendered origin image (PDFKit/CoreGraphics, never an AI provider). OCR text
+of the first `--max-ocr-pages` pages (default 3, `0`, N or `all`) is stored
+as hidden search/RAG text, not as the page body; `kaiba page-ocr <note-id>`
+recognizes a pending page later. Page bodies are not editable; annotate pages
+with comments. See `document-import.md` and `design-document-page-images.md`.
 
 ### AI
 

@@ -268,6 +268,9 @@ public extension NoteService {
             throw NoteServiceError.invalidInput("note edit mode requires a note subject")
           }
           try requireWritableNote(subjectNoteId, in: db)
+          if Self.isDocumentPageNote(try requireNote(subjectNoteId, in: db)) {
+            throw NoteServiceError.invalidInput("note edit mode is not available for document pages")
+          }
         }
         let now = NoteStoreClock.system.now()
         let noteNumber = try nextNoteNumber(notebookId: conversationNotebookId, in: db)
@@ -546,16 +549,29 @@ public extension NoteService {
     }
     var turnWasCompleted = false
     do {
+      var contextMarkdown = subjectSnapshot.markdown
+      var images: [AgentInvocationImage] = []
+      var systemPrompt = editSubjectNoteId == nil ? Self.chatSystemPrompt : Self.noteEditSystemPrompt
+      if editSubjectNoteId == nil, case let .note(id) = subject,
+        let additions = try documentPageChatAdditions(
+          subjectNoteId: id, libraryId: subjectSnapshot.libraryId, query: state.userMarkdown
+        ) {
+        contextMarkdown = ([contextMarkdown, additions.contextAppendix].compactMap { $0 }.filter { !$0.isEmpty })
+          .joined(separator: "\n\n")
+        images = additions.images
+        systemPrompt += " " + documentPageChatSystemPromptSuffix
+      }
       let request = AgentInvocationRequest(
         purpose: .chat,
-        systemPrompt: editSubjectNoteId == nil ? Self.chatSystemPrompt : Self.noteEditSystemPrompt,
+        systemPrompt: systemPrompt,
         turns: turns,
-        contextMarkdown: subjectSnapshot.markdown,
+        contextMarkdown: contextMarkdown,
         provider: provider,
         model: state.model ?? model,
         // An edit reply is the replacement body itself; a runtime with tools
         // must not also rewrite the note (or anything else) behind it.
-        allowsTools: editSubjectNoteId == nil
+        allowsTools: editSubjectNoteId == nil,
+        images: images
       )
       let reply: AgentInvocationResult
       try await admitAutoActionProviderInvocation()

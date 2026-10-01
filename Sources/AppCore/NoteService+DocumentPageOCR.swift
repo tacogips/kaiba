@@ -2,14 +2,12 @@ import Foundation
 
 public extension NoteService {
   /// Completes deferred OCR from the stored original. Recognition runs outside
-  /// the transaction; a concurrent edit, OCR completion, or ownership change
-  /// causes the final compare-and-write to fail without replacing any content.
+  /// the transaction; concurrent note changes cause the final compare-and-write to fail.
   @discardableResult
   func recognizeDocumentPage(
     noteId: NoteID,
     recognizer: any DocumentPageRecognizing,
-    analyzer: (any DocumentPageAnalyzing)? = nil,
-    figureExtractor: (any DocumentPageFigureExtracting)? = nil
+    analyzer: (any DocumentPageAnalyzing)? = nil
   ) throws -> Note {
     let snapshot = try driver.withDatabase { db in
       try requireEnabledActingUser(in: db)
@@ -26,47 +24,19 @@ public extension NoteService {
       .appendingPathExtension(DocumentImageNaming.fileExtension(forMediaType: record.mediaType))
     try content.write(to: imageURL)
     let analysis = try analyzer?.analyze(imageURL: imageURL) ?? metadata.analysis
-    let markdown = try recognizer.recognize(imageURL: imageURL)
-    let figures = try figureExtractor?.extractFigures(imageURL: imageURL, pageNumber: metadata.pageNumber) ?? []
-    let store = LocalNoteFileStore(noteRoot: noteRootPath())
-    var staged: [FileRecord] = []
-    var committed = false
-    defer {
-      if !committed { for file in staged { try? store.delete(record: file) } }
-    }
-    for figure in figures {
-      guard figure.pageNumber == metadata.pageNumber, figure.kind == .embedded else {
-        throw NoteServiceError.invalidInput("figure extractor returned an image for a different page")
-      }
-      let id = FileID.generate()
-      let stored = try store.store(data: figure.data, fileId: id)
-      staged.append(storedFileRecord(fileId: id, stored: stored, mediaType: figure.mediaType, originalFilename: figure.suggestedFilename))
-    }
-    let figureMarkdown = staged.enumerated().map { "\n\n![Figure \($0.offset + 1)](/files/\($0.element.fileId.rawValue))" }.joined()
+    let recognized = try recognizer.recognize(imageURL: imageURL)
     let outcome = try driver.withDatabase { database in
       try database.transaction { db in
         let current = try requirePendingDocumentOCRNote(noteId, in: db)
         guard current == snapshot else {
           throw NoteServiceError.conflict("page changed while OCR was running; no content was replaced")
         }
-        let lastPosition = try db.query(
-          "SELECT MAX(position) AS position FROM note_files WHERE note_id = ? AND role = ?",
-          bindings: [.id(noteId), .text(NoteFileRole.embedded.rawValue)]
-        ).first?["position"].flatMap(Int.init) ?? 0
-        for (index, file) in staged.enumerated() {
-          let stored = StoredNoteFile(
-            locator: NoteFileLocator(storageKind: .local, localPath: file.localPath), byteSize: file.byteSize, sha256: file.sha256
-          )
-          _ = try insertFileRecord(fileId: file.fileId, stored: stored, mediaType: file.mediaType, originalFilename: file.originalFilename, in: db)
-          try db.execute(
-            "INSERT INTO note_files (note_id, file_id, role, position) VALUES (?, ?, ?, ?)",
-            bindings: [.id(noteId), .id(file.fileId), .text(NoteFileRole.embedded.rawValue), .int(Int64(lastPosition + index + 1))]
-          )
-        }
-        let updated = try updateNoteBodyInDatabase(
-          noteId: noteId, bodyMarkdown: markdown + snapshot.bodyMarkdown + figureMarkdown,
-          provenance: .system, originatingActionId: nil, completingPendingDocumentOCR: true, in: db
-        )
+        let previous = try ftsPayload(noteId: noteId, in: db)
+        let existing = try noteSearchText(noteId, in: db) ?? ""
+        let newSearch = existing.isEmpty ? recognized : recognized + "\n\n" + existing
+        let source = try noteTitleSource(noteId: noteId, in: db)
+        let title = source == .derived ? (noteTitle(from: recognized) ?? current.title) : current.title
+        let now = NoteStoreClock.system.now()
         var completed = metadata
         completed.ocrState = "complete"
         completed.pendingBodySHA256 = nil
@@ -74,13 +44,37 @@ public extension NoteService {
         var object = try JSONValue(parsing: current.metaJSON ?? "{}").asObject ?? [:]
         object["documentPage"] = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(completed))
         try db.execute(
-          "UPDATE notes SET meta_json = jsonb(?) WHERE note_id = ?",
-          bindings: [.text(try JSONValue.object(object).encodedString()), .id(noteId)]
+          """
+          UPDATE notes
+          SET search_text = ?, title = ?, updated_at = ?,
+            updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id),
+            meta_json = jsonb(?)
+          WHERE note_id = ?
+          """,
+          bindings: [
+            .text(newSearch), .optionalText(title), .text(now),
+            .text(try JSONValue.object(object).encodedString()), .id(noteId)
+          ]
         )
-        return (try requireNote(noteId, in: db), updated.dispatches)
+        try db.execute(
+          "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
+          bindings: [.text(now), .id(current.notebookId)]
+        )
+        try refreshFTS(noteId: noteId, previous: previous, in: db)
+        let note = try requireNote(noteId, in: db)
+        let dispatches = try enqueueAutoActions(
+          for: makeAutoActionEvent(
+            trigger: .noteUpdated,
+            notebookId: note.notebookId,
+            noteId: note.noteId,
+            noteBodyMarkdown: noteRetrievalText(bodyMarkdown: current.bodyMarkdown, searchText: newSearch),
+            originatingActionId: nil
+          ),
+          in: db
+        )
+        return (note, dispatches)
       }
     }
-    committed = true
     dispatchQueuedAutoActions(outcome.1)
     publishChange(NoteChangeEvent(kind: NoteChangeEventKind.noteUpdated, notebookId: outcome.0.notebookId))
     return outcome.0
@@ -105,9 +99,6 @@ extension NoteService {
     let metadata = try Self.importedPageMetadata(note)
     guard metadata.ocrState == "pending" else {
       throw NoteServiceError.conflict("page OCR is already complete")
-    }
-    guard metadata.pendingBodySHA256 == sha256Hex(Data(note.bodyMarkdown.utf8)) else {
-      throw NoteServiceError.conflict("pending page has been edited; OCR would replace user content")
     }
     let origin = try db.query(
       "SELECT file_id FROM note_files WHERE note_id = ? AND file_id = ? AND role = ?",

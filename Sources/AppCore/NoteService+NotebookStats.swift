@@ -35,7 +35,7 @@ private func notebookNoteCount(notebookId: NotebookID, in database: SQLiteDataba
 private func firstNotePreviews(notebookIds: [NotebookID], in database: SQLiteDatabase) throws -> [NotebookID: String] {
   let rows = try database.query(
     """
-    SELECT outer_notes.notebook_id, outer_notes.body_markdown
+    SELECT outer_notes.notebook_id, outer_notes.body_markdown, outer_notes.search_text
     FROM notes AS outer_notes
     WHERE outer_notes.notebook_id IN (\(noteStatPlaceholders(count: notebookIds.count)))
       AND outer_notes.note_id = (
@@ -53,7 +53,9 @@ private func firstNotePreviews(notebookIds: [NotebookID], in database: SQLiteDat
     guard let notebookId = row.identifier("notebook_id", as: NotebookID.self), let body = row["body_markdown"] else {
       throw NoteServiceError.invalidRow("first note preview row is missing required fields")
     }
-    previews[notebookId] = notebookPreviewText(body)
+    previews[notebookId] = notebookPreviewText(
+      noteRetrievalText(bodyMarkdown: body, searchText: row["search_text"])
+    )
   }
   return previews
 }

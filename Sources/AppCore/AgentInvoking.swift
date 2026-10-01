@@ -24,6 +24,23 @@ public struct AgentInvocationTurn: Codable, Equatable, Sendable {
   }
 }
 
+public struct AgentInvocationImage: Equatable, Sendable {
+  public var data: Data
+  public var mediaType: String
+
+  public init(data: Data, mediaType: String) {
+    self.data = data
+    self.mediaType = mediaType
+  }
+
+  public static let maximumBytes = 3_750_000
+  public static let allowedMediaTypes: Set<String> = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+
+  public var isTransportable: Bool {
+    Self.allowedMediaTypes.contains(mediaType) && !data.isEmpty && data.count <= Self.maximumBytes
+  }
+}
+
 public struct AgentInvocationRequest: Equatable, Sendable {
   public var purpose: AgentInvocationPurpose
   public var systemPrompt: String
@@ -37,6 +54,10 @@ public struct AgentInvocationRequest: Equatable, Sendable {
   /// server applies itself (`design-docs/specs/user-agent-tools.md`, UA3).
   /// Runtimes without tools ignore it.
   public var allowsTools: Bool
+  public var images: [AgentInvocationImage]
+
+  public static let imageFallbackNotice =
+    "The page image could not be sent to this model; answer from the recognized text."
 
   public init(
     purpose: AgentInvocationPurpose,
@@ -45,7 +66,8 @@ public struct AgentInvocationRequest: Equatable, Sendable {
     contextMarkdown: String? = nil,
     provider: String? = nil,
     model: String? = nil,
-    allowsTools: Bool = true
+    allowsTools: Bool = true,
+    images: [AgentInvocationImage] = []
   ) {
     self.purpose = purpose
     self.systemPrompt = systemPrompt
@@ -54,6 +76,22 @@ public struct AgentInvocationRequest: Equatable, Sendable {
     self.provider = provider
     self.model = model
     self.allowsTools = allowsTools
+    self.images = images
+  }
+
+  public func droppingImagesWithNotice() -> AgentInvocationRequest {
+    guard !images.isEmpty else {
+      return self
+    }
+
+    var request = self
+    request.images = []
+    if let contextMarkdown, !contextMarkdown.isEmpty {
+      request.contextMarkdown = contextMarkdown + "\n\n" + Self.imageFallbackNotice
+    } else {
+      request.contextMarkdown = Self.imageFallbackNotice
+    }
+    return request
   }
 }
 

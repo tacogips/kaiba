@@ -74,7 +74,10 @@ final class DocumentAutoTaggingTests: NoteTestCase {
     let requests = await invoker.requests
     XCTAssertEqual(requests.count, 3)
     XCTAssertTrue(try service.getNote(note.noteId).tags.contains { $0.tag.name == "registered-topic" })
-    XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "Recognized graph algorithms")
+    XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "")
+    XCTAssertEqual(try service.driver.withDatabase {
+      try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(note.noteId)]).first?["search_text"]
+    }, "Recognized graph algorithms")
   }
 
   func testConfiguredPromptAndCatalogTagNotebookAndCompletedPageOnly() async throws {
@@ -89,7 +92,10 @@ final class DocumentAutoTaggingTests: NoteTestCase {
       title: "Imported document", kindTagName: NoteStoreSchema.importedMaterialNotebookKindTag,
       pages: [
         NotePageDraft(bodyMarkdown: "Graph algorithms"),
-        NotePageDraft(bodyMarkdown: "", metaJSON: try JSONValue.object(["documentPage": metadata]).encodedString())
+        NotePageDraft(
+          bodyMarkdown: "", metaJSON: try JSONValue.object(["documentPage": metadata]).encodedString(),
+          searchText: "Graph algorithms"
+        )
       ], notebookReadOnly: true
     )
     let invoker = DocumentTagInvoker()

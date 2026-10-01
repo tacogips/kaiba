@@ -26,14 +26,6 @@ public extension KaibaImportConfiguration {
     }
   }
 
-  func makeFigureExtractor(environment: [String: String] = ProcessInfo.processInfo.environment, executionMode: AgentGatewayExecutionMode = .local) -> (any DocumentPageFigureExtracting)? {
-    figures.map {
-      CroppingDocumentPageFigureExtractor(locator: StructuredDocumentFigureLocator(
-        converter: $0.makeImageConverter(environment: environment, prompt: StructuredDocumentFigureLocator.prompt, executionMode: documentExecutionMode(vendor: $0.vendor, requested: executionMode))
-      ))
-    }
-  }
-
   private func documentExecutionMode(vendor: String, requested: AgentGatewayExecutionMode) -> AgentGatewayExecutionMode {
     guard requested != .local, vendor == "claude-code" else { return requested }
     return allowClaudeSubscription == true ? .subscription : .served

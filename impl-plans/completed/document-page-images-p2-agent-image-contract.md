@@ -3,7 +3,7 @@
 **planId**: P2-agent-image-contract
 **Wave**: 1
 **dependsOn**: none
-**Status**: Implemented in the working tree, not yet accepted (resume in session-246)
+**Status**: Completed. Accepted in session-246 (test-integrity, adversarial and serial integration review). The combined-tree `mise run check` exited 0 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP8 item 4, DP9 (fallback line), I5; `design-docs/specs/ai-agent-integration.md` AI12
 **Index**: `impl-plans/active/document-page-images.md` ("Pinned cross-plan contracts" is binding)
 
@@ -120,19 +120,22 @@ Run under bash (`bash -c '...'`). For the session-246 resume, every log goes
 to `tmp/document-page-images/P2/attempt-2/` instead of
 `tmp/document-page-images/P2/`, as the dispatch manifest lists.
 
-- `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter AgentInvocationImage 2>&1 | tee tmp/document-page-images/P2/contract.log; echo "exit=${PIPESTATUS[0]}"`.
+- `bash -c 'PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter AgentInvocationImage 2>&1 | tee tmp/document-page-images/P2/attempt-2/contract.log; echo exit=${PIPESTATUS[0]}'`.
   Must exit 0 and show the 8 `AgentInvocationImageTests` cases passing.
-- The same command with `--filter UserAgentToolLoop`, log `toolloop.log`. Must
-  exit 0. This shows nothing else broke.
-- The same command with `--filter AgentGatewayCLIInvoker`, log `gateway.log`.
-  Must exit 0.
-- `mise run lint`. Must exit 0.
+- The same command with `--filter UserAgentToolLoop`, log
+  `tmp/document-page-images/P2/attempt-2/toolloop.log`. Must exit 0.
+- The same command with `--filter AgentGatewayCLIInvoker`, log
+  `tmp/document-page-images/P2/attempt-2/gateway.log`. Must exit 0.
+- For the session-246 resume, use `tmp/document-page-images/P2/attempt-2/` for
+  all logs: run `mise run build`, the three focused tests above, and
+  `mise run lint`; each must exit 0. Also run strict SwiftLint only for the
+  changed-file NUL-delimited manifest.
 
 ## Done criteria
 
 - [x] `grep -n "struct AgentInvocationImage" Sources/AppCore/AgentInvoking.swift` matches.
 - [x] `grep -n "imageMessageIndex" Sources/AppCore/ToolLoopModelClient.swift` matches; existing ToolLoopModelRequest memberwise initialization defaults the new image fields.
-- [ ] All three focused test logs exit 0. Logs and source hashes are recorded below; current shared-tree compile errors block completion.
+- [x] All three focused test logs exit 0. Logs and source hashes are recorded below.
 
 ## Progress Log
 
@@ -140,3 +143,4 @@ to `tmp/document-page-images/P2/attempt-2/` instead of
 - 2026-10-02: Implemented the P2 image value, request fallback helper and tool-loop image fields; added eight contract tests. The initial `AgentInvocationImage` attempt (`tmp/document-page-images/P2/contract.log`, SHA-256 `276f89250362036e8c51c5210f41c97420424435b848d3e1e6608704f35e0ee2`) failed during compilation because concurrent retrieval/schema changes referenced helpers not yet present. Retry `contract-retry.log` (SHA-256 `b8584e2e5afe75add038e5d049149488eb0a0763bc420f0d917c3b8ffd0ef9f7`), `toolloop.log` (`d210ba0ec3718c2b11d10953d56a5098e38931e8eae3c8416d6ec21ca89205c0`) and `gateway.log` (`330447e40d8fa19a52a3e6434afc9ec710ba581ea4c5af32e54d1242504988c2`) also exited 1 on the moving shared tree: `NoteRetrievalText.swift` had an unhandled throwing call and `NoteService.swift` had a `noteTitle` shadowing error. These files are outside P2 write ownership; no edits made to them.
 - 2026-10-02: Exact changed-file SwiftLint passed (`swiftlint-changed-retry.log`, SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`). The first strict lint attempt identified and prompted removal of an explicit `= nil`; Swift optional stored properties retain the required nil default. `mise run lint` exited 0 (`lint.log`, SHA-256 `5dda047a6661b4c3c00e254d33c7aa88eff844b480a5c90f704fde2dedc2053a`) with three warnings in unrelated existing files (`ResendGatewayCLIMailSender.swift`, `NoteService.swift`, `AITranslationTests.swift`). Source SHA-256: `AgentInvoking.swift` `a1c22e8c8439fb2ff6e5ad6e1a8bbe5613de8019b5feb91ff5d42830d0dc0414`; `ToolLoopModelClient.swift` `c0075a0987f93894c886352495732298b22abc2bfee5f1073fc03784231ca45a`; `AgentInvocationImageTests.swift` `e2290adaa326268d2b99f17a7dd35b35f09dc9c4dce6e6a9323e291d4079b305`.
 - 2026-10-02: A final `AgentInvocationImage` retry (`contract-final.log`, SHA-256 `f98ebdff4e76a011f391b359f2b7682147b025f482f12c0f41e4b95f7ae49cae`) still exited 1 before running tests. The remaining shared-tree compile error is in `Tests/AppCoreTests/NoteStoreSchemaVersion22Tests.swift`: it calls `schemaVersions(in:)`, which is declared `private` in `NoteStoreSchemaTests.swift`. This test-file ownership is outside P2. Resume the focused P2 suites after the schema test owner fixes helper visibility and the test target compiles. P2 source hashes remained unchanged from the preceding entry.
+- 2026-10-02: On the now-compiling shared tree, `mise run build` passed (exit 0; `tmp/document-page-images/P2/attempt-2/build.log`, SHA-256 `31d45d482e65427ababbff255d5db5d9fce0099527c69cc8b1276ba453ed34c3`). The focused `AgentInvocationImage` suite passed 8/8 (`contract.log`, SHA-256 `ddb9cbb0d83492f773dd674ee7530cec6417901c4bf88507a1f0c3f23e3f2132`), `UserAgentToolLoop` passed 12/12 (`toolloop.log`, SHA-256 `93452d223a1eef37b218da41e3fc586b5a00959d613c93bf3f68b6b992182f5f`), and `AgentGatewayCLIInvoker` passed 32/32 (`gateway.log`, SHA-256 `48d7333e7e054979b57ca0c883906d89d27c8a678fab66e2e27097e711eca267`), all exit 0. Selected-file strict SwiftLint passed for the two changed Swift files (exit 0; `changed-file-swiftlint-final2.log`, SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`). Repository-wide `mise run lint` passed (exit 0; `lint.log`, SHA-256 `5b22edd2d2f66c50ad633eabeecc7fafd5ceb2c4d609d6508535e923c69d79fa`) with three warnings in unrelated existing files. Final P2 source SHA-256 values remained `AgentInvoking.swift` `a1c22e8c8439fb2ff6e5ad6e1a8bbe5613de8019b5feb91ff5d42830d0dc0414`, `ToolLoopModelClient.swift` `c0075a0987f93894c886352495732298b22abc2bfee5f1073fc03784231ca45a`, and `AgentInvocationImageTests.swift` `e2290adaa326268d2b99f17a7dd35b35f09dc9c4dce6e6a9323e291d4079b305`.

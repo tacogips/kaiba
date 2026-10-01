@@ -9,7 +9,13 @@ final class DocumentPageOCRGraphQLTests: XCTestCase {
     let first = await fixture.executor.execute(request(noteId: fixture.note.noteId))
     let payload = try XCTUnwrap(first.body["data"]?.asObject?["recognizeDocumentPage"]?.asObject)
     XCTAssertEqual(payload["result"]?.asObject?["accepted"], .bool(true))
-    XCTAssertEqual(payload["note"]?.asObject?["bodyMarkdown"], .string("# Page recognized"))
+    XCTAssertEqual(payload["note"]?.asObject?["bodyMarkdown"], .string(""))
+    XCTAssertEqual(
+      try fixture.executor.service.service.driver.withDatabase {
+        try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(fixture.note.noteId)]).first?["search_text"]
+      },
+      "# Page recognized"
+    )
     let json = try XCTUnwrap(payload["note"]?.asObject?["metaJSON"]?.asString)
     XCTAssertEqual(try JSONValue(parsing: json).asObject?["documentPage"]?.asObject?["ocrState"], .string("complete"))
     let second = await fixture.executor.execute(request(noteId: fixture.note.noteId))

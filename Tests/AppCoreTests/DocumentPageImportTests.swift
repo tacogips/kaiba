@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 final class DocumentPageImportTests: NoteTestCase {
-  func testPersistsExactPageOriginsPendingStateFiguresAndTitle() throws {
+  func testPersistsPageOriginsPendingSearchTextAndTitle() throws {
     let service = try makeService()
     let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).pdf")
     try Data("source".utf8).write(to: source)
@@ -11,18 +11,23 @@ final class DocumentPageImportTests: NoteTestCase {
     let result = try service.importDocumentPages(
       at: source.path,
       processor: DocumentPageProcessor(recognizer: ImportRecognizer(), analyzer: ImportAnalyzer(), extractor: ImportExtractor()),
-      maximumOCRPages: 1
+      maximumOCRPages: 2
     )
     XCTAssertEqual(result.notebook.title, "Analyzed book title")
-    XCTAssertEqual(result.notes.map(\.noteNumber), [1, 2])
-    XCTAssertEqual(result.notes[0].bodyMarkdown, "# Recognized page\nBody")
-    XCTAssertEqual(result.notes[1].bodyMarkdown, "\n\n![Figure 1](/files/\(try XCTUnwrap(result.imageFiles.last).file.fileId))")
+    XCTAssertEqual(result.notes.map(\.noteNumber), [1, 2, 3])
+    XCTAssertEqual(result.notes.map(\.bodyMarkdown), ["", "", ""])
     for (index, note) in result.notes.enumerated() {
       let persisted = try service.getNote(note.noteId)
       XCTAssertEqual(persisted, note)
       let metadata = try JSONValue(parsing: XCTUnwrap(persisted.metaJSON))
       let page = try XCTUnwrap(metadata.asObject?["documentPage"]?.asObject)
-      XCTAssertEqual(page["ocrState"]?.asString, index == 0 ? "complete" : "pending")
+      XCTAssertEqual(page["ocrState"]?.asString, index < 2 ? "complete" : "pending")
+      XCTAssertNil(page["pendingBodySHA256"])
+      XCTAssertEqual(
+        try service.driver.withDatabase { try noteSearchText(note.noteId, in: $0) },
+        index < 2 ? "# Recognized page\nBody" : ""
+      )
+      XCTAssertEqual(try service.listFiles(noteId: note.noteId).count, 1)
       let origin = try XCTUnwrap(service.listFiles(noteId: note.noteId).first { $0.role == .sourcePageImage })
       XCTAssertEqual(page["originFileId"]?.asString, origin.file.fileId.rawValue)
       XCTAssertEqual(origin.position, index + 1)
@@ -34,7 +39,7 @@ final class DocumentPageImportTests: NoteTestCase {
     XCTAssertEqual(analysis?["writingMode"]?.asString, "vertical")
   }
 
-  func testDeferredOCRCompletesReadOnlyImportAndPreservesFigure() throws {
+  func testDeferredOCRCompletesSearchTextAndDoesNotRecordBodyHistory() throws {
     let service = try makeService()
     let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).pdf")
     try Data("source".utf8).write(to: source)
@@ -42,46 +47,32 @@ final class DocumentPageImportTests: NoteTestCase {
     let result = try service.importDocumentPages(
       at: source.path, processor: DocumentPageProcessor(recognizer: ImportRecognizer(), extractor: ImportExtractor()), maximumOCRPages: 0
     )
-    let pending = result.notes[1]
+    let pending = try XCTUnwrap(result.notes.last)
     let completed = try service.recognizeDocumentPage(noteId: pending.noteId, recognizer: ImportRecognizer(), analyzer: ImportAnalyzer())
-    XCTAssertTrue(completed.bodyMarkdown.hasPrefix("# Recognized page\nBody"))
-    XCTAssertTrue(completed.bodyMarkdown.hasSuffix(pending.bodyMarkdown))
+    XCTAssertEqual(completed.bodyMarkdown, "")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(completed.noteId, in: $0) }, "# Recognized page\nBody")
+    XCTAssertTrue(try service.searchNotes(query: "Recognized").contains { $0.note.noteId == pending.noteId })
+    XCTAssertFalse(try service.actionHistory().contains { $0.kind == .noteBodyUpdated && $0.entityId == pending.noteId.rawValue })
     XCTAssertEqual(try NoteService.importedPageMetadata(completed).ocrState, "complete")
     XCTAssertEqual(try NoteService.importedPageMetadata(completed).analysis.language, "ja")
     XCTAssertThrowsError(try service.recognizeDocumentPage(noteId: pending.noteId, recognizer: ImportRecognizer()))
   }
 
-  func testDeferredOCRStoresNewFiguresWithText() throws {
+  func testDeferredOCRPrependsToExistingSearchText() throws {
     let service = try makeService()
     let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
     try Data("source".utf8).write(to: source)
     defer { try? FileManager.default.removeItem(at: source) }
     let imported = try service.importDocumentPages(at: source.path, processor: DocumentPageProcessor(recognizer: ImportRecognizer()), maximumOCRPages: 0)
-    let note = try service.recognizeDocumentPage(noteId: imported.notes[0].noteId, recognizer: ImportRecognizer(), figureExtractor: DeferredFigure())
-    let files = try service.listFiles(noteId: note.noteId)
-    let figure = try XCTUnwrap(files.first { $0.role == .embedded })
-    XCTAssertTrue(note.bodyMarkdown.contains("![Figure 1](/files/\(figure.file.fileId.rawValue))"))
-    XCTAssertEqual(try service.resolveFileContent(fileId: figure.file.fileId), Data("cropped figure".utf8))
-    XCTAssertEqual(files.filter { $0.role == .sourcePageImage }.count, 1)
-  }
-
-  func testDeferredFigureLinkFailureRollsBackOCRAndRemovesStagedBlob() throws {
-    let service = try makeService()
-    let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
-    try Data("source".utf8).write(to: source)
-    defer { try? FileManager.default.removeItem(at: source) }
-    let imported = try service.importDocumentPages(at: source.path, processor: DocumentPageProcessor(recognizer: ImportRecognizer()), maximumOCRPages: 0)
+    let note = try XCTUnwrap(imported.notes.first)
     try service.driver.withDatabase { db in
-      try db.execute("CREATE TRIGGER fail_deferred_figure BEFORE INSERT ON note_files BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+      let previous = try ftsPayload(noteId: note.noteId, in: db)
+      try db.execute("UPDATE notes SET search_text = ? WHERE note_id = ?", bindings: [.text("legacy text ![Figure 1](/files/f1)"), .id(note.noteId)])
+      try refreshFTS(noteId: note.noteId, previous: previous, in: db)
     }
-    let pending = imported.notes[0]
-    XCTAssertThrowsError(try service.recognizeDocumentPage(noteId: pending.noteId, recognizer: ImportRecognizer(), figureExtractor: DeferredFigure()))
-    XCTAssertEqual(try service.getNote(pending.noteId), pending)
-    XCTAssertEqual(try service.listFiles(noteId: pending.noteId).count, 1)
-    let filesRoot = URL(fileURLWithPath: service.noteRootPath()).appendingPathComponent("files")
-    let enumerator = FileManager.default.enumerator(at: filesRoot, includingPropertiesForKeys: [.isRegularFileKey])
-    let files = (enumerator?.allObjects as? [URL] ?? []).filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
-    XCTAssertEqual(files.count, 2) // source plus page original, no orphaned crop
+    let completed = try service.recognizeDocumentPage(noteId: note.noteId, recognizer: ImportRecognizer())
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(completed.noteId, in: $0) }, "# Recognized page\nBody\n\nlegacy text ![Figure 1](/files/f1)")
+    XCTAssertEqual(completed.bodyMarkdown, "")
   }
 
   func testDeferredOCRRejectsEditedPage() throws {
@@ -94,9 +85,10 @@ final class DocumentPageImportTests: NoteTestCase {
     )
     _ = try service.setNotebookReadOnly(notebookId: result.notebook.notebookId, readOnly: false)
     let noteId = result.notes[0].noteId
-    _ = try service.updateNoteBody(noteId: noteId, bodyMarkdown: "My own writing")
-    XCTAssertThrowsError(try service.recognizeDocumentPage(noteId: noteId, recognizer: ImportRecognizer()))
-    XCTAssertEqual(try service.getNote(noteId).bodyMarkdown, "My own writing")
+    XCTAssertThrowsError(try service.updateNoteBody(noteId: noteId, bodyMarkdown: "My own writing")) { error in
+      XCTAssertEqual(error as? NoteServiceError, .invalidInput("document page text is managed by OCR; use a comment to annotate the page"))
+    }
+    XCTAssertNoThrow(try service.recognizeDocumentPage(noteId: noteId, recognizer: ImportRecognizer()))
   }
 
   func testRealDownloadedPDFPersistsEveryPageWithOnlyTwoOCRCalls() throws {
@@ -151,8 +143,33 @@ final class DocumentPageImportTests: NoteTestCase {
     let noteId = result.notes[0].noteId
     let recognizer = EditingRecognizer(service: service, noteId: noteId)
     XCTAssertThrowsError(try service.recognizeDocumentPage(noteId: noteId, recognizer: recognizer))
-    XCTAssertEqual(try service.getNote(noteId).bodyMarkdown, "Concurrent edit")
+    XCTAssertEqual(try service.getNote(noteId).bodyMarkdown, "")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(noteId, in: $0) }, "")
     XCTAssertEqual(try NoteService.importedPageMetadata(service.getNote(noteId)).ocrState, "pending")
+  }
+
+  func testStandalonePNGImportStoresOCROnlyAsSearchTextAndSupportsPendingLimit() throws {
+    let service = try makeService()
+    let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
+    let bytes = Data("synthetic PNG bytes".utf8)
+    try bytes.write(to: source)
+    defer { try? FileManager.default.removeItem(at: source) }
+    let complete = try service.importDocumentPages(at: source.path, processor: DocumentPageProcessor(recognizer: ImportRecognizer()))
+    let note = try XCTUnwrap(complete.notes.first)
+    XCTAssertEqual(complete.notes.count, 1)
+    XCTAssertEqual(note.bodyMarkdown, "")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(note.noteId, in: $0) }, "# Recognized page\nBody")
+    let files = try service.listFiles(noteId: note.noteId)
+    XCTAssertEqual(files.count, 1)
+    XCTAssertEqual(files.first?.role, .sourcePageImage)
+    XCTAssertEqual(try service.resolveFileContent(fileId: XCTUnwrap(files.first).file.fileId), bytes)
+    XCTAssertTrue(try service.searchNotes(query: "Recognized").contains { $0.note.noteId == note.noteId })
+
+    let pending = try service.importDocumentPages(at: source.path, processor: DocumentPageProcessor(recognizer: ImportRecognizer()), maximumOCRPages: 0)
+    let pendingNote = try XCTUnwrap(pending.notes.first)
+    XCTAssertEqual(pendingNote.bodyMarkdown, "")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(pendingNote.noteId, in: $0) }, "")
+    XCTAssertEqual(try NoteService.importedPageMetadata(pendingNote).ocrState, "pending")
   }
 
   func testPageLimitConfigurationRoundTripsAndRejectsInvalidValues() throws {
@@ -164,6 +181,14 @@ final class DocumentPageImportTests: NoteTestCase {
     for value in ["-1", "1.5", "\"3\"", "true"] {
       XCTAssertThrowsError(try decoder.decode(DocumentOCRPageLimit.self, from: Data(value.utf8)))
     }
+  }
+
+  func testLegacyPendingBodyDigestMetadataStillDecodes() throws {
+    let json = Data(
+      #"{"pageNumber":1,"ocrState":"pending","analysis":{"isDocument":null,"language":null,"writingMode":"unknown","binding":"unknown","title":null},"originFileId":"origin","pendingBodySHA256":"legacy-digest"}"#.utf8
+    )
+    let metadata = try JSONDecoder().decode(ImportedPageMetadata.self, from: json)
+    XCTAssertEqual(metadata.pendingBodySHA256, "legacy-digest")
   }
 }
 
@@ -182,8 +207,9 @@ private struct ImportExtractor: DocumentImageExtracting {
     DocumentImageExtractionResult(images: [
       DocumentExtractedImage(pageNumber: 1, kind: .pageCapture, data: Data("origin 1".utf8), mediaType: "image/png", suggestedFilename: "1.png"),
       DocumentExtractedImage(pageNumber: 2, kind: .pageCapture, data: Data("origin 2".utf8), mediaType: "image/png", suggestedFilename: "2.png"),
-      DocumentExtractedImage(pageNumber: 2, kind: .embedded, data: Data("figure".utf8), mediaType: "image/png", suggestedFilename: "figure.png")
-    ], pageTexts: ["", ""])
+      DocumentExtractedImage(pageNumber: 2, kind: .embedded, data: Data("figure".utf8), mediaType: "image/png", suggestedFilename: "figure.png"),
+      DocumentExtractedImage(pageNumber: 3, kind: .pageCapture, data: Data("origin 3".utf8), mediaType: "image/png", suggestedFilename: "3.png")
+    ], pageTexts: ["", "", ""])
   }
 }
 
@@ -191,13 +217,9 @@ private struct EditingRecognizer: DocumentPageRecognizing {
   var service: NoteService
   var noteId: NoteID
   func recognize(imageURL: URL) throws -> String {
-    _ = try service.updateNoteBody(noteId: noteId, bodyMarkdown: "Concurrent edit")
+    try service.driver.withDatabase { db in
+      try db.execute("UPDATE notes SET updated_at = 'concurrent change' WHERE note_id = ?", bindings: [.id(noteId)])
+    }
     return "OCR must not overwrite the edit"
-  }
-}
-
-private struct DeferredFigure: DocumentPageFigureExtracting {
-  func extractFigures(imageURL: URL, pageNumber: Int) throws -> [DocumentExtractedImage] {
-    [DocumentExtractedImage(pageNumber: pageNumber, kind: .embedded, data: Data("cropped figure".utf8), mediaType: "image/png", suggestedFilename: "figure.png")]
   }
 }

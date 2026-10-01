@@ -211,7 +211,7 @@ extension NoteService {
     guard let noteRow = try db.query(
       """
       SELECT note_id, notebook_id, note_number, title, title_source, body_markdown,
-        read_only, created_by, updated_by, created_at, updated_at,
+        read_only, created_by, updated_by, created_at, updated_at, search_text,
         CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
       FROM notes WHERE note_id = ? LIMIT 1
       """,
@@ -226,6 +226,7 @@ extension NoteService {
       "title": .optionalString(noteRow["title"]),
       "titleSource": .optionalString(noteRow["title_source"]),
       "bodyMarkdown": .optionalString(noteRow["body_markdown"]),
+      "searchText": .optionalString(noteRow["search_text"]),
       "readOnly": .bool(noteRow["read_only"] == "1"),
       "createdBy": .optionalString(noteRow["created_by"]),
       "updatedBy": .optionalString(noteRow["updated_by"]),
@@ -309,6 +310,11 @@ extension NoteService {
           let bodyMarkdown = note["bodyMarkdown"]?.asString else {
       throw NoteServiceError.invalidRow("note snapshot is missing required fields")
     }
+    let restored = documentPageTextMigration(
+      bodyMarkdown: bodyMarkdown,
+      searchText: note["searchText"]?.asString,
+      metaJSON: note["metaJSON"]?.asString
+    )
     guard try db.query(
       "SELECT 1 AS present FROM notes WHERE note_id = ? LIMIT 1",
       bindings: [.id(noteId)]
@@ -321,8 +327,9 @@ extension NoteService {
         """
         INSERT INTO notes (
           note_id, notebook_id, note_number, title, title_source, body_markdown,
-          read_only, created_by, updated_by, created_at, updated_at, meta_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, jsonb(?))
+          read_only, created_by, updated_by, created_at, updated_at, meta_json,
+          search_text
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, jsonb(?), ?)
         """,
         bindings: [
           .id(noteId),
@@ -330,13 +337,14 @@ extension NoteService {
           .int(Int64(noteNumber)),
           .optionalText(note["title"]?.asString),
           .text(note["titleSource"]?.asString ?? NoteTitleSource.derived.rawValue),
-          .text(bodyMarkdown),
+          .text(restored.bodyMarkdown),
           .int(note["readOnly"]?.asBool == true ? 1 : 0),
           .optionalText(note["createdBy"]?.asString),
           .optionalText(note["updatedBy"]?.asString),
           .text(note["createdAt"]?.asString ?? NoteStoreClock.system.now()),
           .text(note["updatedAt"]?.asString ?? NoteStoreClock.system.now()),
-          .optionalText(note["metaJSON"]?.asString)
+          .optionalText(note["metaJSON"]?.asString),
+          .optionalText(restored.searchText)
         ]
       )
     } catch let error as SQLiteError where isSQLiteUniqueConstraintViolation(error) {

@@ -53,28 +53,24 @@ public struct ConverterPageRecognizer: DocumentPageRecognizing {
 public struct PreparedDocumentPage: Equatable, Sendable {
   public var pageNumber: Int
   public var origin: DocumentExtractedImage
-  public var figures: [DocumentExtractedImage]
   public var analysis: DocumentPageAnalysis
-  /// nil means OCR is pending; an empty string means OCR ran and found no text.
+  /// Recognized OCR text; stored as hidden search text. nil means pending.
   public var markdown: String?
 }
 
 public struct DocumentPageProcessor: Sendable {
   public let recognizer: any DocumentPageRecognizing
   public let analyzer: (any DocumentPageAnalyzing)?
-  public let figureExtractor: (any DocumentPageFigureExtracting)?
   public let extractor: any DocumentImageExtracting
 
   public init(
     recognizer: any DocumentPageRecognizing,
     analyzer: (any DocumentPageAnalyzing)? = nil,
-    extractor: any DocumentImageExtracting = DocumentImageExtractor(),
-    figureExtractor: (any DocumentPageFigureExtracting)? = nil
+    extractor: any DocumentImageExtracting = DocumentImageExtractor()
   ) {
     self.recognizer = recognizer
     self.analyzer = analyzer
     self.extractor = extractor
-    self.figureExtractor = figureExtractor
   }
 
   /// nil processes all pages; zero imports originals only. Pages beyond the
@@ -111,19 +107,15 @@ public struct DocumentPageProcessor: Sendable {
     return try origins.enumerated().map { index, origin in
       var page = PreparedDocumentPage(
         pageNumber: origin.pageNumber, origin: origin,
-        figures: figureExtractor == nil
-          ? extraction.images.filter { $0.kind == .embedded && $0.pageNumber == origin.pageNumber } : [],
         analysis: DocumentPageAnalysis(), markdown: nil
       )
       if maximumOCRPages.map({ index < $0 }) ?? true {
         let imageURL = directory.appendingPathComponent("page-\(origin.pageNumber)")
           .appendingPathExtension(DocumentImageNaming.fileExtension(forMediaType: origin.mediaType))
         try origin.data.write(to: imageURL)
+        // The origin is supplied by the extractor or source bytes; providers only receive a temporary copy.
         page.analysis = try analyzer?.analyze(imageURL: imageURL) ?? DocumentPageAnalysis()
         page.markdown = try recognizer.recognize(imageURL: imageURL)
-        if let figureExtractor {
-          page.figures = try figureExtractor.extractFigures(imageURL: imageURL, pageNumber: origin.pageNumber)
-        }
       }
       return page
     }

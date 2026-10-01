@@ -46,8 +46,7 @@ extension AppCommand {
         result = try service.importDocumentPages(
           at: path, title: title, kindTagName: kindTag,
           processor: DocumentPageProcessor(
-            recognizer: recognizer, analyzer: importSettings?.makePageAnalyzer(environment: environment),
-            figureExtractor: importSettings?.makeFigureExtractor(environment: environment)
+            recognizer: recognizer, analyzer: importSettings?.makePageAnalyzer(environment: environment)
           ), maximumOCRPages: limit.maximum
         )
       } else {
@@ -97,8 +96,7 @@ extension AppCommand {
     let service = try makeService(context)
     let note = try service.recognizeDocumentPage(
       noteId: NoteID(value), recognizer: recognizer,
-      analyzer: settings?.makePageAnalyzer(environment: environment),
-      figureExtractor: settings?.makeFigureExtractor(environment: environment)
+      analyzer: settings?.makePageAnalyzer(environment: environment)
     )
     let warnings = try tagImportedPages(
       context: context, service: service, notebookId: note.notebookId, noteIds: [note.noteId]

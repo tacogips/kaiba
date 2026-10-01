@@ -3,7 +3,7 @@
 **planId**: P3-import-ocr-pipeline
 **Wave**: 2
 **dependsOn**: P1-storage-contract
-**Status**: Not started
+**Status**: Completed. Accepted in session-246 (test-integrity, adversarial and serial integration review). The combined-tree `mise run check` exited 0 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP3 items 1-2, DP7, I1, I3, I4
 **Index**: `impl-plans/active/document-page-images.md`
 
@@ -292,15 +292,34 @@ not fix it here. P10 owns that file.
 
 ## Done criteria
 
-- [ ] `Sources/AppCore/DocumentPageFigureExtraction.swift` and
+- [x] `Sources/AppCore/DocumentPageFigureExtraction.swift` and
   `Sources/AppCore/DocumentFigureTextBounds.swift` no longer exist.
-- [ ] `grep -n "pendingBodySHA256: page.markdown" Sources/AppCore/NoteService+PageImport.swift` prints nothing.
-- [ ] `grep -n "body_markdown\|bodyMarkdown:" Sources/AppCore/NoteService+DocumentPageOCR.swift`
+- [x] `grep -n "pendingBodySHA256: page.markdown" Sources/AppCore/NoteService+PageImport.swift` prints nothing.
+- [x] `grep -n "body_markdown\|bodyMarkdown:" Sources/AppCore/NoteService+DocumentPageOCR.swift`
   matches only reads used to compute retrieval text. No body write remains.
-- [ ] All commands above exit 0, and logs are saved.
-- [ ] `document-page.log` lists the standalone image import test, including its
+- [x] All commands above exit 0, and logs are saved.
+- [x] `document-page.log` lists the standalone image import test, including its
   `maximumOCRPages: 0` variant, as passed.
+
+Step 8 re-check (2026-10-02): both figure files are absent, and the
+`pendingBodySHA256` grep prints nothing. The only body match in
+`NoteService+DocumentPageOCR.swift` is the `noteRetrievalText(bodyMarkdown:
+current.bodyMarkdown, ...)` read at line 70.
+`testStandalonePNGImportStoresOCROnlyAsSearchTextAndSupportsPendingLimit`
+passed in `tmp/document-page-images/P3/document-page-final2.log` and in
+`tmp/document-page-images/P3/adversarial/rerun.log`, which ends with `exit=0`.
 
 ## Progress Log
 
 - 2026-10-01: Plan created.
+- 2026-10-02: P3 implementation complete. Page processing ignores embedded extraction outputs; imports store blank bodies and OCR in `search_text`, attach only source-page origins, and omit new `pendingBodySHA256` metadata while retaining legacy decoding. Deferred OCR now compare-and-writes search text, derived title, analysis/page metadata, updated timestamps, FTS and auto-action context without changing `body_markdown` or adding action history. Removed figure extraction types/configuration/wiring and deleted their tests. Added synthetic PNG pending/complete coverage, three-page OCR-limit coverage, provider-origin immutability checks, and deterministic two-page PDF raster checks at 1600 px. Completion criteria: all listed source, metadata, origin, compatibility, and deterministic-raster checks met; all edited Swift files are below 1000 lines.
+  - `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter DocumentPage`: exit 0, 42 tests, 2 skipped (real external PDF fixtures absent), 0 failures; `tmp/document-page-images/P3/document-page-final2.log`.
+  - `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter PDFPageRasterDeterminism`: exit 0, 1 test, 0 failures; `determinism.log`.
+  - `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter DocumentVisualProvider`: exit 0, 3 tests, 0 failures; `visual-provider-final.log`.
+  - `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter GoogleDocumentAI`: exit 0, 9 tests, 0 failures; `google-docai.log`.
+  - `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter DocumentUploadGraphQL`: exit 0, 2 tests, 0 failures; `upload-graphql.log`.
+  - `PKG_CONFIG_PATH="$PWD/.build/anydoc-native/host/pkgconfig" mise exec -- swift test --filter DocumentImport`: exit 0, 10 tests, 0 failures; `document-import.log`.
+  - `mise run build`: exit 0; `build.log`. `mise run lint`: exit 0; `repository-lint-final2.log` (three existing warnings in `NoteService.swift:720`, `ResendGatewayCLIMailSender.swift:75`, and `AITranslationTests.swift:71`).
+  - Strict changed-file SwiftLint was run with `changed-swift-files.nul`; it reports only the pre-existing `large_tuple` diagnostic at `NoteService.swift:720`. The same diagnostic is present when linting the pre-implementation `HEAD` copy at `baseline/NoteService.swift`; no P3 diagnostic remains. Evidence: `changed-file-swiftlint-final.log`, `baseline-note-service-lint.log`, `lint-baseline-identity.txt`.
+  - Figure wiring/deletion, pending-digest omission, OCR write-surface, and edited-file line-count checks pass; `final-static-checks.log`. Final source hashes are in `final-source-hashes.txt`.
+  - Earlier `DocumentPage` attempt failed in `DocumentPageChatContextTests` while another shared-tree test fixture used `json_set` against the STRICT BLOB `meta_json` column. The final rerun above passed after that shared-tree fixture was corrected; P3 made no edits outside its write paths. Initial compile-only GraphQL helper-scope errors were fixed by reading `search_text` through test database queries and are superseded by the passing final suite.

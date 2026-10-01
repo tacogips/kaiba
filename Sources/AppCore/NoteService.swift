@@ -823,14 +823,11 @@ public struct NoteService: Sendable {
     bodyMarkdown: String,
     provenance: NoteProvenance,
     originatingActionId: AutoActionID?,
-    completingPendingDocumentOCR: Bool = false,
     in database: SQLiteDatabase
   ) throws -> (note: Note, dispatches: [QueuedAutoActionDispatch]) {
     try requireEnabledActingUser(in: database)
-    let existing = try completingPendingDocumentOCR
-      ? requirePendingDocumentOCRNote(noteId, in: database)
-      : requireWritableNote(noteId, in: database)
-    if !completingPendingDocumentOCR, Self.isDocumentPageNote(existing) {
+    let existing = try requireWritableNote(noteId, in: database)
+    if Self.isDocumentPageNote(existing) {
       throw NoteServiceError.invalidInput("document page text is managed by OCR; use a comment to annotate the page")
     }
     let previous = try ftsPayload(noteId: noteId, in: database)

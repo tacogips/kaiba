@@ -28,7 +28,13 @@ final class DocumentUploadGraphQLTests: XCTestCase {
     XCTAssertEqual(try service.resolveFileContent(fileId: origin.file.fileId), Data("page bytes".utf8))
     let completed = await executor.service.recognizeDocumentPage(noteId: note.noteId)
     XCTAssertTrue(completed.result.accepted)
-    XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "Recognized upload")
+    XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "")
+    XCTAssertEqual(
+      try service.driver.withDatabase {
+        try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(note.noteId)]).first?["search_text"]
+      },
+      "Recognized upload"
+    )
   }
 
   func testRejectsInvalidFilenamePayloadAndLimitWithoutCreatingNotebook() async throws {

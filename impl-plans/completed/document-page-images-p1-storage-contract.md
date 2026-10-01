@@ -3,7 +3,7 @@
 **planId**: P1-storage-contract
 **Wave**: 1
 **dependsOn**: none
-**Status**: Not started
+**Status**: Completed. Accepted in session-242 (test-integrity, adversarial and integration review). The combined-tree `mise run check` exited 0 in session-246 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP2, DP3 (import draft field and body guard), DP4 (FTS row only), DP5, I1-I3
 **Index**: `impl-plans/active/document-page-images.md` ("Pinned cross-plan contracts" is binding)
 

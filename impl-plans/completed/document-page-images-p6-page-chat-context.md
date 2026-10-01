@@ -3,7 +3,7 @@
 **planId**: P6-page-chat-context
 **Wave**: 2
 **dependsOn**: P1-storage-contract, P2-agent-image-contract
-**Status**: Not started
+**Status**: Completed. Accepted in session-246 (test-integrity, adversarial and serial integration review). The combined-tree `mise run check` exited 0 (`tmp/document-page-images/reconcile-session-246/wave5/full-check.log`). Archived at Step 8 on 2026-10-02.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` DP4 (chat rows), DP8, I5, I6; `design-docs/specs/ai-agent-integration.md` AI11 amendment and AI12
 **Index**: `impl-plans/active/document-page-images.md`
 
@@ -218,10 +218,19 @@ and save logs to `tmp/document-page-images/P6/`.
 
 ## Done criteria
 
-- [ ] `grep -n "documentPageChatAdditions" Sources/AppCore/NoteService+AgentChat.swift` matches.
-- [ ] `grep -n "note edit mode is not available for document pages" Sources/AppCore/NoteService+AgentChat.swift` matches.
-- [ ] All commands above exit 0, and logs are saved.
+- [x] `grep -n "documentPageChatAdditions" Sources/AppCore/NoteService+AgentChat.swift` matches.
+- [x] `grep -n "note edit mode is not available for document pages" Sources/AppCore/NoteService+AgentChat.swift` matches.
+- [x] All commands above exit 0, and logs are saved.
 
 ## Progress Log
 
 - 2026-10-01: Plan created.
+- 2026-10-02: Step 6 implementation complete. Added `DocumentPageChatBudget`, `DocumentPageChatAdditions`, and `documentPageChatAdditions` in `Sources/AppCore/DocumentPageChatContext.swift`; page note context now uses bounded hidden OCR and page numbering, notebook chat joins retrieval text, and page chat attaches one transportable origin image plus bounded neighbour and scoped retrieval context. `Sources/AppCore/NoteService+AgentChat.swift` now refuses page edit mode and appends image/context/system suffix only for page note memo chats. Added synthetic coverage in `Tests/AppCoreTests/DocumentPageChatContextTests.swift` for image and OCR delivery, neighbours, related notes, same-library scope, agent-conversation exclusion, six-result cap, unsupported/oversize/missing origin notices, character truncation, notebook OCR context, punctuation queries and edit refusal.
+  - `swift test --filter DocumentPageChatContext`: 5 tests, 0 failures; log `tmp/document-page-images/P6/page-chat-context-final.log`.
+  - `swift test --filter AgentChat`: 84 tests, 0 failures; log `tmp/document-page-images/P6/agent-chat-final.log`.
+  - `swift test --filter MemoNotebook`: 15 tests, 0 failures; log `tmp/document-page-images/P6/memo-notebook-final.log`.
+  - Changed-file strict SwiftLint passed using `tmp/document-page-images/P6/changed-swift-files.nul`; log `tmp/document-page-images/P6/changed-file-swiftlint-final3.log`. Repository `mise run lint` exited 0; it reported four warnings in unrelated/concurrent files (`NoteService.swift:720`, `ResendGatewayCLIMailSender.swift:75`, `AITranslationTests.swift:71`, and `DocumentPageImportTests.swift:187`); log `tmp/document-page-images/P6/repository-lint-final3.log`.
+  - Source contract grep, line-count and `git diff --check` passed; log `tmp/document-page-images/P6/source-contract-checks.log`. `NoteService+AgentChat.swift` is 927 lines and `DocumentPageChatContext.swift` is 170 lines.
+  - Resolved two transient verification issues before final runs: shared P7 source changed during an early SwiftPM compile, and the first synthetic test metadata update wrote SQLite TEXT into JSONB. The source was subsequently stable, the fixture now uses `jsonb(?)`, and all final test runs passed. Earlier logs remain `page-chat-context-rerun-01.log`, `page-chat-context-final-rerun.log`, and `page-chat-context-final-rerun-02.log`.
+  - P6 source hashes: `DocumentPageChatContext.swift` `1d2865e37d26e46caa17576d25d29133d122e55e464e2ef1c67e6052e5cccae4`; `NoteService+AgentChatContext.swift` `d8beb40998c6a0b479c33ef970afb90eb66dae9d570f5da877cb945b368e3625`; `NoteService+AgentChat.swift` `9a041378689d0f1bc33b7f95bfaec06886ae4dc07962a0a5e72675fffb5a8857`; `DocumentPageChatContextTests.swift` `877c3d86196917aa913d022ac5cfa2962009920684602b5e41ed59de9c1e8a11`.
+  - Formal workflow review, review-dependent shared updates, commit and push remain downstream workflow steps.

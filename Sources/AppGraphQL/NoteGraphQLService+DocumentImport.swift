@@ -49,7 +49,7 @@ public extension GraphQLNoteGraphQLService {
           let imported = try service.importDocumentPages(
             at: source.path, title: input.title?.isEmpty == false ? input.title : nil,
             processor: DocumentPageProcessor(
-              recognizer: documentPageRecognizer, analyzer: documentPageAnalyzer, figureExtractor: documentPageFigureExtractor
+              recognizer: documentPageRecognizer, analyzer: documentPageAnalyzer
             ), maximumOCRPages: limit.maximum
           )
           return .init(

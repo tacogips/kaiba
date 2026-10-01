@@ -22,8 +22,7 @@ in your Kaiba configuration (default `~/.config/kaiba/config.json`):
       "languageHints": ["ja"],
       "timeoutSeconds": 120
     },
-    "analysis": { "vendor": "codex", "model": "gpt-5.6-luna" },
-    "figures": { "vendor": "codex", "model": "gpt-5.6-luna" }
+    "analysis": { "vendor": "codex", "model": "gpt-5.6-luna" }
   }
 }
 ```
@@ -59,7 +58,10 @@ Do not configure both authentication modes. Config files store variable names,
 never credentials. An already-running backend must be restarted with the injected
 environment and new configuration.
 
-The `analysis` and `figures` sections are optional and independently configured.
+The `analysis` section is optional and independently configured. Figure
+extraction was removed (DP7 in `design-document-page-images.md`). An existing
+`figures` section still loads but is ignored. Recognized text is stored as hidden
+search/RAG text, and the reader shows only the page image.
 Server-side Codex analysis still requires the existing explicit subscription
 opt-in. Selecting Document AI for OCR does not enable Codex subscription access.
 

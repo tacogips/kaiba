@@ -208,6 +208,11 @@ The previous heading-based path remains for Word, EPUB and other formats.
 
 ### Independent visual providers
 
+> Since 2026-10-01, `import.figures` is ignored and figure extraction no longer
+> runs (DP7 in `design-document-page-images.md`). The figure-provider text and
+> the `figures` entry in the example below are kept as history. Configure only
+> `import.ocr` and `import.analysis`.
+
 `import.analysis` and `import.figures` accept the same gateway settings as
 `import.ocr` (command path, vendor, model and credential environment-variable
 name). They are independent: for example, use local Vision for text and Codex

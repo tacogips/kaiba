@@ -29,12 +29,22 @@ enum ClaudeImageInput {
     guard bytes.count <= 20 * 1024 * 1024 else {
       throw DocumentConversionError.failed("Claude image input exceeds 20 MiB")
     }
+    return try encode(prompt: prompt, imageData: bytes, mediaType: mimeType)
+  }
+
+  static func encode(prompt: String, imageData: Data, mediaType: String) throws -> Data {
+    guard !imageData.isEmpty, imageData.count <= 20 * 1024 * 1024 else {
+      throw DocumentConversionError.failed("Claude image input must be nonempty and at most 20 MiB")
+    }
+    guard ["image/png", "image/jpeg", "image/gif", "image/webp"].contains(mediaType) else {
+      throw DocumentConversionError.failed("unsupported Claude image format")
+    }
     let object: [String: Any] = [
       "type": "user",
       "message": [
         "role": "user",
         "content": [
-          ["type": "image", "source": ["type": "base64", "media_type": mimeType, "data": bytes.base64EncodedString()]],
+          ["type": "image", "source": ["type": "base64", "media_type": mediaType, "data": imageData.base64EncodedString()]],
           ["type": "text", "text": prompt]
         ]
       ]

@@ -28,6 +28,7 @@ struct UserAgentToolLoopRunner: AgentStreamingInvoking {
   let tools: any AgentToolExecuting
   let model: String
   let maxToolRounds: Int
+  var supportsImageInput: Bool
   /// Monotonic nanoseconds; injectable so chunk timing is testable.
   let now: @Sendable () -> UInt64
 
@@ -36,13 +37,15 @@ struct UserAgentToolLoopRunner: AgentStreamingInvoking {
     tools: any AgentToolExecuting,
     model: String,
     maxToolRounds: Int,
-    now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+    now: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+    supportsImageInput: Bool = false
   ) {
     self.client = client
     self.tools = tools
     self.model = model
     self.maxToolRounds = max(1, maxToolRounds)
     self.now = now
+    self.supportsImageInput = supportsImageInput
   }
 
   func invoke(_ request: AgentInvocationRequest) async throws -> AgentInvocationResult {
@@ -53,7 +56,14 @@ struct UserAgentToolLoopRunner: AgentStreamingInvoking {
     _ request: AgentInvocationRequest,
     onChunk: @escaping @Sendable (String) -> Bool
   ) async throws -> AgentInvocationResult {
+    let request = supportsImageInput && request.images.allSatisfy(\.isTransportable)
+      ? request
+      : request.droppingImagesWithNotice()
     var messages = Self.initialMessages(for: request)
+    let imageMessageIndex = request.images.isEmpty ? nil : messages.lastIndex { message in
+      if case .user = message { return true }
+      return false
+    }
     let definitions = request.allowsTools ? tools.definitions : []
     let systemPrompt = Self.systemPrompt(for: request, toolCount: definitions.count)
     var transcript = ""
@@ -66,7 +76,9 @@ struct UserAgentToolLoopRunner: AgentStreamingInvoking {
             model: request.model ?? model,
             systemPrompt: systemPrompt,
             messages: messages,
-            tools: definitions
+            tools: definitions,
+            images: request.images,
+            imageMessageIndex: imageMessageIndex
           ),
           onTextDelta: { piece in sink.append(piece) }
         )
