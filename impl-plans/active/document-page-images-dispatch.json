@@ -1,11 +1,12 @@
 {
   "taskId": "document-page-images",
   "workflowMode": "issue-resolution",
-  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-242",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-246",
+  "resumedFromWorkflowExecutionId": "opus-luna-design-and-implement-review-loop-session-242",
   "implementationBranch": "main",
   "baseBranch": "main",
   "remote": "origin",
-  "originalHead": "cdfcca3e2c5f3e934f697e48b0f23c0df2eaadb0",
+  "originalHead": "dce7cbaa09da6c9b80dc9f90367ea5dbfc18fdd7",
   "evidenceRoot": "tmp/document-page-images",
   "planDocPath": "impl-plans/active/document-page-images.md",
   "designDocPaths": [
@@ -34,7 +35,8 @@
     "evidenceLayout": "Evidence lives under the untracked, gitignored evidenceRoot tmp/document-page-images, one subdirectory per plan short id (P1..P10) as the plans specify. A re-run after a failed attempt writes into tmp/document-page-images/<P#>/attempt-<n>/ and keeps earlier logs. Create directories with mkdir -p first; tee does not create them.",
     "shell": "Verification commands use bash-only ${PIPESTATUS[0]}; run them under bash (they are wrapped in bash -c). A blank exit= is not evidence. Tests need PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig; run mise run build once first.",
     "peerBreaks": "Concurrent wave-2 workers share one .build. A compile failure in a file outside the worker's writePaths owned by another in-flight plan is not edited; retry up to 3 times, then record 'blocked by peer <planId>' (not passed) for P10 to re-run.",
-    "commitPolicy": "AGENTS.md governs commits: no emojis, no machine-local absolute paths, no secrets, no downloaded PDFs or real recognized text. .riela/ is untracked and never committed; tmp/ is gitignored. Workers do not commit; P10 does not commit, push or archive plans; workflow finalization owns that."
+    "commitPolicy": "AGENTS.md governs commits: no emojis, no machine-local absolute paths, no secrets, no downloaded PDFs or real recognized text. .riela/ is untracked and never committed; tmp/ is gitignored. Workers do not commit; P10 does not commit, push or archive plans; workflow finalization owns that.",
+    "acceptedDependencies": "Plans in acceptedDependencies are finished, accepted and committed by the session-246 plan checkpoint commit. dependsOn entries naming them are satisfied. Their writePaths are read-only for remaining plans unless a plan sharedPathNotes entry grants a specific edit (P3: the NoteService.swift body guard)."
   },
   "reviewContext": {
     "issueReference": "No GitHub issue. Inline workflowInput 'PDF pages: show deterministic page images only; OCR text is search/RAG-only; agent Q&A uses page image + RAG context' (workflow opus-luna-design-and-implement-review-loop-session-242; plan review accepted in comm-003161, Step 4 output comm-003160).",
@@ -139,13 +141,18 @@
       "P3 standalone-image test references a fixture in a test P3 replaces; read the fixture before replacing it."
     ]
   },
-  "plans": [
+  "acceptedDependencies": [
     {
       "planId": "P1-storage-contract",
       "planPath": "impl-plans/active/document-page-images-p1-storage-contract.md",
-      "progressPath": "impl-plans/active/document-page-images-p1-storage-contract.md",
       "wave": 1,
-      "dependsOn": [],
+      "acceptedBy": "session-242 test-integrity, adversarial and integration review",
+      "checkpoint": "committed on main by the session-246 plan checkpoint commit",
+      "provides": [
+        "notes.search_text column and schema version 22 migration (DP2, DP5)",
+        "single retrieval-text function used by FTS, search and RAG consumers (DP4)",
+        "page-note body write refusal guard (DP3)"
+      ],
       "writePaths": [
         "Sources/AppCore/NoteRetrievalText.swift",
         "Sources/AppCore/NoteStoreSchema.swift",
@@ -157,41 +164,35 @@
         "Tests/AppCoreTests/NoteStoreSchemaTests.swift",
         "Tests/AppCoreTests/NoteStoreSchemaCanonicalTests.swift",
         "impl-plans/active/document-page-images-p1-storage-contract.md"
-      ],
-      "sharedPaths": [
-        "Sources/AppCore/NoteService+DocumentPageOCR.swift",
-        "Sources/AppCore/NoteService+Maintenance.swift"
-      ],
-      "sharedPathNotes": [
-        {"path": "Sources/AppCore/NoteService+DocumentPageOCR.swift", "intendedEdit": "read-only: importedPageMetadata(_:) defines a page note"},
-        {"path": "Sources/AppCore/NoteService+Maintenance.swift", "intendedEdit": "read-only: checkStore used as FTS health check in tests"}
-      ],
-      "acceptanceCriteria": [
-        "Pinned P1 contracts from the index exist exactly: noteRetrievalText, noteSearchText, noteSearchTexts, isDocumentPageMetaJSON, NoteService.isDocumentPageNote, documentPageTextMigration, NoteService.retrievalText(for:)/retrievalTexts(for:), NotePageDraft.searchText defaulting to nil.",
-        "notes.search_text TEXT is the last column; NoteStoreSchema.currentVersion == 22; upgradeToVersion21 records literal 21; upgradeToVersion22 adds the column, moves page bodies to search_text, refreshes FTS and records 22 in one transaction.",
-        "ftsPayload and currentFTSPayload index retrieval text byte-identically.",
-        "updateNoteBodyInDatabase refuses document page notes with 'document page text is managed by OCR; use a comment to annotate the page' unless completingPendingDocumentOCR.",
-        "NoteService.swift and NoteStoreSchema.swift stay under 1000 lines; Progress Log records pre/post SHA-256 per edited file."
-      ],
-      "verification": [
-        "mise run build",
-        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreSchema 2>&1 | tee tmp/document-page-images/P1/schema.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteRetrievalText 2>&1 | tee tmp/document-page-images/P1/retrieval.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteSearch 2>&1 | tee tmp/document-page-images/P1/search.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreMaintenance 2>&1 | tee tmp/document-page-images/P1/maintenance.log; echo exit=${PIPESTATUS[0]}'",
-        "mise run lint",
-        "wc -l Sources/AppCore/NoteService.swift Sources/AppCore/NoteStoreSchema.swift",
-        "grep -n 'currentVersion = 22' Sources/AppCore/NoteStoreSchema.swift",
-        "grep -n 'recordSchemaVersion(21' Sources/AppCore/NoteStoreSchema.swift",
-        "grep -n 'search_text' Sources/AppCore/NoteSearchIndex.swift"
       ]
     },
+    {
+      "planId": "P9-web-reader",
+      "planPath": "impl-plans/active/document-page-images-p9-web-reader.md",
+      "wave": 1,
+      "acceptedBy": "session-242 test-integrity, adversarial and integration review",
+      "checkpoint": "committed on main by the session-246 plan checkpoint commit",
+      "provides": [
+        "image-only DocumentNotebookReader with no Text/Original toggle (DP1)",
+        "memo composer behaviour for page-image notebooks"
+      ],
+      "writePaths": [
+        "web/src/components/DocumentNotebookReader.tsx",
+        "web/src/components/DocumentNotebookReader.integration.tsx",
+        "web/src/notes/memoComposer.ts",
+        "web/src/notes/memoComposer.test.ts",
+        "impl-plans/active/document-page-images-p9-web-reader.md"
+      ]
+    }
+  ],
+  "plans": [
     {
       "planId": "P2-agent-image-contract",
       "planPath": "impl-plans/active/document-page-images-p2-agent-image-contract.md",
       "progressPath": "impl-plans/active/document-page-images-p2-agent-image-contract.md",
       "wave": 1,
       "dependsOn": [],
+      "resume": "Implementation already exists in the working tree (uncommitted, not accepted). Do not re-implement. Fresh-read and hash the three P2 source/test files, check them against the File-level changes and Tests sections of the P2 plan, fix only defects inside P2 writePaths, re-run the focused suites into tmp/document-page-images/P2/attempt-2/, and record results in the P2 Progress Log. P2 must be accepted by test-integrity and adversarial review before P6, P7 and P8 start.",
       "writePaths": [
         "Sources/AppCore/AgentInvoking.swift",
         "Sources/AppCore/ToolLoopModelClient.swift",
@@ -206,49 +207,13 @@
         "No invoker, client, runner, chat code or ToolLoopMessage changes."
       ],
       "verification": [
-        "bash -c 'mkdir -p tmp/document-page-images/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentInvocationImage 2>&1 | tee tmp/document-page-images/P2/contract.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter UserAgentToolLoop 2>&1 | tee tmp/document-page-images/P2/toolloop.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentGatewayCLIInvoker 2>&1 | tee tmp/document-page-images/P2/gateway.log; echo exit=${PIPESTATUS[0]}'",
-        "mise run lint",
+        "mise run build",
+        "bash -c 'mkdir -p tmp/document-page-images/P2/attempt-2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentInvocationImage 2>&1 | tee tmp/document-page-images/P2/attempt-2/contract.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P2/attempt-2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter UserAgentToolLoop 2>&1 | tee tmp/document-page-images/P2/attempt-2/toolloop.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P2/attempt-2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentGatewayCLIInvoker 2>&1 | tee tmp/document-page-images/P2/attempt-2/gateway.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/document-page-images/P2/attempt-2 && mise run lint 2>&1 | tee tmp/document-page-images/P2/attempt-2/lint.log; echo exit=${PIPESTATUS[0]}'",
         "grep -n 'struct AgentInvocationImage' Sources/AppCore/AgentInvoking.swift",
         "grep -n 'imageMessageIndex' Sources/AppCore/ToolLoopModelClient.swift"
-      ]
-    },
-    {
-      "planId": "P9-web-reader",
-      "planPath": "impl-plans/active/document-page-images-p9-web-reader.md",
-      "progressPath": "impl-plans/active/document-page-images-p9-web-reader.md",
-      "wave": 1,
-      "dependsOn": [],
-      "writePaths": [
-        "web/src/components/DocumentNotebookReader.tsx",
-        "web/src/components/DocumentNotebookReader.integration.tsx",
-        "web/src/notes/memoComposer.ts",
-        "web/src/notes/memoComposer.test.ts",
-        "impl-plans/active/document-page-images-p9-web-reader.md"
-      ],
-      "sharedPaths": [
-        "web/src/components/MemoTab.tsx",
-        "web/src/notes/documentPages.ts"
-      ],
-      "sharedPathNotes": [
-        {"path": "web/src/components/MemoTab.tsx", "intendedEdit": "read-only: verify canEnableNoteEdit receives the full Note with metaJSON and record the evidence"},
-        {"path": "web/src/notes/documentPages.ts", "intendedEdit": "read-only: use documentPageMetadata(note)"}
-      ],
-      "acceptanceCriteria": [
-        "DocumentNotebookReader always renders the origin image stage; mode signal, 'Page display mode' group and Text/Original buttons removed; bodyMarkdown never rendered for page notes.",
-        "Binding-aware keyboard, swipe and button navigation, page jump, batch loading and stale-response handling preserved.",
-        "OCR button labelled 'Make page searchable' (busy 'Making page searchable...'); pending notice 'Text on this page is not searchable yet.' when ocrState is pending.",
-        "canEnableNoteEdit returns false for document page subjects and true otherwise; existing cases unchanged.",
-        "ReaderPane.tsx, documentPages.ts, client.ts, web/src-tauri/ and server-credential code untouched."
-      ],
-      "verification": [
-        "bash -c 'mkdir -p tmp/document-page-images/P9 && cd web && mise exec -- bun test src/notes/memoComposer.test.ts 2>&1 | tee ../tmp/document-page-images/P9/unit.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P9 && cd web && mise exec -- bun x vitest run src/components/DocumentNotebookReader.integration.tsx src/components/MemoTab.integration.tsx 2>&1 | tee ../tmp/document-page-images/P9/dom.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P9 && mise run web:check 2>&1 | tee tmp/document-page-images/P9/web-check.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/document-page-images/P9 && mise run tauri:check 2>&1 | tee tmp/document-page-images/P9/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c '! grep -rn \"Page display mode\" web/src'",
-        "grep -n 'documentPageMetadata' web/src/notes/memoComposer.ts"
       ]
     },
     {

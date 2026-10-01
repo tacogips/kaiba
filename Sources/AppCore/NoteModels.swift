@@ -170,19 +170,22 @@ public struct NotePageDraft: Equatable, Sendable {
   public var tags: [NoteTagInput]
   public var metaJSON: String?
   public var noteNumber: Int?
+  public var searchText: String?
 
   public init(
     bodyMarkdown: String,
     readOnly: Bool = true,
     tags: [NoteTagInput] = [],
     metaJSON: String? = nil,
-    noteNumber: Int? = nil
+    noteNumber: Int? = nil,
+    searchText: String? = nil
   ) {
     self.bodyMarkdown = bodyMarkdown
     self.readOnly = readOnly
     self.tags = tags
     self.metaJSON = metaJSON
     self.noteNumber = noteNumber
+    self.searchText = searchText
   }
 }
 

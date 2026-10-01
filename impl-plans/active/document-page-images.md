@@ -1,6 +1,6 @@
 # Document Page Images: Implementation Plan Index
 
-**Status**: Ready for implementation
+**Status**: In progress. P1 and P9 are accepted and checkpointed (session-246). P2 is implemented but awaits verification and review. P3-P8 and P10 have not started.
 **Design Reference**: `design-docs/specs/design-document-page-images.md` (DP1-DP10, I1-I6)
 **Related design updates**: `design-docs/specs/document-import.md`,
 `design-docs/specs/ai-agent-integration.md` (AI12), `design-docs/specs/note-retrieval-fusion.md`,
@@ -19,18 +19,25 @@ This index is edited only during serial reconciliation (P10).
 
 ## Plans and waves
 
-| Wave | planId | Plan file | dependsOn |
-| --- | --- | --- | --- |
-| 1 | P1-storage-contract | `impl-plans/active/document-page-images-p1-storage-contract.md` | - |
-| 1 | P2-agent-image-contract | `impl-plans/active/document-page-images-p2-agent-image-contract.md` | - |
-| 1 | P9-web-reader | `impl-plans/active/document-page-images-p9-web-reader.md` | - |
-| 2 | P3-import-ocr-pipeline | `impl-plans/active/document-page-images-p3-import-ocr-pipeline.md` | P1 |
-| 2 | P4-retrieval-consumers | `impl-plans/active/document-page-images-p4-retrieval-consumers.md` | P1 |
-| 2 | P5-undo-snapshots | `impl-plans/active/document-page-images-p5-undo-snapshots.md` | P1 |
-| 2 | P6-page-chat-context | `impl-plans/active/document-page-images-p6-page-chat-context.md` | P1, P2 |
-| 2 | P7-gateway-image-transport | `impl-plans/active/document-page-images-p7-gateway-image-transport.md` | P2 |
-| 2 | P8-toolloop-image-transport | `impl-plans/active/document-page-images-p8-toolloop-image-transport.md` | P2 |
-| 3 | P10-integration-contracts | `impl-plans/active/document-page-images-p10-integration-contracts.md` | P3, P4, P5, P6, P7, P8, P9 |
+| Wave | planId | Plan file | dependsOn | State |
+| --- | --- | --- | --- | --- |
+| 1 | P1-storage-contract | `impl-plans/active/document-page-images-p1-storage-contract.md` | - | accepted (acceptedDependencies) |
+| 1 | P2-agent-image-contract | `impl-plans/active/document-page-images-p2-agent-image-contract.md` | - | implemented; resume verification and review |
+| 1 | P9-web-reader | `impl-plans/active/document-page-images-p9-web-reader.md` | - | accepted (acceptedDependencies) |
+| 2 | P3-import-ocr-pipeline | `impl-plans/active/document-page-images-p3-import-ocr-pipeline.md` | P1 | not started |
+| 2 | P4-retrieval-consumers | `impl-plans/active/document-page-images-p4-retrieval-consumers.md` | P1 | not started |
+| 2 | P5-undo-snapshots | `impl-plans/active/document-page-images-p5-undo-snapshots.md` | P1 | not started |
+| 2 | P6-page-chat-context | `impl-plans/active/document-page-images-p6-page-chat-context.md` | P1, P2 | not started |
+| 2 | P7-gateway-image-transport | `impl-plans/active/document-page-images-p7-gateway-image-transport.md` | P2 | not started |
+| 2 | P8-toolloop-image-transport | `impl-plans/active/document-page-images-p8-toolloop-image-transport.md` | P2 | not started |
+| 3 | P10-integration-contracts | `impl-plans/active/document-page-images-p10-integration-contracts.md` | P3, P4, P5, P6, P7, P8, P9 | not started |
+
+Accepted plans are listed under `acceptedDependencies` in
+`impl-plans/active/document-page-images-dispatch.json`, not under `plans`. A
+`dependsOn` entry that names an accepted plan is already satisfied. The
+accepted plans' write paths are read-only for every remaining plan, except
+where a plan's `sharedPathNotes` grants one specific edit (P3: the
+`NoteService.swift` body guard).
 
 The dependency graph is a DAG with three waves. Wave-2 plans have disjoint
 `writePaths`. Shared contracts, meaning the `search_text` column, the
@@ -149,3 +156,15 @@ P2 owns these, in `Sources/AppCore/AgentInvoking.swift` and `Sources/AppCore/Too
 ## Progress Log
 
 - 2026-10-01: Index and plans created from the accepted design (Step 3 accepted, no open high/mid findings).
+- 2026-10-02 (session-246 resume checkpoint): P1-storage-contract and
+  P9-web-reader were accepted in session-242 (test-integrity, adversarial and
+  integration review), so they moved from `plans` to `acceptedDependencies` in
+  the dispatch manifest. Their Progress Logs record the P1 Step 6 test repair
+  (post-repair SHA-256 of `NoteStoreSchemaVersion22Tests.swift` starts with
+  `a8c5c613`) and the P9 step7 repair, which removed the unreachable "no
+  original page image" fallback. The checkpoint commit contains the P1 and P9
+  write paths, this index, the manifest and the design clarifications (DP1,
+  DP5 step 3, I5). It does not contain the P2 source, test or plan files, or
+  `.riela/`. P2 resumes from its existing code. The resume instructions are in
+  the manifest `resume` field and the uncommitted P2 plan, and logs go to
+  `tmp/document-page-images/P2/attempt-2/`.

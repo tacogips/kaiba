@@ -114,7 +114,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       XCTAssertEqual(credential?["api_key"], "fixture-secret")
       XCTAssertEqual(credential?["default_model"], "old-model")
       try db.execute("UPDATE user_agent_credentials SET provider = 'codex', api_key = ''")
-      XCTAssertEqual(try schemaVersions(in: db), [19, NoteStoreSchema.currentVersion])
+      XCTAssertEqual(try schemaVersions(in: db), [19, 21, 22])
     }
   }
 

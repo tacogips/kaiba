@@ -133,10 +133,12 @@ offered for a page subject, because page bodies are not writable on the server
 
 ## Done criteria
 
-- [ ] `grep -rn "Page display mode\|setMode('text')" web/src` prints nothing.
-- [ ] `grep -n "documentPageMetadata" web/src/notes/memoComposer.ts` matches.
-- [ ] Every command above exits 0, and logs are saved under `tmp/document-page-images/P9/`.
+- [x] `grep -rn "Page display mode\|setMode('text')" web/src` prints nothing.
+- [x] `grep -n "documentPageMetadata" web/src/notes/memoComposer.ts` matches.
+- [x] Every command above exits 0, and logs are saved under `tmp/document-page-images/P9/`.
 
 ## Progress Log
 
 - 2026-10-01: Plan created.
+- 2026-10-02: Removed the page display mode and Markdown/editor rendering from `DocumentNotebookReader`; the origin image stage now always renders while binding-aware navigation, page jump, batch loading, swipe handling, and stale image protection remain. Updated OCR action/busy labels and the pending-search notice. `canEnableNoteEdit` refuses subjects with parsed document-page metadata. Updated reader and composer tests for hidden legacy OCR, origin-image requests, OCR retry, mode removal, and edit eligibility. `MemoTab.tsx` already passes `app.state.note` to `canEnableNoteEdit` (line 158), so the shared path required no edit. Focused unit suite: 12 passed; focused DOM suites: 21 passed; `mise run web:check`: exit 0 with 173 unit and 75 DOM tests passed, typecheck/lint/build passed; `mise run tauri:check`: exit 0. Evidence logs: `tmp/document-page-images/P9/unit.log`, `dom.log`, `web-check.log`, and `tauri-check.log`.
+- 2026-10-02 (step7 repair, recorded during serial reconciliation): the step7 adversarial review found that rendering only the origin stage for every note hid the Markdown body and `NoteEditor` of user-authored non-page notes in writable page notebooks. Now only notes whose `documentPageMetadata` parses render the origin-image stage. Other notes keep `MarkdownBody`, plus `NoteEditor` when they are selected. Because of this, the "This note has no original page image." fallback from File-level change 1 can no longer be reached, so it was removed. The shared `MarkdownBody` image-safety and authenticated-fetch test was restored during the test-integrity repair. Logs: `tmp/document-page-images/P9/step7-dom-rereview.log`, `step7-unit-rereview.log`, `step7-web-check.log`. The combined-tree `tauri:check` was rerun in reconciliation; its log is under `tmp/document-page-images/reconcile/`.

@@ -31,7 +31,7 @@ function mount(children: () => JSX.Element, loadBlob: (id: FileId) => Promise<Bl
     button: (name: string) => [...host.querySelectorAll('button')].find((button) => (button.getAttribute('aria-label') ?? button.textContent) === name)! }
 }
 
-test('original mode flips physical pages, rejects stale image responses, and retains the page when returning to text', async () => {
+test('flips physical pages showing only original images and rejects stale image responses', async () => {
   const requests: string[] = []
   const resolvers = new Map<string, (blob: Blob) => void>()
   const createURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:current-page')
@@ -43,11 +43,11 @@ test('original mode flips physical pages, rejects stale image responses, and ret
   }, (id) => { requests.push(id); return new Promise((resolve) => resolvers.set(id, resolve)) })
   try {
     await settle()
-    expect(harness.host.textContent).toContain('First page text')
-    expect(harness.host.querySelector<HTMLElement>('.document-page-text')?.style.writingMode).toBe('vertical-rl')
-    harness.button('Original').click()
-    await settle()
     expect(requests).toEqual(['file-1'])
+    expect(harness.host.textContent).not.toContain('First page text')
+    expect(harness.host.querySelector(`[aria-label="${'Page display ' + 'mode'}"]`)).toBeNull()
+    expect(harness.button('Text')).toBeUndefined()
+    expect(harness.button('Original')).toBeUndefined()
     harness.host.querySelector('[aria-label="Document pages"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
     await settle()
     expect(requests).toEqual(['file-1', 'file-2'])
@@ -58,14 +58,13 @@ test('original mode flips physical pages, rejects stale image responses, and ret
     expect(createURL).toHaveBeenCalledTimes(1)
     expect(harness.host.querySelector('img')?.alt).toBe('Original page 2')
     expect(harness.button('Next page').disabled).toBe(true)
-    harness.button('Text').click()
-    await settle()
     expect(harness.host.textContent).toContain('Page 2 / 2')
-    expect(harness.host.textContent).toContain('Text has not been recognized')
-    expect(revokeURL).toHaveBeenCalledWith('blob:current-page')
+    expect(harness.host.textContent).toContain('Text on this page is not searchable yet.')
     harness.host.querySelector('[aria-label="Document pages"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     await settle()
-    expect(harness.host.textContent).toContain('First page text')
+    expect(revokeURL).toHaveBeenCalledWith('blob:current-page')
+    expect(harness.host.textContent).toContain('Page 1 / 2')
+    expect(harness.host.textContent).not.toContain('First page text')
   } finally { harness.close(); vi.restoreAllMocks() }
 })
 
@@ -103,7 +102,23 @@ test('figure Markdown fetches local images through the client and never uses uns
   } finally { harness.close(); expect(revokeURL).toHaveBeenCalledWith('blob:figure'); vi.restoreAllMocks() }
 })
 
-test('manual page OCR reports failure, allows retry, and displays the completed text', async () => {
+test('page notes never render OCR or fetch Markdown figure images', async () => {
+  const requests: string[] = []
+  const harness = mount(() => <DocumentNotebookReader notes={[{
+    ...page(1), bodyMarkdown: 'Hidden OCR words ![Figure 1](/files/f1)',
+    metaJSON: JSON.stringify({ documentPage: { pageNumber: 1, ocrState: 'complete', originFileId: 'file-origin', analysis: {} } }),
+  }]} selectedNoteId={noteId('note-1')} totalCount={1} onSelect={() => {}} onLoadMore={async () => {}} />,
+  async (id) => { requests.push(id); return new Blob(['origin'], { type: 'image/png' }) })
+  try {
+    await settle()
+    expect(requests).toEqual(['file-origin'])
+    expect(harness.host.textContent).not.toContain('Hidden OCR words')
+    expect(harness.host.querySelectorAll('img')).toHaveLength(1)
+    expect(harness.host.querySelector('img')?.alt).toBe('Original page 1')
+  } finally { harness.close() }
+})
+
+test('manual page OCR reports failure, allows retry, and keeps OCR text hidden', async () => {
   let calls = 0
   const harness = mount(() => {
     const [notes, setNotes] = createSignal([page(2)])
@@ -119,13 +134,39 @@ test('manual page OCR reports failure, allows retry, and displays the completed 
   }, async () => new Blob(['image'], { type: 'image/png' }))
   try {
     await settle()
-    harness.button('OCR this page').click()
+    expect(harness.host.textContent).toContain('Text on this page is not searchable yet.')
+    expect(harness.host.querySelector('img')?.alt).toBe('Original page 2')
+    harness.button('Make page searchable').click()
+    expect(harness.host.textContent).toContain('Making page searchable...')
     await settle()
     expect(harness.host.textContent).toContain('OCR temporarily unavailable')
-    harness.button('OCR this page').click()
+    harness.button('Make page searchable').click()
     await settle()
     expect(calls).toBe(2)
-    expect(harness.host.textContent).toContain('Recognized page text')
-    expect(harness.button('OCR this page')).toBeUndefined()
+    expect(harness.host.textContent).not.toContain('Recognized page text')
+    expect(harness.host.textContent).not.toContain('Text on this page is not searchable yet.')
+    expect(harness.button('Make page searchable')).toBeUndefined()
+    expect(harness.host.querySelector('img')?.alt).toBe('Original page 2')
+  } finally { harness.close() }
+})
+
+test('non-page notes keep rendering Markdown while page notes stay image-only', async () => {
+  const userNote: Note = { noteId: noteId('note-2'), notebookId: notebookId('book'), noteNumber: 2, title: 'Mine',
+    bodyMarkdown: 'User authored words', readOnly: false, createdAt: '', updatedAt: '', tags: [] }
+  let select: (id: ReturnType<typeof noteId>) => void = () => {}
+  const harness = mount(() => {
+    const [selected, setSelected] = createSignal(noteId('note-1'))
+    select = setSelected
+    return <DocumentNotebookReader notes={[page(1), userNote]} selectedNoteId={selected()} totalCount={2}
+      onSelect={(note) => setSelected(note.noteId)} onLoadMore={async () => {}} />
+  }, async () => new Blob(['image'], { type: 'image/png' }))
+  try {
+    await settle()
+    expect(harness.host.textContent).not.toContain('First page text')
+    expect(harness.host.textContent).not.toContain('User authored words')
+    select(noteId('note-2'))
+    await settle()
+    expect(harness.host.textContent).toContain('User authored words')
+    expect(harness.host.textContent).not.toContain('First page text')
   } finally { harness.close() }
 })

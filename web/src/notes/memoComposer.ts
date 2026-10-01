@@ -1,5 +1,7 @@
 import { latestConversationId } from './memoTimeline'
+import { documentPageMetadata } from './documentPages'
 import type { AgentChatAttachmentInput, AgentConversation, AgentModel } from './types'
+import type { Note } from './types'
 import type { NoteId, NotebookId } from './ids'
 
 const allowedTypes = new Set([
@@ -74,10 +76,10 @@ export function memoOnlyToggleResult(
  * notebook's flag are both clear (imported documents lock the notebook). */
 export function canEnableNoteEdit(
   subject: { kind: 'note'; id: NoteId } | { kind: 'notebook'; id: NotebookId } | undefined,
-  note: { noteId: NoteId; readOnly: boolean } | undefined,
+  note: { noteId: NoteId; readOnly: boolean; metaJSON?: string | null } | undefined,
   notebook: { readOnly: boolean } | undefined,
 ): boolean {
-  return subject?.kind === 'note' && note?.noteId === subject.id
+  return subject?.kind === 'note' && note?.noteId === subject.id && !documentPageMetadata(note as Note)
     && !note.readOnly && notebook !== undefined && !notebook.readOnly
 }
 

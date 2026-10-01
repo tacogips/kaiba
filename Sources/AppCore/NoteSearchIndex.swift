@@ -57,7 +57,7 @@ func deleteFTSEntry(_ previous: FTSPayload, in database: SQLiteDatabase) throws 
 func ftsPayload(noteId: NoteID, in database: SQLiteDatabase) throws -> FTSPayload? {
   let rows = try database.query(
     """
-    SELECT m.fts_rowid, m.context, n.title, n.body_markdown, ifnull((
+    SELECT m.fts_rowid, m.context, n.title, n.body_markdown, n.search_text, ifnull((
         SELECT group_concat(ordered_tags.name, ' ')
         FROM (
           SELECT t.name
@@ -80,7 +80,7 @@ func ftsPayload(noteId: NoteID, in database: SQLiteDatabase) throws -> FTSPayloa
   return FTSPayload(
     rowId: rowId,
     title: row["title"] ?? "",
-    body: row["body_markdown"] ?? "",
+    body: noteRetrievalText(bodyMarkdown: row["body_markdown"] ?? "", searchText: row["search_text"]),
     tags: row["tags"] ?? "",
     context: row["context"] ?? ""
   )
@@ -165,7 +165,10 @@ private func currentFTSPayload(noteId: NoteID, rowId: Int64?, in database: SQLit
   return FTSPayload(
     rowId: ftsRowId,
     title: note.title ?? "",
-    body: note.bodyMarkdown,
+    body: noteRetrievalText(
+      bodyMarkdown: note.bodyMarkdown,
+      searchText: try noteSearchText(noteId, in: database)
+    ),
     tags: note.tags.map(\.tag.name).joined(separator: " "),
     context: try ftsContextPayload(noteId: noteId, in: database)
   )

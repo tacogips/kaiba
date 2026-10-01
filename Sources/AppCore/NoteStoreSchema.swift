@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 21
+  public static let currentVersion = 22
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -221,9 +221,14 @@ public enum NoteStoreSchema {
     }
     if newest == 19 || newest == 20 {
       try upgradeToVersion21(in: database)
+      try upgradeToVersion22(in: database)
       return
     }
-    if newest < currentVersion {
+    if newest == 21 {
+      try upgradeToVersion22(in: database)
+      return
+    }
+    if newest < 19 {
       throw NoteStoreSchemaError.unsupportedLegacyVersion(found: newest, required: currentVersion)
     }
   }
@@ -244,7 +249,38 @@ public enum NoteStoreSchema {
         )
       }
       try db.execute("CREATE INDEX IF NOT EXISTS idx_tags_canonical_note ON tags(canonical_note_id)")
-      try recordSchemaVersion(currentVersion, in: db)
+      try recordSchemaVersion(21, in: db)
+    }
+  }
+
+  private static func upgradeToVersion22(in database: SQLiteDatabase) throws {
+    try database.transaction { db in
+      let noteColumns = try db.query("PRAGMA table_info(notes)")
+      if !noteColumns.contains(where: { $0["name"] == "search_text" }) {
+        try db.execute("ALTER TABLE notes ADD COLUMN search_text TEXT")
+      }
+      let pageRows = try db.query(
+        """
+        SELECT note_id, body_markdown, json(meta_json) AS meta_json
+        FROM notes
+        WHERE json_extract(meta_json, '$.documentPage') IS NOT NULL
+          AND search_text IS NULL
+        ORDER BY note_id
+        """
+      )
+      for row in pageRows {
+        guard isDocumentPageMetaJSON(row["meta_json"]),
+              let noteId = row.identifier("note_id", as: NoteID.self) else {
+          continue
+        }
+        let previous = try ftsPayload(noteId: noteId, in: db)
+        try db.execute(
+          "UPDATE notes SET search_text = body_markdown, body_markdown = '' WHERE note_id = ?",
+          bindings: [.id(noteId)]
+        )
+        try refreshFTS(noteId: noteId, previous: previous, in: db)
+      }
+      try recordSchemaVersion(22, in: db)
     }
   }
 
@@ -516,6 +552,7 @@ private let schemaStatements = [
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     meta_json BLOB CHECK (meta_json IS NULL OR json_valid(meta_json, 8)),
+    search_text TEXT,
     UNIQUE (notebook_id, note_number)
   ) STRICT
   """,

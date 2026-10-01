@@ -19,7 +19,6 @@ export function DocumentNotebookReader(props: {
   onLoadMore: () => Promise<void>
   onRecognize?: (note: Note) => Promise<void>
 }): JSX.Element {
-  const [mode, setMode] = createSignal<'text' | 'origin'>('text')
   const [loading, setLoading] = createSignal(false)
   const [message, setMessage] = createSignal('')
   const [jump, setJump] = createSignal('')
@@ -33,11 +32,6 @@ export function DocumentNotebookReader(props: {
     const value = metadata()?.analysis.binding
     return value && value !== 'unknown' ? value : ordered().map(documentPageMetadata)
       .find((page) => page?.analysis.binding !== undefined && page.analysis.binding !== 'unknown')?.analysis.binding ?? 'unknown'
-  }
-  const writingMode = () => {
-    const value = metadata()?.analysis.writingMode
-    return value && value !== 'unknown' ? value : ordered().map(documentPageMetadata)
-      .find((page) => page?.analysis.writingMode !== undefined && page.analysis.writingMode !== 'unknown')?.analysis.writingMode ?? 'unknown'
   }
   const total = () => props.totalCount ?? ordered().length
   let disposed = false
@@ -92,10 +86,6 @@ export function DocumentNotebookReader(props: {
 
   return <section class="document-reader" aria-label="Document pages" tabindex="0" onKeyDown={keydown}>
     <div class="document-reader-toolbar">
-      <div role="group" aria-label="Page display mode">
-        <button type="button" class="secondary" aria-pressed={mode() === 'text'} onClick={() => setMode('text')}>Text</button>
-        <button type="button" class="secondary" aria-pressed={mode() === 'origin'} onClick={() => setMode('origin')}>Original</button>
-      </div>
       <nav classList={{ 'document-page-navigation': true, 'right-binding': binding() === 'right' }} aria-label="Page navigation">
         <button type="button" class="secondary" aria-label="Previous page" disabled={loading() || index() === 0}
           onClick={() => step(-1)}>{binding() === 'right' ? 'Previous →' : '← Previous'}</button>
@@ -112,24 +102,25 @@ export function DocumentNotebookReader(props: {
         <button type="submit" class="secondary" disabled={loading()}>Go to page</button>
       </form>
     </div>
-    <Show when={metadata()?.ocrState === 'pending' && props.onRecognize}>
-      <button type="button" class="secondary" disabled={ocrBusy() || current()?.readOnly} onClick={() => void recognize()}>
-        {ocrBusy() ? 'Recognizing text…' : 'OCR this page'}
-      </button>
+    <Show when={metadata()?.ocrState === 'pending'}>
+      <Show when={props.onRecognize}>
+        <button type="button" class="secondary" disabled={ocrBusy() || current()?.readOnly} onClick={() => void recognize()}>
+          {ocrBusy() ? 'Making page searchable...' : 'Make page searchable'}
+        </button>
+      </Show>
+      <p class="document-ocr-pending">Text on this page is not searchable yet.</p>
     </Show>
     <Show when={ocrError()?.noteId === current()?.noteId}><p role="alert">{ocrError()?.message}</p></Show>
     <Show when={loading()}><p role="status">Loading pages…</p></Show>
     <Show when={message()}><p role="alert">{message()}</p></Show>
     <Show when={current()} keyed>{(note) => <div data-note-id={note.noteId}>
-      <Show when={mode() === 'origin'} fallback={
-        <div class="document-page-text" lang={metadata()?.analysis.language}
-          style={{ 'writing-mode': writingMode() === 'vertical' ? 'vertical-rl' : 'horizontal-tb' }}>
-          <Show when={metadata()?.ocrState === 'pending'}><p class="document-ocr-pending">Text has not been recognized for this page yet.</p></Show>
+      <Show when={documentPageMetadata(note)} fallback={
+        <div class="document-page-text">
           <MarkdownBody markdown={note.bodyMarkdown} anchorPrefix={noteHeadingPrefix(note.noteId)}
             tagTerms={tagTermsFromAssignments([note.tags, props.notebookTags])} onTagClick={props.onTagClick} />
           <Show when={props.selectedNoteId === note.noteId}><NoteEditor note={note} /></Show>
         </div>
-      }>
+      }>{(page) =>
         <div class="document-origin-stage"
           onPointerDown={(event) => {
             if (event.pointerType === 'mouse') return
@@ -137,11 +128,9 @@ export function DocumentNotebookReader(props: {
             event.currentTarget.setPointerCapture?.(event.pointerId)
           }}
           onPointerUp={pointerUp} onPointerCancel={() => { swipeStart = undefined }}>
-          <Show when={documentPageMetadata(note)} fallback={<p>This note has no original page image.</p>}>{(page) =>
-            <NoteFileImage fileId={page().originFileId} alt={`Original page ${page().pageNumber}`} />
-          }</Show>
+          <NoteFileImage fileId={page().originFileId} alt={`Original page ${page().pageNumber}`} />
         </div>
-      </Show>
+      }</Show>
     </div>}</Show>
   </section>
 }

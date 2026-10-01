@@ -58,6 +58,11 @@ renders the stored origin image (`NoteFileImage` for `documentPage.originFileId`
 - Remove the Markdown body and the inline `NoteEditor` from the page view. The
   reader does not render `bodyMarkdown`, even when it is not empty (see DP3 for
   legacy content).
+- Notes in the same notebook whose metadata is not `documentPage` (for example
+  user-authored notes added after the notebook was made writable) keep the
+  former Markdown body and, when selected, the inline `NoteEditor`. The image
+  stage is chosen per note, so the old "This note has no original page image."
+  fallback cannot be reached and is removed.
 - Keep: physical-page ordering, batch loading, previous/next buttons, arrow keys,
   swipe, page jump, and right-binding and vertical-writing navigation
   (`pageStepForArrow`, with binding inherited from neighbouring pages when a page
@@ -196,7 +201,9 @@ is recorded as an open question in user-qa and is out of scope.
      TEXT column.
   2. Select every note with `json_extract(meta_json, '$.documentPage') IS NOT NULL
      AND search_text IS NULL`, ordered by `note_id`.
-  3. For each selected note:
+  3. For each selected note whose `documentPage` decodes as
+     `ImportedPageMetadata` (see Definitions; rows that fail to decode are not
+     document page notes and are left unchanged):
      1. read the previous FTS payload (`ftsPayload`);
      2. `UPDATE notes SET search_text = body_markdown, body_markdown = ''`;
      3. leave `title`, `title_source`, `updated_at` and `meta_json` untouched;
@@ -209,7 +216,8 @@ is recorded as an open question in user-qa and is out of scope.
   RAG.
 - **Idempotency**:
   - After migration, every document page note has non-NULL `search_text`. Pending
-    pages store `''`. A second run therefore selects nothing.
+    pages store `''`. A second run therefore moves nothing. Rows that do not
+    decode as page metadata may be selected again, but they are skipped again.
   - The column check makes step 1 safe to repeat.
   - The transaction makes a partial migration impossible: either the column, the
     data move, the FTS rows and the version row commit together, or nothing
@@ -433,8 +441,8 @@ chat on page -> snapshot (subject, page context) -> DocumentPageChatContext
 - I3: Every write to `search_text` happens in a transaction that reads the
   previous FTS payload first and calls `refreshFTS` afterwards.
 - I4: No provider output is ever stored as a `source-page-image` file.
-- I5: An agent request carries at most one image, at most 3,750,000 bytes, with a
-  media type in the allowed set. Only the subject page's origin is ever attached.
+- I5: An agent request carries at most one image, non-empty and at most
+  3,750,000 bytes, with a media type in the allowed set. Only the subject page's origin is ever attached.
 - I6: Retrieval for page chat never reaches beyond the conversation's library and
   acting user.
 
@@ -459,7 +467,7 @@ chat on page -> snapshot (subject, page context) -> DocumentPageChatContext
 
 | Acceptance signal | Evidence |
 | --- | --- |
-| Reader shows images only, no toggle | DOM tests in `DocumentNotebookReader.integration.tsx`: the image renders by default; no `Page display mode` group or Text/Original buttons; a non-empty `bodyMarkdown` is not rendered; navigation, direction and OCR-button tests are kept. `grep -rn "Page display mode" web/src` returns nothing. |
+| Reader shows images only, no toggle | DOM tests in `DocumentNotebookReader.integration.tsx`: the image renders by default; no `Page display mode` group or Text/Original buttons; a non-empty `bodyMarkdown` of a page note is not rendered, while a non-page note in the same notebook renders its Markdown body; navigation, direction and OCR-button tests are kept. `grep -rn "Page display mode" web/src` returns nothing. |
 | OCR is searchable and used in RAG but not rendered | AppCore tests: FTS and LIKE search find a page note by an OCR-only term, with an OCR snippet; GraphQL `note` returns an empty body; the RAG request contains the OCR. |
 | Migration keeps notebooks working | `NoteStoreSchema` tests: a version-21 fixture with complete, pending, edited and figure-linked page notes plus a normal note is upgraded, and the test asserts the moved text, empty bodies, FTS hits, unchanged origins and titles, and the version-22 row; running prepare again is a no-op; version-19 and version-20 fixtures upgrade through 21 to 22, and the test asserts the 21 step records version 21 and version 22 is recorded only after page notes are moved (a store left at 21 resumes to 22); version 23 is rejected; OCR on a migrated pending page with non-empty search text keeps the old text after the recognized text. |
 | Standalone image follows the page model | an import test with a PNG checks `source-page-image`, an empty body and the search text |

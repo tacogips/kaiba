@@ -613,31 +613,32 @@ public struct NoteService: Sendable {
     for (index, page) in pages.enumerated() {
       let noteNumber = page.noteNumber ?? index + 1
       let noteId = NoteID.generate()
-      let noteTitle = noteTitle(from: page.bodyMarkdown)
+      let derivedTitle = noteTitle(from: page.bodyMarkdown) ?? page.searchText.flatMap { noteTitle(from: $0) }
       try db.execute(
         """
         INSERT INTO notes (
           note_id, notebook_id, note_number, title, title_source, body_markdown,
-          read_only, created_by, updated_by, created_at, updated_at, meta_json
+          read_only, created_by, updated_by, created_at, updated_at, meta_json, search_text
         ) VALUES (
           ?, ?, ?, ?, 'derived', ?, ?,
           (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
           (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
-          ?, ?, jsonb(?)
+          ?, ?, jsonb(?), ?
         )
         """,
         bindings: [
           .id(noteId),
           .id(notebookId),
           .int(Int64(noteNumber)),
-          .optionalText(noteTitle),
+          .optionalText(derivedTitle),
           .text(page.bodyMarkdown),
           .int(page.readOnly ? 1 : 0),
           .id(notebookId),
           .id(notebookId),
           .text(now),
           .text(now),
-          .optionalText(page.metaJSON)
+          .optionalText(page.metaJSON),
+          .optionalText(page.searchText)
         ]
       )
       for tag in page.tags {
@@ -829,6 +830,9 @@ public struct NoteService: Sendable {
     let existing = try completingPendingDocumentOCR
       ? requirePendingDocumentOCRNote(noteId, in: database)
       : requireWritableNote(noteId, in: database)
+    if !completingPendingDocumentOCR, Self.isDocumentPageNote(existing) {
+      throw NoteServiceError.invalidInput("document page text is managed by OCR; use a comment to annotate the page")
+    }
     let previous = try ftsPayload(noteId: noteId, in: database)
     let now = NoteStoreClock.system.now()
     // Explicit titles (set via the `title` argument on create) are preserved
