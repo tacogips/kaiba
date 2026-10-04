@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed (2026-10-04)
+- SE1-SE9: accepted (2026-10-04). The base is implemented in checkpoint
+  b466ced except the CLI (SE6), the server sync loop (SE3 "Who drains")
+  and the integration pass.
+- D0-D5 (the delta at the end of this document): proposed (2026-10-04).
+  They extend SE1-SE9. Where a delta section changes an earlier rule, it
+  says so explicitly, and the earlier text stays as the base record.
 
 ## Traceability
 
@@ -18,7 +23,15 @@ Proposed (2026-10-04)
 - Decisions and open questions: `design-docs/user-qa/search-engine-adapter.md`.
 - Implementation plan: `impl-plans/active/search-engine-adapter.md` with
   plans P1..P11 and the dispatch manifest
-  `impl-plans/active/search-engine-adapter-dispatch.json`.
+  `impl-plans/active/search-engine-adapter-dispatch.json`. The delta adds
+  plans P12 and later to the same index and manifest.
+- Ontology model used by the delta: `design-docs/specs/kaiba-note.md`
+  (D6 provenance, D7 tag classes, D16/D17 tag hierarchy), implemented in
+  `Sources/AppCore/NoteStoreSchema.swift` (`tags`, `tag_classes`,
+  `note_tags`, `note_links`) and `Sources/AppCore/NoteTagHierarchy.swift`.
+- Settings storage reused by D5: `Sources/AppCore/NoteService+AppSettings.swift`
+  (`app_settings`, reserved `auth.` prefix) and the administrator check
+  `requireStoreAdministrator(in:)` used by `NoteService+APIClients.swift`.
 
 ## Problem
 
@@ -645,3 +658,842 @@ Tests:
 - **Turning the engine off.** Remove the section or set `enabled: false`.
   The capability turns false, the web client hides the panel, and the outbox
   keeps one row per changed note until the engine is enabled again.
+
+---
+
+# Delta: ontology-aware search, hybrid related notes, engine settings
+
+Added 2026-10-04. The sections below extend SE1-SE9; they do not replace
+them. Requirement ids D1-D5 match the follow-up request. D0 records what
+the base still needs and how its evidence is reported.
+
+## Delta scope and changed base rules
+
+In scope: D0 (finish the base), D1 ontology indexing, D2 ontology search and
+facets, D3 hybrid related notes with reasons, D4 the agent `search_notes`
+boundary, D5 engine selection and connection settings with hot-swap.
+
+These base rules change:
+
+- The SE1 "Out of scope" entry "the agent `search_notes` tool" is replaced
+  by D4.
+- Invariant 1 now reads: **No engine selected means unchanged.** An engine
+  is selected when the config file has an enabled `searchEngine` section,
+  or, when that section is absent, when the store settings (D5) name an
+  adapter. With neither, the D5 settings read is the only new behavior. No
+  adapter is built, no network call is made, and everything else in
+  invariant 1 still holds. The server always installs the D5 runtime
+  controller, and its change-event kick is a no-op while no engine is
+  attached.
+- Invariant 4 is extended. The engine indexes the `note_fts` text fields
+  unchanged, plus the ontology fields in D1. Those fields are filter and
+  scoring keys, not search text.
+- SE8 "Index" changes the index name to `<indexPrefix>-notes-v2` and the
+  identity format (D1).
+
+These base rules do not change: the outbox and the drain (SE3), the
+two-stage access control (SE4), the `searchNotes` path, error statuses,
+pagination limits, and "no total-hit count".
+
+Out of scope for the delta:
+
+- a tag rename, merge or delete API (none exists today);
+- engine routing for `AIAgenticSearch` grounding and the `NoteSearchPopup`
+  link picker (see D4 and user-qa);
+- environment-variable credentials in store settings (the config file keeps
+  them);
+- non-loopback plain `http`;
+- automatic deletion of the old `-v1` index.
+
+## D0. Finishing the base
+
+- **P1, P2, P4, P5, P6, P10** are accepted. The manifest lists them under
+  `acceptedDependencies`, and they are not redispatched.
+- **P3 and P9** are complete in code. They are re-evidenced, not
+  re-implemented. The evidence rules are under "Delta verification".
+- **SE6 (P7).** The CLI resolves the engine with the D5 resolver: the
+  config file section first, then the store settings. It still requires a
+  store administrator. It exits 2 with `search engine is not configured`
+  when neither source selects an engine. The CLI never writes settings.
+- **SE3 "Who drains" (P8).** The base design is unchanged. D5 adds a
+  runtime controller that owns the sync loop, so a loop can be stopped and
+  replaced without a restart. P8 may build the loop directly to the D5
+  controller shape. Either way, the end state must match D5.
+- **P11 integration** covers the base. A final delta-integration plan
+  covers D1-D5. That plan runs the full gate set and the extended live
+  test.
+
+## D1. Ontology-aware indexing
+
+### Document fields
+
+These fields are added to the adapter-neutral `SearchIndexDocument`. Each
+new init parameter defaults to an empty value, so existing call sites and
+`FakeSearchEngine` keep compiling.
+
+- `tagApplications: [SearchIndexTagApplication]`: the direct tags, one per
+  `note_tags` row. Each entry has `tagId` and `provenance` (`human`, `ai`
+  or `system`). Provenance is recorded per application (kaiba-note D6),
+  not per tag.
+- `pathTags: [SearchIndexPathTag]`: the direct tags plus all of their
+  ancestors, following `tags.parent_tag_id`. The traversal is cycle-safe
+  and capped at depth 64, matching `validateTagParent`. Each entry has
+  `tagId`, `name`, `tagClass: String?` (`tags.class_id`) and
+  `isDirect: Bool`. The list is sorted by `tagId` and holds one entry per
+  tag. System tags are included, so tag filters keep matching what
+  `expandedTagFilterIds` matches today.
+- `outgoingLinkNoteIds: [NoteID]` and `incomingLinkNoteIds: [NoteID]`:
+  distinct counterparts from `note_links`, across all link kinds. Each list
+  is sorted and capped at 500 ids.
+- `notebookId` already exists.
+
+`searchIndexDocument(noteId:in:)` (`SearchIndexSynchronizer.swift`) builds
+these fields from the store in the same read it already does. The existing
+`tagIds`, `tagNames` and `context` fields keep their base derivation.
+
+### Elasticsearch mapping (index `-v2`)
+
+| field | type | source |
+| --- | --- | --- |
+| `path_tag_ids` | keyword | `pathTags.tagId` |
+| `path_tag_names` | keyword | `pathTags.name` (stored for exact inspection, not searched) |
+| `tag_classes` | keyword | the distinct non-nil `pathTags.tagClass` values |
+| `class_tag_keys` | keyword | `"<classId>:<tagId>"` for each path tag that has a class |
+| `tag_provenance_keys` | keyword | `"<provenance>:<tagId>"` for each direct application |
+| `outgoing_link_note_ids`, `incoming_link_note_ids` | keyword | the link lists |
+
+All base fields stay as they are, and `dynamic: strict` stays. Keys use tag
+ids, not names, so a filter never depends on name normalization.
+
+### Index identity bump
+
+- The index name becomes `<indexPrefix>-notes-v2`.
+- `indexIdentity` becomes `elasticsearch:<base>/<indexName>`. `<base>` is
+  the normalized base URL: the scheme and host in lowercase, the port when
+  present, and the path with no trailing slash. Userinfo is already
+  rejected, and the URL holds no secret.
+- Pointing at another cluster with the same prefix therefore changes the
+  identity and triggers the SE3 backfill.
+- An existing store that was activated with the v1 identity backfills
+  automatically on the next activation. The v1 index is left in place, as
+  in the base rule. The README tells operators how to delete it.
+
+### Write paths that must enqueue
+
+The rule: every statement that changes a D1 field of a note enqueues that
+note through the existing outbox, in the same transaction. Enqueueing stays
+a no-op before activation (SE3).
+
+| change | write site | enqueue |
+| --- | --- | --- |
+| tag apply/remove, provenance upgrade, undo/redo of tags | `applyTags`, `removeTag`, `applyNoteTagsDelta` | already covered by `refreshFTS` |
+| tag reparent | `defineTag` | already covered by `refreshFTSForNotesUnderTag` (the whole subtree) |
+| tag class set or changed | `defineTag` (`class_id` update), `ensureTag` (class set when it was NULL) | new: subtree enqueue, only when the class actually changes |
+| tag rename | no API exists | any future rename must call the subtree enqueue |
+| link add | `linkNotesInDatabase`, the conversation-turn source links, the inline insert in `promoteCommentToNotebook`, the undo restore in `restoreNoteSnapshot` | new: both endpoints |
+| link removal through note deletion | `deleteNoteRows` | new: the surviving counterparts, read before the rows are deleted |
+| notebook tag apply/remove (this changes `isLongTermMemory`) | `applyNotebookTags`, `applyNotebookTagIds`, `removeNotebookTag`, `removeNotebookTagById` | new: notebook-scope enqueue |
+| notebook library move | `moveNotebook`, tag-memo rehome | already covered |
+
+The new helper is
+`enqueueSearchEngineSync(notesUnderTagId:in:)` in
+`SearchEngineSyncOutbox.swift`. It is a single set-based statement:
+
+```sql
+WITH RECURSIVE subtree(tag_id, depth) AS (... descendants of ?, depth <= 64 ...)
+INSERT INTO search_index_outbox (note_id)
+SELECT DISTINCT nt.note_id FROM note_tags nt JOIN subtree s ON s.tag_id = nt.tag_id
+WHERE EXISTS (SELECT 1 FROM search_engine_sync_state)
+ON CONFLICT(note_id) DO UPDATE SET generation = generation + 1,
+  attempts = 0, next_attempt_at = NULL, last_error = NULL
+```
+
+Fan-out is bounded by the outbox design. There is one row per note,
+whatever the subtree size, and the drain pushes 100 notes per pass. A large
+subtree costs one indexed insert in the write transaction and no engine
+call.
+
+## D2. Ontology-aware engine search
+
+### Protocol additions (adapter-neutral)
+
+All additions default to the base behavior.
+
+- `SearchEngineFilter`:
+  - `hierarchyTagIds: [TagID]`, matched any-of. A note matches when its
+    path contains any of the ids, so it carries the tag or a descendant.
+    The engine evaluates this against the indexed ancestor ids. The
+    service no longer expands descendants in SQL for engine search.
+  - `tagClassFilters: [SearchEngineTagClassFilter]`. Each entry has
+    `tagClass: String` and `tagId: TagID?`. Every entry must match (AND).
+    A class alone matches any path tag of that class. A class with a tag
+    matches that tag or its descendants, provided the tag has that class.
+  - The base `tagIds` field stays (direct tags, any-of). The service stops
+    using it for engine search.
+- `SearchEngineQuery`:
+  - `expansionTagIds: [TagID]`, the ontology expansion (below);
+  - `facets: SearchEngineFacetRequest?`, which defaults to nil. The
+    request has `tagClassLimit` (10) and `tagLimit` (15).
+- `SearchEngineHit` gains `reasons: [SearchEngineHitReason]`, which defaults
+  to `[]` (see D3).
+- New protocol requirement:
+  `searchPage(_ query: SearchEngineQuery) async throws -> SearchEngineSearchPage`.
+  The page holds `hits` and `facets: SearchEngineFacets?`.
+  - A protocol-extension default calls `search(_:)` and returns
+    `facets: nil`, so fakes need no change.
+  - `SearchEngineFacets` has `tagClasses` and `tags`. Each is a list of
+    `SearchEngineFacetBucket(value: String, count: Int)`. Tag buckets carry
+    the tag id as the value.
+
+### Service behavior (`engineSearchNotes`)
+
+New parameters:
+
+- `tagClassFilter: [String] = []`. Each entry is `"<classId>"` or
+  `"<classId>:<tagName>"`, split at the first `:`.
+- `expandOntology: Bool = true`
+- `includeFacets: Bool = false`
+
+The return type becomes `NoteEngineSearchPage`, which holds `hits` and
+`facets`. A wrapper keeps the old `[NoteEngineSearchHit]` signature for
+existing callers.
+
+Filter resolution reads the store before the engine call:
+
+- `tagFilter` names resolve to tag ids through `resolveTagIds(named:)`,
+  without descendant expansion, and become `hierarchyTagIds`. When none
+  resolve, the result is empty, as in the base.
+- A class filter resolves as follows:
+  - an unknown class gives an empty result;
+  - a tag name that is unknown, or whose `class_id` differs from the
+    class, gives an empty result;
+  - more than 10 entries is `invalid_request`.
+
+Ontology expansion is deterministic, with no LLM, and runs only when
+`expandOntology` is true:
+
+1. **Normalize** the query and every non-system tag name the same way:
+   Unicode lowercase, trim, and collapse runs of whitespace into one space.
+2. **Match.** A tag matches when its normalized name has at least 2
+   characters and occurs in the normalized query.
+   - If the name starts with an ASCII letter or digit, the query character
+     before the occurrence must not be one.
+   - If the name ends with an ASCII letter or digit, the query character
+     after the occurrence must not be one.
+   - CJK names therefore match inside unsegmented text, and Latin names
+     match only whole words.
+3. **Rank.** Keep at most 10 matches: longer names first, then by `tagId`.
+4. **Pass on.** The ids become `expansionTagIds`. Tag names are global
+   (kaiba-note D7), so matching names reveals nothing about notes. Every
+   resulting note still passes the SE4 filter and re-check.
+
+### Elasticsearch query (search)
+
+The base `must` clause becomes a scored `should` with
+`minimum_should_match: 1`. With no expansion ids, it scores exactly like
+the base query.
+
+| clause (`_name`) | query | boost |
+| --- | --- | --- |
+| `text-match` | the base `multi_match` (`title^3, body, tags^2, context`) | 1.0 (BM25) |
+| `tag-match` | `constant_score` over `terms tag_ids: expansionTagIds` | 4.0 |
+| `tag-hierarchy-match` | `constant_score` over `terms path_tag_ids: expansionTagIds` | 2.0 |
+
+- A note tagged directly with a matched tag scores 6.0 from the ontology
+  clauses, because the tag is also on its path. A note tagged with a
+  descendant scores 2.0. A note that only matches text gets BM25 alone.
+- A note that carries the tag matches even when its body lacks the term.
+  Such a note has no highlight, so the snippet falls back to
+  `snippet(from:query:)`.
+- New `filter` clauses:
+  - `terms path_tag_ids: hierarchyTagIds`;
+  - per class filter, `term tag_classes: <class>`, or
+    `term class_tag_keys: "<class>:<tagId>"` when a tag is given.
+- `must_not` is unchanged. The highlight, `from`, `size` and
+  `_source: [note_id]` are unchanged.
+- **Facets**, only when requested, run in the same request:
+  - `aggs.tag_classes`: `terms` on `tag_classes`, size `tagClassLimit`;
+  - `aggs.tags`: `terms` on `tag_ids` (direct tags, so root folders do not
+    dominate), size `tagLimit`.
+- `matched_queries` become `SearchEngineHitReason`s (`text-match`,
+  `tag-match`, `tag-hierarchy-match`).
+
+### Facet access rule
+
+Facet counts come from the engine under the same engine filter: library,
+owner, notebook, long-term memory and the ontology filters. They never
+count documents outside the libraries the caller reaches.
+
+They can include notes that the store re-check would drop:
+
+- a note in a reachable library that is still pending ingest;
+- a note whose index entry lags a write by at most one drain.
+
+The design accepts this bounded imprecision. Buckets are presented as
+refinement hints, not totals.
+
+The service resolves tag buckets to `{tagId, name, tagClass, count}` and
+drops buckets for unknown tags and for system tags.
+
+### GraphQL and KaibaClient
+
+```graphql
+engineSearchNotes(query: String!, notebookId: String, tagFilter: [String!], tagClassFilter: [String!], expandOntology: Boolean, facets: Boolean, limit: Int, offset: Int): EngineNoteSearchQueryPayload!
+type EngineNoteHit { note: Note!, snippet: String!, score: Float!, reasons: [EngineHitReason!]! }
+type EngineHitReason { kind: String!, tags: [String!]! }
+type EngineSearchFacets { tagClasses: [EngineFacetBucket!]!, tags: [EngineTagFacetBucket!]! }
+type EngineFacetBucket { value: String!, count: Int! }
+type EngineTagFacetBucket { tagId: String!, name: String!, tagClass: String, count: Int! }
+type EngineNoteSearchQueryPayload { result: ControlPlaneResult!, value: [EngineNoteHit!], facets: EngineSearchFacets }
+```
+
+- The changes are additive. `expandOntology` defaults to true, and
+  `facets` defaults to false. `relatedNotes` returns `facets: null`.
+- The schema inventory, authorization tests and KaibaClient contract tests
+  are updated.
+- KaibaClient `engineSearchNotes(...)` gains defaulted parameters
+  `tagClassFilter`, `expandOntology` and `facets`. A page model carries the
+  hits and facets.
+
+### Web search UI (`SearchView`)
+
+This applies only when `searchEngineEnabled` is true and the method is
+`grep`.
+
+- **Facets.** The first page is requested with `facets: true`. Under the
+  status line, refinement chips show the classes and top tags, each with
+  its count.
+- **Filters.** Clicking a tag chip adds the tag to `tagFilter`, and
+  clicking a class chip adds the class to `tagClassFilter`. Active filters
+  show as removable chips. Every change re-runs the query and discards
+  stale responses with the existing generation counter.
+- **Fallback.** On `search-engine-unavailable` or `feature-disabled`, the
+  view falls back to `searchNotes` as in SE7. Tag filters carry over,
+  because FTS supports `tagFilter`. Class filters are cleared.
+- `NoteSearchPopup` is unchanged.
+
+## D3. Hybrid related notes with reasons
+
+### Signals
+
+The service reads the signals from the store while it loads the source note
+(`requireNote`, unchanged). They never depend on the source's own index
+entry.
+
+- `S`: the source's direct non-system tags.
+- `P`: the parents of `S`, excluding system tags.
+- `A`: all ancestors of `S`, excluding `S` and system tags.
+- `E`: the pairs `(class, tagId)` for tags in `S` whose class is `person`
+  or `event`. These are the entity classes. Year, topic, folder and
+  document-kind tags still count through `S`.
+
+Each list is capped at 50 entries.
+
+`SearchEngineRelatedQuery` gains
+`signals: SearchEngineRelatedSignals?`, which defaults to nil (the base
+behavior). It holds `sourceNoteId`, `sharedTagIds` (S), `nearTagIds`
+(S union P), `ancestorTagIds` (A) and `entityTags` (E).
+
+### Elasticsearch query (related)
+
+The query is a `bool` with `minimum_should_match: 1` and the base `filter`
+and `must_not`. The source note stays excluded through `excludedNoteIds`.
+
+| clause (`_name`) | query | boost |
+| --- | --- | --- |
+| `text-similarity` | the base `more_like_this` (omitted when `likeText` is blank) | 1.0 |
+| `shared-tag` | `constant_score` over `terms tag_ids: S` | 3.0 |
+| `related-tag` | `constant_score` over `bool.should[terms path_tag_ids: S union P, terms tag_ids: A]` | 1.5 |
+| `shared-entity` | `constant_score` over `terms class_tag_keys: E as "<class>:<tagId>"` | 2.0 |
+| `linked` | `constant_score` over `bool.should[term outgoing_link_note_ids: source, term incoming_link_note_ids: source]` | 5.0 |
+
+The ordering follows from these boosts:
+
+- An explicit link is the strongest signal.
+- The same tag (3.0, plus 1.5 because the tag is on the candidate's path)
+  outranks a sibling, parent, child or ancestor tag (1.5).
+- A shared person or event tag adds 2.0 on top of `shared-tag`.
+- Text similarity adds its BM25-scaled score.
+
+The boosts are constants inside the adapter. The protocol carries only the
+signals. Sibling matching goes through the parent's id in `path_tag_ids`.
+
+### Reasons
+
+- The adapter maps each hit's `matched_queries` to reason kinds:
+  `text-similarity`, `shared-tag`, `related-tag`, `shared-entity` and
+  `linked`.
+- After the SE4 re-check, the service enriches the final page from the
+  store:
+  - A `shared-tag` or `shared-entity` reason gets the names of the
+    candidate's direct non-system tags that are in `S`, at most 5,
+    sorted.
+  - When the store intersection is empty because the index is stale, the
+    reason is dropped. The hit itself stays.
+- GraphQL exposes reasons as `EngineHitReason { kind, tags }`.
+- `relatedNotes` keeps its arguments, limits and statuses.
+
+### Web (`RelatedNotesSection`)
+
+Each related note shows a one-line reason summary under its title. The
+items are joined with ` · ` in this fixed order:
+
+- `Linked`
+- `Shared tags: a, b`
+- `Same person/event: x`
+- `Related tags`
+- `Similar text`
+
+The summary is plain text, never HTML, and is omitted when there are no
+reasons. Tests cover the rendering and the ordering.
+
+## D4. Agent and agentic-search boundary
+
+- **User-facing search never calls an LLM.** `engineSearchNotes`,
+  `relatedNotes`, the expansion, the facets and the reasons run only store
+  SQL and engine requests. The files that implement them,
+  `NoteService+SearchEngine*.swift`, `SearchEngine*.swift` and
+  `Elasticsearch*.swift`, reference no AI provider, agent-gateway or
+  `AIAgenticSearch` type. A test runs these paths on a store with no AI
+  configuration. A verification grep confirms the boundary.
+- **The agent `search_notes` tool** (`KaibaAgentToolbox`) routes through the
+  engine when all three of these hold:
+  - an engine is attached;
+  - `include_linked` is false. The graph-neighbor expansion stays FTS-only;
+  - the engine call does not throw.
+
+  Otherwise it runs the current FTS path unchanged. Details:
+  - `KaibaAgentToolbox.execute` is already async. `search_notes` gets an
+    async branch, and the other tools keep the synchronous `run`.
+  - The engine call is
+    `engineSearchNotes(query:notebookId:tagFilter:limit:offset: 0)`, with
+    expansion on and no facets.
+  - The output keeps every existing key.
+    - `term_coverage` is computed with the term split of
+      `NoteSearchLexicalFusion`: the share of query terms found
+      case-insensitively in the title plus the retrieval text.
+    - `is_linked_neighbor` is false.
+    - One key is added: `"retrieval": "search-engine"` or
+      `"retrieval": "full-text"`.
+  - The tool schema text is unchanged.
+- **`AIAgenticSearch` grounding stays on FTS.** It fuses per-term FTS ranks
+  with comment search through `reciprocalRankFusion`. Agents still reach
+  the engine through `search_notes`. Engine grounding for it is an open
+  question in user-qa.
+
+## D5. Engine selection and connection settings
+
+### Sources and precedence
+
+The resolver (`SearchEngineSettingsResolver`, AppCore) returns one of:
+
+- `.managedByConfig(KaibaSearchEngineConfiguration)`. The config file has a
+  `searchEngine` section, whether it is enabled or not. The section wins.
+  Store settings are ignored, the settings UI is read-only, and every
+  settings mutation is rejected with status `settings-managed-by-config`.
+- `.store(SearchEngineConnectionSettings, secret)`. There is no config
+  section, and the store settings name an adapter.
+- `.none`. There is no config section, and the store settings are absent or
+  `kind: "none"`.
+
+The server at start, the D5 reload and the CLI (D0) all use the same
+resolver. A config-section error stays fatal, as in SE2. A stored setting
+that fails to build at server start is not fatal: the server logs
+`kaiba search-engine: stored settings invalid: <field>`, runs FTS-only,
+and lets the administrator fix the settings in the UI.
+
+### Store format
+
+Both keys sit under the existing reserved `auth.` prefix. The generic
+`appSetting` and `setAppSetting`, which have no admin gate, can therefore
+neither read nor write them, and they answer with the existing
+"invalid key" error.
+
+- `auth.search-engine.settings` holds the non-secret fields:
+  `{kind, url, indexPrefix, authMode, username, verifyTLS, requestTimeoutSeconds}`.
+- `auth.search-engine.secret` holds `{authMode, target, secret}`. The
+  secret is either the Basic password or the API key. It is bound to the
+  auth mode and the connection target it was entered for. `target` is the
+  normalized base URL defined in D1 "Index identity bump": the scheme and
+  host in lowercase, the port when present, and the path with no trailing
+  slash. Without this binding, a stored secret could be sent to a new host
+  without anyone re-entering it.
+
+Both are written in one transaction. The secret is stored in the note
+store as the JWT signing secret is, protected by the store's file
+permissions, and it replicates with the store under the Turso driver. It
+never appears in the config file, logs, errors, GraphQL reads or the web
+client's storage.
+
+### Normalized connection settings and factory
+
+`SearchEngineConnectionSettings` has these fields:
+
+- `kind`
+- `url`
+- `indexPrefix` (default `kaiba`)
+- `authMode`: `none`, `basic` or `apiKey`
+- `username` (required for basic)
+- `verifyTLS` (default true)
+- `requestTimeoutSeconds` (`1...120`, default 10)
+
+Behavior:
+
+- `SearchEngineFactory.make(settings:secret:)` builds the adapter.
+- The base `make(configuration:environment:)` maps the config section onto
+  the same settings, with environment-resolved credentials, `verifyTLS`
+  true and a 10-second timeout, and calls it.
+- Validation repeats SE2: the kind is registered, the URL is `http` or
+  `https`, there is no userinfo, plain `http` is allowed only on loopback,
+  and the prefix matches the SE2 regex.
+- It adds these limits:
+  - `url` up to 2048 characters;
+  - `username` 1-256 characters;
+  - `secret` 1-4096 characters;
+  - no control characters in any field;
+  - `verifyTLS: false` only with `https`.
+- Errors name the field only, for example `searchEngine.url`.
+- **Timeouts.** Queries, health checks and `ensureIndex` use
+  `requestTimeoutSeconds`. Bulk uses `max(30, requestTimeoutSeconds)`.
+- **`verifyTLS: false`.** The adapter's URLSession delegate accepts the
+  server certificate for that host only. This needs the Security
+  framework. Where it is unavailable, validation rejects the setting with
+  `searchEngine.verifyTLS`. The web form shows a warning next to the
+  option.
+- **Adapter registry.** `SearchEngineFactory.adapters` is a static list of
+  `SearchEngineAdapterDescriptor(kind, displayName, authModes)`. Today the
+  list is only Elasticsearch, with `none`, `basic` and `apiKey`. Both the
+  GraphQL settings read and kind validation use the list, so a new adapter
+  shows up in the picker by appending a descriptor.
+
+### AppCore API (`NoteService+SearchEngineSettings.swift`)
+
+Every method calls `requireStoreAdministrator(in:)` first, the same gate as
+`NoteService+APIClients.swift`. A non-admin gets the existing not-found
+shaped error.
+
+- **`searchEngineSettings()`** returns a `SearchEngineSettingsView`:
+  - `managedBy`: `config`, `store` or `default`;
+  - `kind` (`none` when disabled);
+  - `url`, `indexPrefix`, `authMode`, `username`, `verifyTLS`,
+    `requestTimeoutSeconds`;
+  - `hasSecret`;
+  - `adapters`;
+  - `active`, which is whether an engine is attached now.
+
+  For `config`, the fields come from the section, and `username` is null,
+  because config credentials are environment-variable names.
+  `hasSecret` is true when a credential is configured. No secret, and no
+  partial or masked secret, is ever returned.
+- **`updateSearchEngineSettings(_ input:)`**:
+  1. Rejects the update when the settings are managed by config.
+  2. Validates the input by building the adapter. Nothing is persisted on
+     failure.
+  3. Persists the settings.
+  4. Calls `searchEngineSlot.reload()` and returns the refreshed view.
+
+  Secret rules:
+  - `kind: "none"` stores `{kind: "none"}` and deletes the secret.
+  - An omitted `secret` keeps the stored one only if both of these hold:
+    - the stored `authMode` equals the new `authMode`;
+    - the stored `target` equals the new normalized `url`.
+
+    Otherwise the update fails with `invalid-settings` and field
+    `searchEngine.secret`, and nothing is persisted. A password is
+    therefore never reused as an API key, and a stored secret is never
+    sent to a URL it was not entered for.
+  - A newly entered secret is stored with the new `authMode` and `target`.
+  - `clearSecret: true` together with an auth mode other than `none` is
+    invalid.
+  - `authMode: none` deletes the secret.
+- **`testSearchEngineConnection(_ input:)`** builds an adapter from the
+  unsaved input. It reuses the stored secret under the same rule as
+  update: both the `authMode` and the normalized target must be unchanged.
+  On a mismatch with an omitted secret, it returns status
+  `invalid-settings` with detail `searchEngine.secret` and makes no
+  network call. Otherwise it calls only `health()`, with a timeout of
+  `min(requestTimeoutSeconds, 10)`. It persists nothing and never calls
+  `ensureIndex`. The result has these fields:
+  - `available`;
+  - `status`, one of `available`, `unhealthy`, `unavailable`, `rejected`,
+    `invalid-response` or `invalid-settings`;
+  - `detail`, which is the cluster status word, the field name, or the
+    adapter's already-sanitized error text.
+
+  Before the detail is returned, the service replaces the secret and the
+  username with `[redacted]` and truncates the text to 200 characters. The
+  detail never includes the URL or any headers. It is rejected when the
+  settings are managed by config.
+
+### Hot-swap
+
+- **Shared slot.** `SearchEngineSlot` (AppCore) is a `final class`,
+  `Sendable` and lock-protected. It holds the current
+  `(any SearchEngine)?` and an optional reload handler.
+  - `NoteService` gains `public let searchEngineSlot`, which defaults to a
+    fresh slot in `init`.
+  - The base `searchEngine` property becomes a computed get and a
+    nonmutating set over the slot. The P5 API and its tests are unchanged.
+  - Scoped copies, such as `scoped(to:)` and the per-request GraphQL
+    scoping, share the slot by reference. Every `NoteService` the server
+    builds, including the auto-action dispatcher's, receives the runtime's
+    slot.
+- **Controller.** `SearchEngineRuntimeController` (AppServer) is an actor
+  that owns the slot's engine and the SE3 sync loop.
+  - At start it resolves the settings, attaches the engine, starts the loop
+    (P8 semantics), and installs itself as the slot's reload handler.
+  - `reload()` runs serialized:
+    1. Re-resolve the settings. When they are managed by config, the reload
+       is a no-op.
+    2. Build the new adapter.
+    3. Stop the current loop, awaiting it.
+    4. Replace the slot's engine.
+    5. Start a new loop when the new engine is non-nil.
+  - The new loop's `ensureIndex` and `activateSearchEngineSync` run first.
+    A changed `indexIdentity`, from a new cluster, prefix or version,
+    therefore triggers the durable SE3 backfill. The swap never waits on
+    the engine.
+  - **Concurrency.** An in-flight query has already captured the old
+    adapter, so it finishes against it, and its hits still pass the store
+    re-check.
+  - **Stopping mid-drain.** A drain that is cancelled while stopping
+    settles as a failure and retries with backoff. If even that settle is
+    lost, the 60-second claim lease returns the rows. No outbox row is
+    lost.
+  - **Concurrent updates.** They serialize in the actor. Each reload reads
+    the latest stored settings, so the result converges on the last write.
+  - The kick observer is always installed. It forwards to the current loop
+    and does nothing when there is none.
+- **Disable.** Choosing `none` detaches the engine and stops the loop.
+  - `searchEngineCapability.enabled` reads the slot on every call, so it
+    turns false at once.
+  - Engine fields answer `feature-disabled`. The base outbox rule for a
+    disabled engine applies.
+  - The web client treats `feature-disabled` from an engine field as
+    `searchEngineEnabled = false` and hides the engine surfaces.
+
+### GraphQL
+
+```graphql
+# type Query
+searchEngineSettings: SearchEngineSettingsPayload!
+# type Mutation
+updateSearchEngineSettings(input: SearchEngineSettingsInput!): SearchEngineSettingsPayload!
+testSearchEngineConnection(input: SearchEngineSettingsInput!): SearchEngineConnectionTestPayload!
+
+type SearchEngineAdapterDescriptor { kind: String!, displayName: String!, authModes: [String!]! }
+type SearchEngineSettings { managedBy: String!, kind: String!, url: String, indexPrefix: String, authMode: String!, username: String, hasSecret: Boolean!, verifyTLS: Boolean!, requestTimeoutSeconds: Int!, adapters: [SearchEngineAdapterDescriptor!]!, active: Boolean! }
+type SearchEngineSettingsPayload { result: ControlPlaneResult!, value: SearchEngineSettings }
+input SearchEngineSettingsInput { kind: String!, url: String, indexPrefix: String, authMode: String, username: String, secret: String, clearSecret: Boolean, verifyTLS: Boolean, requestTimeoutSeconds: Int }
+type SearchEngineConnectionTestResult { available: Boolean!, status: String!, detail: String! }
+type SearchEngineConnectionTestPayload { result: ControlPlaneResult!, value: SearchEngineConnectionTestResult }
+```
+
+Statuses:
+
+- A non-admin gets the existing not-found mapping of the admin gate.
+- Config-managed settings give `settings-managed-by-config`.
+- Validation failures give `invalid-settings`, with the field name as the
+  only diagnostic.
+- A connection test that fails still has `accepted: true`. The outcome is
+  in `value.status`.
+
+The new fields are registered in the same lists as SE5 and are covered by
+the inventory and authorization tests. A test asserts that no settings
+response, error or diagnostic contains a test secret value. KaibaClient
+adds `searchEngineSettings()`, `updateSearchEngineSettings(_:)` and
+`testSearchEngineConnection(_:)`.
+
+### Web settings section
+
+`web/src/components/SearchEngineSettings.tsx` renders in `ConfigView` after
+`UserAgentSettings`. Its validation is a pure function in
+`web/src/notes/searchEngineSettings.ts`.
+
+- **Visibility.** The section loads `searchEngineSettings` on mount. It
+  renders nothing when the result is not accepted, which covers non-admins
+  and older servers.
+- **Config-managed.** When `managedBy` is `config`, the section shows the
+  values read-only, with the note `Managed by the server configuration
+  file`, and no buttons.
+- **Fields.**
+  - an engine select: `None` plus `adapters`;
+  - URL;
+  - index prefix;
+  - an auth-mode select, limited to the adapter's `authModes`;
+  - username, shown for basic;
+  - the secret: `type="password"`, `autocomplete="new-password"`. While
+    the URL and auth mode match the loaded values and `hasSecret` is set,
+    the placeholder reads `Stored`, and blank means keep the stored secret.
+    If the normalized URL or the auth mode differs from the loaded value
+    and the new auth mode is not `none`, the secret is required. The
+    `Stored` placeholder is then removed, and both Save and Test
+    connection are blocked until a secret is entered. This mirrors the
+    server's target and auth-mode binding;
+  - `Clear stored secret`;
+  - `Verify TLS certificates`, enabled only for `https`, with a warning
+    when unchecked;
+  - request timeout.
+- **Client validation** mirrors the server rules. The server stays
+  authoritative.
+- **Buttons.** `Test connection` shows the status and the sanitized
+  detail. `Save` persists the settings, then clears the secret input,
+  reloads the view and reloads `searchEngineCapability` in the app store.
+- **Secret handling.** The secret is never written to the `web` app
+  setting, `localStorage` or `sessionStorage`, and never logged. It does
+  not interact with the server-credential (bearer, origin) rules.
+- **Tests.**
+  - `SearchEngineSettings.integration.tsx` covers:
+    - hidden for non-admins;
+    - read-only when managed by config;
+    - validation errors;
+    - test-connection rendering;
+    - save followed by a capability reload;
+    - the secret absent from storage after save;
+    - changing the URL while `hasSecret` is set requires re-entering the
+      secret before Save or Test connection is sent.
+  - `searchEngineSettings.test.ts` covers the validation rules.
+  - The existing `serverEndpoint`/`client` credential tests must keep
+    passing unchanged.
+
+## Delta test plan
+
+- **AppCore, `SearchEngineOntologyIndexTests`.**
+  - The document builder fills the D1 fields: ancestors, classes,
+    provenance and links in both directions.
+  - Every write path in the D1 table enqueues the right ids after
+    activation, including a class change on a subtree and a link added
+    from each insert site.
+  - Note deletion enqueues the surviving link counterparts.
+  - Notebook tag changes enqueue the notebook.
+  - The identity includes the normalized base URL and `-v2`, and a v1
+    activation backfills.
+- **AppCore, `SearchEngineOntologyQueryTests`** (fake engine):
+  - filter resolution: hierarchy ids without SQL expansion, class filters,
+    unknown names giving an empty result, more than 10 class filters being
+    rejected;
+  - expansion matching: CJK substrings, Latin word boundaries, the
+    10-match cap, system tags excluded;
+  - facet hydration;
+  - related signals S, P, A and E;
+  - reason enrichment, and dropping stale reasons;
+  - the source note never returned;
+  - the store re-check still applied.
+- **AppCore, `ElasticsearchSearchEngineTests`** (mock transport): exact
+  request bodies for the D2 search with filters, expansion and
+  aggregations, and for the D3 related query. Also the mapping of
+  `matched_queries` to reasons, and of aggregations to facets.
+- **AppCore, `SearchEngineSettingsTests`:**
+  - admin gate;
+  - config precedence and lock;
+  - validation per field;
+  - the secret-retention rules;
+  - a stored secret is bound to its target. With a stored
+    `{authMode: basic, target: https://es.internal:9200}`, an input that
+    changes the `url` to another host and omits the secret is rejected with
+    `invalid-settings` and `searchEngine.secret`. This holds for both
+    `updateSearchEngineSettings` (nothing persisted) and
+    `testSearchEngineConnection`. The test uses an injected recording
+    transport and asserts that it received no request. The same applies to
+    an `authMode` change with an omitted secret. An unchanged target and
+    auth mode reuse the stored secret;
+  - `kind none` deletes the secret;
+  - `appSetting`/`setAppSetting` refuse both `auth.search-engine.*` keys;
+  - test-connection sanitizing, using a transport that echoes the secret
+    in its error;
+  - the reload handler is called.
+- **AppCore, `AgentSearchNotesRoutingTests`:**
+  - the engine is used when attached;
+  - FTS is used when detached, with `include_linked`, and after an engine
+    error;
+  - the output keys are unchanged and `retrieval` is added.
+- **AppServer, `SearchEngineRuntimeControllerTests`** (fake engines):
+  - start with config, with store settings, and with neither;
+  - an invalid stored setting is not fatal;
+  - reload swaps the adapter seen by a scoped service copy;
+  - an identity change backfills;
+  - disable makes the capability false and stops the loop;
+  - concurrent reloads converge;
+  - a config-managed store ignores reload.
+- **AppGraphQL:** the new fields, admin gating, statuses, facets and
+  reasons in payloads, and no secret in any response.
+- **KaibaClient:** typed operations against the contract.
+- **Web:** the `SearchView` facet chips and filters, `RelatedNotesSection`
+  reasons, and the `SearchEngineSettings` tests listed in D5.
+- **Live (`ElasticsearchLiveTests`, gated by `KAIBA_ELASTICSEARCH_URL`):**
+  - the existing round trip on `-v2`;
+  - ontology search: a descendant-tag filter, a class filter, a tag-only
+    match via expansion ranked above a text-only match, and facets
+    returned;
+  - related notes: a linked note, then a shared-tag note, then a text-only
+    note, each with the expected reason kinds;
+  - settings hot-swap at the service level: store settings with prefix A,
+    then a reload to prefix B. The identity changes, the backfill drains
+    into B, search on B finds the notes, and disabling yields
+    `notConfigured`.
+
+  The test deletes every index it created.
+
+## Delta verification
+
+Gate-compatible evidence: each behavioral record is a test-runner command
+(`swift test`, `bun test`, `vitest run`, or `mise run <task containing
+test>`) with exitCode 0. Every count it records (testsRun, testsPassed,
+testCount) must be greater than 0. Each record keeps its complete log path
+and final exit status.
+
+- `mise run build`
+- `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test`
+- `mise run lint`
+- `mise run web:check`, plus separate records for
+  `cd web && mise exec -- bun test src` (bun count > 0) and
+  `cd web && mise exec -- bunx vitest run` (vitest count > 0). These are the
+  two halves of the web `test` script (`bun test src && vitest run`).
+- `mise run tauri:check`. It needs macOS and runs locally only.
+- `mise run search:up`, then
+  `KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live`.
+  - Record only the XCTest count, for example `Executed N tests, 0
+    failures` with N > 0. The swift-testing line of this filtered run
+    reports 0 tests and is not a count record.
+  - The env-gated skip, where the test skips when `KAIBA_ELASTICSEARCH_URL`
+    is unset, is a non-behavioral note, never a verification record.
+  - The P3 plan's verification list is amended the same way.
+- Boundary grep, expected to return nothing:
+  `grep -nE "AIAgenticSearch|AgentInvok|AgentGateway|AgentReply|ClaudeSubscription" Sources/AppCore/NoteService+SearchEngine*.swift Sources/AppCore/SearchEngine*.swift Sources/AppCore/Elasticsearch*.swift`
+- `wc -l` on every touched Swift file: each is under 1000 lines.
+
+## Delta rollout
+
+- **Existing stores with an engine.** The first start after upgrade
+  computes the `-v2` identity, creates the new index and backfills through
+  the outbox. Note writes are never blocked. The old `-v1` index stays
+  until an operator deletes it.
+- **Existing config-file deployments** become `managedBy: config`. Their
+  behavior is unchanged apart from the `-v2` backfill, and the settings UI
+  is read-only for them.
+- **New deployments without a config section** can turn the engine on from
+  the web settings. No restart is needed.
+- **Store schema.** No new tables or columns. Settings use the existing
+  `app_settings` table, and the outbox tables are unchanged. The store
+  version stays at 23.
+
+## Plan partition guidance (for the plan author)
+
+These are boundaries, not binding plan ids:
+
+- **D1:** document fields, mapping, identity and write-path enqueues.
+- **D2:** protocol, ES query and facets, service, GraphQL and client.
+- **D3:** related signals, query, reasons, GraphQL and client.
+- **D4:** agent tool routing.
+- **D5 core:** resolver, factory settings, slot, AppCore API, GraphQL and
+  client.
+- **D5 server:** the runtime controller, plus the P8 wiring.
+- **Web:** search facets, related reasons and the settings section.
+- **Delta integration.**
+
+Shared hot files need one owner per wave: `SearchEngine.swift`,
+`ElasticsearchRequestBodies.swift`, `NoteService+SearchEngine.swift`,
+`NoteGraphQLService+SearchEngine.swift`, the GraphQL schema and field
+lists, and `KaibaServerRuntime.swift`. D2 and D3 both touch the
+adapter-neutral types and the ES request bodies. Either serialize them or
+give the type additions to D1.

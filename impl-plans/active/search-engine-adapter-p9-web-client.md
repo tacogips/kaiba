@@ -1,9 +1,10 @@
 # P9 Web client: capability, engine-backed search, Related notes section
 
-**Status**: Ready
+**Status**: Ready (session-264: evidence-only re-run)
 **planId**: P9-web-client
 **Wave**: 1
 **dependsOn**: none (builds against the GraphQL SDL pinned in the index; all tests use mocks)
+**Session-264 scope**: The code is complete in commit b466ced. Only the gate-compatible evidence was missing. Run the amended Verification below and record the two separate behavioral records. Fix code only for a real finding, within this plan's writePaths. P20 builds on this code in wave 2.
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` SE7, Invariant 1
 **Index**: `impl-plans/active/search-engine-adapter.md` (pinned SDL, statuses and limits)
 
@@ -220,18 +221,20 @@ route; read `web/src/router.ts` for the hash format):
 ## Verification
 
 ```bash
-bash -c 'mkdir -p tmp/search-engine-adapter/P9 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P9/web-check.log; echo exit=${PIPESTATUS[0]}'
-bash -c 'mkdir -p tmp/search-engine-adapter/P9 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P9/tauri-check.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-adapter/P9/session-264/bun-test.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-adapter/P9/session-264/vitest-run.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P9/session-264/web-check.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P9/session-264/tauri-check.log; echo exit=${PIPESTATUS[0]}'
 grep -n "searchEngineEnabled" web/src/state/appStore.tsx web/src/views/SearchView.tsx web/src/components/RelatedNotesSection.tsx
 grep -n "RelatedNotesSection" web/src/panes/RightPane.tsx
 git diff --stat -- web/src/notes/client.test.ts
 ```
 
-Expected evidence:
+Expected evidence (gate-compatible form, amended in session-264):
 
-- `web:check` exits 0. It runs typecheck, bun tests, vitest, lint and
-  build, and the new tests appear in the log.
-- `tauri:check` exits 0.
+- **Behavioral record 1.** `cd web && mise exec -- bun test src` exits 0. Record its pass count from the bun summary line, for example `177 pass`. It must be greater than 0.
+- **Behavioral record 2.** `cd web && mise exec -- bunx vitest run` exits 0. Record its passed-test count, for example `87 passed`. It must be greater than 0.
+- **Non-count records.** `mise run web:check` and `mise run tauri:check` exit 0. They are supporting evidence, because neither command name matches a test-runner pattern. Never use them as the only web evidence.
 - The `client.test.ts` diff is empty.
 
 ## Done criteria

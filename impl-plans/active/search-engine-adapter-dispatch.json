@@ -1,11 +1,11 @@
 {
   "taskId": "search-engine-adapter",
   "workflowMode": "issue-resolution",
-  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-263",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-264",
   "implementationBranch": "main",
   "baseBranch": "main",
   "remote": "origin",
-  "originalHead": "c381f1a5a40866b8fff30b15a42c709d353593b0",
+  "originalHead": "b466cedfc658ca4bf1663d0ea5a8f3faab025594",
   "evidenceRoot": "tmp/search-engine-adapter",
   "planDocPath": "impl-plans/active/search-engine-adapter.md",
   "designDocPaths": [
@@ -13,7 +13,8 @@
     "design-docs/user-qa/search-engine-adapter.md",
     "design-docs/specs/note-retrieval-fusion.md",
     "design-docs/specs/library.md",
-    "design-docs/specs/multi-user.md"
+    "design-docs/specs/multi-user.md",
+    "design-docs/specs/kaiba-note.md"
   ],
   "planPaths": [
     "impl-plans/active/search-engine-adapter.md",
@@ -27,201 +28,201 @@
     "impl-plans/active/search-engine-adapter-p8-server-sync-loop.md",
     "impl-plans/active/search-engine-adapter-p9-web-client.md",
     "impl-plans/active/search-engine-adapter-p10-local-tooling.md",
-    "impl-plans/active/search-engine-adapter-p11-integration.md"
+    "impl-plans/active/search-engine-adapter-p11-integration.md",
+    "impl-plans/active/search-engine-adapter-p12-delta-contract.md",
+    "impl-plans/active/search-engine-adapter-p13-es-adapter-delta.md",
+    "impl-plans/active/search-engine-adapter-p14-ontology-indexing.md",
+    "impl-plans/active/search-engine-adapter-p15-ontology-query-service.md",
+    "impl-plans/active/search-engine-adapter-p16-agent-search-routing.md",
+    "impl-plans/active/search-engine-adapter-p17-settings-core.md",
+    "impl-plans/active/search-engine-adapter-p18-graphql-client-delta.md",
+    "impl-plans/active/search-engine-adapter-p19-runtime-controller.md",
+    "impl-plans/active/search-engine-adapter-p20-web-delta.md",
+    "impl-plans/active/search-engine-adapter-p21-delta-integration.md"
+  ],
+  "acceptedDependencies": [
+    {
+      "planId": "P1-core-contract",
+      "planPath": "impl-plans/active/search-engine-adapter-p1-core-contract.md",
+      "status": "accepted",
+      "acceptedIn": "opus-luna-design-and-implement-review-loop-session-263 step7",
+      "commit": "b466cedfc658ca4bf1663d0ea5a8f3faab025594"
+    },
+    {
+      "planId": "P2-store-outbox",
+      "planPath": "impl-plans/active/search-engine-adapter-p2-store-outbox.md",
+      "status": "accepted",
+      "acceptedIn": "opus-luna-design-and-implement-review-loop-session-263 step7",
+      "commit": "b466cedfc658ca4bf1663d0ea5a8f3faab025594"
+    },
+    {
+      "planId": "P4-sync-drain",
+      "planPath": "impl-plans/active/search-engine-adapter-p4-sync-drain.md",
+      "status": "accepted",
+      "acceptedIn": "opus-luna-design-and-implement-review-loop-session-263 step7",
+      "commit": "b466cedfc658ca4bf1663d0ea5a8f3faab025594"
+    },
+    {
+      "planId": "P5-engine-query-service",
+      "planPath": "impl-plans/active/search-engine-adapter-p5-engine-query-service.md",
+      "status": "accepted",
+      "acceptedIn": "opus-luna-design-and-implement-review-loop-session-263 step7",
+      "commit": "b466cedfc658ca4bf1663d0ea5a8f3faab025594"
+    },
+    {
+      "planId": "P6-graphql-client",
+      "planPath": "impl-plans/active/search-engine-adapter-p6-graphql-client.md",
+      "status": "accepted",
+      "acceptedIn": "opus-luna-design-and-implement-review-loop-session-263 step7",
+      "commit": "b466cedfc658ca4bf1663d0ea5a8f3faab025594"
+    },
+    {
+      "planId": "P10-local-tooling",
+      "planPath": "impl-plans/active/search-engine-adapter-p10-local-tooling.md",
+      "status": "accepted",
+      "acceptedIn": "opus-luna-design-and-implement-review-loop-session-263 step7",
+      "commit": "b466cedfc658ca4bf1663d0ea5a8f3faab025594"
+    }
   ],
   "notes": {
-    "executionRules": "The 'Shared execution rules' in the index impl-plans/active/search-engine-adapter.md are binding. All workers run on branch main in one working directory. Workers run no git write commands and create no worktrees or branches. Before each edit, fresh-read the file and record its shasum -a 256; record the post-edit hash in the worker's own plan Progress Log. Copy the plan to tmp/search-engine-adapter/<P#>/plan-snapshot.md as an immutable intent snapshot before the first edit. Edit only your own writePaths. sharedPaths are read-only unless a sharedPathNotes entry grants a specific edit. Never touch .riela/, the index (P11 excepted), other plans' files or lockfiles. Run no broad formatters.",
-    "evidenceLayout": "Evidence lives under the untracked, gitignored evidenceRoot tmp/search-engine-adapter, with one subdirectory per plan short id (P1..P11). A re-run writes into tmp/search-engine-adapter/<P#>/attempt-<n>/ and keeps earlier logs. Run mkdir -p first, because tee does not create directories.",
+    "executionRules": "The 'Shared execution rules' and the 'Session-264 dispatch' section in the index impl-plans/active/search-engine-adapter.md are binding. All workers run on branch main in one working directory. Workers run no git write commands and create no worktrees or branches. Before each edit, fresh-read the file and record its shasum -a 256, and record the post-edit hash in the worker's own plan Progress Log. Before the first edit, copy the plan to tmp/search-engine-adapter/<P#>/plan-snapshot.md as an immutable intent snapshot. Edit only your own writePaths. sharedPaths are read-only unless a sharedPathNotes entry grants a specific edit. Never touch .riela/, the index (except P11 and P21), other plans' files or lockfiles. Run no broad formatters.",
+    "evidenceLayout": "Evidence lives under the untracked, gitignored evidenceRoot tmp/search-engine-adapter, with one subdirectory per plan short id (P3, P7, P8, P9, P11, P12..P21). A re-run writes to attempt-<n>/ and keeps earlier logs. Run mkdir -p first, because tee does not create directories.",
+    "gateEvidence": "A behavioral verification record has a command matching swift test, bun test, vitest run, or mise run <name containing test>; exitCode 0; and every count key (testsRun/testsPassed/testCount) > 0, with the full log path and final exit status. Record XCTest 'Executed N tests, 0 failures' counts. A filtered run's swift-testing '0 tests' line is not a count record. The env-gated skip of ElasticsearchLiveTests is a non-behavioral note, never evidence. P9, P11, P20 and P21 record cd web && mise exec -- bun test src and cd web && mise exec -- bunx vitest run separately; mise run web:check and tauri:check are supporting records without counts. For each swift test --filter record, record only the count of the framework that actually ran the matched tests: XCTest Executed N tests, or swift-testing Test run with N tests passed. Never record a 0 count from the other framework. Tests/KaibaClientTests, CommandCLITests, SearchEngineContractTests and KaibaSearchEngineConfigurationDecodingTests are swift-testing. New test files use XCTest, except in KaibaClientTests.",
     "shell": "Verification commands use the bash-only ${PIPESTATUS[0]}, so they are wrapped in bash -c. A blank exit= is not evidence. Swift tests need PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig. Run mise run build once first. bun is reachable only through mise exec or mise run.",
-    "peerBreaks": "Concurrent workers in a wave share one .build. A compile failure in a file outside your writePaths that belongs to another in-flight plan is not yours to edit. Retry up to 3 times, about 2 minutes apart. After that, record 'blocked by peer <planId>' (never 'passed'); P11 re-runs it.",
-    "fileOwnership": "Sources/AppCore/NoteService.swift has one owner per wave: P2 (wave 1, the deleteNoteRows enqueue line) and P5 (wave 2, the searchEngine stored property). Sources/AppCore/KaibaConfiguration.swift is owned only by P1. mise.toml is owned only by P10. README.md is owned only by P11.",
-    "commitPolicy": "AGENTS.md governs commits: no emojis, no machine-local absolute paths, no secrets, and no AI attribution in commit messages. .riela/ stays untracked and is never committed; tmp/ is gitignored. Workers do not commit. P11 does not commit, push or archive plans; workflow finalization owns that.",
-    "dockerPolicy": "P10 and P11 need Docker (colima) for search:up and search:test-live. If it is unavailable, record 'blocked: docker unavailable' with the exact error. Never record it as passed.",
-    "artifactPolicy": "Every plan declares artifactRoots: [] because no plan installs tools or downloads into a declared path. Build and tool outputs land outside every writePaths/sharedPaths entry: .build/ (SwiftPM and anydoc native), web/node_modules and web/dist (bun), web/src-tauri/target (cargo), the gitignored evidence root tmp/search-engine-adapter, and the Elasticsearch image and named volume kaiba-elasticsearch-data inside the Docker VM. No worker may add generated, downloaded or binary files under a declared path. If one becomes necessary, stop and record it in the Progress Log so the plan can be amended with an artifactRoots entry equal to one of its writePaths.",
-    "snapshotBudget": "P11 declares directory sharedPaths. At c381f1a they expand to 440 files and 16 directories. P1-P10 add about 33 files under them, so with P11's 3 writePaths the projected total is about 492 entries against the 512-entry limit, and about 6 MB against the 64 MB limit. No symlinks exist under Sources, Tests or web/src. No worker may add untracked scratch files under Sources, Tests or web/src.",
-    "resumeAmendment": "Session-263 amended this manifest for the 0.1.6 contract: workflowExecutionId, originalHead c381f1a5a40866b8fff30b15a42c709d353593b0, per-plan artifactRoots, artifactPolicy and snapshotBudget. Plans, waves, dependsOn, writePaths and sharedPaths are unchanged from the session-262 review."
+    "peerBreaks": "Concurrent workers in a wave share one .build. A compile failure in a file outside your writePaths that belongs to another in-flight plan is not yours to edit. Retry up to 3 times, about 2 minutes apart. After that, record 'blocked by peer <planId>', never 'passed'. P11 (base) or P21 (delta) re-runs it.",
+    "fileOwnership": "One owner per wave for each hot file. SearchEngine.swift: P12 (wave 1). NoteService.swift: P12 (wave 1), then P14 (wave 2). Elasticsearch*.swift and SearchEngineFactory.swift: P3 (wave 1, evidence only), then P13 (wave 2). NoteService+SearchEngine.swift: P15 (wave 2). CommandSearchEngine.swift: P7 (wave 1), then P17 (wave 3). KaibaServerRuntime.swift: P8 (wave 1), then P19 (wave 4). GraphQL schema, registries and executor: P18 (wave 4). web files: P9 (wave 1, evidence only), then P20 (wave 2). ElasticsearchLiveTests.swift: P13 (wave 2, index name), then P21 (wave 6). README.md and the index: P11 (wave 5), then P21 (wave 6). Tests/AppCoreTests/FakeSearchEngine.swift: P12 only.",
+    "commitPolicy": "AGENTS.md governs commits: no emojis, no machine-local absolute paths, no secrets, and no AI attribution in commit messages. .riela/ stays untracked and is never committed; tmp/ is gitignored. Workers do not commit. P11 and P21 do not commit, push or archive plans; workflow finalization owns that.",
+    "dockerPolicy": "The operator keeps the compose Elasticsearch running (mise run search:up). P3, P11, P13 and P21 run KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live. Check mise run search:status first. If Docker is unavailable, record 'blocked: docker unavailable' with the exact error, never passed. Only a plan that started the cluster stops it.",
+    "secretPolicy": "No test secret literal may appear in any committed file other than test sources, and none may appear in evidence logs. Settings secrets are write-only, stored as {authMode, target, secret} under auth.search-engine.secret, and reused only when both authMode and the normalized target are unchanged.",
+    "artifactPolicy": "Every plan declares artifactRoots: [] because no plan installs tools or downloads into a declared path. Build and tool outputs land outside every writePaths/sharedPaths entry: .build/, web/node_modules, web/dist, web/src-tauri/target, the evidence root tmp/search-engine-adapter, and the Docker image and volume. If a generated or binary file under a declared path becomes necessary, stop and record it in the Progress Log so the plan can be amended.",
+    "snapshotBudget": "P11 and P21 declare concrete file sharedPaths (about 95 entries) instead of whole directories. The directories expanded to 484 entries at b466ced, and the delta adds about 30 files, which would exceed the 512-entry limit. All other plans declare fewer than 30 paths.",
+    "resumeAmendment": "Session-264 rewrote this manifest. P1, P2, P4, P5, P6 and P10 moved to acceptedDependencies (commit b466ced). P3 and P9 are evidence-only re-runs. P7 and P8 moved to wave 1. The delta plans P12-P20 and the final P21-delta-integration were added. P11 moved to wave 5 with concrete sharedPaths. dependsOn lists only dispatched plans; accepted dependencies are recorded in each plan header."
   },
   "reviewContext": {
-    "issueReference": "No GitHub issue. Inline workflowInput 'Optional search-engine adapter: full-text search and related-notes search (Elasticsearch first, local docker compose)' (design and plans first accepted in session-262 comm-003677 and committed as c381f1a; resumed in opus-luna-design-and-implement-review-loop-session-263, design re-accepted in comm-003686 with SE6 aligned to P7).",
-    "userProblem": "kaiba searches only with SQLite FTS5. The user wants an optional external search engine (Elasticsearch first) for full-text search and related-notes search for the open note. It must be active only when configured, keep the existing behavior otherwise, never fail writes, and never leak notes across libraries or users.",
+    "issueReference": "No GitHub issue. Inline workflowInput 'Search engine adapter: finish base feature (P3/P9 evidence, P7, P8, P11) and add ontology-aware search, hybrid related notes, and engine selection/connection settings' (workflowExecutionId opus-luna-design-and-implement-review-loop-session-264; intake comm-003768; design accepted in comm-003772 after the DR-D5-SECRET-RETARGET fix).",
+    "userProblem": "Finish the optional Elasticsearch adapter. Also make similar-note and ontology-aware search run deterministically on the engine, with tag hierarchy, classes and links and no LLM, and let administrators select the engine and edit its connection in settings, with write-only secrets, test connection and hot-swap.",
     "requiredOutcomes": [
-      "SE1: an AppCore SearchEngine protocol and value types, a factory, and NoteService.searchEngine.",
-      "SE2: an optional searchEngine config section with credentials only as environment-variable names; an unknown kind is a clear error.",
-      "SE3: a durable gated outbox at store v23, hooked at refreshFTS, deleteNoteRows, moveNotebook and the tag-memo rehome. Activation backfills. Claim and settle use a lease and a generation counter, with retry backoff capped at 1 hour.",
-      "SE4: an engine filter built from NoteSearchScope plus a store re-check using the searchNotes predicates; relatedNotes requires a readable source and excludes it.",
-      "SE5: GraphQL searchEngineCapability, engineSearchNotes and relatedNotes, with the statuses feature-disabled and search-engine-unavailable, plus KaibaClient operations.",
-      "SE6: kaiba search-engine status|sync|reindex.",
-      "SE7: web capability flag, engine-backed grep search with fallback, and a Related notes section in the Links tab.",
-      "SE8: an Elasticsearch 8.x adapter over URLSession with a cjk analyzer, strict mapping, bulk NDJSON and sanitized errors.",
-      "SE9: docker/elasticsearch/compose.yaml, mise search:* tasks and an env-gated live test."
+      "Base: P3 and P9 gate-compatible evidence; P7 CLI; P8 server sync loop; P11 base integration.",
+      "D1: engine documents carry direct and ancestor tag ids and names, classes, provenance and links. Every ontology write enqueues through the outbox, including the subtree on class change and reparent. Index -v2 with an identity that includes the normalized base URL.",
+      "D2: hierarchical tag and class filters on indexed ancestor ids, deterministic ontology expansion with boosts 4.0/2.0, and opt-in facets, across protocol, GraphQL, KaibaClient and SearchView.",
+      "D3: a hybrid relatedNotes query (linked 5.0, shared tag 3.0, shared person/event +2.0, near tag 1.5, MLT text). Reasons are confirmed against the store and shown in RelatedNotesSection. The source is excluded, and the SE4 re-check applies.",
+      "D4: the agent search_notes tool uses the engine when attached and include_linked is false, with FTS fallback on SearchEngineError. User-facing engine search has no AI types.",
+      "D5: config-locked precedence; admin-gated store settings under auth.search-engine.*; a write-only secret bound to authMode and target; a sanitized test connection with no network call on a retarget; hot-swap through the shared SearchEngineSlot and the runtime controller; a disable path; a web settings section."
     ],
     "nonGoals": [
-      "Other engines, embeddings or vector search, and feeding engine hits into FTS fusion.",
-      "Changing searchNotes, NoteSearchPopup or the agent search_notes tool.",
-      "A GraphQL admin reindex, index aliases, and automatic deletion of old indices.",
-      "A kuromoji analyzer or a detach command (open user-qa questions)."
+      "A tag rename, merge or delete API; engine routing for AIAgenticSearch and NoteSearchPopup; env-var credentials in store settings; non-loopback plain http; automatic deletion of the -v1 index.",
+      "Changing searchNotes, NoteSearch ranking or lexical fusion."
     ],
     "constraints": [
-      "No behavior change when unconfigured; no new required dependency.",
-      "Never fail or roll back writes because of the engine; no engine call inside a store transaction.",
-      "Access enforced in the engine filter AND by a store re-check.",
-      "Swift files under 1000 lines; swiftlint; existing SwiftPM targets; URLSession only.",
-      "No secrets or absolute local paths in code, docs or logs; credentials by environment-variable name.",
-      "Run web:check and tauri:check because web/ changes."
+      "No behavior change when no engine is selected, apart from the always-installed no-op kick observer and the settings read.",
+      "Never fail writes because of the engine; no engine call inside a store transaction.",
+      "Access is enforced in the engine filter and by the store re-check.",
+      "Secrets never appear in views, errors, logs, GraphQL responses, docs or commits.",
+      "Swift files under 1000 lines; swiftlint; web:check and tauri:check pass; the server-credential tests are unchanged."
     ],
     "designDecisionsAndRationale": [
-      "The outbox is hooked at the existing refreshFTS and deleteNoteRows choke points plus the two notebook library updates, so every indexed-field change is captured atomically.",
-      "The enqueue is gated by EXISTS(search_engine_sync_state), so never-activated stores write nothing.",
-      "The outbox tables are created before requireSupportedVersion, because upgradeToVersion22 calls refreshFTS.",
-      "Engine search is a separate GraphQL field, so the default path and BM25 rank semantics are untouched.",
-      "relatedNotes uses like-text from the store, so it does not depend on index lag.",
-      "Plain http is allowed only for loopback hosts; the compose file binds to 127.0.0.1."
-    ],
-    "supportedEdgeCases": [
-      "Engine down: writes commit, rows back off, the server starts anyway, and the web falls back to built-in search.",
-      "Index identity change (prefix or mapping version): full backfill on activation.",
-      "Note deleted before the push: a delete is pushed. Orphaned documents are dropped by the re-check.",
-      "A write racing a push: the generation counter keeps the row for re-push.",
-      "Caller with no reachable libraries: empty result, no engine call.",
-      "An older server without the new fields: the web treats the capability as false."
-    ],
-    "residualRisksFromDesignReview": [
-      "A stale engine tag_ids value affects relevance only, never access.",
-      "The activation backfill upsert needs WHERE true (pinned in P2).",
-      "The ES image tag is verified at implementation time (P10).",
-      "Deactivated stores keep enqueueing, bounded at one row per note."
+      "Shared SearchEngineSlot reference: scoped NoteService copies see a hot-swapped adapter.",
+      "Settings keys under the existing reserved auth. prefix, so the ungated generic appSetting surface cannot reach them.",
+      "The secret is bound to the normalized target, so a stored credential cannot be redirected to another host (review finding DR-D5-SECRET-RETARGET).",
+      "Expansion and related-signal resolution happen in store SQL and Swift; the engine evaluates them as named, boosted clauses that produce machine-readable reasons."
     ],
     "intentionalTradeoffs": [
-      "Durable outbox at store v23 instead of best-effort pushes: one extra gated statement per note write in exchange for no lost index updates; an engine outage only delays indexing.",
-      "Engine search is a separate GraphQL field (engineSearchNotes), not a searchNotes mode: clients choose the path explicitly, and BM25 ranks stay separate from engine scores.",
-      "Built-in cjk bigram analyzer instead of kuromoji: works on the stock Elasticsearch image with no plugins, at the cost of weaker Japanese morphology.",
-      "Reindex/backfill is CLI-only (kaiba search-engine sync|reindex, store administrator) plus automatic server backfill on activation or index identity change; no GraphQL admin mutation.",
-      "KaibaClient operations are hand-written in the existing KaibaOperations.swift style, not generated.",
-      "Plain http is accepted only for loopback hosts, with no override flag; the local compose cluster runs with xpack.security.enabled=false bound to 127.0.0.1 and is documented as local-only.",
-      "Deactivated stores keep enqueueing, bounded at one outbox row per note, until the engine is re-enabled.",
-      "P7 lives in Sources/AppCore/CommandSearchEngine.swift with --output json|text (existing CLI convention and testable target) instead of the design-named AppCLI file with --json; behavior unchanged."
+      "Engine search stays a separate GraphQL field (engineSearchNotes); engine scores never feed the FTS lexical fusion (user-qa 'Decisions taken without a user answer').",
+      "Ontology expansion is deterministic store-side tag-name matching capped at 10 tags (CJK substring, Latin whole-word) with fixed boosts, instead of semantic or LLM expansion (user-qa 'Ontology expansion').",
+      "Related-note and expansion boosts are fixed adapter constants, not per-store settings (user-qa open question).",
+      "Facets are engine aggregations over the engine-filtered set, computed only on request; counts may include notes the store re-check drops and are shown as refinement hints only (user-qa 'Facets').",
+      "A config-file searchEngine section locks the settings (managedBy config, read-only UI, settings-managed-by-config error) rather than merging with store settings (user-qa 'Config precedence').",
+      "The secret is write-only with no partial mask and must be re-entered whenever the URL or auth mode changes (user-qa 'Secret binding to target').",
+      "The index moves to -v2 and the identity includes the normalized base URL, costing a one-time backfill; the -v1 index is left for the operator to delete (design 'Delta rollout').",
+      "verifyTLS=false is offered as requested but only for https on platforms with the Security framework, with a UI warning (accepted residual DR-LOW-VERIFYTLS-SAME-TARGET)."
+    ],
+    "supportedEdgeCases": [
+      "No engine selected and no config section: behavior identical to FTS-only, engine UI hidden through the capability flag.",
+      "Engine outage or SearchEngineError: note writes still succeed through the durable outbox; the agent search_notes tool falls back to FTS.",
+      "Tag reparent or tag class change: every note under the affected subtree is enqueued and reindexed.",
+      "Tag filter on an ancestor tag matches notes tagged only with a descendant (indexed ancestor ids).",
+      "Query term matching a tag name matches tagged notes even when the body lacks the term, ranked by the expansion boosts.",
+      "relatedNotes excludes the source note, applies the SE4 store re-check, and confirms shared-tag reasons against the store.",
+      "Settings update or test connection that changes the URL host or auth mode without a new secret is rejected with searchEngine.secret and makes no network call.",
+      "authMode none deletes the stored secret; appSetting/setAppSetting refuse the auth.search-engine.* keys.",
+      "Test connection errors from a transport that echoes the secret are sanitized.",
+      "Hot-swap: a reload is seen by scoped NoteService copies; an index identity change triggers backfill; disabling stops the sync loop and returns notConfigured; concurrent reloads converge; an invalid stored setting at startup is not fatal.",
+      "Non-administrators get the existing not-found-shaped error and do not see the web settings section.",
+      "Existing config-file deployments become managedBy config and backfill into -v2 on first start after upgrade."
     ],
     "outOfScopeEdgeCases": [
-      "Engines other than Elasticsearch 8.x, and vector or embedding search.",
-      "Feeding engine hits into the FTS lexical fusion ranking.",
-      "Engine-backed NoteSearchPopup link picker and agent search_notes tool (both stay on FTS).",
-      "Index aliases and automatic deletion of old indices after an index identity change.",
-      "A kaiba search-engine detach command to clear the activation marker and outbox (open user-qa question).",
-      "Optional kuromoji analyzer selection (open user-qa question).",
-      "Non-loopback plain http engine URLs, for example a LAN cluster without TLS (open user-qa question)."
+      "Tag rename, merge or delete flows (no API exists; a future rename must call the D1 subtree enqueue).",
+      "Engine retrieval for AIAgenticSearch grounding and the NoteSearchPopup link picker (stay on FTS).",
+      "Environment-variable credentials in store settings (config file only).",
+      "Non-loopback plain http engine URLs.",
+      "Automatic deletion of the old -v1 index and a search-engine detach command.",
+      "Facet counts that exactly match the store re-checked result set.",
+      "Alternative analyzers such as kuromoji; per-store boost tuning.",
+      "tauri:check off macOS and live Elasticsearch tests without the operator's compose cluster (recorded as blocked with the exact error, never passed)."
+    ],
+    "residualRisksFromDesignReview": [
+      "DR-LOW-VERIFYTLS-SAME-TARGET (low): an administrator can disable TLS verification for the same target and reuse the stored secret. This is limited to https, warned in the UI, and recorded in user-qa.",
+      "Facet counts can include notes the store re-check drops (a documented bound).",
+      "verifyTLS=false requires the Security framework; elsewhere validation rejects it."
     ],
     "sourcePaths": [
       "design-docs/specs/search-engine-adapter.md",
       "design-docs/user-qa/search-engine-adapter.md",
-      "design-docs/specs/note-retrieval-fusion.md",
-      "design-docs/specs/library.md",
-      "design-docs/specs/multi-user.md",
       "impl-plans/active/search-engine-adapter.md",
-      "Sources/AppCore/KaibaConfiguration.swift",
+      "Sources/AppCore/SearchEngine.swift",
       "Sources/AppCore/NoteService.swift",
-      "Sources/AppCore/NoteService+Search.swift",
-      "Sources/AppCore/NoteService+LibraryEnforcement.swift",
-      "Sources/AppCore/NoteService+TagDetail.swift",
-      "Sources/AppCore/NoteSearch.swift",
-      "Sources/AppCore/NoteSearchIndex.swift",
-      "Sources/AppCore/NoteStoreSchema.swift",
+      "Sources/AppCore/NoteService+AppSettings.swift",
+      "Sources/AppCore/KaibaAgentToolbox.swift",
+      "Sources/AppServer/KaibaServerRuntime.swift",
       "Sources/AppGraphQL",
-      "Sources/KaibaClient",
       "web/src/notes/client.ts"
     ]
   },
   "plans": [
     {
-      "planId": "P1-core-contract",
-      "planPath": "impl-plans/active/search-engine-adapter-p1-core-contract.md",
-      "progressPath": "impl-plans/active/search-engine-adapter-p1-core-contract.md",
+      "planId": "P3-elasticsearch-adapter",
+      "planPath": "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md",
       "artifactRoots": [],
       "wave": 1,
       "dependsOn": [],
       "writePaths": [
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/ElasticsearchSearchEngine.swift",
+        "Sources/AppCore/ElasticsearchHTTPTransport.swift",
+        "Sources/AppCore/ElasticsearchRequestBodies.swift",
+        "Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "Tests/AppCoreTests/ElasticsearchLiveTests.swift",
+        "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md"
+      ],
+      "sharedPaths": [
         "Sources/AppCore/SearchEngine.swift",
-        "Sources/AppCore/KaibaConfiguration.swift",
-        "Tests/AppCoreTests/FakeSearchEngine.swift",
-        "Tests/AppCoreTests/SearchEngineContractTests.swift",
-        "Tests/AppCoreTests/KaibaSearchEngineConfigurationDecodingTests.swift",
-        "impl-plans/active/search-engine-adapter-p1-core-contract.md"
-      ],
-      "sharedPaths": [
-        "Sources/AppCore/NoteModels.swift"
+        "Sources/AppCore/KaibaConfiguration.swift"
       ],
       "sharedPathNotes": [
         {
-          "path": "Sources/AppCore/NoteModels.swift",
-          "intendedEdit": "read-only: Note and the identifier types"
-        }
-      ],
-      "acceptanceCriteria": [
-        "The pinned SearchEngine protocol, value types, NoteEngineSearchHit, SearchEngineError (with fixed descriptions) and the upsert/delete protocol extension exist with exact names.",
-        "KaibaConfiguration.searchEngine decodes optionally, defaults to nil, and accepts an unknown kind at decode time; existing init call sites compile unchanged.",
-        "FakeSearchEngine implements the filter semantics and the failure, failingNoteIds, scriptedHits and onApply knobs."
-      ],
-      "verification": [
-        "mise run build",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineContract 2>&1 | tee tmp/search-engine-adapter/P1/contract.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaSearchEngineConfigurationDecoding 2>&1 | tee tmp/search-engine-adapter/P1/config.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P1 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaConfiguration 2>&1 | tee tmp/search-engine-adapter/P1/existing-config.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P1 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P1/lint.log; echo exit=${PIPESTATUS[0]}'",
-        "grep -n 'public protocol SearchEngine' Sources/AppCore/SearchEngine.swift",
-        "wc -l Sources/AppCore/SearchEngine.swift Sources/AppCore/KaibaConfiguration.swift"
-      ]
-    },
-    {
-      "planId": "P2-store-outbox",
-      "planPath": "impl-plans/active/search-engine-adapter-p2-store-outbox.md",
-      "progressPath": "impl-plans/active/search-engine-adapter-p2-store-outbox.md",
-      "artifactRoots": [],
-      "wave": 1,
-      "dependsOn": [],
-      "writePaths": [
-        "Sources/AppCore/SearchEngineSyncOutbox.swift",
-        "Sources/AppCore/NoteStoreSchema.swift",
-        "Sources/AppCore/NoteSearchIndex.swift",
-        "Sources/AppCore/NoteService.swift",
-        "Sources/AppCore/NoteService+Libraries.swift",
-        "Sources/AppCore/NoteService+TagDetail.swift",
-        "Tests/AppCoreTests/SearchEngineSyncOutboxTests.swift",
-        "Tests/AppCoreTests/NoteStoreSchemaVersion23Tests.swift",
-        "Tests/AppCoreTests/NoteStoreSchemaVersion22Tests.swift",
-        "Tests/AppCoreTests/NoteStoreSchemaTests.swift",
-        "Tests/AppCoreTests/NoteStoreSchemaCanonicalTests.swift",
-        "impl-plans/active/search-engine-adapter-p2-store-outbox.md"
-      ],
-      "sharedPaths": [
-        "Sources/AppCore/NoteService+LibraryEnforcement.swift",
-        "Tests/AppCoreTests/NoteServiceTests.swift"
-      ],
-      "sharedPathNotes": [
-        {
-          "path": "Sources/AppCore/NoteService+LibraryEnforcement.swift",
-          "intendedEdit": "read-only: reference patterns"
+          "path": "Sources/AppCore/SearchEngine.swift",
+          "intendedEdit": "read-only: P1 contract (P12 edits it additively in the same wave)"
         },
         {
-          "path": "Tests/AppCoreTests/NoteServiceTests.swift",
-          "intendedEdit": "read-only: makeService(function:) and makeNoteDriver helpers"
+          "path": "Sources/AppCore/KaibaConfiguration.swift",
+          "intendedEdit": "read-only: KaibaSearchEngineConfiguration and KaibaConfigurationError"
         }
       ],
       "acceptanceCriteria": [
-        "currentVersion is 23; the two FK-free outbox tables are created before requireSupportedVersion; 19, 20, 21 and 22 all upgrade to 23; existing schema tests are updated with their intent preserved.",
-        "Exactly four gated enqueue call sites exist: refreshFTS, deleteNoteRows, moveNotebook and the ensureTagMemoNotebook rehome; a never-activated store gets zero outbox rows.",
-        "activateSearchEngineSync, enqueueAllNotesForSearchEngineSync, claimSearchIndexOutbox (single atomic UPDATE with a lease), settleSearchIndexOutbox (generation compare, backoff 5s*2^attempts capped at 3600, last_error capped at 500 characters) and searchIndexOutboxStatus match the pinned API.",
-        "NoteService.swift is at or under 941 lines; NoteStoreSchema.swift is under 1000 lines."
+        "Evidence-only re-run: the adapter and factory swift test records show exit 0 with positive XCTest counts.",
+        "The positive live run KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live shows exit 0 and 'Executed 1 test, 0 failures'; only the XCTest count is recorded. The env-gated skip is described as a non-behavioral note.",
+        "The plan's Verification list is amended to this form. Code changes are made only for a real finding, inside writePaths."
       ],
       "verification": [
         "mise run build",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineSyncOutbox 2>&1 | tee tmp/search-engine-adapter/P2/outbox.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreSchema 2>&1 | tee tmp/search-engine-adapter/P2/schema.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteSearch 2>&1 | tee tmp/search-engine-adapter/P2/note-search.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreMaintenance 2>&1 | tee tmp/search-engine-adapter/P2/maintenance.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter Library 2>&1 | tee tmp/search-engine-adapter/P2/library.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P2 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter TagDetail 2>&1 | tee tmp/search-engine-adapter/P2/tag-detail.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P2 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P2/lint.log; echo exit=${PIPESTATUS[0]}'",
-        "grep -n 'enqueueSearchEngineSync' Sources/AppCore/NoteSearchIndex.swift Sources/AppCore/NoteService.swift Sources/AppCore/NoteService+Libraries.swift Sources/AppCore/NoteService+TagDetail.swift",
-        "wc -l Sources/AppCore/NoteStoreSchema.swift Sources/AppCore/NoteService.swift Sources/AppCore/NoteService+TagDetail.swift Sources/AppCore/SearchEngineSyncOutbox.swift"
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P3/session-264 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ElasticsearchSearchEngine 2>&1 | tee tmp/search-engine-adapter/P3/session-264/adapter.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P3/session-264 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineFactory 2>&1 | tee tmp/search-engine-adapter/P3/session-264/factory.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P3/session-264 && mise run search:status 2>&1 | tee tmp/search-engine-adapter/P3/session-264/search-status.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P3/session-264 && KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P3/session-264/live.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P3/session-264 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P3/session-264/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "wc -l Sources/AppCore/Elasticsearch*.swift Sources/AppCore/SearchEngineFactory.swift"
       ]
     },
     {
@@ -244,338 +245,29 @@
         "impl-plans/active/search-engine-adapter-p9-web-client.md"
       ],
       "sharedPaths": [
-        "web/src/components/LinkedDocsTab.tsx",
-        "web/src/components/TocTab.tsx",
-        "web/src/components/TocTab.integration.tsx",
         "web/src/notes/client.test.ts",
-        "web/src/views/ChatbookView.integration.tsx",
         "web/package.json"
       ],
       "sharedPathNotes": [
-        {
-          "path": "web/src/components/LinkedDocsTab.tsx",
-          "intendedEdit": "read-only: generation counter, states and openNote navigation pattern"
-        },
-        {
-          "path": "web/src/components/TocTab.tsx",
-          "intendedEdit": "read-only: props.app ?? useApp() pattern"
-        },
-        {
-          "path": "web/src/components/TocTab.integration.tsx",
-          "intendedEdit": "read-only: testStore cast pattern"
-        },
         {
           "path": "web/src/notes/client.test.ts",
           "intendedEdit": "read-only: server-credential rule tests; must stay unchanged"
         },
         {
-          "path": "web/src/views/ChatbookView.integration.tsx",
-          "intendedEdit": "read-only: AppStoreProvider plus mock client pattern"
-        },
-        {
           "path": "web/package.json",
-          "intendedEdit": "read-only: scripts; no dependency changes"
+          "intendedEdit": "read-only: scripts (test = bun test src && vitest run); no dependency changes"
         }
       ],
       "acceptanceCriteria": [
-        "client.ts has searchEngineCapability, engineSearchNotes and relatedNotes; AppState.searchEngineEnabled defaults to false, loads with settings, and is false on any error.",
-        "The SearchView grep path uses engineSearchNotes when enabled and falls back to searchNotes with the exact notice 'Search engine unavailable; showing built-in results' only on resultStatus search-engine-unavailable or feature-disabled; the disabled path is unchanged.",
-        "RelatedNotesSection renders only when enabled with an open note; it shows buttons that call openNote, 'No related notes' and 'Related notes unavailable'; it is mounted in the RightPane Links tab note branch.",
-        "client.test.ts is unchanged; web:check and tauri:check pass."
+        "Evidence-only re-run with two separate behavioral records: cd web && mise exec -- bun test src (exit 0, bun pass count > 0) and cd web && mise exec -- bunx vitest run (exit 0, vitest passed count > 0).",
+        "mise run web:check and mise run tauri:check exit 0 as supporting records; client.test.ts is unchanged."
       ],
       "verification": [
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P9 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P9/web-check.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P9 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P9/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
-        "grep -n 'searchEngineEnabled' web/src/state/appStore.tsx web/src/views/SearchView.tsx web/src/components/RelatedNotesSection.tsx",
-        "grep -n 'RelatedNotesSection' web/src/panes/RightPane.tsx",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-adapter/P9/session-264/bun-test.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-adapter/P9/session-264/vitest-run.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P9/session-264/web-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P9/session-264 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P9/session-264/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
         "git diff --stat -- web/src/notes/client.test.ts"
-      ]
-    },
-    {
-      "planId": "P10-local-tooling",
-      "planPath": "impl-plans/active/search-engine-adapter-p10-local-tooling.md",
-      "progressPath": "impl-plans/active/search-engine-adapter-p10-local-tooling.md",
-      "artifactRoots": [],
-      "wave": 1,
-      "dependsOn": [],
-      "writePaths": [
-        "docker/elasticsearch/compose.yaml",
-        "mise.toml",
-        "impl-plans/active/search-engine-adapter-p10-local-tooling.md"
-      ],
-      "sharedPaths": [],
-      "acceptanceCriteria": [
-        "The compose file has a pinned ES 8.x image, single-node, xpack security disabled, a 127.0.0.1-only port, the named volume kaiba-elasticsearch-data and a healthcheck, with a local-only header comment.",
-        "mise.toml gains search:up, search:down (keeps the volume), search:status and search:test-live (anydoc:native dependency and PKG_CONFIG_PATH env); existing tasks are unchanged."
-      ],
-      "verification": [
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P10 && docker compose -f docker/elasticsearch/compose.yaml config 2>&1 | tee tmp/search-engine-adapter/P10/compose-config.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P10 && mise tasks ls 2>&1 | grep \"search:\" | tee tmp/search-engine-adapter/P10/tasks.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P10 && mise run search:up 2>&1 | tee tmp/search-engine-adapter/P10/up.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P10 && mise run search:status 2>&1 | tee tmp/search-engine-adapter/P10/status.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P10 && mise run search:down 2>&1 | tee tmp/search-engine-adapter/P10/down.log; echo exit=${PIPESTATUS[0]}'",
-        "grep -n '127.0.0.1:9200:9200' docker/elasticsearch/compose.yaml"
-      ]
-    },
-    {
-      "planId": "P3-elasticsearch-adapter",
-      "planPath": "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md",
-      "progressPath": "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md",
-      "artifactRoots": [],
-      "wave": 2,
-      "dependsOn": [
-        "P1-core-contract"
-      ],
-      "writePaths": [
-        "Sources/AppCore/SearchEngineFactory.swift",
-        "Sources/AppCore/ElasticsearchSearchEngine.swift",
-        "Sources/AppCore/ElasticsearchHTTPTransport.swift",
-        "Sources/AppCore/ElasticsearchRequestBodies.swift",
-        "Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift",
-        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
-        "Tests/AppCoreTests/ElasticsearchLiveTests.swift",
-        "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md"
-      ],
-      "sharedPaths": [
-        "Sources/AppCore/SearchEngine.swift",
-        "Sources/AppCore/KaibaConfiguration.swift"
-      ],
-      "sharedPathNotes": [
-        {
-          "path": "Sources/AppCore/SearchEngine.swift",
-          "intendedEdit": "read-only: P1 contract"
-        },
-        {
-          "path": "Sources/AppCore/KaibaConfiguration.swift",
-          "intendedEdit": "read-only: KaibaSearchEngineConfiguration and KaibaConfigurationError"
-        }
-      ],
-      "acceptanceCriteria": [
-        "ElasticsearchSearchEngine conforms to SearchEngine: indexIdentity elasticsearch:<prefix>-notes-v1; idempotent ensureIndex (HEAD, PUT, and resource_already_exists_exception as success); strict mapping with the cjk analyzer; bulk NDJSON ending in a newline, with delete 404 counted as success; multi_match title^3, body, tags^2, context; plain-text highlights; more_like_this for related; health yellow and green are available.",
-        "Errors are mapped to unavailable, rejected and invalidResponse without credentials, headers or userinfo; libraryIds [] makes no request.",
-        "SearchEngineFactory enforces kind, url (scheme, no userinfo, http loopback only), indexPrefix regex, exclusive credentials, both-or-neither username and password, and missingEnvironmentVariable.",
-        "ElasticsearchLiveTests skips cleanly when KAIBA_ELASTICSEARCH_URL is unset; no Elasticsearch type is referenced outside the adapter and factory files."
-      ],
-      "verification": [
-        "mise run build",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ElasticsearchSearchEngine 2>&1 | tee tmp/search-engine-adapter/P3/adapter.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineFactory 2>&1 | tee tmp/search-engine-adapter/P3/factory.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P3 && env -u KAIBA_ELASTICSEARCH_URL PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ElasticsearchLive 2>&1 | tee tmp/search-engine-adapter/P3/live-skipped.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P3 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P3/lint.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c '! grep -rln \"ElasticsearchSearchEngine\\|ElasticsearchHTTPTransport\\|ElasticsearchAuthorization\" Sources --include=*.swift | grep -v \"Sources/AppCore/Elasticsearch\" | grep -v \"Sources/AppCore/SearchEngineFactory.swift\"'",
-        "wc -l Sources/AppCore/Elasticsearch*.swift Sources/AppCore/SearchEngineFactory.swift"
-      ]
-    },
-    {
-      "planId": "P4-sync-drain",
-      "planPath": "impl-plans/active/search-engine-adapter-p4-sync-drain.md",
-      "progressPath": "impl-plans/active/search-engine-adapter-p4-sync-drain.md",
-      "artifactRoots": [],
-      "wave": 2,
-      "dependsOn": [
-        "P1-core-contract",
-        "P2-store-outbox"
-      ],
-      "writePaths": [
-        "Sources/AppCore/SearchIndexSynchronizer.swift",
-        "Tests/AppCoreTests/SearchIndexSynchronizerTests.swift",
-        "impl-plans/active/search-engine-adapter-p4-sync-drain.md"
-      ],
-      "sharedPaths": [
-        "Sources/AppCore/SearchEngine.swift",
-        "Sources/AppCore/SearchEngineSyncOutbox.swift",
-        "Sources/AppCore/NoteSearchIndex.swift",
-        "Sources/AppCore/NoteRetrievalText.swift",
-        "Sources/AppCore/NoteService+LibraryEnforcement.swift",
-        "Sources/AppCore/NoteService+Hydration.swift",
-        "Tests/AppCoreTests/FakeSearchEngine.swift",
-        "Tests/AppCoreTests/NoteServiceTests.swift"
-      ],
-      "sharedPathNotes": [
-        {
-          "path": "Sources/AppCore/SearchEngine.swift",
-          "intendedEdit": "read-only: P1 contract"
-        },
-        {
-          "path": "Sources/AppCore/SearchEngineSyncOutbox.swift",
-          "intendedEdit": "read-only: P2 claim, settle and status"
-        },
-        {
-          "path": "Sources/AppCore/NoteSearchIndex.swift",
-          "intendedEdit": "read-only: ftsContextPayload and the FTS text derivation"
-        },
-        {
-          "path": "Sources/AppCore/NoteRetrievalText.swift",
-          "intendedEdit": "read-only: noteRetrievalText and noteSearchText"
-        },
-        {
-          "path": "Sources/AppCore/NoteService+LibraryEnforcement.swift",
-          "intendedEdit": "read-only: isLongTermMemoryNotebook"
-        },
-        {
-          "path": "Sources/AppCore/NoteService+Hydration.swift",
-          "intendedEdit": "read-only: loadNote"
-        },
-        {
-          "path": "Tests/AppCoreTests/FakeSearchEngine.swift",
-          "intendedEdit": "read-only: P1 fake"
-        },
-        {
-          "path": "Tests/AppCoreTests/NoteServiceTests.swift",
-          "intendedEdit": "read-only: makeService helper"
-        }
-      ],
-      "acceptanceCriteria": [
-        "SearchIndexSynchronizer.drainOnce and drainUntilIdle and SearchIndexDrainReport match the pinned API; engine.apply is never called inside a database closure or transaction.",
-        "Documents mirror the FTS derivation (title, retrieval body, sorted tags, ftsContextPayload, library, owner, isLongTermMemory); missing notes push a delete.",
-        "Engine failures leave writes committed and rows backing off; a generation race keeps the row; drainUntilIdle stops on zero progress."
-      ],
-      "verification": [
-        "mise run build",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P4 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchIndexSynchronizer 2>&1 | tee tmp/search-engine-adapter/P4/drain.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P4 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineSyncOutbox 2>&1 | tee tmp/search-engine-adapter/P4/outbox.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P4 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P4/lint.log; echo exit=${PIPESTATUS[0]}'",
-        "wc -l Sources/AppCore/SearchIndexSynchronizer.swift"
-      ]
-    },
-    {
-      "planId": "P5-engine-query-service",
-      "planPath": "impl-plans/active/search-engine-adapter-p5-engine-query-service.md",
-      "progressPath": "impl-plans/active/search-engine-adapter-p5-engine-query-service.md",
-      "artifactRoots": [],
-      "wave": 2,
-      "dependsOn": [
-        "P1-core-contract",
-        "P2-store-outbox"
-      ],
-      "writePaths": [
-        "Sources/AppCore/NoteService.swift",
-        "Sources/AppCore/NoteService+Search.swift",
-        "Sources/AppCore/NoteService+SearchEngine.swift",
-        "Sources/AppCore/SearchEngineScope.swift",
-        "Tests/AppCoreTests/SearchEngineQueryTests.swift",
-        "Tests/AppCoreTests/SearchEngineAccessTests.swift",
-        "impl-plans/active/search-engine-adapter-p5-engine-query-service.md"
-      ],
-      "sharedPaths": [
-        "Sources/AppCore/SearchEngine.swift",
-        "Sources/AppCore/NoteSearch.swift",
-        "Sources/AppCore/NoteService+LibraryEnforcement.swift",
-        "Sources/AppCore/NoteService+Hydration.swift",
-        "Sources/AppCore/NoteRetrievalText.swift",
-        "Sources/AppCore/NoteTagHierarchy.swift",
-        "Tests/AppCoreTests/FakeSearchEngine.swift"
-      ],
-      "sharedPathNotes": [
-        {
-          "path": "Sources/AppCore/SearchEngine.swift",
-          "intendedEdit": "read-only: P1 contract"
-        },
-        {
-          "path": "Sources/AppCore/NoteSearch.swift",
-          "intendedEdit": "read-only: NoteSearchScope, the append*Predicate helpers, snippet(from:query:), and searchNotesInDatabase as the predicate reference"
-        },
-        {
-          "path": "Sources/AppCore/NoteService+LibraryEnforcement.swift",
-          "intendedEdit": "read-only: requireNote and reachableLibraryIds"
-        },
-        {
-          "path": "Sources/AppCore/NoteService+Hydration.swift",
-          "intendedEdit": "read-only: requireNotes"
-        },
-        {
-          "path": "Sources/AppCore/NoteRetrievalText.swift",
-          "intendedEdit": "read-only: noteRetrievalText and noteSearchTexts"
-        },
-        {
-          "path": "Sources/AppCore/NoteTagHierarchy.swift",
-          "intendedEdit": "read-only: expandedTagFilterIds(names:in:)"
-        },
-        {
-          "path": "Tests/AppCoreTests/FakeSearchEngine.swift",
-          "intendedEdit": "read-only: P1 fake"
-        }
-      ],
-      "acceptanceCriteria": [
-        "NoteService gains public var searchEngine: (any SearchEngine)? = nil, and scoped copies inherit it; NoteService.swift is at or under 943 lines.",
-        "makeNoteSearchScope is extracted with searchNotes behavior identical; engineSearchNotes and relatedNotes follow the three-phase store, engine, re-check flow with the pinned errors, over-fetch (+20) and slicing.",
-        "scopedNoteIds uses the same predicates as searchNotesInDatabase (library, owner, pending ingest, long-term memory, notebook, created range); every access test passes against filter-ignoring scripted hits; an empty reachable list makes no engine call."
-      ],
-      "verification": [
-        "mise run build",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P5 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineQuery 2>&1 | tee tmp/search-engine-adapter/P5/query.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P5 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineAccess 2>&1 | tee tmp/search-engine-adapter/P5/access.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P5 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteSearch 2>&1 | tee tmp/search-engine-adapter/P5/note-search-regression.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P5 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter Library 2>&1 | tee tmp/search-engine-adapter/P5/library-regression.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P5 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P5/lint.log; echo exit=${PIPESTATUS[0]}'",
-        "grep -n 'public var searchEngine' Sources/AppCore/NoteService.swift",
-        "wc -l Sources/AppCore/NoteService.swift Sources/AppCore/NoteService+SearchEngine.swift Sources/AppCore/SearchEngineScope.swift"
-      ]
-    },
-    {
-      "planId": "P6-graphql-client",
-      "planPath": "impl-plans/active/search-engine-adapter-p6-graphql-client.md",
-      "progressPath": "impl-plans/active/search-engine-adapter-p6-graphql-client.md",
-      "artifactRoots": [],
-      "wave": 3,
-      "dependsOn": [
-        "P1-core-contract",
-        "P5-engine-query-service"
-      ],
-      "writePaths": [
-        "Sources/AppGraphQL/GraphQLContractProjector.swift",
-        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
-        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
-        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
-        "Sources/AppGraphQL/NoteGraphQLDocumentVariables.swift",
-        "Sources/AppGraphQL/NoteGraphQLService+SearchEngine.swift",
-        "Sources/KaibaClient/KaibaOperations.swift",
-        "Sources/KaibaClient/KaibaOperations+SearchEngine.swift",
-        "Sources/KaibaClient/KaibaModels.swift",
-        "Tests/AppGraphQLTests/SearchEngineGraphQLTests.swift",
-        "Tests/AppGraphQLTests/NoteGraphQLSchemaInventoryTests.swift",
-        "Tests/KaibaClientTests/KaibaSearchEngineOperationTests.swift",
-        "impl-plans/active/search-engine-adapter-p6-graphql-client.md"
-      ],
-      "sharedPaths": [
-        "Sources/AppCore/SearchEngine.swift",
-        "Sources/AppCore/NoteService+SearchEngine.swift",
-        "Sources/AppGraphQL/NoteGraphQLService.swift",
-        "Sources/AppGraphQL/NoteGraphQLContracts.swift"
-      ],
-      "sharedPathNotes": [
-        {
-          "path": "Sources/AppCore/SearchEngine.swift",
-          "intendedEdit": "read-only: SearchEngineError and NoteEngineSearchHit"
-        },
-        {
-          "path": "Sources/AppCore/NoteService+SearchEngine.swift",
-          "intendedEdit": "read-only: P5 service API"
-        },
-        {
-          "path": "Sources/AppGraphQL/NoteGraphQLService.swift",
-          "intendedEdit": "read-only: noteResult and graphQLNoteResult; the file must stay at 956 lines"
-        },
-        {
-          "path": "Sources/AppGraphQL/NoteGraphQLContracts.swift",
-          "intendedEdit": "read-only: GraphQLNoteDTO"
-        }
-      ],
-      "acceptanceCriteria": [
-        "The three pinned Query lines and three types are in the SDL verbatim; all four registries and the dispatch include the fields; validators enforce 0...200 and 0...1000 for engineSearchNotes and 0...20 for relatedNotes.",
-        "No engine gives feature-disabled with diagnostics ['search engine is not configured']; engine errors give search-engine-unavailable with diagnostics ['search engine unavailable'] and no engine detail; not_found and invalid_request keep their existing mapping.",
-        "KaibaClient searchEngineCapability, engineSearchNotes and relatedNotes and the KaibaEngineNoteHit and KaibaSearchEngineCapabilityPayload models exist; only the access level of the private helpers changes in KaibaOperations.swift.",
-        "The NoteGraphQLSchemaInventoryTests update and the full AppGraphQLTests and KaibaClientTests suites pass; searchNotes is unchanged."
-      ],
-      "verification": [
-        "mise run build",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineGraphQL 2>&1 | tee tmp/search-engine-adapter/P6/graphql.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteGraphQLSchemaInventory 2>&1 | tee tmp/search-engine-adapter/P6/inventory.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaSearchEngineOperation 2>&1 | tee tmp/search-engine-adapter/P6/client.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaClientTests 2>&1 | tee tmp/search-engine-adapter/P6/client-suite.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P6 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AppGraphQLTests 2>&1 | tee tmp/search-engine-adapter/P6/graphql-suite.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P6 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P6/lint.log; echo exit=${PIPESTATUS[0]}'",
-        "wc -l Sources/AppGraphQL/NoteGraphQLService.swift Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift Sources/KaibaClient/KaibaOperations.swift Sources/KaibaClient/KaibaModels.swift"
       ]
     },
     {
@@ -583,12 +275,8 @@
       "planPath": "impl-plans/active/search-engine-adapter-p7-cli.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p7-cli.md",
       "artifactRoots": [],
-      "wave": 3,
-      "dependsOn": [
-        "P2-store-outbox",
-        "P3-elasticsearch-adapter",
-        "P4-sync-drain"
-      ],
+      "wave": 1,
+      "dependsOn": [],
       "writePaths": [
         "Sources/AppCore/CommandSearchEngine.swift",
         "Sources/AppCore/Command.swift",
@@ -606,7 +294,7 @@
       "sharedPathNotes": [
         {
           "path": "Sources/AppCore/SearchEngineFactory.swift",
-          "intendedEdit": "read-only: P3 factory"
+          "intendedEdit": "read-only: the factory, complete in b466ced"
         },
         {
           "path": "Sources/AppCore/SearchEngineSyncOutbox.swift",
@@ -622,13 +310,13 @@
         },
         {
           "path": "Tests/AppCoreTests/FakeSearchEngine.swift",
-          "intendedEdit": "read-only: P1 fake"
+          "intendedEdit": "read-only: the fake (P12 extends it additively in the same wave)"
         }
       ],
       "acceptanceCriteria": [
-        "SearchEngineCommand parse and run (with an internal engine-injection overload) implement status, sync and reindex with --output json|text; exit 2 for configuration errors and the not-configured case, 1 for operational failures, 0 otherwise.",
-        "status never prints the url or secrets and exits 0 when the engine is unavailable; sync and reindex run ensureIndex, activate, (reindex: enqueue all) and drainUntilIdle.",
-        "The main.swift async dispatch block and the Command.swift usage lines are added; other commands are unaffected (CommandCLI regression passes)."
+        "SearchEngineCommand parse and run (with an internal engine-injection overload) implement status, sync and reindex with --output json|text. Exit 2 for configuration errors and the not-configured case, 1 for operational failures, 0 otherwise.",
+        "status never prints the url or secrets and exits 0 when the engine is unavailable. sync and reindex run ensureIndex, activation, enqueue-all (reindex only) and drainUntilIdle.",
+        "Engine construction is one private call site, which P17 later replaces with the resolver. The main.swift dispatch and the Command.swift usage are added. Swift test records show positive XCTest counts."
       ],
       "verification": [
         "mise run build",
@@ -644,13 +332,8 @@
       "planPath": "impl-plans/active/search-engine-adapter-p8-server-sync-loop.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p8-server-sync-loop.md",
       "artifactRoots": [],
-      "wave": 3,
-      "dependsOn": [
-        "P2-store-outbox",
-        "P3-elasticsearch-adapter",
-        "P4-sync-drain",
-        "P5-engine-query-service"
-      ],
+      "wave": 1,
+      "dependsOn": [],
       "writePaths": [
         "Sources/AppServer/SearchIndexSyncLoop.swift",
         "Sources/AppServer/KaibaServerRuntime.swift",
@@ -668,7 +351,7 @@
       "sharedPathNotes": [
         {
           "path": "Sources/AppCore/SearchEngineFactory.swift",
-          "intendedEdit": "read-only: P3 factory"
+          "intendedEdit": "read-only: the factory"
         },
         {
           "path": "Sources/AppCore/SearchIndexSynchronizer.swift",
@@ -680,7 +363,7 @@
         },
         {
           "path": "Sources/AppCore/NoteService.swift",
-          "intendedEdit": "read-only: P5 searchEngine property"
+          "intendedEdit": "read-only: the searchEngine property (P12 makes it slot-backed in the same wave; assignment syntax unchanged)"
         },
         {
           "path": "Sources/AppServer/NoteChangeFeed.swift",
@@ -689,8 +372,8 @@
       ],
       "acceptanceCriteria": [
         "KaibaServerRuntime builds the engine with SearchEngineFactory before the service (configuration errors fail start), wraps the observer in FanOutNoteChangeObserver only when an engine exists, assigns service.searchEngine before GraphQL wiring, starts SearchIndexSyncLoop after bind and stops it in stop().",
-        "SearchIndexSyncLoop prepares (ensureIndex plus activation) with retry, drains on a 15s tick and after a debounced (1s) nonisolated kick, never overlaps drains, and logs sanitized errors; an unreachable engine never blocks start-up.",
-        "Without a searchEngine section the runtime wiring is identical to today; the AppServerTests suite passes; KaibaServerRuntime.swift is under 350 lines."
+        "SearchIndexSyncLoop prepares (ensureIndex plus activation) with retry, drains on a 15s tick and after a debounced (1s) nonisolated kick, never overlaps drains, and logs sanitized errors; an unreachable engine never blocks start-up. The loop and both observers are reusable unchanged by P19.",
+        "The AppServerTests suite passes with a positive XCTest count; KaibaServerRuntime.swift is under 350 lines."
       ],
       "verification": [
         "mise run build",
@@ -702,22 +385,605 @@
       ]
     },
     {
+      "planId": "P12-delta-contract",
+      "planPath": "impl-plans/active/search-engine-adapter-p12-delta-contract.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p12-delta-contract.md",
+      "artifactRoots": [],
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/SearchEngineSlot.swift",
+        "Sources/AppCore/NoteService.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift",
+        "Tests/AppCoreTests/SearchEngineDeltaContractTests.swift",
+        "impl-plans/active/search-engine-adapter-p12-delta-contract.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/KaibaConfiguration.swift",
+        "Sources/AppCore/NoteService+Users.swift",
+        "Tests/AppCoreTests/NoteServiceTests.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/KaibaConfiguration.swift",
+          "intendedEdit": "read-only: KaibaSearchEngineConfiguration stored in the slot"
+        },
+        {
+          "path": "Sources/AppCore/NoteService+Users.swift",
+          "intendedEdit": "read-only: scoped(to:) copy semantics"
+        },
+        {
+          "path": "Tests/AppCoreTests/NoteServiceTests.swift",
+          "intendedEdit": "read-only: makeService helpers"
+        }
+      ],
+      "acceptanceCriteria": [
+        "All pinned D1/D2/D3 value types, SearchEngineHitReasonKind raw values, the searchPage requirement with its default, the NoteEngineSearchPage and facet types, and the settings types exist with exact names; every new parameter is appended with a default.",
+        "NoteService.searchEngine is computed over a shared SearchEngineSlot (nonmutating set). Scoped copies share it, separate services do not, and NoteService.swift is at most 950 lines.",
+        "FakeSearchEngine supports hierarchyTagIds, tagClassFilters, searchPage and scriptedFacets. All existing SearchEngine tests pass; records show positive XCTest counts."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P12 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineDeltaContract 2>&1 | tee tmp/search-engine-adapter/P12/contract.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P12 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngine 2>&1 | tee tmp/search-engine-adapter/P12/search-engine-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P12 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchIndexSynchronizer 2>&1 | tee tmp/search-engine-adapter/P12/drain-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P12 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P12/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "wc -l Sources/AppCore/SearchEngine.swift Sources/AppCore/SearchEngineSettingsTypes.swift Sources/AppCore/SearchEngineSlot.swift Sources/AppCore/NoteService.swift"
+      ]
+    },
+    {
+      "planId": "P16-agent-search-routing",
+      "planPath": "impl-plans/active/search-engine-adapter-p16-agent-search-routing.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p16-agent-search-routing.md",
+      "artifactRoots": [],
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/KaibaAgentToolbox.swift",
+        "Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift",
+        "impl-plans/active/search-engine-adapter-p16-agent-search-routing.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteService+SearchEngine.swift",
+        "Sources/AppCore/NoteSearchLexicalFusion.swift",
+        "Sources/AppCore/KaibaAgentToolSchema.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/NoteService+SearchEngine.swift",
+          "intendedEdit": "read-only: engineSearchNotes and isSearchEngineEnabled (accepted P5)"
+        },
+        {
+          "path": "Sources/AppCore/NoteSearchLexicalFusion.swift",
+          "intendedEdit": "read-only: indexableSearchTerms(from:)"
+        },
+        {
+          "path": "Sources/AppCore/KaibaAgentToolSchema.swift",
+          "intendedEdit": "read-only: the tool contract must stay unchanged"
+        },
+        {
+          "path": "Tests/AppCoreTests/FakeSearchEngine.swift",
+          "intendedEdit": "read-only: the base knobs only (P12 owns edits)"
+        }
+      ],
+      "acceptanceCriteria": [
+        "search_notes uses engineSearchNotes when an engine is attached and include_linked is false, falls back to FTS only on SearchEngineError, and keeps every output key, adding retrieval = search-engine|full-text.",
+        "term_coverage on the engine path uses indexableSearchTerms over the title plus the retrieval text; KaibaAgentToolSchema.swift and AIAgenticSearch.swift are unchanged.",
+        "Routing and toolbox regression tests pass with positive XCTest counts."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P16 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AgentSearchNotesRouting 2>&1 | tee tmp/search-engine-adapter/P16/routing.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P16 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaAgentToolboxTests 2>&1 | tee tmp/search-engine-adapter/P16/toolbox-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P16 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P16/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "git diff --stat -- Sources/AppCore/KaibaAgentToolSchema.swift Sources/AppCore/AIAgenticSearch.swift",
+        "wc -l Sources/AppCore/KaibaAgentToolbox.swift"
+      ]
+    },
+    {
+      "planId": "P13-es-adapter-delta",
+      "planPath": "impl-plans/active/search-engine-adapter-p13-es-adapter-delta.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p13-es-adapter-delta.md",
+      "artifactRoots": [],
+      "wave": 2,
+      "dependsOn": [
+        "P12-delta-contract",
+        "P3-elasticsearch-adapter"
+      ],
+      "writePaths": [
+        "Sources/AppCore/ElasticsearchSearchEngine.swift",
+        "Sources/AppCore/ElasticsearchRequestBodies.swift",
+        "Sources/AppCore/ElasticsearchHTTPTransport.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "Tests/AppCoreTests/ElasticsearchLiveTests.swift",
+        "impl-plans/active/search-engine-adapter-p13-es-adapter-delta.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/KaibaConfiguration.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/SearchEngine.swift",
+          "intendedEdit": "read-only: P12 contract"
+        },
+        {
+          "path": "Sources/AppCore/SearchEngineSettingsTypes.swift",
+          "intendedEdit": "read-only: SearchEngineConnectionSettings, SearchEngineAuthMode, SearchEngineAdapterDescriptor"
+        },
+        {
+          "path": "Sources/AppCore/KaibaConfiguration.swift",
+          "intendedEdit": "read-only: KaibaSearchEngineConfiguration and KaibaConfigurationError"
+        }
+      ],
+      "acceptanceCriteria": [
+        "Index <prefix>-notes-v2 with the seven new keyword fields; identity elasticsearch:<normalizedTarget>/<index>; query timeout requestTimeoutSeconds, bulk max(30, value).",
+        "The searchPage body uses named should clauses (text-match 1.0, tag-match 4.0, tag-hierarchy-match 2.0) with minimum_should_match 1, hierarchy and class filters, and opt-in aggs. The related body uses text-similarity, shared-tag 3.0, related-tag 1.5, shared-entity 2.0 and linked 5.0. matched_queries map to reasons, and empty lists are never sent.",
+        "SearchEngineFactory.make(settings:secret:) validates every field with the exact field names; adapters and normalizedTarget exist; the config path keeps its errors; verifyTLS=false trusts only the configured host and requires https and the Security framework.",
+        "Adapter, factory and positive live-run records show positive XCTest counts (live: XCTest count only)."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P13 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ElasticsearchSearchEngine 2>&1 | tee tmp/search-engine-adapter/P13/adapter.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P13 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineFactory 2>&1 | tee tmp/search-engine-adapter/P13/factory.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P13 && KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P13/live.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P13 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P13/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "wc -l Sources/AppCore/Elasticsearch*.swift Sources/AppCore/SearchEngineFactory.swift"
+      ]
+    },
+    {
+      "planId": "P14-ontology-indexing",
+      "planPath": "impl-plans/active/search-engine-adapter-p14-ontology-indexing.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p14-ontology-indexing.md",
+      "artifactRoots": [],
+      "wave": 2,
+      "dependsOn": [
+        "P12-delta-contract"
+      ],
+      "writePaths": [
+        "Sources/AppCore/SearchIndexSynchronizer.swift",
+        "Sources/AppCore/SearchIndexDocumentOntology.swift",
+        "Sources/AppCore/SearchEngineSyncOutbox.swift",
+        "Sources/AppCore/NoteService+Catalog.swift",
+        "Sources/AppCore/NoteTagWrites.swift",
+        "Sources/AppCore/NoteService+Relations.swift",
+        "Sources/AppCore/NoteService+ActionHistory.swift",
+        "Sources/AppCore/NoteService.swift",
+        "Sources/AppCore/NoteService+NotebookTags.swift",
+        "Tests/AppCoreTests/SearchEngineOntologyIndexTests.swift",
+        "impl-plans/active/search-engine-adapter-p14-ontology-indexing.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/NoteSearchIndex.swift",
+        "Sources/AppCore/NoteTagHierarchy.swift",
+        "Sources/AppCore/NoteStoreSchema.swift",
+        "Tests/AppCoreTests/SearchEngineSyncOutboxTests.swift",
+        "Tests/AppCoreTests/NoteServiceTests.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/SearchEngine.swift",
+          "intendedEdit": "read-only: P12 D1 types"
+        },
+        {
+          "path": "Sources/AppCore/NoteSearchIndex.swift",
+          "intendedEdit": "read-only: refreshFTS, refreshFTSForNotesUnderTag and the ftsContextPayload ancestor walk"
+        },
+        {
+          "path": "Sources/AppCore/NoteTagHierarchy.swift",
+          "intendedEdit": "read-only: the recursive CTE pattern"
+        },
+        {
+          "path": "Sources/AppCore/NoteStoreSchema.swift",
+          "intendedEdit": "read-only: tags, note_tags and note_links columns"
+        },
+        {
+          "path": "Tests/AppCoreTests/SearchEngineSyncOutboxTests.swift",
+          "intendedEdit": "read-only: activation and outbox test helpers"
+        },
+        {
+          "path": "Tests/AppCoreTests/NoteServiceTests.swift",
+          "intendedEdit": "read-only: makeService helpers"
+        }
+      ],
+      "acceptanceCriteria": [
+        "searchIndexDocument fills tagApplications, pathTags (cycle-safe ancestor walk, depth at most 64, system tags included) and the outgoing and incoming link ids (capped at 500).",
+        "After activation, the subtree is enqueued on a class change (defineTag, ensureTag); both endpoints on every note_links insert (linkNotesInDatabase, promoteCommentToNotebook, restoreNoteSnapshot); the surviving counterparts on deleteNoteRows; and the notebook on the four notebook-tag writes. Nothing is enqueued before activation.",
+        "The subtree helper is one gated set-based statement; NoteService.swift is at most 960 lines; records show positive XCTest counts."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P14 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineOntologyIndex 2>&1 | tee tmp/search-engine-adapter/P14/ontology-index.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P14 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineSyncOutbox 2>&1 | tee tmp/search-engine-adapter/P14/outbox-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P14 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchIndexSynchronizer 2>&1 | tee tmp/search-engine-adapter/P14/drain-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P14 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter Tag 2>&1 | tee tmp/search-engine-adapter/P14/tag-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P14 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteActionHistoryTests 2>&1 | tee tmp/search-engine-adapter/P14/action-history-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P14 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteHierarchyProgressTests 2>&1 | tee tmp/search-engine-adapter/P14/links-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P14 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P14/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "wc -l Sources/AppCore/NoteService.swift Sources/AppCore/NoteService+Relations.swift Sources/AppCore/NoteService+ActionHistory.swift Sources/AppCore/SearchEngineSyncOutbox.swift Sources/AppCore/SearchIndexDocumentOntology.swift"
+      ]
+    },
+    {
+      "planId": "P15-ontology-query-service",
+      "planPath": "impl-plans/active/search-engine-adapter-p15-ontology-query-service.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p15-ontology-query-service.md",
+      "artifactRoots": [],
+      "wave": 2,
+      "dependsOn": [
+        "P12-delta-contract"
+      ],
+      "writePaths": [
+        "Sources/AppCore/NoteService+SearchEngine.swift",
+        "Sources/AppCore/NoteService+SearchEngineOntology.swift",
+        "Sources/AppCore/SearchEngineScope.swift",
+        "Tests/AppCoreTests/SearchEngineOntologyQueryTests.swift",
+        "Tests/AppCoreTests/SearchEngineQueryTests.swift",
+        "impl-plans/active/search-engine-adapter-p15-ontology-query-service.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/NoteTagHierarchy.swift",
+        "Sources/AppCore/NoteSearch.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift",
+        "Tests/AppCoreTests/SearchEngineAccessTests.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/SearchEngine.swift",
+          "intendedEdit": "read-only: P12 types"
+        },
+        {
+          "path": "Sources/AppCore/NoteTagHierarchy.swift",
+          "intendedEdit": "read-only: resolveTagIds(named:in:)"
+        },
+        {
+          "path": "Sources/AppCore/NoteSearch.swift",
+          "intendedEdit": "read-only: snippet(from:query:) and NoteSearchScope"
+        },
+        {
+          "path": "Tests/AppCoreTests/FakeSearchEngine.swift",
+          "intendedEdit": "read-only: P12 fake"
+        },
+        {
+          "path": "Tests/AppCoreTests/SearchEngineAccessTests.swift",
+          "intendedEdit": "read-only: access patterns; must keep passing"
+        }
+      ],
+      "acceptanceCriteria": [
+        "engineSearchNotesPage(query:notebookId:tagFilter:tagClassFilter:expandOntology:includeFacets:limit:offset:) exists. The old engineSearchNotes signature and return type are unchanged and delegate to it.",
+        "Tag filters resolve without descendant expansion into hierarchyTagIds. Class filters follow the D2 rules (at most 10; unknown or mismatched entries give an empty page). The expansion rule is exact (normalization, CJK substring, ASCII word boundary, non-system, at most 10, longest first). Facets hydrate and drop unknown or system tags.",
+        "relatedNotes sends signals S/P/A/E (each capped at 50) and enriches shared-tag/shared-entity reasons from the store, dropping stale reasons. The SE4 re-check is unchanged, and no AI types are referenced.",
+        "Ontology-query, base query and access records show positive XCTest counts."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P15 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineOntologyQuery 2>&1 | tee tmp/search-engine-adapter/P15/ontology-query.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P15 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineQuery 2>&1 | tee tmp/search-engine-adapter/P15/query-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P15 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineAccess 2>&1 | tee tmp/search-engine-adapter/P15/access-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P15 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P15/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c '! grep -nE \"AIAgenticSearch|AgentInvok|AgentGateway|AgentReply|ClaudeSubscription\" Sources/AppCore/NoteService+SearchEngine.swift Sources/AppCore/NoteService+SearchEngineOntology.swift Sources/AppCore/SearchEngineScope.swift'",
+        "wc -l Sources/AppCore/NoteService+SearchEngine.swift Sources/AppCore/NoteService+SearchEngineOntology.swift Sources/AppCore/SearchEngineScope.swift"
+      ]
+    },
+    {
+      "planId": "P20-web-delta",
+      "planPath": "impl-plans/active/search-engine-adapter-p20-web-delta.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p20-web-delta.md",
+      "artifactRoots": [],
+      "wave": 2,
+      "dependsOn": [
+        "P9-web-client"
+      ],
+      "writePaths": [
+        "web/src/notes/types.ts",
+        "web/src/notes/client.ts",
+        "web/src/notes/searchEngineClient.test.ts",
+        "web/src/notes/searchEngineSettings.ts",
+        "web/src/notes/searchEngineSettings.test.ts",
+        "web/src/state/appStore.tsx",
+        "web/src/views/SearchView.tsx",
+        "web/src/views/SearchView.integration.tsx",
+        "web/src/components/RelatedNotesSection.tsx",
+        "web/src/components/RelatedNotesSection.integration.tsx",
+        "web/src/components/SearchEngineSettings.tsx",
+        "web/src/components/SearchEngineSettings.integration.tsx",
+        "web/src/views/ConfigView.tsx",
+        "impl-plans/active/search-engine-adapter-p20-web-delta.md"
+      ],
+      "sharedPaths": [
+        "web/src/components/UserAgentSettings.tsx",
+        "web/src/components/UserAgentSettings.integration.tsx",
+        "web/src/notes/client.test.ts",
+        "web/src/notes/serverEndpoint.test.ts",
+        "web/src/styles.css",
+        "web/package.json"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "web/src/components/UserAgentSettings.tsx",
+          "intendedEdit": "read-only: write-only credential form pattern"
+        },
+        {
+          "path": "web/src/components/UserAgentSettings.integration.tsx",
+          "intendedEdit": "read-only: integration test pattern"
+        },
+        {
+          "path": "web/src/notes/client.test.ts",
+          "intendedEdit": "read-only: server-credential rule tests; must stay unchanged"
+        },
+        {
+          "path": "web/src/notes/serverEndpoint.test.ts",
+          "intendedEdit": "read-only: server-credential rule tests; must stay unchanged"
+        },
+        {
+          "path": "web/src/styles.css",
+          "intendedEdit": "read-only: reuse .detail-chips and .folder-chip; no CSS edits"
+        },
+        {
+          "path": "web/package.json",
+          "intendedEdit": "read-only: scripts; no dependency changes"
+        }
+      ],
+      "acceptanceCriteria": [
+        "SearchView requests facets on the engine path and renders class and tag refinement chips with counts and removable active filters. The fallback keeps tagFilter and clears class filters; feature-disabled hides engine surfaces.",
+        "RelatedNotesSection renders the plain-text reason line in the fixed order: Linked, Shared tags, Same person/event, Related tags, Similar text.",
+        "The SearchEngineSettings section in ConfigView is hidden when the settings query is not accepted and read-only when managedBy=config. Validation mirrors the server, and a secret is required when the URL or auth mode changes. Test connection shows status and detail. Save clears the secret and reloads the capability. The secret is never stored in web settings, localStorage or sessionStorage.",
+        "Separate bun test src and vitest run records show exit 0 with positive counts; web:check and tauri:check exit 0; the server-credential tests and package.json are unchanged."
+      ],
+      "verification": [
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P20 && cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-adapter/P20/bun-test.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P20 && cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-adapter/P20/vitest-run.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P20 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P20/web-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P20 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P20/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
+        "git diff --stat -- web/src/notes/client.test.ts web/src/notes/serverEndpoint.test.ts web/package.json"
+      ]
+    },
+    {
+      "planId": "P17-settings-core",
+      "planPath": "impl-plans/active/search-engine-adapter-p17-settings-core.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p17-settings-core.md",
+      "artifactRoots": [],
+      "wave": 3,
+      "dependsOn": [
+        "P12-delta-contract",
+        "P13-es-adapter-delta",
+        "P7-cli"
+      ],
+      "writePaths": [
+        "Sources/AppCore/SearchEngineSettingsResolver.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppCore/CommandSearchEngine.swift",
+        "Tests/AppCoreTests/SearchEngineSettingsTests.swift",
+        "Tests/AppCoreTests/SearchEngineCommandTests.swift",
+        "impl-plans/active/search-engine-adapter-p17-settings-core.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/SearchEngineSlot.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/NoteService+AppSettings.swift",
+        "Sources/AppCore/NoteService+AuthTokens.swift",
+        "Sources/AppCore/NoteService+APIClients.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/SearchEngineSettingsTypes.swift",
+          "intendedEdit": "read-only: P12 settings types"
+        },
+        {
+          "path": "Sources/AppCore/SearchEngineSlot.swift",
+          "intendedEdit": "read-only: P12 slot (managedConfiguration, environment, reload)"
+        },
+        {
+          "path": "Sources/AppCore/SearchEngineFactory.swift",
+          "intendedEdit": "read-only: P13 make(settings:secret:), adapters and normalizedTarget"
+        },
+        {
+          "path": "Sources/AppCore/NoteService+AppSettings.swift",
+          "intendedEdit": "read-only: the reserved auth. prefix; no change"
+        },
+        {
+          "path": "Sources/AppCore/NoteService+AuthTokens.swift",
+          "intendedEdit": "read-only: single-transaction app_settings write pattern"
+        },
+        {
+          "path": "Sources/AppCore/NoteService+APIClients.swift",
+          "intendedEdit": "read-only: requireStoreAdministrator(in:) usage"
+        },
+        {
+          "path": "Tests/AppCoreTests/FakeSearchEngine.swift",
+          "intendedEdit": "read-only: failure and healthCalls"
+        }
+      ],
+      "acceptanceCriteria": [
+        "resolveSearchEngineSettings and makeResolvedSearchEngine implement the precedence (config section, then store, then none). The config errors stay KaibaConfigurationError; the store errors map to SearchEngineSettingsError.invalid(field:).",
+        "searchEngineSettings, updateSearchEngineSettings and testSearchEngineConnection are admin-gated with requireStoreAdministrator(in:) and reject config-managed stores. Validation names fields only. The settings and secret are written in one transaction under auth.search-engine.settings and auth.search-engine.secret.",
+        "The secret is stored as {authMode, target, secret} and reused only when both authMode and the normalized target are unchanged. A retargeted update or test with an omitted secret is rejected with searchEngine.secret and makes no health call. kind none deletes the secret. Test detail is redacted and truncated to 200 characters.",
+        "The CLI uses the resolver (store errors exit 2 with the field only). Settings and command records show positive XCTest counts, and no secret literal appears in the P17 logs."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P17 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineSettings 2>&1 | tee tmp/search-engine-adapter/P17/settings.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P17 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineCommand 2>&1 | tee tmp/search-engine-adapter/P17/command.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P17 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteServiceSecurityTests 2>&1 | tee tmp/search-engine-adapter/P17/app-settings-regression.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P17 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P17/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "wc -l Sources/AppCore/SearchEngineSettingsResolver.swift Sources/AppCore/NoteService+SearchEngineSettings.swift Sources/AppCore/CommandSearchEngine.swift"
+      ]
+    },
+    {
+      "planId": "P18-graphql-client-delta",
+      "planPath": "impl-plans/active/search-engine-adapter-p18-graphql-client-delta.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p18-graphql-client-delta.md",
+      "artifactRoots": [],
+      "wave": 4,
+      "dependsOn": [
+        "P15-ontology-query-service",
+        "P17-settings-core"
+      ],
+      "writePaths": [
+        "Sources/AppGraphQL/GraphQLContractProjector.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentVariables.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentInputs.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngine.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngineSettings.swift",
+        "Sources/KaibaClient/KaibaOperations+SearchEngine.swift",
+        "Sources/KaibaClient/KaibaModels+SearchEngine.swift",
+        "Sources/KaibaClient/KaibaModels.swift",
+        "Tests/AppGraphQLTests/SearchEngineGraphQLTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift",
+        "Tests/AppGraphQLTests/NoteGraphQLSchemaInventoryTests.swift",
+        "Tests/KaibaClientTests/KaibaSearchEngineOperationTests.swift",
+        "Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift",
+        "Tests/KaibaClientTests/KaibaSchemaTests.swift",
+        "Tests/AppServerTests/GraphQLSchemaAuthorizationTests.swift",
+        "impl-plans/active/search-engine-adapter-p18-graphql-client-delta.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/NoteService+SearchEngine.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppGraphQL/NoteGraphQLService.swift",
+        "Sources/AppGraphQL/NoteGraphQLContracts.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/SearchEngine.swift",
+          "intendedEdit": "read-only: P12 types"
+        },
+        {
+          "path": "Sources/AppCore/SearchEngineSettingsTypes.swift",
+          "intendedEdit": "read-only: P12 settings types"
+        },
+        {
+          "path": "Sources/AppCore/NoteService+SearchEngine.swift",
+          "intendedEdit": "read-only: P15 engineSearchNotesPage and relatedNotes"
+        },
+        {
+          "path": "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+          "intendedEdit": "read-only: P17 settings API"
+        },
+        {
+          "path": "Sources/AppGraphQL/NoteGraphQLService.swift",
+          "intendedEdit": "read-only: graphQLNoteResult(for:); must stay at 956 lines"
+        },
+        {
+          "path": "Sources/AppGraphQL/NoteGraphQLContracts.swift",
+          "intendedEdit": "read-only: GraphQLNoteDTO and GraphQLControlPlaneResult"
+        }
+      ],
+      "acceptanceCriteria": [
+        "The pinned SDL lines (the extended engineSearchNotes, searchEngineSettings, updateSearchEngineSettings, testSearchEngineConnection) and types are present verbatim and registered in every registry and in the dispatch.",
+        "Status mapping: settings-managed-by-config, invalid-settings with the field as the only diagnostic, admin not-found through graphQLNoteResult; a failed test connection is accepted with value.status. No response ever contains an input secret (tested).",
+        "KaibaClient adds the page, settings and test operations and models; existing engineSearchNotes callers compile. AppGraphQLTests, KaibaClientTests and GraphQLSchemaAuthorization records show positive XCTest counts."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P18 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineGraphQL 2>&1 | tee tmp/search-engine-adapter/P18/graphql.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P18 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineSettingsGraphQL 2>&1 | tee tmp/search-engine-adapter/P18/settings-graphql.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P18 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AppGraphQLTests 2>&1 | tee tmp/search-engine-adapter/P18/graphql-suite.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P18 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter KaibaClientTests 2>&1 | tee tmp/search-engine-adapter/P18/client-suite.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P18 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter GraphQLSchemaAuthorization 2>&1 | tee tmp/search-engine-adapter/P18/authorization.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P18 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P18/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "wc -l Sources/AppGraphQL/NoteGraphQLService.swift Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift Sources/KaibaClient/KaibaModels.swift"
+      ]
+    },
+    {
+      "planId": "P19-runtime-controller",
+      "planPath": "impl-plans/active/search-engine-adapter-p19-runtime-controller.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p19-runtime-controller.md",
+      "artifactRoots": [],
+      "wave": 4,
+      "dependsOn": [
+        "P8-server-sync-loop",
+        "P17-settings-core"
+      ],
+      "writePaths": [
+        "Sources/AppServer/SearchEngineRuntimeController.swift",
+        "Sources/AppServer/KaibaServerRuntime.swift",
+        "Tests/AppServerTests/SearchEngineRuntimeControllerTests.swift",
+        "Tests/AppServerTests/SearchEngineServerRuntimeTests.swift",
+        "impl-plans/active/search-engine-adapter-p19-runtime-controller.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppServer/SearchIndexSyncLoop.swift",
+        "Sources/AppCore/SearchEngineSlot.swift",
+        "Sources/AppCore/SearchEngineSettingsResolver.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/NoteService.swift",
+        "Sources/AppServer/NoteChangeFeed.swift"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppServer/SearchIndexSyncLoop.swift",
+          "intendedEdit": "read-only: P8 loop and observers, reused unchanged"
+        },
+        {
+          "path": "Sources/AppCore/SearchEngineSlot.swift",
+          "intendedEdit": "read-only: P12 slot"
+        },
+        {
+          "path": "Sources/AppCore/SearchEngineSettingsResolver.swift",
+          "intendedEdit": "read-only: P17 resolver"
+        },
+        {
+          "path": "Sources/AppCore/SearchEngineFactory.swift",
+          "intendedEdit": "read-only: config validation at start"
+        },
+        {
+          "path": "Sources/AppCore/NoteService.swift",
+          "intendedEdit": "read-only: init searchEngineSlot parameter"
+        },
+        {
+          "path": "Sources/AppServer/NoteChangeFeed.swift",
+          "intendedEdit": "read-only: NoteChangeFeedObserver"
+        }
+      ],
+      "acceptanceCriteria": [
+        "One SearchEngineSlot is shared by the main and dispatcher NoteService instances. managedConfiguration and environment are set at start; a config error is still fatal; a stored-settings error is logged by field name and the server runs FTS-only.",
+        "SearchEngineRuntimeController.reload stops and awaits the old loop, replaces the slot, starts a new loop (an identity change backfills through activation), detaches on none, converges under concurrent reloads to exactly one loop, and is a no-op when config-managed. kick() is nonisolated and never blocks.",
+        "Controller, runtime and full AppServerTests records show positive XCTest counts; KaibaServerRuntime.swift is under 380 lines."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P19 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineRuntimeController 2>&1 | tee tmp/search-engine-adapter/P19/controller.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P19 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineServerRuntime 2>&1 | tee tmp/search-engine-adapter/P19/runtime.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P19 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter AppServerTests 2>&1 | tee tmp/search-engine-adapter/P19/server-suite.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P19 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P19/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "wc -l Sources/AppServer/KaibaServerRuntime.swift Sources/AppServer/SearchEngineRuntimeController.swift"
+      ]
+    },
+    {
       "planId": "P11-integration",
       "planPath": "impl-plans/active/search-engine-adapter-p11-integration.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p11-integration.md",
       "artifactRoots": [],
-      "wave": 4,
+      "wave": 5,
       "dependsOn": [
-        "P1-core-contract",
-        "P2-store-outbox",
         "P3-elasticsearch-adapter",
-        "P4-sync-drain",
-        "P5-engine-query-service",
-        "P6-graphql-client",
         "P7-cli",
         "P8-server-sync-loop",
         "P9-web-client",
-        "P10-local-tooling"
+        "P12-delta-contract",
+        "P13-es-adapter-delta",
+        "P14-ontology-indexing",
+        "P15-ontology-query-service",
+        "P16-agent-search-routing",
+        "P17-settings-core",
+        "P18-graphql-client-delta",
+        "P19-runtime-controller",
+        "P20-web-delta"
       ],
       "writePaths": [
         "README.md",
@@ -725,77 +991,279 @@
         "impl-plans/active/search-engine-adapter-p11-integration.md"
       ],
       "sharedPaths": [
-        "Sources/AppCore",
-        "Sources/AppGraphQL",
-        "Sources/AppServer",
-        "Sources/AppCLI",
-        "Sources/KaibaClient",
-        "Tests/AppCoreTests",
-        "Tests/AppGraphQLTests",
-        "Tests/AppServerTests",
-        "Tests/KaibaClientTests",
-        "web/src"
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/SearchEngineSlot.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/SearchEngineScope.swift",
+        "Sources/AppCore/SearchEngineSyncOutbox.swift",
+        "Sources/AppCore/SearchEngineSettingsResolver.swift",
+        "Sources/AppCore/SearchIndexSynchronizer.swift",
+        "Sources/AppCore/SearchIndexDocumentOntology.swift",
+        "Sources/AppCore/ElasticsearchSearchEngine.swift",
+        "Sources/AppCore/ElasticsearchRequestBodies.swift",
+        "Sources/AppCore/ElasticsearchHTTPTransport.swift",
+        "Sources/AppCore/NoteService.swift",
+        "Sources/AppCore/NoteService+SearchEngine.swift",
+        "Sources/AppCore/NoteService+SearchEngineOntology.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppCore/NoteService+Search.swift",
+        "Sources/AppCore/NoteSearchIndex.swift",
+        "Sources/AppCore/NoteService+Libraries.swift",
+        "Sources/AppCore/NoteService+TagDetail.swift",
+        "Sources/AppCore/NoteService+Catalog.swift",
+        "Sources/AppCore/NoteTagWrites.swift",
+        "Sources/AppCore/NoteService+Relations.swift",
+        "Sources/AppCore/NoteService+ActionHistory.swift",
+        "Sources/AppCore/NoteService+NotebookTags.swift",
+        "Sources/AppCore/NoteStoreSchema.swift",
+        "Sources/AppCore/KaibaConfiguration.swift",
+        "Sources/AppCore/KaibaAgentToolbox.swift",
+        "Sources/AppCore/CommandSearchEngine.swift",
+        "Sources/AppCore/Command.swift",
+        "Sources/AppCLI/main.swift",
+        "Sources/AppGraphQL/GraphQLContractProjector.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentVariables.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentInputs.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngine.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngineSettings.swift",
+        "Sources/AppServer/KaibaServerRuntime.swift",
+        "Sources/AppServer/SearchIndexSyncLoop.swift",
+        "Sources/AppServer/SearchEngineRuntimeController.swift",
+        "Sources/KaibaClient/KaibaOperations.swift",
+        "Sources/KaibaClient/KaibaOperations+SearchEngine.swift",
+        "Sources/KaibaClient/KaibaModels.swift",
+        "Sources/KaibaClient/KaibaModels+SearchEngine.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift",
+        "Tests/AppCoreTests/SearchEngineContractTests.swift",
+        "Tests/AppCoreTests/SearchEngineDeltaContractTests.swift",
+        "Tests/AppCoreTests/KaibaSearchEngineConfigurationDecodingTests.swift",
+        "Tests/AppCoreTests/SearchEngineSyncOutboxTests.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaVersion23Tests.swift",
+        "Tests/AppCoreTests/SearchIndexSynchronizerTests.swift",
+        "Tests/AppCoreTests/SearchEngineQueryTests.swift",
+        "Tests/AppCoreTests/SearchEngineAccessTests.swift",
+        "Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "Tests/AppCoreTests/ElasticsearchLiveTests.swift",
+        "Tests/AppCoreTests/SearchEngineOntologyIndexTests.swift",
+        "Tests/AppCoreTests/SearchEngineOntologyQueryTests.swift",
+        "Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift",
+        "Tests/AppCoreTests/SearchEngineSettingsTests.swift",
+        "Tests/AppCoreTests/SearchEngineCommandTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineGraphQLTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift",
+        "Tests/AppGraphQLTests/NoteGraphQLSchemaInventoryTests.swift",
+        "Tests/AppServerTests/SearchIndexSyncLoopTests.swift",
+        "Tests/AppServerTests/SearchEngineServerRuntimeTests.swift",
+        "Tests/AppServerTests/SearchEngineRuntimeControllerTests.swift",
+        "Tests/AppServerTests/GraphQLSchemaAuthorizationTests.swift",
+        "Tests/KaibaClientTests/KaibaSearchEngineOperationTests.swift",
+        "Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift",
+        "Tests/KaibaClientTests/KaibaSchemaTests.swift",
+        "web/src/notes/types.ts",
+        "web/src/notes/client.ts",
+        "web/src/notes/searchEngineClient.test.ts",
+        "web/src/notes/searchEngineSettings.ts",
+        "web/src/notes/searchEngineSettings.test.ts",
+        "web/src/state/appStore.tsx",
+        "web/src/views/SearchView.tsx",
+        "web/src/views/SearchView.integration.tsx",
+        "web/src/views/ConfigView.tsx",
+        "web/src/components/RelatedNotesSection.tsx",
+        "web/src/components/RelatedNotesSection.integration.tsx",
+        "web/src/components/SearchEngineSettings.tsx",
+        "web/src/components/SearchEngineSettings.integration.tsx",
+        "web/src/panes/RightPane.tsx"
       ],
       "sharedPathNotes": [
         {
-          "path": "Sources/AppCore",
-          "intendedEdit": "serial repair of compile or test breaks caused by two plans' interaction only, after re-reading the owning plan; pre and post hashes logged in the P11 Progress Log; never weaken access-control checks"
+          "path": "Sources/AppCore/NoteService.swift",
+          "intendedEdit": "serial repair of cross-plan compile or test breaks only, after re-reading the owning plan; pre and post hashes logged; never weaken access-control or secret checks; the same rule applies to every sharedPaths entry"
         },
         {
-          "path": "Sources/AppGraphQL",
-          "intendedEdit": "same serial-repair rule; the pinned SDL lines must not change"
+          "path": "Sources/AppGraphQL/GraphQLContractProjector.swift",
+          "intendedEdit": "serial repair only; the pinned SDL lines must not change"
         },
         {
-          "path": "Sources/AppServer",
-          "intendedEdit": "same serial-repair rule; expected integration point is KaibaServerRuntime wiring only"
+          "path": "Tests/AppCoreTests/ElasticsearchLiveTests.swift",
+          "intendedEdit": "serial repair only; P21 owns the new live scenarios"
         },
         {
-          "path": "Sources/AppCLI",
-          "intendedEdit": "same serial-repair rule; main.swift dispatch only"
-        },
-        {
-          "path": "Sources/KaibaClient",
-          "intendedEdit": "same serial-repair rule"
-        },
-        {
-          "path": "Tests/AppCoreTests",
-          "intendedEdit": "repair existing tests only when a cross-plan change makes an assertion stale, keeping the original intent"
-        },
-        {
-          "path": "Tests/AppGraphQLTests",
-          "intendedEdit": "same rule as Tests/AppCoreTests"
-        },
-        {
-          "path": "Tests/AppServerTests",
-          "intendedEdit": "same rule as Tests/AppCoreTests"
-        },
-        {
-          "path": "Tests/KaibaClientTests",
-          "intendedEdit": "same rule as Tests/AppCoreTests"
-        },
-        {
-          "path": "web/src",
-          "intendedEdit": "repair only if mise run web:check fails due to integration; never change server-credential rule test expectations"
+          "path": "web/src/notes/client.ts",
+          "intendedEdit": "serial repair only if web checks fail due to integration; never change server-credential rule test expectations"
         }
       ],
       "acceptanceCriteria": [
-        "The README '## Optional search engine' section has the SE2 sample config, local-only security note, mise tasks, CLI commands, consistency summary and design link.",
-        "The full mise run check, lint, web:check and tauri:check all exit 0; the live test against search:up passes, or is reported blocked with the Docker error; search:down runs afterwards.",
-        "No Swift file has 1000 or more lines; new files are ASCII; no absolute local paths; git status shows only planned files plus logged repairs; git diff --check is clean; the index status and evidence are updated; no commit, push or archive."
+        "The README section '## Optional search engine' has the SE2 sample config, the local-only security note, mise tasks, CLI commands, a consistency summary, the -v2 purge example and the design link.",
+        "Gate-compatible records: full swift test (XCTest count > 0), bun test src and vitest run (counts > 0), and the live search:test-live (XCTest count only, > 0), all exit 0. mise run check, lint, web:check and tauri:check exit 0 as supporting records.",
+        "No Swift file has 1000 or more lines; no absolute local paths; git status shows only planned files plus logged repairs; git diff --check is clean; the index is updated; no commit, push or archive."
       ],
       "verification": [
         "mise run build",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter Search 2>&1 | tee tmp/search-engine-adapter/P11/search-filter.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteStoreSchema 2>&1 | tee tmp/search-engine-adapter/P11/schema.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test 2>&1 | tee tmp/search-engine-adapter/P11/swift-test-full.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-adapter/P11/bun-test.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-adapter/P11/vitest-run.log; echo exit=${PIPESTATUS[0]}'",
         "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P11/lint.log; echo exit=${PIPESTATUS[0]}'",
         "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P11/web-check.log; echo exit=${PIPESTATUS[0]}'",
         "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P11/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
         "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise run check 2>&1 | tee tmp/search-engine-adapter/P11/full-check.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:up 2>&1 | tee tmp/search-engine-adapter/P11/search-up.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P11/live.log; echo exit=${PIPESTATUS[0]}'",
-        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:down 2>&1 | tee tmp/search-engine-adapter/P11/search-down.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:status 2>&1 | tee tmp/search-engine-adapter/P11/search-status.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P11 && KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P11/live.log; echo exit=${PIPESTATUS[0]}'",
         "bash -c 'find Sources Tests -name \"*.swift\" -exec wc -l {} + | sort -n | tail -6'",
         "bash -c '! grep -rn \"/Users/\\|/home/\" README.md docker design-docs/specs/search-engine-adapter.md impl-plans/active/search-engine-adapter.md Sources Tests web/src'",
+        "git status --short",
+        "git diff --check"
+      ]
+    },
+    {
+      "planId": "P21-delta-integration",
+      "planPath": "impl-plans/active/search-engine-adapter-p21-delta-integration.md",
+      "progressPath": "impl-plans/active/search-engine-adapter-p21-delta-integration.md",
+      "artifactRoots": [],
+      "wave": 6,
+      "dependsOn": [
+        "P11-integration",
+        "P12-delta-contract",
+        "P13-es-adapter-delta",
+        "P14-ontology-indexing",
+        "P15-ontology-query-service",
+        "P16-agent-search-routing",
+        "P17-settings-core",
+        "P18-graphql-client-delta",
+        "P19-runtime-controller",
+        "P20-web-delta"
+      ],
+      "writePaths": [
+        "Tests/AppCoreTests/ElasticsearchLiveTests.swift",
+        "README.md",
+        "impl-plans/active/search-engine-adapter.md",
+        "impl-plans/active/search-engine-adapter-p21-delta-integration.md"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/SearchEngineSlot.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/SearchEngineScope.swift",
+        "Sources/AppCore/SearchEngineSyncOutbox.swift",
+        "Sources/AppCore/SearchEngineSettingsResolver.swift",
+        "Sources/AppCore/SearchIndexSynchronizer.swift",
+        "Sources/AppCore/SearchIndexDocumentOntology.swift",
+        "Sources/AppCore/ElasticsearchSearchEngine.swift",
+        "Sources/AppCore/ElasticsearchRequestBodies.swift",
+        "Sources/AppCore/ElasticsearchHTTPTransport.swift",
+        "Sources/AppCore/NoteService.swift",
+        "Sources/AppCore/NoteService+SearchEngine.swift",
+        "Sources/AppCore/NoteService+SearchEngineOntology.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppCore/NoteService+Search.swift",
+        "Sources/AppCore/NoteSearchIndex.swift",
+        "Sources/AppCore/NoteService+Libraries.swift",
+        "Sources/AppCore/NoteService+TagDetail.swift",
+        "Sources/AppCore/NoteService+Catalog.swift",
+        "Sources/AppCore/NoteTagWrites.swift",
+        "Sources/AppCore/NoteService+Relations.swift",
+        "Sources/AppCore/NoteService+ActionHistory.swift",
+        "Sources/AppCore/NoteService+NotebookTags.swift",
+        "Sources/AppCore/NoteStoreSchema.swift",
+        "Sources/AppCore/KaibaConfiguration.swift",
+        "Sources/AppCore/KaibaAgentToolbox.swift",
+        "Sources/AppCore/CommandSearchEngine.swift",
+        "Sources/AppCore/Command.swift",
+        "Sources/AppCLI/main.swift",
+        "Sources/AppGraphQL/GraphQLContractProjector.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentVariables.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentInputs.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngine.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngineSettings.swift",
+        "Sources/AppServer/KaibaServerRuntime.swift",
+        "Sources/AppServer/SearchIndexSyncLoop.swift",
+        "Sources/AppServer/SearchEngineRuntimeController.swift",
+        "Sources/KaibaClient/KaibaOperations.swift",
+        "Sources/KaibaClient/KaibaOperations+SearchEngine.swift",
+        "Sources/KaibaClient/KaibaModels.swift",
+        "Sources/KaibaClient/KaibaModels+SearchEngine.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift",
+        "Tests/AppCoreTests/SearchEngineContractTests.swift",
+        "Tests/AppCoreTests/SearchEngineDeltaContractTests.swift",
+        "Tests/AppCoreTests/KaibaSearchEngineConfigurationDecodingTests.swift",
+        "Tests/AppCoreTests/SearchEngineSyncOutboxTests.swift",
+        "Tests/AppCoreTests/NoteStoreSchemaVersion23Tests.swift",
+        "Tests/AppCoreTests/SearchIndexSynchronizerTests.swift",
+        "Tests/AppCoreTests/SearchEngineQueryTests.swift",
+        "Tests/AppCoreTests/SearchEngineAccessTests.swift",
+        "Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "Tests/AppCoreTests/SearchEngineOntologyIndexTests.swift",
+        "Tests/AppCoreTests/SearchEngineOntologyQueryTests.swift",
+        "Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift",
+        "Tests/AppCoreTests/SearchEngineSettingsTests.swift",
+        "Tests/AppCoreTests/SearchEngineCommandTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineGraphQLTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift",
+        "Tests/AppGraphQLTests/NoteGraphQLSchemaInventoryTests.swift",
+        "Tests/AppServerTests/SearchIndexSyncLoopTests.swift",
+        "Tests/AppServerTests/SearchEngineServerRuntimeTests.swift",
+        "Tests/AppServerTests/SearchEngineRuntimeControllerTests.swift",
+        "Tests/AppServerTests/GraphQLSchemaAuthorizationTests.swift",
+        "Tests/KaibaClientTests/KaibaSearchEngineOperationTests.swift",
+        "Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift",
+        "Tests/KaibaClientTests/KaibaSchemaTests.swift",
+        "web/src/notes/types.ts",
+        "web/src/notes/client.ts",
+        "web/src/notes/searchEngineClient.test.ts",
+        "web/src/notes/searchEngineSettings.ts",
+        "web/src/notes/searchEngineSettings.test.ts",
+        "web/src/state/appStore.tsx",
+        "web/src/views/SearchView.tsx",
+        "web/src/views/SearchView.integration.tsx",
+        "web/src/views/ConfigView.tsx",
+        "web/src/components/RelatedNotesSection.tsx",
+        "web/src/components/RelatedNotesSection.integration.tsx",
+        "web/src/components/SearchEngineSettings.tsx",
+        "web/src/components/SearchEngineSettings.integration.tsx",
+        "web/src/panes/RightPane.tsx"
+      ],
+      "sharedPathNotes": [
+        {
+          "path": "Sources/AppCore/NoteService.swift",
+          "intendedEdit": "serial repair of cross-plan compile or test breaks only, after re-reading the owning plan; pre and post hashes logged; never weaken access-control or secret checks; the same rule applies to every sharedPaths entry"
+        },
+        {
+          "path": "Sources/AppGraphQL/GraphQLContractProjector.swift",
+          "intendedEdit": "serial repair only; the pinned SDL lines must not change"
+        },
+        {
+          "path": "web/src/notes/client.ts",
+          "intendedEdit": "serial repair only if web checks fail due to integration; never change server-credential rule test expectations"
+        }
+      ],
+      "acceptanceCriteria": [
+        "ElasticsearchLiveTests adds testLiveOntologySearch, testLiveRelatedReasons and testLiveSettingsHotSwap (each env-gated, with unique prefixes and deferred index deletion); the live run shows exit 0 and 'Executed 4 tests, 0 failures' (XCTest count only), or is recorded as blocked with the Docker error.",
+        "The README '### Ontology-aware search and settings' subsection documents the filters and expansion, reasons, agent routing, precedence, write-only target-bound secrets, test connection, hot-swap and the -v2 upgrade.",
+        "Gate-compatible records: full swift test, bun test src and vitest run with positive counts; lint, web:check and tauri:check exit 0. The boundary grep (no AI types in the engine search files) and the absolute-path guard exit 0; the credential tests and .riela are untouched; the index is updated; no commit."
+      ],
+      "verification": [
+        "mise run build",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test 2>&1 | tee tmp/search-engine-adapter/P21/swift-test-full.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P21/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-adapter/P21/bun-test.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-adapter/P21/vitest-run.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P21/web-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P21/tauri-check.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && mise run search:status 2>&1 | tee tmp/search-engine-adapter/P21/search-status.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mkdir -p tmp/search-engine-adapter/P21 && KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P21/live.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c '! grep -nE \"AIAgenticSearch|AgentInvok|AgentGateway|AgentReply|ClaudeSubscription\" Sources/AppCore/NoteService+SearchEngine*.swift Sources/AppCore/SearchEngine*.swift Sources/AppCore/Elasticsearch*.swift'",
+        "bash -c 'find Sources Tests -name \"*.swift\" -exec wc -l {} + | sort -n | tail -6'",
+        "bash -c '! grep -rn \"/Users/\\|/home/\" README.md docker design-docs/specs/search-engine-adapter.md impl-plans/active/search-engine-adapter.md Sources Tests web/src'",
+        "git diff --stat -- web/src/notes/client.test.ts web/src/notes/serverEndpoint.test.ts .riela",
         "git status --short",
         "git diff --check"
       ]

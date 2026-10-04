@@ -2,8 +2,9 @@
 
 **Status**: Ready
 **planId**: P7-cli
-**Wave**: 3
-**dependsOn**: P2-store-outbox, P3-elasticsearch-adapter, P4-sync-drain
+**Wave**: 1 (session-264)
+**dependsOn**: P2-store-outbox, P3-elasticsearch-adapter, P4-sync-drain. P2 and P4 are accepted dependencies, not redispatched. P3's code is complete in b466ced; its wave-1 evidence re-run does not change the factory.
+**Session-264 note**: Implement this plan as written, using the config-file factory `SearchEngineFactory.make(configuration:environment:)`. In wave 3, P17-settings-core switches `CommandSearchEngine.swift` to the shared resolver (the config file first, then store settings; design D0). Do not anticipate that change here. Keep engine construction in one small private function, so P17 can replace a single call site. Verification records must be gate-compatible: each `swift test` record shows `exit=0` with a positive count from the framework that ran it. `SearchEngineCommandTests` (new) uses XCTest, so record `Executed N tests, 0 failures`. `CommandCLITests` is swift-testing, so record `Test run with N tests passed`.
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` SE6
 **Index**: `impl-plans/active/search-engine-adapter.md`
 

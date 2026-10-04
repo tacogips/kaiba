@@ -2,8 +2,9 @@
 
 **Status**: Ready
 **planId**: P8-server-sync-loop
-**Wave**: 3
-**dependsOn**: P2-store-outbox, P3-elasticsearch-adapter, P4-sync-drain, P5-engine-query-service
+**Wave**: 1 (session-264)
+**dependsOn**: P2-store-outbox, P3-elasticsearch-adapter, P4-sync-drain, P5-engine-query-service. P2, P4 and P5 are accepted dependencies, not redispatched. P3's code is complete in b466ced.
+**Session-264 note**: Implement this plan as written. In the same wave, P12-delta-contract makes `NoteService.searchEngine` a computed property over a shared `SearchEngineSlot`. `service.searchEngine = searchEngine` keeps compiling and now updates every copy. In wave 4, P19-runtime-controller replaces this plan's runtime wiring with a controller that hot-swaps the engine. Keep `SearchIndexSyncLoop`, `SearchIndexSyncKickObserver` and `FanOutNoteChangeObserver` exactly as specified, because P19 reuses them unchanged. Verification records must be gate-compatible: each `swift test` record shows `exit=0` with an XCTest `Executed N tests, 0 failures`, N > 0.
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` SE3 "Who drains", SE2 (fatal configuration errors at server start), Invariants 1 and 2
 **Index**: `impl-plans/active/search-engine-adapter.md`
 

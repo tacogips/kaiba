@@ -1,8 +1,96 @@
 # Search Engine Adapter (index)
 
-**Status**: In Progress
-**Design Reference**: `design-docs/specs/search-engine-adapter.md` (SE1-SE9), `design-docs/user-qa/search-engine-adapter.md`
+**Status**: In Progress (session-264: finish the base plus the D1-D5 delta)
+**Design Reference**: `design-docs/specs/search-engine-adapter.md` (SE1-SE9 and the Delta D0-D5), `design-docs/user-qa/search-engine-adapter.md`
 **Dispatch manifest**: `impl-plans/active/search-engine-adapter-dispatch.json`
+
+## Session-264 dispatch (authoritative; supersedes the original wave table below)
+
+**Accepted dependencies.** These are not redispatched. Their code is in commit b466ced, and they are listed under `acceptedDependencies` in the manifest:
+
+- P1-core-contract
+- P2-store-outbox
+- P4-sync-drain
+- P5-engine-query-service
+- P6-graphql-client
+- P10-local-tooling
+
+| planId | plan file | wave | dependsOn (dispatched plans only) | scope |
+| --- | --- | --- | --- | --- |
+| P3-elasticsearch-adapter | `impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md` | 1 | - | evidence only: adapter and factory XCTest counts plus the positive live run |
+| P9-web-client | `impl-plans/active/search-engine-adapter-p9-web-client.md` | 1 | - | evidence only: separate `bun test src` and `vitest run` records |
+| P7-cli | `impl-plans/active/search-engine-adapter-p7-cli.md` | 1 | - | base SE6 CLI |
+| P8-server-sync-loop | `impl-plans/active/search-engine-adapter-p8-server-sync-loop.md` | 1 | - | base SE3 server loop |
+| P12-delta-contract | `impl-plans/active/search-engine-adapter-p12-delta-contract.md` | 1 | - | D1-D5 shared types, `SearchEngineSlot`, fake |
+| P16-agent-search-routing | `impl-plans/active/search-engine-adapter-p16-agent-search-routing.md` | 1 | - | D4 |
+| P13-es-adapter-delta | `impl-plans/active/search-engine-adapter-p13-es-adapter-delta.md` | 2 | P12, P3 | D1/D2/D3 Elasticsearch side; D5 factory |
+| P14-ontology-indexing | `impl-plans/active/search-engine-adapter-p14-ontology-indexing.md` | 2 | P12 | D1 store side |
+| P15-ontology-query-service | `impl-plans/active/search-engine-adapter-p15-ontology-query-service.md` | 2 | P12 | D2/D3 service |
+| P20-web-delta | `impl-plans/active/search-engine-adapter-p20-web-delta.md` | 2 | P9 | D2/D3/D5 web |
+| P17-settings-core | `impl-plans/active/search-engine-adapter-p17-settings-core.md` | 3 | P12, P13, P7 | D5 AppCore and CLI resolver |
+| P18-graphql-client-delta | `impl-plans/active/search-engine-adapter-p18-graphql-client-delta.md` | 4 | P15, P17 | D2/D3/D5 GraphQL and KaibaClient |
+| P19-runtime-controller | `impl-plans/active/search-engine-adapter-p19-runtime-controller.md` | 4 | P8, P17 | D5 hot-swap |
+| P11-integration | `impl-plans/active/search-engine-adapter-p11-integration.md` | 5 | P3, P7, P8, P9, P12-P20 | base integration, README base section |
+| P21-delta-integration | `impl-plans/active/search-engine-adapter-p21-delta-integration.md` | 6 | P11 and P12-P20 | extended live test, README delta, full gates |
+
+### Write-ownership rationale
+
+- **One owner per wave for each hot shared file:**
+  - `SearchEngine.swift` and `NoteService.swift`: P12 in wave 1. P14 edits `NoteService.swift` (`deleteNoteRows`, `promoteCommentToNotebook`) in wave 2.
+  - `Elasticsearch*.swift` and `SearchEngineFactory.swift`: P3 in wave 1 (evidence only), then P13 in wave 2.
+  - `NoteService+SearchEngine.swift`: P15 in wave 2.
+  - `CommandSearchEngine.swift`: P7 in wave 1, then P17 in wave 3.
+  - `KaibaServerRuntime.swift`: P8 in wave 1, then P19 in wave 4.
+  - The GraphQL schema, registries and executor: P18 only.
+  - The web files: P9 in wave 1 (evidence only), then P20 in wave 2.
+  - `ElasticsearchLiveTests.swift`: P3 in wave 1 (read and run), P13 in wave 2 (index name), then P21 in wave 6 (new scenarios).
+  - `README.md` and this index: P11 in wave 5, then P21 in wave 6.
+- **Wave 1 plans are mutually disjoint in writePaths.** P7, P8 and P16 read `NoteService.swift` and `FakeSearchEngine.swift`, which P12 changes additively in the same wave. A compile break caused by an in-flight P12 edit is a peer break: retry it per the shared rules.
+- **AppServerTests** cannot see `Tests/AppCoreTests/FakeSearchEngine.swift`. AppServer tests define their own private fakes.
+
+### Pinned delta contracts
+
+The exact names and signatures are in the owning plans:
+
+- **P12.**
+  - The D1 document fields.
+  - D2: `hierarchyTagIds`, `tagClassFilters`, `expansionTagIds`, `facets`, `SearchEngineSearchPage` and `searchPage` with a protocol-extension default.
+  - Reasons: `SearchEngineHitReasonKind`, with eight raw values.
+  - D3: `SearchEngineRelatedSignals`.
+  - The settings types.
+  - `SearchEngineSlot` and `NoteService.searchEngineSlot`.
+- **P13.**
+  - `SearchEngineFactory.make(settings:secret:)`, `SearchEngineFactory.adapters` and `SearchEngineFactory.normalizedTarget(_:)`.
+  - The index `<prefix>-notes-v2` and the identity `elasticsearch:<normalized base>/<index>`.
+- **P15.** `NoteService.engineSearchNotesPage(query:notebookId:tagFilter:tagClassFilter:expandOntology:includeFacets:limit:offset:)`. The old `engineSearchNotes` signature is unchanged.
+- **P17.**
+  - `NoteService.resolveSearchEngineSettings(configuration:)` and `makeResolvedSearchEngine(configuration:environment:)`.
+  - `searchEngineSettings()`, `updateSearchEngineSettings(_:)` and `testSearchEngineConnection(_:)`.
+  - The keys `auth.search-engine.settings` and `auth.search-engine.secret`, the latter `{authMode, target, secret}`.
+- **P18.** The SDL lines quoted in that plan, which P20 uses.
+
+### Gate-compatible evidence (binding for every plan in session-264)
+
+A behavioral verification record has:
+
+- a command matching `swift test`, `bun test`, `vitest run` or `mise run <name containing test>`;
+- `exit=0`;
+- every count key greater than 0;
+- the full log path and the final exit status.
+
+Supporting rules:
+
+- Record XCTest `Executed N tests, 0 failures` counts.
+- For filtered runs, the swift-testing `0 tests` line is not a count record.
+- **Which count to record.** For each `swift test --filter` record, record only the count of the framework that actually ran the matched tests:
+  - XCTest: `Executed N tests, 0 failures`;
+  - swift-testing: `Test run with N tests passed`.
+
+  Never record a 0 count from the other framework.
+- **Swift-testing suites.** `Tests/KaibaClientTests` is entirely swift-testing, as are `CommandCLITests`, `SearchEngineContractTests` and `KaibaSearchEngineConfigurationDecodingTests`. Their records use the swift-testing count.
+- **New test files** added in this run use XCTest, except in `Tests/KaibaClientTests`, which follows its existing swift-testing style.
+- An env-gated skip of the live test is a non-behavioral note, never evidence.
+- `mise run web:check`, `mise run tauri:check`, `mise run lint` and `mise run build` are supporting records without counts.
 
 ## Purpose
 
@@ -227,7 +315,7 @@ Limits:
   - `sharedPaths` are read-only unless a `sharedPathNotes` entry grants a
     specific edit.
   - Never touch `.riela/`, lockfiles, other plans' files, or this index
-    (P11 excepted).
+    (P11 and P21 excepted).
   - Run no broad formatters.
 - **Per-edit discipline.**
   - Before editing any file, fresh-read it and record
@@ -260,7 +348,7 @@ Limits:
     in-flight plan, is not yours to edit. Retry up to 3 times, about 2
     minutes apart.
   - After that, record `blocked by peer <planId>`. Do not record it as
-    passed. P11 re-runs it.
+    passed. P11 (base) or P21 (delta) re-runs it.
 - **AGENTS.md rules.**
   - English only, no emojis.
   - Swift files under 1000 lines. Check with `wc -l`.
@@ -274,11 +362,14 @@ Limits:
     `web/node_modules`, `web/dist`, `web/src-tauri/target`, the evidence
     root `tmp/search-engine-adapter`, and the Docker image and volume.
   - Never write generated, downloaded, binary or scratch files under
-    `Sources`, `Tests` or `web/src`. P11's directory `sharedPaths` must stay
-    under the 512-entry snapshot limit (about 492 projected).
+    `Sources`, `Tests` or `web/src`. Since session-264, P11 and P21 declare
+    concrete file `sharedPaths` (about 95 entries), not directories, so
+    the 512-entry snapshot limit holds after the delta adds about 30 files.
 - **Unconfigured regression guard.** No plan may change the behavior of
   `searchNotes`, `NoteSearch.swift` ranking, `NoteSearchLexicalFusion.swift`,
-  or any existing GraphQL field.
+  or any existing GraphQL field. The only exceptions are the session-264
+  delta changes to `engineSearchNotes`, `relatedNotes` and the agent
+  `search_notes` tool, specified in P15, P16 and P18.
 
 ## Completion criteria (whole feature)
 
@@ -292,6 +383,13 @@ Limits:
       configuration.
 - [ ] No Swift file has 1000 or more lines. `git status` shows only planned
       files, and `.riela/` is untouched.
+- [ ] Session-264: P3 and P9 have gate-compatible behavioral records, and
+      P7, P8 and P11 are done.
+- [ ] Session-264 delta: P12-P20 are done. P21 reports the full
+      `swift test`, the separate `bun test src` and `vitest run` records,
+      lint, `web:check`, `tauri:check`, and the extended live test
+      (`Executed 4 tests, 0 failures`, XCTest count only), all with `exit=0`.
+      The boundary grep (no AI types in the engine search files) is clean.
 
 ## Progress Log
 
@@ -304,3 +402,14 @@ Limits:
   `artifactRoots: []`, artifactPolicy and snapshotBudget. Plans, waves,
   dependsOn, writePaths and sharedPaths are unchanged. All plans are still
   pending.
+- 2026-10-04 (session-264): The design was amended with the Delta D0-D5,
+  accepted by Step 3 in comm-003772.
+  - P1, P2, P4, P5, P6 and P10 moved to `acceptedDependencies` (commit
+    b466ced).
+  - P3 and P9 were re-scoped to evidence only, with gate-compatible
+    verification. P7 and P8 moved to wave 1.
+  - The delta plans P12-P20 were added, with P21-delta-integration as the
+    final plan.
+  - P11 moved to wave 5 with concrete file `sharedPaths`.
+  - The manifest was rewritten for workflowExecutionId session-264 and
+    originalHead b466ced.

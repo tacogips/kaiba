@@ -1,9 +1,10 @@
 # P3 Elasticsearch adapter, factory and configuration validation
 
-**Status**: Step 6 implementation complete; downstream review pending
+**Status**: Ready (session-264: evidence-only re-run; code complete in b466ced)
 **planId**: P3-elasticsearch-adapter
-**Wave**: 2
-**dependsOn**: P1-core-contract
+**Wave**: 1 (session-264)
+**dependsOn**: P1-core-contract (an accepted dependency, not redispatched)
+**Session-264 scope**: Session-263 blocked this plan only on the evidence gate. Run the amended Verification below and record gate-compatible behavioral records: adapter and factory XCTest counts, and the positive live run's XCTest count. Change code only for a real finding, within this plan's writePaths. P13 changes these files in wave 2, so this run happens first.
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` SE2 (validation), SE8, SE9 (live test)
 **Index**: `impl-plans/active/search-engine-adapter.md`
 
@@ -298,21 +299,26 @@ that returns scripted `(status, body)` pairs):
 mise run build
 bash -c 'mkdir -p tmp/search-engine-adapter/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ElasticsearchSearchEngine 2>&1 | tee tmp/search-engine-adapter/P3/adapter.log; echo exit=${PIPESTATUS[0]}'
 bash -c 'mkdir -p tmp/search-engine-adapter/P3 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineFactory 2>&1 | tee tmp/search-engine-adapter/P3/factory.log; echo exit=${PIPESTATUS[0]}'
-bash -c 'mkdir -p tmp/search-engine-adapter/P3 && env -u KAIBA_ELASTICSEARCH_URL PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter ElasticsearchLive 2>&1 | tee tmp/search-engine-adapter/P3/live-skipped.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P3/session-264 && mise run search:status 2>&1 | tee tmp/search-engine-adapter/P3/session-264/search-status.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P3/session-264 && KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P3/session-264/live.log; echo exit=${PIPESTATUS[0]}'
 bash -c 'mkdir -p tmp/search-engine-adapter/P3 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P3/lint.log; echo exit=${PIPESTATUS[0]}'
 bash -c '! grep -rln "ElasticsearchSearchEngine\|ElasticsearchHTTPTransport\|ElasticsearchAuthorization" Sources --include=*.swift | grep -v "Sources/AppCore/Elasticsearch" | grep -v "Sources/AppCore/SearchEngineFactory.swift"'
 wc -l Sources/AppCore/Elasticsearch*.swift Sources/AppCore/SearchEngineFactory.swift
 ```
 
-Expected evidence:
+Write the adapter and factory logs to `tmp/search-engine-adapter/P3/session-264/` as well.
 
-- `exit=0` for every run.
-- The `live-skipped.log` shows the live tests as skipped, not failed.
-- The grep guard prints nothing and exits 0.
-- Every file is under 1000 lines.
+Expected evidence (gate-compatible form, amended in session-264):
 
-The live run against Docker is P11's job. If `KAIBA_ELASTICSEARCH_URL` is
-already available locally, you may also run it and record the result.
+- **Behavioral records.**
+  - `swift test --filter ElasticsearchSearchEngine`: `exit=0`, recording the XCTest `Executed N tests, 0 failures` with N > 0 (8 at b466ced).
+  - `swift test --filter SearchEngineFactory`: `exit=0` with N > 0 (4 at b466ced).
+  - The positive live run, `KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live`: `exit=0`, recording only the XCTest line `Executed 1 test, 0 failures`. The swift-testing summary line of this filtered run reports 0 tests. It is not a count record, and it must not be reported as one.
+- **Non-behavioral note, never a verification record.** `ElasticsearchLiveTests` calls `try XCTSkipUnless(KAIBA_ELASTICSEARCH_URL != nil)`, so the test skips when the variable is unset. Do not run or report the skipped variant as evidence.
+- **Docker.** If `search:status` fails because the compose cluster is down, run `mise run search:up` once and retry. If Docker is unavailable, record `blocked: docker unavailable` with the exact error, never passed.
+- The grep guard prints nothing and exits 0. Every file is under 1000 lines.
+
+This re-run must happen in wave 1, before P13 changes the adapter to `-v2`.
 
 ## Done criteria
 
@@ -321,7 +327,10 @@ already available locally, you may also run it and record the result.
 - [x] The factory enforces every SE2 validation rule, with the exact error
       values.
 - [x] Mock-transport tests and factory tests pass. The live test skips
-      cleanly when unset.
+      cleanly when unset. This is a behavior note, not evidence.
+- [ ] Session-264: gate-compatible records exist for the adapter, the
+      factory and the positive live run (XCTest count only), each with its
+      log path and `exit=0`.
 - [x] No Elasticsearch symbol appears outside the adapter and factory files.
 
 ## Progress Log

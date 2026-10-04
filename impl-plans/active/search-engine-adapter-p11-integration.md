@@ -2,8 +2,15 @@
 
 **Status**: Ready
 **planId**: P11-integration
-**Wave**: 4
-**dependsOn**: P1-core-contract, P2-store-outbox, P3-elasticsearch-adapter, P4-sync-drain, P5-engine-query-service, P6-graphql-client, P7-cli, P8-server-sync-loop, P9-web-client, P10-local-tooling
+**Wave**: 5 (session-264)
+**dependsOn**: P3-elasticsearch-adapter, P7-cli, P8-server-sync-loop, P9-web-client, P12-delta-contract, P13-es-adapter-delta, P14-ontology-indexing, P15-ontology-query-service, P16-agent-search-routing, P17-settings-core, P18-graphql-client-delta, P19-runtime-controller, P20-web-delta. P1, P2, P4, P5, P6 and P10 are accepted dependencies, in commit b466ced.
+**Session-264 note**: This plan integrates and documents the base feature (SE1-SE9). It runs after every implementation plan, including the delta, so its full check sees settled code. P21-delta-integration follows in wave 6 and covers D1-D5.
+
+Three amendments:
+
+1. The `sharedPaths` are narrowed to the concrete file list below. The ten whole directories would exceed the 512-entry snapshot limit once the delta adds about 30 files.
+2. Verification records are in gate-compatible form.
+3. The README purge example uses `-notes-v2`, which P13 changes, and mentions that the old `-v1` index can be deleted.
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` (all sections, Verification, Rollout)
 **Index**: `impl-plans/active/search-engine-adapter.md`
 
@@ -35,16 +42,77 @@ It does not commit, push or archive. Workflow finalization owns that.
 
 ## sharedPaths (serial repair only, with logged hashes)
 
-- `Sources/AppCore`
-- `Sources/AppGraphQL`
-- `Sources/AppServer`
-- `Sources/AppCLI`
-- `Sources/KaibaClient`
-- `Tests/AppCoreTests`
-- `Tests/AppGraphQLTests`
-- `Tests/AppServerTests`
-- `Tests/KaibaClientTests`
-- `web/src`
+These are concrete files (session-264). The dispatch manifest lists the same set for P11 and P21. Every search-engine source, test and web file touched by P1-P20 is included:
+
+- **AppCore engine:**
+  - `SearchEngine.swift`
+  - `SearchEngineSettingsTypes.swift`
+  - `SearchEngineSlot.swift`
+  - `SearchEngineFactory.swift`
+  - `SearchEngineScope.swift`
+  - `SearchEngineSyncOutbox.swift`
+  - `SearchEngineSettingsResolver.swift`
+  - `SearchIndexSynchronizer.swift`
+  - `SearchIndexDocumentOntology.swift`
+  - `ElasticsearchSearchEngine.swift`
+  - `ElasticsearchRequestBodies.swift`
+  - `ElasticsearchHTTPTransport.swift`
+- **AppCore service:**
+  - `NoteService.swift`
+  - `NoteService+SearchEngine.swift`
+  - `NoteService+SearchEngineOntology.swift`
+  - `NoteService+SearchEngineSettings.swift`
+  - `NoteService+Search.swift`
+  - `NoteSearchIndex.swift`
+  - `NoteService+Libraries.swift`
+  - `NoteService+TagDetail.swift`
+  - `NoteService+Catalog.swift`
+  - `NoteTagWrites.swift`
+  - `NoteService+Relations.swift`
+  - `NoteService+ActionHistory.swift`
+  - `NoteService+NotebookTags.swift`
+  - `NoteStoreSchema.swift`
+  - `KaibaConfiguration.swift`
+  - `KaibaAgentToolbox.swift`
+  - `CommandSearchEngine.swift`
+  - `Command.swift`
+- **AppCLI:** `main.swift`.
+- **AppGraphQL:**
+  - `GraphQLContractProjector.swift`
+  - `GraphQLNoteSchemaContract.swift`
+  - `NoteGraphQLDocumentExecutorSupport.swift`
+  - `NoteGraphQLDocumentExecutor.swift`
+  - `NoteGraphQLDocumentVariables.swift`
+  - `NoteGraphQLDocumentInputs.swift`
+  - `NoteGraphQLService+SearchEngine.swift`
+  - `NoteGraphQLService+SearchEngineSettings.swift`
+- **AppServer:**
+  - `KaibaServerRuntime.swift`
+  - `SearchIndexSyncLoop.swift`
+  - `SearchEngineRuntimeController.swift`
+- **KaibaClient:**
+  - `KaibaOperations.swift`
+  - `KaibaOperations+SearchEngine.swift`
+  - `KaibaModels.swift`
+  - `KaibaModels+SearchEngine.swift`
+- **The test files of P1-P20.** See the manifest; `ElasticsearchLiveTests.swift` is included for P11.
+- **web:**
+  - `notes/types.ts`
+  - `notes/client.ts`
+  - `notes/searchEngineClient.test.ts`
+  - `notes/searchEngineSettings.ts`
+  - `notes/searchEngineSettings.test.ts`
+  - `state/appStore.tsx`
+  - `views/SearchView.tsx`
+  - `views/SearchView.integration.tsx`
+  - `views/ConfigView.tsx`
+  - `components/RelatedNotesSection.tsx`
+  - `components/RelatedNotesSection.integration.tsx`
+  - `components/SearchEngineSettings.tsx`
+  - `components/SearchEngineSettings.integration.tsx`
+  - `panes/RightPane.tsx`
+
+A repair outside this list is out of scope. Report it as a finding instead.
 
 The repair rules are in `sharedPathNotes` in the dispatch manifest:
 
@@ -80,8 +148,10 @@ Add a section `## Optional search engine`, after
      seconds;
    - writes never fail because the engine is down;
    - to purge stale documents, delete the index
-     (`curl -X DELETE http://127.0.0.1:9200/<prefix>-notes-v1`) and run
-     `kaiba search-engine reindex`.
+     (`curl -X DELETE http://127.0.0.1:9200/<prefix>-notes-v2`) and run
+     `kaiba search-engine reindex`. After upgrading from `-v1`, the old
+     `<prefix>-notes-v1` index is no longer used and can be deleted the same
+     way.
 5. A link to `design-docs/specs/search-engine-adapter.md`.
 
 Use no machine-local absolute paths and no emojis.
@@ -100,8 +170,9 @@ that have evidence, and append the evidence paths to the Progress Log.
     for that plan's owner.
 - **Docker.** If Docker or colima is unavailable, the live test is
   `blocked`, not passed. Record the exact error.
-- **Cleanup.** Run `mise run search:down` after the live test, even when it
-  fails.
+- **Cleanup.** If this plan started the cluster with `search:up`, run
+  `mise run search:down` after the live test, even when it fails. Otherwise
+  leave the operator's running cluster up, because P21 needs it in wave 6.
 
 ## Verification
 
@@ -112,10 +183,12 @@ bash -c 'mkdir -p tmp/search-engine-adapter/P11 && PKG_CONFIG_PATH=$PWD/.build/a
 bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run lint 2>&1 | tee tmp/search-engine-adapter/P11/lint.log; echo exit=${PIPESTATUS[0]}'
 bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run web:check 2>&1 | tee tmp/search-engine-adapter/P11/web-check.log; echo exit=${PIPESTATUS[0]}'
 bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run tauri:check 2>&1 | tee tmp/search-engine-adapter/P11/tauri-check.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P11 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test 2>&1 | tee tmp/search-engine-adapter/P11/swift-test-full.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P11 && cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-adapter/P11/bun-test.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P11 && cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-adapter/P11/vitest-run.log; echo exit=${PIPESTATUS[0]}'
 bash -c 'mkdir -p tmp/search-engine-adapter/P11 && PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise run check 2>&1 | tee tmp/search-engine-adapter/P11/full-check.log; echo exit=${PIPESTATUS[0]}'
-bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:up 2>&1 | tee tmp/search-engine-adapter/P11/search-up.log; echo exit=${PIPESTATUS[0]}'
-bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P11/live.log; echo exit=${PIPESTATUS[0]}'
-bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:down 2>&1 | tee tmp/search-engine-adapter/P11/search-down.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P11 && mise run search:status 2>&1 | tee tmp/search-engine-adapter/P11/search-status.log; echo exit=${PIPESTATUS[0]}'
+bash -c 'mkdir -p tmp/search-engine-adapter/P11 && KAIBA_ELASTICSEARCH_URL=http://127.0.0.1:9200 mise run search:test-live 2>&1 | tee tmp/search-engine-adapter/P11/live.log; echo exit=${PIPESTATUS[0]}'
 bash -c 'find Sources Tests -name "*.swift" -exec wc -l {} + | sort -n | tail -6'
 bash -c 'LC_ALL=C grep -rnP "[^\x00-\x7F]" README.md docker/elasticsearch/compose.yaml Sources/AppCore/SearchEngine*.swift Sources/AppCore/Elasticsearch*.swift || echo ascii-ok'
 bash -c '! grep -rn "/Users/\|/home/" README.md docker design-docs/specs/search-engine-adapter.md impl-plans/active/search-engine-adapter.md Sources Tests web/src'
@@ -126,8 +199,15 @@ git diff --check
 Expected evidence:
 
 - `exit=0` for every Swift, lint, web, tauri and full-check run.
-- `live.log` shows the `ElasticsearchLiveTests` cases executed, not
-  skipped, and passing. Otherwise record `blocked` with the Docker error.
+- **Gate-compatible behavioral records (session-264).**
+  - `swift-test-full.log`: the XCTest `Executed N tests, 0 failures` N, which must be > 0.
+  - `bun-test.log`: the bun pass count, > 0.
+  - `vitest-run.log`: the vitest passed count, > 0.
+  - `live.log`: the XCTest `Executed N tests, 0 failures` N, which must be > 0. Record only the XCTest count; the filtered run's swift-testing line reports 0 tests and is not a record.
+  - Each record keeps its log path and `exit=` value.
+  - `mise run check`, `web:check` and `tauri:check` are supporting records without counts.
+- The env-gated skip of the live test, when `KAIBA_ELASTICSEARCH_URL` is unset, is a non-behavioral note, never evidence.
+- The operator keeps the compose cluster running. Run `mise run search:up` only if `search:status` fails, and then `search:down` afterwards. If Docker is unavailable, record `blocked` with the error.
 - The largest Swift file is under 1000 lines.
 - `ascii-ok` is printed.
 - The absolute-path guard exits 0.
