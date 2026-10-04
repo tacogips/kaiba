@@ -1,11 +1,11 @@
 {
   "taskId": "search-engine-adapter",
   "workflowMode": "issue-resolution",
-  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-262",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-263",
   "implementationBranch": "main",
   "baseBranch": "main",
   "remote": "origin",
-  "originalHead": "dc8244aa4293f842830d89b39b450077af0ed4f4",
+  "originalHead": "c381f1a5a40866b8fff30b15a42c709d353593b0",
   "evidenceRoot": "tmp/search-engine-adapter",
   "planDocPath": "impl-plans/active/search-engine-adapter.md",
   "designDocPaths": [
@@ -36,10 +36,13 @@
     "peerBreaks": "Concurrent workers in a wave share one .build. A compile failure in a file outside your writePaths that belongs to another in-flight plan is not yours to edit. Retry up to 3 times, about 2 minutes apart. After that, record 'blocked by peer <planId>' (never 'passed'); P11 re-runs it.",
     "fileOwnership": "Sources/AppCore/NoteService.swift has one owner per wave: P2 (wave 1, the deleteNoteRows enqueue line) and P5 (wave 2, the searchEngine stored property). Sources/AppCore/KaibaConfiguration.swift is owned only by P1. mise.toml is owned only by P10. README.md is owned only by P11.",
     "commitPolicy": "AGENTS.md governs commits: no emojis, no machine-local absolute paths, no secrets, and no AI attribution in commit messages. .riela/ stays untracked and is never committed; tmp/ is gitignored. Workers do not commit. P11 does not commit, push or archive plans; workflow finalization owns that.",
-    "dockerPolicy": "P10 and P11 need Docker (colima) for search:up and search:test-live. If it is unavailable, record 'blocked: docker unavailable' with the exact error. Never record it as passed."
+    "dockerPolicy": "P10 and P11 need Docker (colima) for search:up and search:test-live. If it is unavailable, record 'blocked: docker unavailable' with the exact error. Never record it as passed.",
+    "artifactPolicy": "Every plan declares artifactRoots: [] because no plan installs tools or downloads into a declared path. Build and tool outputs land outside every writePaths/sharedPaths entry: .build/ (SwiftPM and anydoc native), web/node_modules and web/dist (bun), web/src-tauri/target (cargo), the gitignored evidence root tmp/search-engine-adapter, and the Elasticsearch image and named volume kaiba-elasticsearch-data inside the Docker VM. No worker may add generated, downloaded or binary files under a declared path. If one becomes necessary, stop and record it in the Progress Log so the plan can be amended with an artifactRoots entry equal to one of its writePaths.",
+    "snapshotBudget": "P11 declares directory sharedPaths. At c381f1a they expand to 440 files and 16 directories. P1-P10 add about 33 files under them, so with P11's 3 writePaths the projected total is about 492 entries against the 512-entry limit, and about 6 MB against the 64 MB limit. No symlinks exist under Sources, Tests or web/src. No worker may add untracked scratch files under Sources, Tests or web/src.",
+    "resumeAmendment": "Session-263 amended this manifest for the 0.1.6 contract: workflowExecutionId, originalHead c381f1a5a40866b8fff30b15a42c709d353593b0, per-plan artifactRoots, artifactPolicy and snapshotBudget. Plans, waves, dependsOn, writePaths and sharedPaths are unchanged from the session-262 review."
   },
   "reviewContext": {
-    "issueReference": "No GitHub issue. Inline workflowInput 'Optional search-engine adapter: full-text search and related-notes search (Elasticsearch first, local docker compose)' (workflow opus-luna-design-and-implement-review-loop-session-262; design accepted in comm-003677).",
+    "issueReference": "No GitHub issue. Inline workflowInput 'Optional search-engine adapter: full-text search and related-notes search (Elasticsearch first, local docker compose)' (design and plans first accepted in session-262 comm-003677 and committed as c381f1a; resumed in opus-luna-design-and-implement-review-loop-session-263, design re-accepted in comm-003686 with SE6 aligned to P7).",
     "userProblem": "kaiba searches only with SQLite FTS5. The user wants an optional external search engine (Elasticsearch first) for full-text search and related-notes search for the open note. It must be active only when configured, keep the existing behavior otherwise, never fail writes, and never leak notes across libraries or users.",
     "requiredOutcomes": [
       "SE1: an AppCore SearchEngine protocol and value types, a factory, and NoteService.searchEngine.",
@@ -132,6 +135,7 @@
       "planId": "P1-core-contract",
       "planPath": "impl-plans/active/search-engine-adapter-p1-core-contract.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p1-core-contract.md",
+      "artifactRoots": [],
       "wave": 1,
       "dependsOn": [],
       "writePaths": [
@@ -170,6 +174,7 @@
       "planId": "P2-store-outbox",
       "planPath": "impl-plans/active/search-engine-adapter-p2-store-outbox.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p2-store-outbox.md",
+      "artifactRoots": [],
       "wave": 1,
       "dependsOn": [],
       "writePaths": [
@@ -223,6 +228,7 @@
       "planId": "P9-web-client",
       "planPath": "impl-plans/active/search-engine-adapter-p9-web-client.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p9-web-client.md",
+      "artifactRoots": [],
       "wave": 1,
       "dependsOn": [],
       "writePaths": [
@@ -289,6 +295,7 @@
       "planId": "P10-local-tooling",
       "planPath": "impl-plans/active/search-engine-adapter-p10-local-tooling.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p10-local-tooling.md",
+      "artifactRoots": [],
       "wave": 1,
       "dependsOn": [],
       "writePaths": [
@@ -314,6 +321,7 @@
       "planId": "P3-elasticsearch-adapter",
       "planPath": "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p3-elasticsearch-adapter.md",
+      "artifactRoots": [],
       "wave": 2,
       "dependsOn": [
         "P1-core-contract"
@@ -362,6 +370,7 @@
       "planId": "P4-sync-drain",
       "planPath": "impl-plans/active/search-engine-adapter-p4-sync-drain.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p4-sync-drain.md",
+      "artifactRoots": [],
       "wave": 2,
       "dependsOn": [
         "P1-core-contract",
@@ -433,6 +442,7 @@
       "planId": "P5-engine-query-service",
       "planPath": "impl-plans/active/search-engine-adapter-p5-engine-query-service.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p5-engine-query-service.md",
+      "artifactRoots": [],
       "wave": 2,
       "dependsOn": [
         "P1-core-contract",
@@ -506,6 +516,7 @@
       "planId": "P6-graphql-client",
       "planPath": "impl-plans/active/search-engine-adapter-p6-graphql-client.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p6-graphql-client.md",
+      "artifactRoots": [],
       "wave": 3,
       "dependsOn": [
         "P1-core-contract",
@@ -571,6 +582,7 @@
       "planId": "P7-cli",
       "planPath": "impl-plans/active/search-engine-adapter-p7-cli.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p7-cli.md",
+      "artifactRoots": [],
       "wave": 3,
       "dependsOn": [
         "P2-store-outbox",
@@ -631,6 +643,7 @@
       "planId": "P8-server-sync-loop",
       "planPath": "impl-plans/active/search-engine-adapter-p8-server-sync-loop.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p8-server-sync-loop.md",
+      "artifactRoots": [],
       "wave": 3,
       "dependsOn": [
         "P2-store-outbox",
@@ -692,6 +705,7 @@
       "planId": "P11-integration",
       "planPath": "impl-plans/active/search-engine-adapter-p11-integration.md",
       "progressPath": "impl-plans/active/search-engine-adapter-p11-integration.md",
+      "artifactRoots": [],
       "wave": 4,
       "dependsOn": [
         "P1-core-contract",

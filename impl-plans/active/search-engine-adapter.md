@@ -267,6 +267,15 @@ Limits:
   - Run `mise run lint` after Swift edits.
   - No machine-local absolute paths and no secrets in code, docs or logs
     that get committed.
+- **Source snapshots and artifacts.**
+  - Every declared path is a full-content source snapshot. Every plan
+    declares `artifactRoots: []` in the manifest.
+  - Build and tool outputs stay outside declared paths: `.build/`,
+    `web/node_modules`, `web/dist`, `web/src-tauri/target`, the evidence
+    root `tmp/search-engine-adapter`, and the Docker image and volume.
+  - Never write generated, downloaded, binary or scratch files under
+    `Sources`, `Tests` or `web/src`. P11's directory `sharedPaths` must stay
+    under the 512-entry snapshot limit (about 492 projected).
 - **Unconfigured regression guard.** No plan may change the behavior of
   `searchNotes`, `NoteSearch.swift` ranking, `NoteSearchLexicalFusion.swift`,
   or any existing GraphQL field.
@@ -287,3 +296,11 @@ Limits:
 ## Progress Log
 
 - 2026-10-04: Index and plans P1-P11 created from the accepted design (Step 3 accepted, comm-003677).
+- 2026-10-04 (session-263 resume): The plans were re-verified against HEAD
+  c381f1a. Since dc8244a only docs changed, and NoteStoreSchema.currentVersion
+  is still 22. The design's SE6 was aligned to P7 (Step 3 re-accepted,
+  comm-003686). The dispatch manifest was amended for the 0.1.6 contract:
+  workflowExecutionId session-263, originalHead c381f1a, per-plan
+  `artifactRoots: []`, artifactPolicy and snapshotBudget. Plans, waves,
+  dependsOn, writePaths and sharedPaths are unchanged. All plans are still
+  pending.

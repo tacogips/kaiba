@@ -16,8 +16,9 @@ Proposed (2026-10-04)
 - Client surfaces: `design-docs/specs/kaiba-client-sdk.md` (hand-written
   operations in `Sources/KaibaClient`), `design-docs/specs/web-chatbook-ui.md`.
 - Decisions and open questions: `design-docs/user-qa/search-engine-adapter.md`.
-- Implementation plan: `impl-plans/active/search-engine-adapter.md` (written
-  in the planning step).
+- Implementation plan: `impl-plans/active/search-engine-adapter.md` with
+  plans P1..P11 and the dispatch manifest
+  `impl-plans/active/search-engine-adapter-dispatch.json`.
 
 ## Problem
 
@@ -446,18 +447,22 @@ KaibaClient operations are hand-written. The new file
 
 ## SE6. CLI
 
-`kaiba search-engine <status|sync|reindex>` is an async command in
-`Sources/AppCLI/SearchEngineCommand.swift`, following the `AICommand`
-pattern. Each subcommand loads the configuration, builds the adapter through
-the factory, and calls `requireStoreAdministrator()`. If no engine is
-configured, it exits with code 2 and the message
-`search engine is not configured`.
+`kaiba search-engine <status|sync|reindex>` is an async command. Its parsing
+and run logic live in `Sources/AppCore/CommandSearchEngine.swift`, next to
+the other `Command*.swift` files, because AppCLI has no test target and
+AppCoreTests must cover the command. `Sources/AppCLI/main.swift` only
+dispatches it, following the async `"ai"` block. Each subcommand loads the
+configuration, builds the adapter through the factory, and calls
+`requireStoreAdministrator()`. If no engine is configured, it exits with
+code 2 and the message `search engine is not configured`. Every subcommand
+accepts the existing CLI output flag `--output json|text`, which defaults to
+`text`.
 
 - `status`:
   - Prints `kind`, `indexIdentity`, the health result, the pending outbox
     count, the count of rows with `attempts > 0`, and the oldest due time.
   - Never prints the URL's credentials or any secret.
-  - `--json` gives the same fields as JSON.
+  - `--output json` gives the same fields as JSON.
   - Exits 0 even when the engine is unhealthy.
 - `sync`: runs `ensureIndex`, then activation, then drains until no due rows
   remain or a pass makes no progress. It prints the totals and exits 1 if
