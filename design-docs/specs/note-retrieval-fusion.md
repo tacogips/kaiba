@@ -14,6 +14,9 @@ Accepted (2026-09-03)
   `design-docs/specs/library.md` and `design-docs/specs/multi-user.md`
   (scope rules consumed unchanged).
 - Implementation plan: `impl-plans/active/note-retrieval-fusion.md`.
+- Optional external engine: `design-docs/specs/search-engine-adapter.md`
+  adds engine-backed search and related notes as separate operations; the
+  FTS path described here remains the default and is unchanged by it.
 
 ## Problem
 
