@@ -83,8 +83,13 @@ public struct NoteService: Sendable {
   /// Notified after each committed mutation visible to live clients. Nil
   /// disables the change feed entirely.
   public var changeObserver: (any NoteChangeObserving)?
+  /// Scoped NoteService copies share this slot so hot-swapped engines stay visible.
+  public let searchEngineSlot: SearchEngineSlot
   /// Optional engine for explicit engine-backed note search (design SE1).
-  public var searchEngine: (any SearchEngine)?
+  public var searchEngine: (any SearchEngine)? {
+    get { searchEngineSlot.engine }
+    nonmutating set { searchEngineSlot.replace(newValue) }
+  }
   /// Shared registry of background dispatch tasks fired by this service value,
   /// awaited by `drainAutoActionDispatches()`.
   let autoActionDispatchTasks: AutoActionDispatchTaskTracker
@@ -122,7 +127,8 @@ public struct NoteService: Sendable {
     autoActionDiagnosticRecorder: (any NoteAutoActionFilterDiagnosticRecording)? = nil,
     agentExecutionAdmission: AgentExecutionAdmission = AgentExecutionAdmission(),
     autoActionDispatchLeaseStaleness: TimeInterval = defaultAutoActionDispatchLeaseStaleness,
-    changeObserver: (any NoteChangeObserving)? = nil
+    changeObserver: (any NoteChangeObserving)? = nil,
+    searchEngineSlot: SearchEngineSlot = SearchEngineSlot()
   ) throws {
     self.driver = driver
     self.autoActionDispatcher = autoActionDispatcher
@@ -141,6 +147,7 @@ public struct NoteService: Sendable {
     self.autoActionDispatchLeaseStaleness = autoActionDispatchLeaseStaleness
     self.activeAutoActionDispatchLease = nil
     self.changeObserver = changeObserver
+    self.searchEngineSlot = searchEngineSlot
     self.autoActionDispatchTasks = AutoActionDispatchTaskTracker()
     self.notebookIngestExecutionRegistry = NotebookIngestExecutionRegistry()
     self.actingUserId = nil
@@ -780,6 +787,7 @@ public struct NoteService: Sendable {
             .text(now)
           ]
         )
+        try enqueueSearchEngineSync(noteIds: [noteId, newNote.noteId], in: db)
         return (
           notebook: inserted.ingestResult.notebook,
           note: newNote,
@@ -919,6 +927,7 @@ func deleteNoteRows(noteId: NoteID, in database: SQLiteDatabase) throws {
   try database.execute("DELETE FROM note_fts_map WHERE note_id = ?", bindings: [.id(noteId)])
   try database.execute("DELETE FROM note_tags WHERE note_id = ?", bindings: [.id(noteId)])
   try database.execute("DELETE FROM note_files WHERE note_id = ?", bindings: [.id(noteId)])
+  try enqueueSearchEngineSync(linkEndpointsOf: [noteId], in: database)
   try database.execute(
     "DELETE FROM note_links WHERE from_note_id = ? OR to_note_id = ?",
     bindings: [.id(noteId), .id(noteId)]

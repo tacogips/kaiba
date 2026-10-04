@@ -224,6 +224,60 @@ export interface EngineNoteHit {
   note: Note
   snippet: string
   score: number
+  reasons: EngineHitReason[]
+}
+
+export interface EngineHitReason {
+  kind: string
+  tags: string[]
+}
+
+export interface EngineSearchFacets {
+  tagClasses: Array<{ value: string; count: number }>
+  tags: Array<{ tagId: string; name: string; tagClass: string | null; count: number }>
+}
+
+export interface EngineSearchPage {
+  hits: EngineNoteHit[]
+  facets: EngineSearchFacets | null
+}
+
+export interface SearchEngineAdapterDescriptor {
+  kind: string
+  displayName: string
+  authModes: string[]
+}
+
+export interface SearchEngineSettings {
+  managedBy: string
+  kind: string
+  url: string | null
+  indexPrefix: string | null
+  authMode: string
+  username: string | null
+  hasSecret: boolean
+  verifyTLS: boolean
+  requestTimeoutSeconds: number
+  adapters: SearchEngineAdapterDescriptor[]
+  active: boolean
+}
+
+export interface SearchEngineSettingsInput {
+  kind: string
+  url?: string | null
+  indexPrefix?: string | null
+  authMode?: string | null
+  username?: string | null
+  secret?: string
+  clearSecret?: boolean
+  verifyTLS?: boolean
+  requestTimeoutSeconds?: number
+}
+
+export interface SearchEngineConnectionTestResult {
+  available: boolean
+  status: string
+  detail: string
 }
 
 export interface NoteSearchResult {

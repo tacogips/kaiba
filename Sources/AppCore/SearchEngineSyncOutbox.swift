@@ -97,6 +97,53 @@ func enqueueSearchEngineSync(notebookId: NotebookID, in database: SQLiteDatabase
   )
 }
 
+/// Enqueues every note tagged with a tag or descendant, in one activated-store statement.
+func enqueueSearchEngineSync(notesUnderTagId tagId: TagID, in database: SQLiteDatabase) throws {
+  try database.execute(
+    """
+    WITH RECURSIVE descendants(tag_id, depth) AS (
+      SELECT tag_id, 0 FROM tags WHERE tag_id = ?
+      UNION
+      SELECT tags.tag_id, descendants.depth + 1
+      FROM tags
+      JOIN descendants ON tags.parent_tag_id = descendants.tag_id
+      WHERE descendants.depth < 64
+    )
+    INSERT INTO search_index_outbox (note_id)
+    SELECT DISTINCT note_tags.note_id
+    FROM descendants
+    JOIN note_tags ON note_tags.tag_id = descendants.tag_id
+    WHERE true AND EXISTS (SELECT 1 FROM search_engine_sync_state)
+    ON CONFLICT(note_id) DO UPDATE SET generation = generation + 1,
+      attempts = 0, next_attempt_at = NULL, last_error = NULL
+    """,
+    bindings: [.id(tagId)]
+  )
+}
+
+/// Enqueues linked counterparts of notes whose link rows are about to be removed.
+func enqueueSearchEngineSync(linkEndpointsOf noteIds: [NoteID], in database: SQLiteDatabase) throws {
+  let uniqueIds = orderedUnique(noteIds)
+  guard !uniqueIds.isEmpty else { return }
+  let placeholders = Array(repeating: "?", count: uniqueIds.count).joined(separator: ", ")
+  let bindings = uniqueIds.map(SQLiteValue.id)
+  try database.execute(
+    """
+    INSERT INTO search_index_outbox (note_id)
+    SELECT DISTINCT peer_note_id FROM (
+      SELECT to_note_id AS peer_note_id FROM note_links WHERE from_note_id IN (\(placeholders))
+      UNION
+      SELECT from_note_id AS peer_note_id FROM note_links WHERE to_note_id IN (\(placeholders))
+    )
+    WHERE peer_note_id NOT IN (\(placeholders))
+      AND EXISTS (SELECT 1 FROM search_engine_sync_state)
+    ON CONFLICT(note_id) DO UPDATE SET generation = generation + 1,
+      attempts = 0, next_attempt_at = NULL, last_error = NULL
+    """,
+    bindings: bindings + bindings + bindings
+  )
+}
+
 public extension NoteService {
   /// Activates this store and backfills on first activation or identity change, per design SE3.
   @discardableResult

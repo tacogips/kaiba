@@ -139,6 +139,8 @@ export interface AppStore {
   toggleRightPane(): void
   setActiveHeading(id: string): void
   setSearchOpen(open: boolean): void
+  setSearchEngineEnabled(enabled: boolean): void
+  reloadSearchEngineCapability(): Promise<void>
   setMessage(message: string): void
   refreshCatalog(): Promise<void>
   /** Adopts an API key pasted into the login view and reloads the catalog.
@@ -596,6 +598,8 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     toggleRightPane: () => setPane({ ...state.pane, rightOpen: !state.pane.rightOpen }),
     setActiveHeading: (id) => setState('activeHeadingId', id),
     setSearchOpen: (open) => setState('searchOpen', open),
+    setSearchEngineEnabled: (enabled) => setState('searchEngineEnabled', enabled),
+    reloadSearchEngineCapability: loadSearchEngineCapability,
     setMessage: (message) => setState('message', message),
     refreshCatalog: async () => {
       await refreshCatalog()

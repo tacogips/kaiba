@@ -104,6 +104,49 @@ public struct GraphQLSetAppSettingInput: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLSearchEngineSettingsInput: Codable, Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+  public var kind: String
+  public var url: String?
+  public var indexPrefix: String?
+  public var authMode: String?
+  public var username: String?
+  public var secret: String?
+  public var clearSecret: Bool
+  public var verifyTLS: Bool?
+  public var requestTimeoutSeconds: Int?
+
+  private enum CodingKeys: String, CodingKey {
+    case kind, url, indexPrefix, authMode, username, secret, clearSecret, verifyTLS, requestTimeoutSeconds
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    kind = try container.decode(String.self, forKey: .kind)
+    url = try container.decodeIfPresent(String.self, forKey: .url)
+    indexPrefix = try container.decodeIfPresent(String.self, forKey: .indexPrefix)
+    authMode = try container.decodeIfPresent(String.self, forKey: .authMode)
+    username = try container.decodeIfPresent(String.self, forKey: .username)
+    secret = try container.decodeIfPresent(String.self, forKey: .secret)
+    clearSecret = try container.decodeIfPresent(Bool.self, forKey: .clearSecret) ?? false
+    verifyTLS = try container.decodeIfPresent(Bool.self, forKey: .verifyTLS)
+    requestTimeoutSeconds = try container.decodeIfPresent(Int.self, forKey: .requestTimeoutSeconds)
+  }
+
+  public var description: String {
+    "GraphQLSearchEngineSettingsInput(kind: \(kind), url: \(String(describing: url)), secret: \(secret == nil ? "nil" : "[redacted]"))"
+  }
+
+  public var debugDescription: String { description }
+
+  public var settingsInput: SearchEngineSettingsInput {
+    SearchEngineSettingsInput(
+      kind: kind, url: url, indexPrefix: indexPrefix, authMode: authMode, username: username,
+      secret: secret, clearSecret: clearSecret, verifyTLS: verifyTLS,
+      requestTimeoutSeconds: requestTimeoutSeconds
+    )
+  }
+}
+
 public struct GraphQLSetUserAgentCredentialInput: Codable, Equatable, Sendable {
   public var provider: String
   public var apiKey: String

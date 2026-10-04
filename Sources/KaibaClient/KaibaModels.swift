@@ -169,6 +169,17 @@ public struct KaibaEngineNoteHit: Codable, Equatable, Sendable {
   public var note: KaibaNote
   public var snippet: String
   public var score: Double
+  public var reasons: [KaibaEngineHitReason]
+
+  private enum CodingKeys: String, CodingKey { case note, snippet, score, reasons }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    note = try container.decode(KaibaNote.self, forKey: .note)
+    snippet = try container.decode(String.self, forKey: .snippet)
+    score = try container.decode(Double.self, forKey: .score)
+    reasons = try container.decodeIfPresent([KaibaEngineHitReason].self, forKey: .reasons) ?? []
+  }
 }
 
 public struct KaibaSearchEngineCapabilityPayload: Codable, Equatable, Sendable {

@@ -6,12 +6,14 @@ final class FakeSearchEngine: SearchEngine, @unchecked Sendable {
   private var storedDocuments: [NoteID: SearchIndexDocument] = [:]
   private var storedAppliedBatches: [[SearchIndexOperation]] = []
   private var storedSearches: [SearchEngineQuery] = []
+  private var storedSearchPages: [SearchEngineQuery] = []
   private var storedRelated: [SearchEngineRelatedQuery] = []
   private var storedEnsureIndexCount = 0
   private var storedHealthCalls = 0
   private var storedFailure: SearchEngineError?
   private var storedFailingNoteIds: Set<NoteID> = []
   private var storedScriptedHits: [SearchEngineHit]?
+  private var storedScriptedFacets: SearchEngineFacets?
   private var storedOnApply: (@Sendable ([SearchIndexOperation]) -> Void)?
 
   let indexIdentity: String
@@ -23,6 +25,7 @@ final class FakeSearchEngine: SearchEngine, @unchecked Sendable {
   var documents: [NoteID: SearchIndexDocument] { lock.withLock { storedDocuments } }
   var appliedBatches: [[SearchIndexOperation]] { lock.withLock { storedAppliedBatches } }
   var recordedSearches: [SearchEngineQuery] { lock.withLock { storedSearches } }
+  var recordedSearchPages: [SearchEngineQuery] { lock.withLock { storedSearchPages } }
   var recordedRelated: [SearchEngineRelatedQuery] { lock.withLock { storedRelated } }
   var ensureIndexCount: Int { lock.withLock { storedEnsureIndexCount } }
   var healthCalls: Int { lock.withLock { storedHealthCalls } }
@@ -40,6 +43,11 @@ final class FakeSearchEngine: SearchEngine, @unchecked Sendable {
   var scriptedHits: [SearchEngineHit]? {
     get { lock.withLock { storedScriptedHits } }
     set { lock.withLock { storedScriptedHits = newValue } }
+  }
+
+  var scriptedFacets: SearchEngineFacets? {
+    get { lock.withLock { storedScriptedFacets } }
+    set { lock.withLock { storedScriptedFacets = newValue } }
   }
 
   var onApply: (@Sendable ([SearchIndexOperation]) -> Void)? {
@@ -108,6 +116,15 @@ final class FakeSearchEngine: SearchEngine, @unchecked Sendable {
     return hits.map { SearchEngineHit(noteId: $0.noteId, score: 1, highlight: nil) }
   }
 
+  func searchPage(_ query: SearchEngineQuery) async throws -> SearchEngineSearchPage {
+    let hits = try await search(query)
+    let facets = lock.withLock { () -> SearchEngineFacets? in
+      storedSearchPages.append(query)
+      return query.facets == nil ? nil : storedScriptedFacets
+    }
+    return SearchEngineSearchPage(hits: hits, facets: facets)
+  }
+
   func relatedNotes(_ query: SearchEngineRelatedQuery) async throws -> [SearchEngineHit] {
     let snapshot = try lock.withLock { () throws -> ([SearchIndexDocument], [SearchEngineHit]?) in
       if let storedFailure { throw storedFailure }
@@ -133,6 +150,17 @@ final class FakeSearchEngine: SearchEngine, @unchecked Sendable {
     if let ownerUserId = filter.ownerUserId, document.ownerUserId != ownerUserId { return false }
     if let notebookId = filter.notebookId, document.notebookId != notebookId { return false }
     if !filter.tagIds.isEmpty && filter.tagIds.allSatisfy({ !document.tagIds.contains($0) }) { return false }
+    if !filter.hierarchyTagIds.isEmpty &&
+      !filter.hierarchyTagIds.contains(where: { id in document.pathTags.contains { $0.tagId == id } }) {
+      return false
+    }
+    if !filter.tagClassFilters.allSatisfy({ requested in
+      document.pathTags.contains { pathTag in
+        pathTag.tagClass == requested.tagClass && (requested.tagId == nil || pathTag.tagId == requested.tagId)
+      }
+    }) {
+      return false
+    }
     if filter.excludesLongTermMemory && document.isLongTermMemory { return false }
     return !filter.excludedNoteIds.contains(document.noteId)
   }

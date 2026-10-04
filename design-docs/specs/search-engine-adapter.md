@@ -2,12 +2,14 @@
 
 ## Status
 
-- SE1-SE9: accepted (2026-10-04). The base is implemented in checkpoint
-  b466ced except the CLI (SE6), the server sync loop (SE3 "Who drains")
-  and the integration pass.
-- D0-D5 (the delta at the end of this document): proposed (2026-10-04).
-  They extend SE1-SE9. Where a delta section changes an earlier rule, it
-  says so explicitly, and the earlier text stays as the base record.
+- SE1-SE9: accepted (2026-10-04) and implemented. The base was
+  checkpointed in b466ced. The CLI (SE6), the server sync loop (SE3 "Who
+  drains") and the integration pass were completed in session-264.
+- D0-D5 (the delta at the end of this document): accepted (2026-10-04,
+  comm-003772) and implemented in session-264 (2026-10-05). The
+  integration review accepted all 21 plans (comm-003910). They extend
+  SE1-SE9. Where a delta section changes an earlier rule, it says so
+  explicitly, and the earlier text stays as the base record.
 
 ## Traceability
 
@@ -21,10 +23,13 @@
 - Client surfaces: `design-docs/specs/kaiba-client-sdk.md` (hand-written
   operations in `Sources/KaibaClient`), `design-docs/specs/web-chatbook-ui.md`.
 - Decisions and open questions: `design-docs/user-qa/search-engine-adapter.md`.
-- Implementation plan: `impl-plans/active/search-engine-adapter.md` with
+- Implementation plan: `impl-plans/completed/search-engine-adapter.md` with
   plans P1..P11 and the dispatch manifest
   `impl-plans/active/search-engine-adapter-dispatch.json`. The delta adds
-  plans P12 and later to the same index and manifest.
+  plans P12-P21 to the same index and manifest. All plans are completed and
+  archived under `impl-plans/completed/` with their original file names. The
+  dispatch manifest is a workflow runtime artifact and stays in
+  `impl-plans/active/`.
 - Ontology model used by the delta: `design-docs/specs/kaiba-note.md`
   (D6 provenance, D7 tag classes, D16/D17 tag hierarchy), implemented in
   `Sources/AppCore/NoteStoreSchema.swift` (`tags`, `tag_classes`,

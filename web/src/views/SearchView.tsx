@@ -3,7 +3,7 @@ import { MarkdownBody } from '../components/Markdown'
 import { errorMessage, useApp } from '../state/appStore'
 import { NoteTransportError } from '../notes/client'
 import { noteDisplayTitle } from '../notes/noteText'
-import type { NoteSearchResult } from '../notes/types'
+import type { EngineSearchFacets, NoteSearchResult } from '../notes/types'
 import type { Route } from '../router'
 
 // The search results screen. Grep runs the store's full-text search and lists
@@ -21,6 +21,10 @@ export function SearchView(): JSX.Element {
   const [notice, setNotice] = createSignal('')
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
+  const [facets, setFacets] = createSignal<EngineSearchFacets | null>(null)
+  const [tagFilter, setTagFilter] = createSignal<string[]>([])
+  const [tagClassFilter, setTagClassFilter] = createSignal<string[]>([])
+  const [engineDisabledByResult, setEngineDisabledByResult] = createSignal(false)
   let generation = 0
 
   const route = (): SearchRoute | undefined =>
@@ -34,6 +38,7 @@ export function SearchView(): JSX.Element {
       setAnswer('')
       setStatus('')
       setNotice('')
+      setFacets(null)
       return
     }
     void run(current)
@@ -47,18 +52,24 @@ export function SearchView(): JSX.Element {
     setAnswer('')
     setStatus('')
     setNotice('')
+    setFacets(null)
     const notebookId = current.scope === 'notebook' ? current.notebookId : undefined
     try {
       if (current.method === 'grep') {
         let found: NoteSearchResult[]
         if (app.state.searchEngineEnabled) {
           try {
-            const hits = await app.client.engineSearchNotes({
+            const page = await app.client.engineSearchNotes({
               query: current.query,
               ...(notebookId ? { notebookId } : {}),
+              ...(tagFilter().length ? { tagFilter: tagFilter() } : {}),
+              ...(tagClassFilter().length ? { tagClassFilter: tagClassFilter() } : {}),
+              facets: true,
               limit: 50,
             })
-            found = hits.map((hit) => ({
+            if (requested !== generation) return
+            setFacets(page.facets)
+            found = page.hits.map((hit) => ({
               note: hit.note,
               snippet: hit.snippet,
               rank: hit.score,
@@ -71,18 +82,27 @@ export function SearchView(): JSX.Element {
               || !['search-engine-unavailable', 'feature-disabled'].includes(searchError.resultStatus ?? '')) {
               throw searchError
             }
+            if (searchError.resultStatus === 'feature-disabled') {
+              setEngineDisabledByResult(true)
+              app.setSearchEngineEnabled(false)
+            }
+            if (tagClassFilter().length > 0) setTagClassFilter([])
+            setFacets(null)
             found = await app.client.searchNotes({
               query: current.query,
               ...(notebookId ? { notebookId } : {}),
+              ...(tagFilter().length ? { tagFilter: tagFilter() } : {}),
               limit: 50,
             })
             if (requested !== generation) return
             setNotice('Search engine unavailable; showing built-in results')
           }
         } else {
+          if (engineDisabledByResult()) setNotice('Search engine unavailable; showing built-in results')
           found = await app.client.searchNotes({
             query: current.query,
             ...(notebookId ? { notebookId } : {}),
+            ...(tagFilter().length ? { tagFilter: tagFilter() } : {}),
             limit: 50,
           })
         }
@@ -137,6 +157,34 @@ export function SearchView(): JSX.Element {
 
       <Show when={notice()}>
         <p class="chat-banner" role="status">{notice()}</p>
+      </Show>
+
+      <Show when={route()?.method === 'grep' && facets()}>{(availableFacets) =>
+        <div class="detail-chips" aria-label="Search refinements">
+          <For each={availableFacets().tagClasses}>{(facet) =>
+            <button type="button" class="folder-chip" onClick={() => {
+              const next = tagClassFilter().includes(facet.value)
+                ? tagClassFilter() : [...tagClassFilter(), facet.value]
+              setTagClassFilter(next)
+            }}>{facet.value} {facet.count}</button>}
+          </For>
+          <For each={availableFacets().tags}>{(facet) =>
+            <button type="button" class="folder-chip" onClick={() => {
+              const next = tagFilter().includes(facet.name) ? tagFilter() : [...tagFilter(), facet.name]
+              setTagFilter(next)
+            }}>{facet.name} {facet.count}</button>}
+          </For>
+        </div>}
+      </Show>
+      <Show when={tagFilter().length > 0 || tagClassFilter().length > 0}>
+        <div class="detail-chips" aria-label="Active search filters">
+          <For each={tagClassFilter()}>{(value) => <span class="folder-chip">{value}<button type="button" aria-label={`Remove filter ${value}`} onClick={() => {
+            setTagClassFilter(tagClassFilter().filter((item) => item !== value))
+          }}>x</button></span>}</For>
+          <For each={tagFilter()}>{(value) => <span class="folder-chip">{value}<button type="button" aria-label={`Remove filter ${value}`} onClick={() => {
+            setTagFilter(tagFilter().filter((item) => item !== value))
+          }}>x</button></span>}</For>
+        </div>
       </Show>
 
       <Show when={route()?.method === 'grep' && !loading()}>

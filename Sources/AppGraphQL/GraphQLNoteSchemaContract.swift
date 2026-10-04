@@ -48,8 +48,22 @@ type NoteComment { commentId: String!, noteId: String, notebookId: String, bodyM
 type NoteLink { fromNoteId: String!, toNoteId: String!, linkKind: String!, provenance: String!, createdAt: String! }
 type NoteSearchResult { note: Note!, snippet: String!, rank: Float!, matchedTags: [NoteTag!]!, isLinkedNeighbor: Boolean!, termCoverage: Float! }
 type SearchEngineCapabilityPayload { result: ControlPlaneResult!, enabled: Boolean! }
-type EngineNoteHit { note: Note!, snippet: String!, score: Float! }
-type EngineNoteSearchQueryPayload { result: ControlPlaneResult!, value: [EngineNoteHit!] }
+type EngineNoteHit { note: Note!, snippet: String!, score: Float!, reasons: [EngineHitReason!]! }
+type EngineHitReason { kind: String!, tags: [String!]! }
+type EngineSearchFacets { tagClasses: [EngineFacetBucket!]!, tags: [EngineTagFacetBucket!]! }
+type EngineFacetBucket { value: String!, count: Int! }
+type EngineTagFacetBucket { tagId: String!, name: String!, tagClass: String, count: Int! }
+type EngineNoteSearchQueryPayload { result: ControlPlaneResult!, value: [EngineNoteHit!], facets: EngineSearchFacets }
+type SearchEngineAdapterDescriptor { kind: String!, displayName: String!, authModes: [String!]! }
+type SearchEngineSettings {
+  managedBy: String!, kind: String!, url: String, indexPrefix: String
+  authMode: String!, username: String, hasSecret: Boolean!, verifyTLS: Boolean!
+  requestTimeoutSeconds: Int!, adapters: [SearchEngineAdapterDescriptor!]!, active: Boolean!
+}
+type SearchEngineSettingsPayload { result: ControlPlaneResult!, value: SearchEngineSettings }
+input SearchEngineSettingsInput { kind: String!, url: String, indexPrefix: String, authMode: String, username: String, secret: String, clearSecret: Boolean, verifyTLS: Boolean, requestTimeoutSeconds: Int }
+type SearchEngineConnectionTestResult { available: Boolean!, status: String!, detail: String! }
+type SearchEngineConnectionTestPayload { result: ControlPlaneResult!, value: SearchEngineConnectionTestResult }
 type NoteGraphNeighbor { seedNoteId: String!, note: Note!, edgeKind: String!, weight: Float!, hopCount: Int!, pathNoteIds: [String!]! }
 type NoteLinkProposal { targetNote: Note!, targetNoteId: String!, linkKind: String!, reason: String!, source: String! }
 type NoteAutoAction { actionId: String!, trigger: String!, workflowId: String!, filterJSON: String, enabled: Boolean!, position: Int!, createdAt: String! }

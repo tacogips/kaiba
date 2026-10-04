@@ -93,7 +93,8 @@ final class SearchEngineQueryTests: NoteTestCase {
 
     let parentSearch = try await enabled.engineSearchNotes(query: "marker", tagFilter: [parent.name])
     XCTAssertEqual(parentSearch.map(\.note.noteId), [note.noteId])
-    XCTAssertEqual(engine.recordedSearches.last?.filter.tagIds, [parent.tagId, child.tagId].sorted())
+    XCTAssertEqual(engine.recordedSearches.last?.filter.hierarchyTagIds, [parent.tagId])
+    XCTAssertEqual(engine.recordedSearches.last?.filter.tagIds, [])
     let unknownTagSearch = try await enabled.engineSearchNotes(
       query: "marker",
       tagFilter: ["missing-engine-tag"]

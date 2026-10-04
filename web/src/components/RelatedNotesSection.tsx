@@ -3,6 +3,20 @@ import { noteDisplayTitle } from '../notes/noteText'
 import type { EngineNoteHit } from '../notes/types'
 import type { NoteId } from '../notes/ids'
 import { useApp, type AppStore } from '../state/appStore'
+import { NoteTransportError } from '../notes/client'
+
+function reasonLine(hit: EngineNoteHit): string {
+  const reasons = hit.reasons ?? []
+  const lines: string[] = []
+  if (reasons.some((reason) => reason.kind === 'linked')) lines.push('Linked')
+  const sharedTags = reasons.filter((reason) => reason.kind === 'shared-tag').flatMap((reason) => reason.tags)
+  if (sharedTags.length) lines.push(`Shared tags: ${[...new Set(sharedTags)].join(', ')}`)
+  const entities = reasons.filter((reason) => reason.kind === 'shared-entity').flatMap((reason) => reason.tags)
+  if (entities.length) lines.push(`Same person/event: ${[...new Set(entities)].join(', ')}`)
+  if (reasons.some((reason) => reason.kind === 'related-tag')) lines.push('Related tags')
+  if (reasons.some((reason) => reason.kind === 'text-similarity')) lines.push('Similar text')
+  return lines.join(' · ')
+}
 
 export function RelatedNotesSection(props: { app?: AppStore } = {}): JSX.Element {
   const app = props.app ?? useApp()
@@ -33,9 +47,13 @@ export function RelatedNotesSection(props: { app?: AppStore } = {}): JSX.Element
       const related = await app.client.relatedNotes(noteId, 8)
       if (current !== generation) return
       setHits(related)
-    } catch {
+    } catch (cause) {
       if (current !== generation) return
       setHits([])
+      if (cause instanceof NoteTransportError && cause.resultStatus === 'feature-disabled') {
+        app.setSearchEngineEnabled(false)
+        return
+      }
       setError(true)
     } finally {
       if (current === generation) setLoading(false)
@@ -58,6 +76,7 @@ export function RelatedNotesSection(props: { app?: AppStore } = {}): JSX.Element
                 <button type="button" onClick={() => app.openNote(hit.note.noteId, hit.note.notebookId)}>
                   <strong>{noteDisplayTitle(hit.note)}</strong>
                 </button>
+                <Show when={reasonLine(hit)}>{(line) => <p class="link-meta">{line()}</p>}</Show>
               </li>}
             </For>
           </ul>

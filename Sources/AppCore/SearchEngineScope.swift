@@ -3,7 +3,9 @@ import Foundation
 func searchEngineFilter(
   for scope: NoteSearchScope,
   tagIds: [TagID],
-  excludedNoteIds: [NoteID]
+  excludedNoteIds: [NoteID],
+  hierarchyTagIds: [TagID] = [],
+  tagClassFilters: [SearchEngineTagClassFilter] = []
 ) -> SearchEngineFilter {
   SearchEngineFilter(
     libraryIds: scope.reachableLibraryIds,
@@ -11,7 +13,9 @@ func searchEngineFilter(
     notebookId: scope.notebookId,
     tagIds: tagIds,
     excludesLongTermMemory: scope.excludesLongTermMemory,
-    excludedNoteIds: excludedNoteIds
+    excludedNoteIds: excludedNoteIds,
+    hierarchyTagIds: hierarchyTagIds,
+    tagClassFilters: tagClassFilters
   )
 }
 

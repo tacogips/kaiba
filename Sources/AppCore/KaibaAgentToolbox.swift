@@ -21,7 +21,12 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
 
   public func execute(_ call: AgentToolCall) async -> AgentToolResult {
     do {
-      let payload = try run(call)
+      let payload: JSONValue
+      if call.name == "search_notes" {
+        payload = try await searchNotesRouted(KaibaAgentToolInput(call.input))
+      } else {
+        payload = try run(call)
+      }
       return AgentToolResult(
         callId: call.id,
         content: AgentToolOutputLimits.bounded(try payload.encodedString())
@@ -85,21 +90,17 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
   // MARK: - Read tools
 
   private func searchNotes(_ input: KaibaAgentToolInput) throws -> JSONValue {
-    let query = try input.requiredString("query")
-    let notebookId = try input.optionalIdentifier("notebook_id", as: NotebookID.self)
-    let tagFilter = try input.optionalStringArray("tags")
-    let includeLinked = try input.optionalBool("include_linked", default: false)
-    let limit = try input.optionalInt("limit", default: 10, range: 1...50)
+    let parameters = try SearchNotesToolParameters(input: input)
     let results = try service.searchNotes(
-      query: query,
-      tagFilter: tagFilter,
-      notebookId: notebookId,
-      includeLinked: includeLinked,
+      query: parameters.query,
+      tagFilter: parameters.tagFilter,
+      notebookId: parameters.notebookId,
+      includeLinked: parameters.includeLinked,
       depth: 1,
-      limit: limit
+      limit: parameters.limit
     )
     return .object([
-      "query": .string(query),
+      "query": .string(parameters.query),
       "results": .array(results.map { result in
         .object([
           "note_id": .id(result.note.noteId),
@@ -111,7 +112,54 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
           "is_linked_neighbor": .bool(result.isLinkedNeighbor),
           "tags": Self.tagNames(result.note.tags)
         ])
-      })
+      }),
+      "retrieval": .string("full-text")
+    ])
+  }
+
+  private func searchNotesRouted(_ input: KaibaAgentToolInput) async throws -> JSONValue {
+    let parameters = try SearchNotesToolParameters(input: input)
+    guard service.isSearchEngineEnabled, !parameters.includeLinked else {
+      return try searchNotes(input)
+    }
+
+    let hits: [NoteEngineSearchHit]
+    do {
+      hits = try await service.engineSearchNotes(
+        query: parameters.query,
+        notebookId: parameters.notebookId,
+        tagFilter: parameters.tagFilter,
+        limit: parameters.limit,
+        offset: 0
+      )
+    } catch let error as SearchEngineError {
+      _ = error
+      return try searchNotes(input)
+    }
+
+    let retrievalTexts = try service.retrievalTexts(for: hits.map(\.note))
+    let terms = indexableSearchTerms(from: parameters.query)
+    return .object([
+      "query": .string(parameters.query),
+      "results": .array(hits.map { hit in
+        let retrievalText = retrievalTexts[hit.note.noteId] ?? hit.note.bodyMarkdown
+        let searchableText = (hit.note.title ?? "") + " " + retrievalText
+        let matchedTerms = terms.filter { term in
+          searchableText.range(of: term, options: .caseInsensitive) != nil
+        }.count
+        let coverage = terms.isEmpty ? 0.0 : Double(matchedTerms) / Double(terms.count)
+        return .object([
+          "note_id": .id(hit.note.noteId),
+          "notebook_id": .id(hit.note.notebookId),
+          "title": hit.note.title.map(JSONValue.string) ?? .null,
+          "snippet": .string(hit.snippet),
+          "updated_at": .string(hit.note.updatedAt),
+          "term_coverage": .number(coverage),
+          "is_linked_neighbor": .bool(false),
+          "tags": Self.tagNames(hit.note.tags)
+        ])
+      }),
+      "retrieval": .string("search-engine")
     ])
   }
 
@@ -365,6 +413,22 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
 }
 
 /// Typed access to a tool call's JSON input with tool-facing error messages.
+private struct SearchNotesToolParameters {
+  let query: String
+  let notebookId: NotebookID?
+  let tagFilter: [String]
+  let includeLinked: Bool
+  let limit: Int
+
+  init(input: KaibaAgentToolInput) throws {
+    query = try input.requiredString("query")
+    notebookId = try input.optionalIdentifier("notebook_id", as: NotebookID.self)
+    tagFilter = try input.optionalStringArray("tags")
+    includeLinked = try input.optionalBool("include_linked", default: false)
+    limit = try input.optionalInt("limit", default: 10, range: 1...50)
+  }
+}
+
 struct KaibaAgentToolInput {
   let value: JSONValue
 

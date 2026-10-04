@@ -400,6 +400,7 @@ extension NoteService {
           .text(link["createdAt"]?.asString ?? NoteStoreClock.system.now())
         ]
       )
+      try enqueueSearchEngineSync(noteIds: [fromId, toId], in: db)
     }
     for comment in snapshot["comments"]?.asArray ?? [] {
       try restoreCommentSnapshot(comment, in: db)

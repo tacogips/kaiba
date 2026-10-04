@@ -10,7 +10,9 @@ content-addressed file attachments (local by default, migratable to
 S3-compatible storage). Search is SQLite FTS5 with tag/class filters,
 contextual indexing, relaxed multi-term matching with rank fusion, and
 graph expansion ranked by personalized PageRank
-(`design-docs/specs/note-retrieval-fusion.md`).
+(`design-docs/specs/note-retrieval-fusion.md`). An optional Elasticsearch
+adapter adds engine-ranked, ontology-aware search and related notes (see
+[Optional search engine](#optional-search-engine)).
 
 ## Quick Start
 
@@ -175,6 +177,98 @@ mise run test:s3-gateway
 The S3 gateway test expects a sibling checkout at `../s3-gateway` by
 default and uses Docker (Colima is supported) for MinIO. Override the checkout
 with `S3_GATEWAY_REPOSITORY`.
+
+## Optional search engine
+
+When configured, the optional search engine provides engine-ranked note search
+and related notes. Without an engine, Kaiba keeps its built-in search behavior.
+Search results are filtered by the engine and checked again against the note
+store before they are returned.
+
+Add a `searchEngine` section to `config.json` to use the local Elasticsearch
+adapter:
+
+```json
+{
+  "searchEngine": {
+    "kind": "elasticsearch",
+    "url": "http://127.0.0.1:9200",
+    "indexPrefix": "kaiba"
+  }
+}
+```
+
+Remote clusters should use an `https` URL and credentials supplied through
+`apiKeyEnvironmentVariable`, or the username and password environment-variable
+names. Do not put secrets directly in the configuration file.
+
+For local development, use the compose setup in `docker/elasticsearch/compose.yaml`:
+
+```bash
+mise run search:up
+mise run search:status
+mise run search:down
+```
+
+This compose cluster disables Elasticsearch security and binds to
+`127.0.0.1`. It is for local use only and must not be exposed to a network.
+
+The server syncs the index on startup, after note changes, and every 15 seconds.
+Changes are stored in a durable outbox and retried when the engine is
+unavailable, so note writes do not fail because of the engine. Access is
+filtered in the engine query and re-checked by the note store.
+
+Use the CLI to inspect or operate the index:
+
+```bash
+kaiba search-engine status
+kaiba search-engine sync
+kaiba search-engine reindex
+```
+
+These commands require a store administrator. They use the `searchEngine`
+section first, then the settings saved from **Settings**, and exit with code 2
+and `search engine is not configured` when neither selects an engine.
+
+To clear stale documents, delete the current index and rebuild it:
+
+```bash
+curl -X DELETE http://127.0.0.1:9200/<prefix>-notes-v2
+kaiba search-engine reindex
+```
+
+After upgrading, the `<prefix>-notes-v1` index is no longer used and can be
+deleted by the operator in the same way. See the [search engine design](design-docs/specs/search-engine-adapter.md)
+for configuration, behavior, and rollout details.
+
+### Ontology-aware search and settings
+
+Engine search can filter by a tag and its descendants, or by tag class and
+optional tag value. Matching query terms also expand deterministically to up
+to 10 tag names: CJK names use substring matching, while Latin names use
+whole-word matching. Exact tag matches receive a 4.0 boost and ancestor-path
+matches receive a 2.0 boost. Search can request tag and tag-class facets as
+refinement hints.
+
+Related notes combine text similarity, linked notes, shared tags, nearby tags
+and shared person or event tags. Results include machine-readable reasons such
+as `linked`, `shared-tag`, `shared-entity` and `text-similarity`; the web panel
+shows those reasons.
+
+When an engine is active, the agent `search_notes` tool uses it when
+`include_linked` is false and falls back to SQLite FTS if the engine reports an
+error. User-facing ontology search and related notes do not call an LLM.
+
+A `searchEngine` section in `config.json` takes precedence and locks the
+connection settings. Without that section, administrators can choose an
+adapter and manage its connection from **Settings**. Secrets are write-only
+and are bound to the normalized URL and authentication mode; changing either
+requires entering the secret again. **Test connection** checks unsaved
+settings, avoids a network call when a credential cannot be reused for the
+target, and sanitizes returned errors. Saving settings hot-swaps the shared
+engine without a server restart. A changed index identity triggers a backfill
+into the `-v2` index. After upgrading, the old `-v1` index is not used and can
+be deleted by the operator after confirming the new index is populated.
 
 ## Learning notebook
 

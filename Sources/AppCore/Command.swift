@@ -238,6 +238,14 @@ public struct AppCommand: Sendable {
                  # answers that user's chats with kaiba tools running in-process
       ai status  # AI configuration and runtime availability
 
+    Search engine (optional, see design-docs/specs/search-engine-adapter.md):
+      search-engine status [--output json|text]
+                 # show engine health and index sync status; never shows credentials
+      search-engine sync [--output json|text]
+                 # push pending note changes to the configured search engine
+      search-engine reindex [--output json|text]
+                 # enqueue every note and rebuild the configured search index
+
     Serve and API access:
       serve      [--host <h>] [--port <p>] [--web-root <dir>]
                  [--allow-unauthenticated]

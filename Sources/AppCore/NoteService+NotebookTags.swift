@@ -29,6 +29,7 @@ public extension NoteService {
             in: db
           )
         }
+        try enqueueSearchEngineSync(notebookId: notebookId, in: db)
         let after = try requireNotebook(notebookId, in: db)
         return (notebook: after, tagNames: affectedFolderTagNames(before: before, after: after))
       }
@@ -62,6 +63,7 @@ public extension NoteService {
             in: db
           )
         }
+        try enqueueSearchEngineSync(notebookId: notebookId, in: db)
         let after = try requireNotebook(notebookId, in: db)
         return (notebook: after, tagNames: affectedFolderTagNames(before: before, after: after))
       }
@@ -99,6 +101,7 @@ public extension NoteService {
           "DELETE FROM notebook_tags WHERE notebook_id = ? AND tag_id = ?",
           bindings: [.id(notebookId), .id(existing.tag.tagId)]
         )
+        try enqueueSearchEngineSync(notebookId: notebookId, in: db)
         let after = try requireNotebook(notebookId, in: db)
         return (notebook: after, tagNames: affectedFolderTagNames(before: before, after: after))
       }
@@ -141,6 +144,7 @@ public extension NoteService {
           """,
           bindings: [.id(notebookId), .id(existing.tag.tagId)]
         )
+        try enqueueSearchEngineSync(notebookId: notebookId, in: db)
         let after = try requireNotebook(notebookId, in: db)
         return (notebook: after, tagNames: affectedFolderTagNames(before: before, after: after))
       }

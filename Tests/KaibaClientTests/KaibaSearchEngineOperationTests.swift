@@ -74,6 +74,78 @@ struct KaibaSearchEngineOperationTests {
     #expect((capabilityBody["query"] as? String)?.contains("root: searchEngineCapability") == true)
   }
 
+  @Test func pageSettingsAndTestConnectionOperationsDecodePinnedContract() async throws {
+    let pageResponse = Data(#"""
+    {"data":{"root":{"result":{"accepted":true,"status":"ok","diagnostics":[]},
+    "value":[{"note":{"noteId":"note-1","notebookId":"book-1","noteNumber":1,
+    "title":"Title","bodyMarkdown":"Body","readOnly":false,"createdAt":"now",
+    "updatedAt":"now","metaJSON":null,"tags":[],"createdBy":null,"updatedBy":null},
+    "snippet":"hit","score":2.5,"reasons":[{"kind":"shared-tag","tags":["topic:swift"]}]}],
+    "facets":{"tagClasses":[{"value":"topic","count":2}],
+    "tags":[{"tagId":"tag-1","name":"swift","tagClass":"topic","count":2}]}}}}
+    """#.utf8)
+    let pageTransport = SearchEngineOperationTransport(responseBody: pageResponse)
+    let page = try await makeClient(pageTransport).engineSearchNotesPage(
+      query: "needle", tagClassFilter: ["topic:swift"], expandOntology: false, facets: true
+    )
+    #expect(page.value?.first?.reasons.first?.kind == "shared-tag")
+    #expect(page.facets?.tags.first?.tagId == "tag-1")
+    let pageRequest = try #require(await pageTransport.request)
+    let pageWire = try #require(try JSONSerialization.jsonObject(with: pageRequest.body) as? [String: Any])
+    let pageDocument = try #require(pageWire["query"] as? String)
+    #expect(pageDocument.contains("tagClassFilter: $tagClassFilter"))
+    #expect(pageDocument.contains("reasons { kind tags }"))
+    #expect(pageDocument.contains("facets { tagClasses"))
+    let pageVariables = try #require(pageWire["variables"] as? [String: Any])
+    #expect(pageVariables["expandOntology"] as? Bool == false)
+    #expect(pageVariables["facets"] as? Bool == true)
+
+    let settingsResponse = Data(#"""
+    {"data":{"root":{"result":{"accepted":true,"status":"ok","diagnostics":[]},
+    "value":{"managedBy":"default","kind":"none","url":null,"indexPrefix":null,
+    "authMode":"none","username":null,"hasSecret":false,"verifyTLS":true,
+    "requestTimeoutSeconds":10,"adapters":[{"kind":"elasticsearch",
+    "displayName":"Elasticsearch","authModes":["none","basic","apiKey"]}],"active":false}}}}
+    """#.utf8)
+    let settingsTransport = SearchEngineOperationTransport(responseBody: settingsResponse)
+    let settings = try await makeClient(settingsTransport).searchEngineSettings()
+    #expect(settings.value?.adapters.first?.kind == "elasticsearch")
+
+    let updateResponse = Data(#"""
+    {"data":{"root":{"result":{"accepted":true,"status":"ok","diagnostics":[]},
+    "value":{"managedBy":"store","kind":"elasticsearch","url":"https://es.internal",
+    "indexPrefix":"kaiba","authMode":"basic","username":"operator","hasSecret":true,
+    "verifyTLS":true,"requestTimeoutSeconds":10,"adapters":[],"active":true}}}}
+    """#.utf8)
+    let updateTransport = SearchEngineOperationTransport(responseBody: updateResponse)
+    let updated = try await makeClient(updateTransport).updateSearchEngineSettings(
+      KaibaSearchEngineSettingsInput(
+        kind: "elasticsearch", url: "https://es.internal", authMode: "basic",
+        username: "operator", secret: "request-only-secret"
+      )
+    )
+    #expect(updated.value?.hasSecret == true)
+    let updateRequest = try #require(await updateTransport.request)
+    let updateWire = try #require(try JSONSerialization.jsonObject(with: updateRequest.body) as? [String: Any])
+    #expect((updateWire["query"] as? String)?.contains("root: updateSearchEngineSettings") == true)
+    let updateInput = try #require((updateWire["variables"] as? [String: Any])?["input"] as? [String: Any])
+    #expect(updateInput["secret"] as? String == "request-only-secret")
+
+    let testResponse = Data(#"""
+    {"data":{"root":{"result":{"accepted":true,"status":"ok","diagnostics":[]},
+    "value":{"available":false,"status":"invalid-settings","detail":"searchEngine.secret"}}}}
+    """#.utf8)
+    let testTransport = SearchEngineOperationTransport(responseBody: testResponse)
+    let connection = try await makeClient(testTransport).testSearchEngineConnection(
+      KaibaSearchEngineSettingsInput(kind: "elasticsearch", url: "https://other.internal", authMode: "basic")
+    )
+    #expect(connection.value?.status == "invalid-settings")
+    let testRequest = try #require(await testTransport.request)
+    let testWire = try #require(try JSONSerialization.jsonObject(with: testRequest.body) as? [String: Any])
+    let input = try #require((testWire["variables"] as? [String: Any])?["input"] as? [String: Any])
+    #expect(input["secret"] == nil)
+  }
+
   private func makeClient(_ transport: any KaibaHTTPTransporting) throws -> KaibaClient {
     try KaibaClient(
       endpoint: URL(string: "http://127.0.0.1:8080/graphql")!,

@@ -11,12 +11,49 @@ public struct GraphQLEngineNoteHitDTO: Codable, Equatable, Sendable {
   public var note: GraphQLNoteDTO
   public var snippet: String
   public var score: Double
+  public var reasons: [GraphQLEngineHitReasonDTO]
 
   public init(hit: NoteEngineSearchHit) {
     note = GraphQLNoteDTO(note: hit.note)
     snippet = hit.snippet
     score = hit.score
+    reasons = hit.reasons.map { GraphQLEngineHitReasonDTO(kind: $0.kind.rawValue, tags: $0.tagNames) }
   }
+}
+
+public struct GraphQLEngineHitReasonDTO: Codable, Equatable, Sendable {
+  public var kind: String
+  public var tags: [String]
+}
+
+public struct GraphQLEngineFacetBucketDTO: Codable, Equatable, Sendable {
+  public var value: String
+  public var count: Int
+}
+
+public struct GraphQLEngineTagFacetBucketDTO: Codable, Equatable, Sendable {
+  public var tagId: String
+  public var name: String
+  public var tagClass: String?
+  public var count: Int
+}
+
+public struct GraphQLEngineSearchFacetsDTO: Codable, Equatable, Sendable {
+  public var tagClasses: [GraphQLEngineFacetBucketDTO]
+  public var tags: [GraphQLEngineTagFacetBucketDTO]
+
+  public init(facets: NoteEngineSearchFacets) {
+    tagClasses = facets.tagClasses.map { .init(value: $0.value, count: $0.count) }
+    tags = facets.tags.map {
+      .init(tagId: $0.tagId.rawValue, name: $0.name, tagClass: $0.tagClass, count: $0.count)
+    }
+  }
+}
+
+public struct GraphQLEngineNoteSearchPage: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var value: [GraphQLEngineNoteHitDTO]?
+  public var facets: GraphQLEngineSearchFacetsDTO?
 }
 
 public extension GraphQLNoteGraphQLService {
@@ -31,36 +68,47 @@ public extension GraphQLNoteGraphQLService {
     query: String,
     notebookId: NotebookID?,
     tagFilter: [String],
+    tagClassFilter: [String] = [],
+    expandOntology: Bool = true,
+    facets: Bool = false,
     limit: Int,
     offset: Int
-  ) async -> GraphQLNoteQueryResult<[GraphQLEngineNoteHitDTO]> {
+  ) async -> GraphQLEngineNoteSearchPage {
     do {
-      let hits = try await service.engineSearchNotes(
-        query: query, notebookId: notebookId, tagFilter: tagFilter, limit: limit, offset: offset
+      let page = try await service.engineSearchNotesPage(
+        query: query, notebookId: notebookId, tagFilter: tagFilter, tagClassFilter: tagClassFilter,
+        expandOntology: expandOntology, includeFacets: facets, limit: limit, offset: offset
       )
-      return GraphQLNoteQueryResult(result: GraphQLControlPlaneResult(accepted: true, status: "ok"), value: hits.map(GraphQLEngineNoteHitDTO.init))
+      return GraphQLEngineNoteSearchPage(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        value: page.hits.map(GraphQLEngineNoteHitDTO.init),
+        facets: page.facets.map(GraphQLEngineSearchFacetsDTO.init)
+      )
     } catch SearchEngineError.notConfigured {
-      return GraphQLNoteQueryResult(result: searchEngineDisabledResult())
+      return GraphQLEngineNoteSearchPage(result: searchEngineDisabledResult(), value: nil, facets: nil)
     } catch is SearchEngineError {
-      return GraphQLNoteQueryResult(result: searchEngineUnavailableResult())
+      return GraphQLEngineNoteSearchPage(result: searchEngineUnavailableResult(), value: nil, facets: nil)
     } catch {
-      return GraphQLNoteQueryResult(result: graphQLNoteResult(for: error))
+      return GraphQLEngineNoteSearchPage(result: graphQLNoteResult(for: error), value: nil, facets: nil)
     }
   }
 
   func relatedNotes(
     noteId: NoteID,
     limit: Int
-  ) async -> GraphQLNoteQueryResult<[GraphQLEngineNoteHitDTO]> {
+  ) async -> GraphQLEngineNoteSearchPage {
     do {
       let hits = try await service.relatedNotes(noteId: noteId, limit: limit)
-      return GraphQLNoteQueryResult(result: GraphQLControlPlaneResult(accepted: true, status: "ok"), value: hits.map(GraphQLEngineNoteHitDTO.init))
+      return GraphQLEngineNoteSearchPage(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        value: hits.map(GraphQLEngineNoteHitDTO.init), facets: nil
+      )
     } catch SearchEngineError.notConfigured {
-      return GraphQLNoteQueryResult(result: searchEngineDisabledResult())
+      return GraphQLEngineNoteSearchPage(result: searchEngineDisabledResult(), value: nil, facets: nil)
     } catch is SearchEngineError {
-      return GraphQLNoteQueryResult(result: searchEngineUnavailableResult())
+      return GraphQLEngineNoteSearchPage(result: searchEngineUnavailableResult(), value: nil, facets: nil)
     } catch {
-      return GraphQLNoteQueryResult(result: graphQLNoteResult(for: error))
+      return GraphQLEngineNoteSearchPage(result: graphQLNoteResult(for: error), value: nil, facets: nil)
     }
   }
 }

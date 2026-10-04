@@ -9,6 +9,10 @@ import type {
   AgentReplyStreamPoll,
   ControlResult,
   EngineNoteHit,
+  EngineSearchPage,
+  SearchEngineConnectionTestResult,
+  SearchEngineSettings,
+  SearchEngineSettingsInput,
   GraphQLEnvelope,
   MutationPayload,
   Note,
@@ -853,25 +857,36 @@ export class NoteGraphQLClient {
     query: string
     notebookId?: NotebookId
     tagFilter?: string[]
+    tagClassFilter?: string[]
+    expandOntology?: boolean
+    facets?: boolean
     limit?: number
     offset?: number
-  }): Promise<EngineNoteHit[]> {
-    return this.queryValue<{
-      engineSearchNotes: QueryPayload<EngineNoteHit[]>
-    }, EngineNoteHit[]>('EngineSearchNotes', `
-      query EngineSearchNotes($query: String!, $notebookId: String, $tagFilter: [String!], $limit: Int, $offset: Int) {
-        engineSearchNotes(query: $query, notebookId: $notebookId, tagFilter: $tagFilter, limit: $limit, offset: $offset) {
+  }): Promise<EngineSearchPage> {
+    const data = await this.request<{
+      engineSearchNotes: QueryPayload<EngineNoteHit[]> & { facets: EngineSearchPage['facets'] }
+    }>('EngineSearchNotes', `
+      query EngineSearchNotes($query: String!, $notebookId: String, $tagFilter: [String!], $tagClassFilter: [String!], $expandOntology: Boolean, $facets: Boolean, $limit: Int, $offset: Int) {
+        engineSearchNotes(query: $query, notebookId: $notebookId, tagFilter: $tagFilter, tagClassFilter: $tagClassFilter, expandOntology: $expandOntology, facets: $facets, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
-          value { snippet score note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
+          facets { tagClasses { value count } tags { tagId name tagClass count } }
         }
       }
     `, {
       query: input.query,
       ...(input.notebookId ? { notebookId: input.notebookId } : {}),
       ...(input.tagFilter?.length ? { tagFilter: input.tagFilter } : {}),
+      ...(input.tagClassFilter?.length ? { tagClassFilter: input.tagClassFilter } : {}),
+      ...(input.expandOntology !== undefined ? { expandOntology: input.expandOntology } : {}),
+      ...(input.facets !== undefined ? { facets: input.facets } : {}),
       ...(input.limit !== undefined ? { limit: input.limit } : {}),
       ...(input.offset !== undefined ? { offset: input.offset } : {}),
-    }, (data) => data.engineSearchNotes)
+    })
+    const payload = data.engineSearchNotes
+    if (!payload) throw new NoteTransportError('GraphQL response omitted engineSearchNotes.', 'graphql')
+    ensureAccepted(payload.result)
+    return { hits: payload.value ?? [], facets: payload.facets ?? null }
   }
 
   async relatedNotes(noteId: NoteId, limit = 8): Promise<EngineNoteHit[]> {
@@ -881,10 +896,45 @@ export class NoteGraphQLClient {
       query RelatedNotes($noteId: String!, $limit: Int) {
         relatedNotes(noteId: $noteId, limit: $limit) {
           result { accepted status diagnostics }
-          value { snippet score note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
         }
       }
     `, { noteId, limit }, (data) => data.relatedNotes)
+  }
+
+  async searchEngineSettings(): Promise<SearchEngineSettings | null> {
+    let payload: QueryPayload<SearchEngineSettings | null> | undefined
+    try {
+      const data = await this.request<{ searchEngineSettings?: QueryPayload<SearchEngineSettings | null> }>(
+        'SearchEngineSettings',
+        `query SearchEngineSettings { searchEngineSettings { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes } active } } }`,
+        {},
+      )
+      payload = data.searchEngineSettings
+    } catch (error) {
+      if (error instanceof NoteTransportError && error.kind === 'graphql') return null
+      throw error
+    }
+    if (!payload || !payload.result.accepted) return null
+    return payload.value ?? null
+  }
+
+  async updateSearchEngineSettings(input: SearchEngineSettingsInput): Promise<SearchEngineSettings> {
+    return this.queryValue<{ updateSearchEngineSettings: QueryPayload<SearchEngineSettings> }, SearchEngineSettings>(
+      'UpdateSearchEngineSettings',
+      `mutation UpdateSearchEngineSettings($input: SearchEngineSettingsInput!) { updateSearchEngineSettings(input: $input) { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes } active } } }`,
+      { input: { ...input } },
+      (data) => data.updateSearchEngineSettings,
+    )
+  }
+
+  async testSearchEngineConnection(input: SearchEngineSettingsInput): Promise<SearchEngineConnectionTestResult> {
+    return this.queryValue<{ testSearchEngineConnection: QueryPayload<SearchEngineConnectionTestResult> }, SearchEngineConnectionTestResult>(
+      'TestSearchEngineConnection',
+      `mutation TestSearchEngineConnection($input: SearchEngineSettingsInput!) { testSearchEngineConnection(input: $input) { result { accepted status diagnostics } value { available status detail } } }`,
+      { input: { ...input } },
+      (data) => data.testSearchEngineConnection,
+    )
   }
 
   /** Agentic search: the configured agent answers the question, grounded in a

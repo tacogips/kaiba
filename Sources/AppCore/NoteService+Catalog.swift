@@ -80,6 +80,7 @@ public extension NoteService {
           try validateTagParent(childTagId: tagId, parentTagId: parentTagId, in: db)
         }
         if let existing {
+          let classChanged = classId?.isEmpty == false && existing.classId != classId
           try db.execute(
             """
             UPDATE tags
@@ -98,6 +99,9 @@ public extension NoteService {
           // reparent must re-derive it for every note under the moved tag.
           if let normalizedParentTagId, normalizedParentTagId != existing.parentTagId {
             try refreshFTSForNotesUnderTag(existing.tagId, in: db)
+          }
+          if classChanged {
+            try enqueueSearchEngineSync(notesUnderTagId: existing.tagId, in: db)
           }
           return try requireTag(id: existing.tagId, in: db)
         }

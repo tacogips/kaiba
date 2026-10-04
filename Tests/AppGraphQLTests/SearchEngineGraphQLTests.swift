@@ -4,9 +4,19 @@ import AppCore
 import AppGraphQL
 import XCTest
 
+private final class SearchQueryRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedQuery: SearchEngineQuery?
+
+  func record(_ query: SearchEngineQuery) { lock.withLock { storedQuery = query } }
+  var query: SearchEngineQuery? { lock.withLock { storedQuery } }
+}
+
 private struct GraphQLSearchEngineFixture: SearchEngine {
   var hits: [SearchEngineHit] = []
   var failure: SearchEngineError?
+  var scriptedFacets: SearchEngineFacets?
+  var queryRecorder = SearchQueryRecorder()
   var indexIdentity: String { "fixture" }
 
   func health() async throws -> SearchEngineHealth { .init(isAvailable: true, detail: "ok") }
@@ -15,6 +25,11 @@ private struct GraphQLSearchEngineFixture: SearchEngine {
   func search(_ query: SearchEngineQuery) async throws -> [SearchEngineHit] {
     if let failure { throw failure }
     return hits
+  }
+  func searchPage(_ query: SearchEngineQuery) async throws -> SearchEngineSearchPage {
+    if let failure { throw failure }
+    queryRecorder.record(query)
+    return SearchEngineSearchPage(hits: hits, facets: scriptedFacets)
   }
   func relatedNotes(_ query: SearchEngineRelatedQuery) async throws -> [SearchEngineHit] {
     if let failure { throw failure }
@@ -35,7 +50,7 @@ final class SearchEngineGraphQLTests: XCTestCase {
   }
 
   func testCapabilityAndEngineHits() async throws {
-    var service = try makeService()
+    let service = try makeService()
     let first = try service.service.createNote(bodyMarkdown: "# First\n\nbody")
     let second = try service.service.createNote(bodyMarkdown: "# Second\n\nbody")
     service.service.searchEngine = GraphQLSearchEngineFixture(hits: [
@@ -57,8 +72,66 @@ final class SearchEngineGraphQLTests: XCTestCase {
     XCTAssertEqual(try string(relatedValues[0], ["note", "noteId"]), first.noteId.rawValue)
   }
 
+  func testOntologySearchReturnsReasonsFacetsAndUsesRequestedArguments() async throws {
+    let service = try makeService()
+    let note = try service.service.createNote(bodyMarkdown: "# Ontology result\n\nbody")
+    let source = try service.service.createNote(bodyMarkdown: "# Related source\n\nsource body")
+    let engine = GraphQLSearchEngineFixture(
+      hits: [.init(noteId: note.noteId, score: 4, highlight: "tag match", reasons: [
+        .init(kind: .tagMatch, tagNames: ["person:Alice"])
+      ])],
+      scriptedFacets: SearchEngineFacets(
+        tagClasses: [.init(value: "person", count: 1)],
+        tags: []
+      )
+    )
+    service.service.searchEngine = engine
+    let executor = NoteGraphQLDocumentExecutor(service: service)
+    let response = await run(executor, """
+    query { engineSearchNotes(query: "body", tagClassFilter: ["person"], expandOntology: false, facets: true) {
+      result { accepted status }
+      value { reasons { kind tags } }
+      facets { tagClasses { value count } tags { tagId name tagClass count } }
+    } }
+    """)
+    let hit = try XCTUnwrap(array(response, ["engineSearchNotes", "value"]).first)
+    let reason = try XCTUnwrap(array(hit, ["reasons"]).first)
+    XCTAssertEqual(try string(reason, ["kind"]), "tag-match")
+    XCTAssertEqual(try stringArray(reason, ["tags"]), ["person:Alice"])
+    let facet = try XCTUnwrap(array(response, ["engineSearchNotes", "facets", "tagClasses"]).first)
+    XCTAssertEqual(try string(facet, ["value"]), "person")
+    XCTAssertEqual(try int(facet, ["count"]), 1)
+    let recorded = try XCTUnwrap(engine.queryRecorder.query)
+    XCTAssertTrue(recorded.expansionTagIds.isEmpty)
+    XCTAssertNotNil(recorded.facets)
+    XCTAssertEqual(recorded.filter.tagClassFilters.map(\.tagClass), ["person"])
+
+    let related = await run(executor, "query { relatedNotes(noteId: \"\(source.noteId.rawValue)\") { facets { tagClasses { value } } value { reasons { kind tags } } } }")
+    guard case let .object(data)? = related["data"],
+          case let .object(payload)? = data["relatedNotes"] else {
+      XCTFail("related query returned unexpected response: \(related)")
+      return
+    }
+    XCTAssertEqual(payload["facets"], .null)
+    guard let relatedValue = payload["value"] else {
+      XCTFail("related response should include its value field")
+      return
+    }
+    let relatedHits = try array(relatedValue, [])
+    guard let relatedHit = relatedHits.first else {
+      XCTFail("related response should include the scripted related hit")
+      return
+    }
+    let relatedReasons = try array(relatedHit, ["reasons"])
+    guard let relatedReason = relatedReasons.first else {
+      XCTFail("related response should include the scripted related hit and reason")
+      return
+    }
+    XCTAssertEqual(try string(relatedReason, ["kind"]), "tag-match")
+  }
+
   func testEngineFailureIsSanitizedAndRelatedNotFoundKeepsMapping() async throws {
-    var service = try makeService()
+    let service = try makeService()
     service.service.searchEngine = GraphQLSearchEngineFixture(failure: .unavailable("secret-host"))
     let executor = NoteGraphQLDocumentExecutor(service: service)
     let unavailable = await run(executor, "query { engineSearchNotes(query: \"x\") { result { status diagnostics } } }")
@@ -79,14 +152,14 @@ final class SearchEngineGraphQLTests: XCTestCase {
     XCTAssertTrue(errorMessage(overOffset).contains("offset must be between 0 and 1000 for engineSearchNotes"))
     let relatedLimit = await run(executor, "query { relatedNotes(noteId: \"x\", limit: 21) { result { status } } }")
     XCTAssertTrue(errorMessage(relatedLimit).contains("limit must be between 0 and 20 for graph fields"))
-    var configured = service
+    let configured = service
     configured.service.searchEngine = GraphQLSearchEngineFixture()
     let empty = await run(NoteGraphQLDocumentExecutor(service: configured), "query { engineSearchNotes(query: \"\") { result { status } } }")
     XCTAssertEqual(try string(empty, ["engineSearchNotes", "result", "status"]), "invalid_request")
   }
 
   func testSearchNotesOutputIsUnchangedWhenEngineIsAttached() async throws {
-    var service = try makeService()
+    let service = try makeService()
     _ = try service.service.createNote(bodyMarkdown: "# Search parity\n\nsearch parity words")
     let query = "query { searchNotes(query: \"parity\") { result { status } value { note { noteId } snippet rank } } }"
     let withoutEngine = await run(NoteGraphQLDocumentExecutor(service: service), query)
@@ -143,8 +216,28 @@ final class SearchEngineGraphQLTests: XCTestCase {
     return result
   }
 
+  private func stringArray(_ item: JSONValue, _ path: [String]) throws -> [String] {
+    guard case let .array(values) = try value(item, path) else { throw TestFailure.invalidPath(path) }
+    return values.compactMap { if case let .string(value) = $0 { value } else { nil } }
+  }
+
+  private func array(_ item: JSONValue, _ path: [String]) throws -> [JSONValue] {
+    guard case let .array(values) = try value(item, path) else { throw TestFailure.invalidPath(path) }
+    return values
+  }
+
   private func bool(_ body: JSONObject, _ path: [String]) throws -> Bool {
     guard case let .bool(value) = try value(body, ["data"] + path) else { throw TestFailure.invalidPath(path) }
+    return value
+  }
+
+  private func int(_ body: JSONObject, _ path: [String]) throws -> Int64 {
+    guard case let .integer(value) = try value(body, ["data"] + path) else { throw TestFailure.invalidPath(path) }
+    return value
+  }
+
+  private func int(_ item: JSONValue, _ path: [String]) throws -> Int64 {
+    guard case let .integer(value) = try value(item, path) else { throw TestFailure.invalidPath(path) }
     return value
   }
 

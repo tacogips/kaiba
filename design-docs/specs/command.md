@@ -250,6 +250,26 @@ same configured profile to retrieve S3-backed content. `gc` reclaims file
 records no note or notebook references anymore and sweeps stray blobs,
 with a grace window (default 24 hours) protecting recent files.
 
+### Search engine
+
+```bash
+kaiba search-engine status [--output json|text]
+kaiba search-engine sync [--output json|text]
+kaiba search-engine reindex [--output json|text]
+```
+
+Operates the optional external search engine. Every subcommand requires a
+store administrator and resolves the engine the same way the server does:
+from the `searchEngine` config section first, then from the administrator
+settings stored in the note store. When neither selects an engine, it exits
+`2` with `search engine is not configured`. The CLI never writes engine
+settings. `status` prints the adapter kind, the index identity, the health
+result and the outbox progress. It never prints credentials, and it exits
+`0` even when the engine is unhealthy. `sync` ensures the index, activates
+it and drains pending note changes. It exits `1` if any rows failed.
+`reindex` re-enqueues every note first, then behaves like `sync`; it does
+not delete stale documents. See `search-engine-adapter.md` (SE6, D0, D5).
+
 ## Exit Codes
 
 `0` success, `1` domain or IO error, `2` unknown argument.

@@ -1,8 +1,9 @@
 import { noteId as asNoteId, notebookId as asNotebookId } from '../notes/ids'
 import type { NoteId, NotebookId } from '../notes/ids'
 import { render } from 'solid-js/web'
+import { createStore } from 'solid-js/store'
 import { describe, expect, test, vi } from 'vitest'
-import type { NoteGraphQLClient } from '../notes/client'
+import { NoteTransportError, type NoteGraphQLClient } from '../notes/client'
 import type { EngineNoteHit, Note } from '../notes/types'
 import type { AppStore } from '../state/appStore'
 import { RelatedNotesSection } from './RelatedNotesSection'
@@ -10,8 +11,12 @@ import { RelatedNotesSection } from './RelatedNotesSection'
 const sourceId = asNoteId('source')
 const notebook = asNotebookId('book')
 const hits: EngineNoteHit[] = [
-  { note: makeNote('related-1', 'Related one'), snippet: 'first snippet', score: 2 },
-  { note: makeNote('related-2', 'Related two'), snippet: 'second snippet', score: 1 },
+  { note: makeNote('related-1', 'Related one'), snippet: 'first snippet', score: 2, reasons: [
+    { kind: 'linked', tags: [] }, { kind: 'shared-tag', tags: ['A', 'B'] },
+    { kind: 'shared-entity', tags: ['C'] }, { kind: 'related-tag', tags: [] },
+    { kind: 'text-similarity', tags: [] },
+  ] },
+  { note: makeNote('related-2', 'Related two'), snippet: 'second snippet', score: 1, reasons: [] },
 ]
 
 function makeNote(id: string, title: string): Note {
@@ -26,15 +31,17 @@ function testStore(
   relatedNotes: (noteId: NoteId, limit?: number) => Promise<EngineNoteHit[]> = vi.fn(async () => hits),
   openNote: (noteId: NoteId, notebookId?: NotebookId) => void = vi.fn(),
 ): AppStore {
+  const [state, setState] = createStore({
+    searchEngineEnabled: enabled,
+    noteId: sourceId,
+    notebookId: notebook,
+    notebookRevisions: {} as Record<string, number>,
+  })
   return {
-    state: {
-      searchEngineEnabled: enabled,
-      noteId: sourceId,
-      notebookId: notebook,
-      notebookRevisions: {},
-    },
+    state,
     client: { relatedNotes } as unknown as NoteGraphQLClient,
     openNote,
+    setSearchEngineEnabled: (next: boolean) => setState('searchEngineEnabled', next),
   } as unknown as AppStore
 }
 
@@ -65,6 +72,9 @@ describe('RelatedNotesSection', () => {
       expect(buttons).toHaveLength(2)
       expect(buttons[0]?.textContent).toContain('Related one')
       expect(buttons[1]?.textContent).toContain('Related two')
+      expect(host.querySelectorAll('.link-meta')[0]?.textContent)
+        .toBe('Linked · Shared tags: A, B · Same person/event: C · Related tags · Similar text')
+      expect(host.querySelectorAll('.link-meta')).toHaveLength(1)
       buttons[0]?.click()
       expect(openNote).toHaveBeenCalledWith(hits[0]?.note.noteId, hits[0]?.note.notebookId)
     } finally { dispose(); host.remove() }
@@ -85,6 +95,19 @@ describe('RelatedNotesSection', () => {
     try {
       await settle()
       expect(host.textContent).toContain('No related notes')
+    } finally { dispose(); host.remove() }
+  })
+
+  test('hides the section when the engine reports feature-disabled', async () => {
+    const app = testStore(true, async () => {
+      throw new NoteTransportError('disabled', 'result', undefined, 'feature-disabled')
+    })
+    const host = document.createElement('div')
+    const dispose = render(() => <RelatedNotesSection app={app} />, host)
+    try {
+      await settle()
+      expect(host.querySelector('[aria-label="Related notes"]')).toBeNull()
+      expect(app.state.searchEngineEnabled).toBe(false)
     } finally { dispose(); host.remove() }
   })
 })

@@ -638,6 +638,7 @@ func linkNotesInDatabase(
       .text(now)
     ]
   )
+  try enqueueSearchEngineSync(noteIds: [fromNoteId, toNoteId], in: database)
   return try requireNoteLink(from: fromNoteId, to: toNoteId, linkKind: linkKind, in: database)
 }
 

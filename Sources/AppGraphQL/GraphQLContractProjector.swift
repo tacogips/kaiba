@@ -43,7 +43,8 @@ public enum GraphQLContractProjector {
     agentModels(provider: String): AgentModelsPayload!
     agenticSearch(query: String!, notebookId: String, limit: Int): AgenticSearchPayload!
     searchEngineCapability: SearchEngineCapabilityPayload!
-    engineSearchNotes(query: String!, notebookId: String, tagFilter: [String!], limit: Int, offset: Int): EngineNoteSearchQueryPayload!
+    engineSearchNotes(query: String!, notebookId: String, tagFilter: [String!], tagClassFilter: [String!], expandOntology: Boolean, facets: Boolean, limit: Int, offset: Int): EngineNoteSearchQueryPayload!
+    searchEngineSettings: SearchEngineSettingsPayload!
     relatedNotes(noteId: String!, limit: Int): EngineNoteSearchQueryPayload!
     appSetting(key: String!): AppSettingPayload!
     userAgentCredential: UserAgentCredentialPayload!
@@ -72,6 +73,8 @@ public enum GraphQLContractProjector {
     addNotebookComment(input: AddNotebookCommentInput!): NoteMutationPayload!
     openMemoNotebook(commentId: String!): NoteMutationPayload!
     setAppSetting(input: SetAppSettingInput!): AppSettingPayload!
+    updateSearchEngineSettings(input: SearchEngineSettingsInput!): SearchEngineSettingsPayload!
+    testSearchEngineConnection(input: SearchEngineSettingsInput!): SearchEngineConnectionTestPayload!
     setUserAgentCredential(input: SetUserAgentCredentialInput!): UserAgentCredentialPayload!
     setUserAgentCredentialEnabled(enabled: Boolean!): UserAgentCredentialPayload!
     clearUserAgentCredential: UserAgentCredentialPayload!

@@ -140,6 +140,7 @@ func ensureTag(_ tag: NoteTagInput, in database: SQLiteDatabase) throws {
         "UPDATE tags SET class_id = ? WHERE tag_id = ?",
         bindings: [.id(classId), .id(existing.tagId)]
       )
+      try enqueueSearchEngineSync(notesUnderTagId: existing.tagId, in: database)
     }
     return
   }

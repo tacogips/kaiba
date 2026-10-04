@@ -346,9 +346,14 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         query: requiredStringValue("query", variables: variables),
         notebookId: try optionalIdentifier("notebookId", as: NotebookID.self, variables: variables),
         tagFilter: try optionalStringArray("tagFilter", variables: variables) ?? [],
+        tagClassFilter: try optionalStringArray("tagClassFilter", variables: variables) ?? [],
+        expandOntology: try optionalBool("expandOntology", variables: variables) ?? true,
+        facets: try optionalBool("facets", variables: variables) ?? false,
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 20),
         offset: validatedEngineSearchOffset(try optionalInt("offset", variables: variables))
       ))
+    case "searchEngineSettings":
+      return try encodedJSONValue(service.searchEngineSettings())
     case "relatedNotes":
       return try await encodedJSONValue(service.relatedNotes(
         noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
@@ -477,6 +482,12 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         key: input.key,
         valueJSON: input.valueJSON
       ))
+    case "updateSearchEngineSettings":
+      let input: GraphQLSearchEngineSettingsInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.updateSearchEngineSettings(input))
+    case "testSearchEngineConnection":
+      let input: GraphQLSearchEngineSettingsInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.testSearchEngineConnection(input))
     case "setUserAgentCredential":
       let input: GraphQLSetUserAgentCredentialInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.setUserAgentCredential(input))

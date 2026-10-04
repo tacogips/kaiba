@@ -3,6 +3,7 @@ import { useApp } from '../state/appStore'
 import { clampFontScale, fontScaleBounds } from '../notes/settings'
 import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
 import { UserAgentSettings } from '../components/UserAgentSettings'
+import { SearchEngineSettings } from '../components/SearchEngineSettings'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
 
 // The config screen. Settings live in the kaiba store's sqlite
@@ -60,6 +61,8 @@ export function ConfigView(): JSX.Element {
       <ServerConnectionSettings />
 
       <UserAgentSettings />
+
+      <SearchEngineSettings />
 
       <section class="config-section">
         <h2>Layout</h2>

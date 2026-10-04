@@ -182,6 +182,38 @@ if let commandToken, commandToken.value == "ai",
   }
 }
 
+if let commandToken, commandToken.value == "search-engine",
+  !commandRequestsHelp(
+    in: Array(arguments.dropFirst(commandToken.index + 1)),
+    valueOptions: ["--output", "--note-root", "--config"]
+  ) {
+  var searchEngineArguments = arguments
+  searchEngineArguments.remove(at: commandToken.index)
+  do {
+    let global = try extractGlobalConfiguration(from: &searchEngineArguments)
+    let options = try SearchEngineCommand.parse(
+      arguments: searchEngineArguments,
+      noteRoot: global.noteRoot,
+      configuration: global.configuration
+    )
+    let (output, exitCode) = await SearchEngineCommand.run(
+      options,
+      environment: ProcessInfo.processInfo.environment
+    )
+    if !output.isEmpty {
+      if exitCode == 0 {
+        print(output)
+      } else {
+        FileHandle.standardError.write(Data((output + "\n").utf8))
+      }
+    }
+    exit(exitCode)
+  } catch {
+    FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+    exit(2)
+  }
+}
+
 let command = AppCommand(arguments: arguments)
 
 do {

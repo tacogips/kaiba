@@ -25,23 +25,29 @@ public struct ElasticsearchSearchEngine: SearchEngine {
   private let indexName: String
   private let authorization: ElasticsearchAuthorization
   private let transport: any ElasticsearchHTTPTransport
+  private let requestTimeoutSeconds: Int
 
-  public var indexIdentity: String { "elasticsearch:\(indexName)" }
+  public var indexIdentity: String {
+    "elasticsearch:\(SearchEngineFactory.normalizedTarget(baseURL.absoluteString) ?? baseURL.absoluteString)/\(indexName)"
+  }
 
   init(
     baseURL: URL,
     indexPrefix: String,
     authorization: ElasticsearchAuthorization,
-    transport: any ElasticsearchHTTPTransport = URLSessionElasticsearchTransport()
+    requestTimeoutSeconds: Int = 10,
+    verifyTLS: Bool = true,
+    transport: (any ElasticsearchHTTPTransport)? = nil
   ) {
     self.baseURL = baseURL
-    self.indexName = "\(indexPrefix)-notes-v1"
+    self.indexName = "\(indexPrefix)-notes-v2"
     self.authorization = authorization
-    self.transport = transport
+    self.requestTimeoutSeconds = requestTimeoutSeconds
+    self.transport = transport ?? URLSessionElasticsearchTransport(insecureTrustHost: verifyTLS ? nil : baseURL.host)
   }
 
   public func health() async throws -> SearchEngineHealth {
-    let (data, response) = try await send(path: "_cluster/health", method: "GET", timeout: 10)
+    let (data, response) = try await send(path: "_cluster/health", method: "GET", timeout: TimeInterval(requestTimeoutSeconds))
     try requireSuccess(response, body: data)
     guard let object = try? jsonObject(data), let status = object["status"] as? String else {
       throw SearchEngineError.invalidResponse("health status missing")
@@ -50,7 +56,7 @@ public struct ElasticsearchSearchEngine: SearchEngine {
   }
 
   public func ensureIndex() async throws {
-    let (_, head) = try await send(path: indexName, method: "HEAD", timeout: 10)
+    let (_, head) = try await send(path: indexName, method: "HEAD", timeout: TimeInterval(requestTimeoutSeconds))
     if head.statusCode == 200 { return }
     guard head.statusCode == 404 else {
       try requireSuccess(head, body: Data())
@@ -58,7 +64,7 @@ public struct ElasticsearchSearchEngine: SearchEngine {
     }
 
     let body = try ElasticsearchRequestBodies.data(ElasticsearchRequestBodies.index)
-    let (putBody, put) = try await send(path: indexName, method: "PUT", body: body, timeout: 10)
+    let (putBody, put) = try await send(path: indexName, method: "PUT", body: body, timeout: TimeInterval(requestTimeoutSeconds))
     if (200..<300).contains(put.statusCode) { return }
     if put.statusCode == 400, errorType(putBody) == "resource_already_exists_exception" { return }
     try requireSuccess(put, body: putBody)
@@ -68,7 +74,8 @@ public struct ElasticsearchSearchEngine: SearchEngine {
     guard !operations.isEmpty else { return [] }
     let body = try ElasticsearchRequestBodies.bulk(operations, indexName: indexName)
     let (data, response) = try await send(
-      path: "_bulk", method: "POST", body: body, contentType: "application/x-ndjson", timeout: 30
+      path: "_bulk", method: "POST", body: body, contentType: "application/x-ndjson",
+      timeout: TimeInterval(max(30, requestTimeoutSeconds))
     )
     try requireSuccess(response, body: data)
     guard let root = try? jsonObject(data), let items = root["items"] as? [[String: Any]], items.count == operations.count else {
@@ -90,20 +97,29 @@ public struct ElasticsearchSearchEngine: SearchEngine {
   }
 
   public func search(_ query: SearchEngineQuery) async throws -> [SearchEngineHit] {
-    guard query.filter.libraryIds != [] else { return [] }
+    try await searchPage(query).hits
+  }
+
+  public func searchPage(_ query: SearchEngineQuery) async throws -> SearchEngineSearchPage {
+    guard query.filter.libraryIds != [] else { return SearchEngineSearchPage(hits: [], facets: nil) }
     let body = try ElasticsearchRequestBodies.data(ElasticsearchRequestBodies.search(query))
     let (data, response) = try await send(
-      path: "\(indexName)/_search", method: "POST", body: body, timeout: 10
+      path: "\(indexName)/_search", method: "POST", body: body, timeout: TimeInterval(requestTimeoutSeconds)
     )
     try requireSuccess(response, body: data)
-    return try hits(from: data, includeHighlight: true)
+    let facets = query.facets == nil ? nil : try facets(from: data)
+    return SearchEngineSearchPage(hits: try hits(from: data, includeHighlight: true), facets: facets)
   }
 
   public func relatedNotes(_ query: SearchEngineRelatedQuery) async throws -> [SearchEngineHit] {
     guard query.filter.libraryIds != [] else { return [] }
     let body = try ElasticsearchRequestBodies.data(ElasticsearchRequestBodies.related(query))
+    guard let root = try? jsonObject(body),
+          let queryObject = root["query"] as? [String: Any],
+          let bool = queryObject["bool"] as? [String: Any],
+          let should = bool["should"] as? [[String: Any]], !should.isEmpty else { return [] }
     let (data, response) = try await send(
-      path: "\(indexName)/_search", method: "POST", body: body, timeout: 10
+      path: "\(indexName)/_search", method: "POST", body: body, timeout: TimeInterval(requestTimeoutSeconds)
     )
     try requireSuccess(response, body: data)
     return try hits(from: data, includeHighlight: false)
@@ -209,7 +225,31 @@ public struct ElasticsearchSearchEngine: SearchEngine {
       } else {
         highlight = nil
       }
-      return SearchEngineHit(noteId: NoteID(noteIdValue), score: score.doubleValue, highlight: highlight)
+      let matchedQueries = hit["matched_queries"] as? [String] ?? []
+      let reasons = matchedQueries.compactMap(SearchEngineHitReasonKind.init(rawValue:)).map {
+        SearchEngineHitReason(kind: $0)
+      }
+      return SearchEngineHit(noteId: NoteID(noteIdValue), score: score.doubleValue, highlight: highlight, reasons: reasons)
     }
+  }
+
+  private func facets(from data: Data) throws -> SearchEngineFacets {
+    guard let root = try? jsonObject(data),
+          let aggregations = root["aggregations"] as? [String: Any] else {
+      throw SearchEngineError.invalidResponse("search facets missing")
+    }
+    func buckets(_ name: String) throws -> [SearchEngineFacetBucket] {
+      guard let aggregation = aggregations[name] as? [String: Any],
+            let rawBuckets = aggregation["buckets"] as? [[String: Any]] else {
+        throw SearchEngineError.invalidResponse("search facet buckets missing")
+      }
+      return try rawBuckets.map { bucket in
+        guard let key = bucket["key"] as? String, let count = bucket["doc_count"] as? NSNumber else {
+          throw SearchEngineError.invalidResponse("search facet bucket malformed")
+        }
+        return SearchEngineFacetBucket(value: key, count: count.intValue)
+      }
+    }
+    return SearchEngineFacets(tagClasses: try buckets("tag_classes"), tags: try buckets("tags"))
   }
 }

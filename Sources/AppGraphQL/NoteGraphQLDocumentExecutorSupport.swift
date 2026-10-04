@@ -158,6 +158,9 @@ let supportedNoteGraphQLFields: Set<String> = [
   "agenticSearch",
   "searchEngineCapability",
   "engineSearchNotes",
+  "searchEngineSettings",
+  "updateSearchEngineSettings",
+  "testSearchEngineConnection",
   "relatedNotes",
   "appSetting",
   "actionHistory",
@@ -198,6 +201,7 @@ let noteGraphQLQueryFields: Set<String> = [
   "agenticSearch",
   "searchEngineCapability",
   "engineSearchNotes",
+  "searchEngineSettings",
   "relatedNotes",
   "appSetting",
   "userAgentCredential",
@@ -349,6 +353,9 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "agenticSearch": "AgenticSearchPayload",
   "searchEngineCapability": "SearchEngineCapabilityPayload",
   "engineSearchNotes": "EngineNoteSearchQueryPayload",
+  "searchEngineSettings": "SearchEngineSettingsPayload",
+  "updateSearchEngineSettings": "SearchEngineSettingsPayload",
+  "testSearchEngineConnection": "SearchEngineConnectionTestPayload",
   "relatedNotes": "EngineNoteSearchQueryPayload",
   "appSetting": "AppSettingPayload",
   "setAppSetting": "AppSettingPayload",
@@ -391,11 +398,51 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "result": "ControlPlaneResult",
     "enabled": nil
   ],
-  "EngineNoteSearchQueryPayload": noteGraphQLQueryPayloadFields(valueType: "EngineNoteHit"),
+  "EngineNoteSearchQueryPayload": [
+    "result": "ControlPlaneResult",
+    "value": "EngineNoteHit",
+    "facets": "EngineSearchFacets"
+  ],
   "EngineNoteHit": [
     "note": "Note",
     "snippet": nil,
-    "score": nil
+    "score": nil,
+    "reasons": "EngineHitReason"
+  ],
+  "EngineHitReason": [
+    "kind": nil,
+    "tags": nil
+  ],
+  "EngineSearchFacets": [
+    "tagClasses": "EngineFacetBucket",
+    "tags": "EngineTagFacetBucket"
+  ],
+  "EngineFacetBucket": ["value": nil, "count": nil],
+  "EngineTagFacetBucket": ["tagId": nil, "name": nil, "tagClass": nil, "count": nil],
+  "SearchEngineAdapterDescriptor": [
+    "kind": nil,
+    "displayName": nil,
+    "authModes": nil
+  ],
+  "SearchEngineSettingsPayload": noteGraphQLQueryPayloadFields(valueType: "SearchEngineSettings"),
+  "SearchEngineSettings": [
+    "managedBy": nil,
+    "kind": nil,
+    "url": nil,
+    "indexPrefix": nil,
+    "authMode": nil,
+    "username": nil,
+    "hasSecret": nil,
+    "verifyTLS": nil,
+    "requestTimeoutSeconds": nil,
+    "adapters": "SearchEngineAdapterDescriptor",
+    "active": nil
+  ],
+  "SearchEngineConnectionTestPayload": noteGraphQLQueryPayloadFields(valueType: "SearchEngineConnectionTestResult"),
+  "SearchEngineConnectionTestResult": [
+    "available": nil,
+    "status": nil,
+    "detail": nil
   ],
   "NoteGraphNeighborsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteGraphNeighbor"),
   "NoteLinkProposalQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteLinkProposal"),

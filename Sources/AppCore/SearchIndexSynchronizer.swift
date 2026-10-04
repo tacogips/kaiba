@@ -145,6 +145,7 @@ func searchIndexDocument(noteId: NoteID, in database: SQLiteDatabase) throws -> 
     if $0.name == $1.name { return $0.tagId < $1.tagId }
     return $0.name < $1.name
   }
+  let linkedNotes = try searchIndexLinkedNoteIds(noteId: noteId, in: database)
   return SearchIndexDocument(
     noteId: note.noteId,
     notebookId: note.notebookId,
@@ -160,7 +161,11 @@ func searchIndexDocument(noteId: NoteID, in database: SQLiteDatabase) throws -> 
     context: try ftsContextPayload(noteId: noteId, in: database),
     isLongTermMemory: try isLongTermMemoryDocumentNotebook(note.notebookId, in: database),
     createdAt: note.createdAt,
-    updatedAt: note.updatedAt
+    updatedAt: note.updatedAt,
+    tagApplications: try searchIndexTagApplications(noteId: noteId, in: database),
+    pathTags: try searchIndexPathTags(directTagIds: tags.map(\.tagId), in: database),
+    outgoingLinkNoteIds: linkedNotes.outgoing,
+    incomingLinkNoteIds: linkedNotes.incoming
   )
 }
 

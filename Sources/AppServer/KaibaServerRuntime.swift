@@ -82,6 +82,8 @@ public actor KaibaServerRuntime {
   private var server: KaibaLocalHTTPServer?
   #endif
   private var maintenance: Task<Void, Never>?
+  private var searchEngineSlot: SearchEngineSlot?
+  private var searchRuntimeController: SearchEngineRuntimeController?
   private var startInfo: KaibaServerStartInfo?
 
   public init(_ configuration: KaibaServeConfiguration) {
@@ -99,6 +101,8 @@ public actor KaibaServerRuntime {
   public var isRunning: Bool { startInfo != nil }
 
   public var currentStartInfo: KaibaServerStartInfo? { startInfo }
+
+  var isSearchEngineAttachedForTesting: Bool { searchEngineSlot?.engine != nil }
 
   /// Builds and starts the server, returning what it exposes. A no-op that
   /// returns the existing info if already running.
@@ -128,6 +132,25 @@ public actor KaibaServerRuntime {
       noteRoot: config.noteRoot,
       environment: config.environment
     )
+    _ = try SearchEngineFactory.make(
+      configuration: config.configuration.searchEngine,
+      environment: config.environment
+    )
+    let searchEngineSlot = SearchEngineSlot()
+    let searchEngineConfiguration = config.configuration.searchEngine
+    let searchEngineEnvironment = config.environment
+    searchEngineSlot.setManagedConfiguration(searchEngineConfiguration)
+    searchEngineSlot.setEnvironment(searchEngineEnvironment)
+    let searchRuntimeController = SearchEngineRuntimeController(
+      slot: searchEngineSlot,
+      makeEngine: { service in
+        try service.makeResolvedSearchEngine(
+          configuration: searchEngineConfiguration,
+          environment: searchEngineEnvironment
+        )
+      },
+      makeLoop: { SearchIndexSyncLoop(engine: $0) }
+    )
     let aiConfiguration = config.configuration.ai
     let invoker = AgentInvokerFactory.makeInvoker(
       configuration: aiConfiguration,
@@ -142,7 +165,7 @@ public actor KaibaServerRuntime {
     // (`design-docs/specs/user-agent-tools.md`, UA5).
     if invoker != nil || userAgentConfiguration.isEnabled {
       dispatcher = KaibaAutoActionDispatcher(
-        service: try NoteService(driver: driver),
+        service: try NoteService(driver: driver, searchEngineSlot: searchEngineSlot),
         invoker: invoker,
         provider: aiConfiguration?.agent?.provider,
         model: aiConfiguration?.agent?.model,
@@ -155,10 +178,15 @@ public actor KaibaServerRuntime {
           : nil
       )
     }
+    let observer = FanOutNoteChangeObserver([
+      NoteChangeFeedObserver(feed: changeFeed),
+      SearchEngineControllerKickObserver(controller: searchRuntimeController)
+    ])
     let service = try NoteService(
       driver: driver,
       autoActionDispatcher: dispatcher,
-      changeObserver: NoteChangeFeedObserver(feed: changeFeed)
+      changeObserver: observer,
+      searchEngineSlot: searchEngineSlot
     )
     // Fail before the port opens: `--as-admin` is only meaningful while the
     // account it binds to is still an enabled admin.
@@ -264,7 +292,10 @@ public actor KaibaServerRuntime {
       authMode = .unauthenticated
     }
 
+    await searchRuntimeController.start(service: service)
     self.server = server
+    self.searchEngineSlot = searchEngineSlot
+    self.searchRuntimeController = searchRuntimeController
     let info = KaibaServerStartInfo(
       endpoint: endpoint,
       noteRoot: config.noteRoot,
@@ -282,6 +313,9 @@ public actor KaibaServerRuntime {
   public func stop() async {
     maintenance?.cancel()
     maintenance = nil
+    await searchRuntimeController?.stop()
+    searchRuntimeController = nil
+    searchEngineSlot = nil
     #if canImport(Network)
     await server?.stop()
     server = nil
