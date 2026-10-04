@@ -1,6 +1,8 @@
 // Pagination bounds enforced by NoteGraphQLDocumentExecutor for every list and
 // search field (notebooks, notes, searchNotes): `limit` must be an integer in
 // 0...200 (0 returns an empty list) and `offset` an integer in 0...1_000_000.
+// engineSearchNotes uses limit 0...200 and offset 0...1000; relatedNotes uses
+// limit 0...20.
 // Graph fields (noteGraphNeighbors, proposeNoteLinks) accept `limit` only in
 // 0...20 — the bounded traversal's node cap. Any other value (out of range,
 // non-integral, or the wrong type) is rejected with an invalidVariable error
@@ -45,6 +47,9 @@ type NotebookFileAttachment { notebookId: String!, file: NoteFile!, role: String
 type NoteComment { commentId: String!, noteId: String, notebookId: String, bodyMarkdown: String!, author: String!, createdAt: String! }
 type NoteLink { fromNoteId: String!, toNoteId: String!, linkKind: String!, provenance: String!, createdAt: String! }
 type NoteSearchResult { note: Note!, snippet: String!, rank: Float!, matchedTags: [NoteTag!]!, isLinkedNeighbor: Boolean!, termCoverage: Float! }
+type SearchEngineCapabilityPayload { result: ControlPlaneResult!, enabled: Boolean! }
+type EngineNoteHit { note: Note!, snippet: String!, score: Float! }
+type EngineNoteSearchQueryPayload { result: ControlPlaneResult!, value: [EngineNoteHit!] }
 type NoteGraphNeighbor { seedNoteId: String!, note: Note!, edgeKind: String!, weight: Float!, hopCount: Int!, pathNoteIds: [String!]! }
 type NoteLinkProposal { targetNote: Note!, targetNoteId: String!, linkKind: String!, reason: String!, source: String! }
 type NoteAutoAction { actionId: String!, trigger: String!, workflowId: String!, filterJSON: String, enabled: Boolean!, position: Int!, createdAt: String! }

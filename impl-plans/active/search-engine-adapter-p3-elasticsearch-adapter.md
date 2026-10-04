@@ -1,6 +1,6 @@
 # P3 Elasticsearch adapter, factory and configuration validation
 
-**Status**: Ready
+**Status**: Step 6 implementation complete; downstream review pending
 **planId**: P3-elasticsearch-adapter
 **Wave**: 2
 **dependsOn**: P1-core-contract
@@ -316,14 +316,23 @@ already available locally, you may also run it and record the result.
 
 ## Done criteria
 
-- [ ] The adapter conforms to `SearchEngine`, with the request shapes,
+- [x] The adapter conforms to `SearchEngine`, with the request shapes,
       parsing and error mapping specified above.
-- [ ] The factory enforces every SE2 validation rule, with the exact error
+- [x] The factory enforces every SE2 validation rule, with the exact error
       values.
-- [ ] Mock-transport tests and factory tests pass. The live test skips
+- [x] Mock-transport tests and factory tests pass. The live test skips
       cleanly when unset.
-- [ ] No Elasticsearch symbol appears outside the adapter and factory files.
+- [x] No Elasticsearch symbol appears outside the adapter and factory files.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: Implemented the URLSession transport, Elasticsearch request bodies and adapter, SearchEngineFactory validation, mock-transport/factory/live integration tests. New source/test paths had no pre-edit file hash; final SHA-256 values: SearchEngineFactory.swift `0a9e28af60651bd5598b8dfcc089cf17ce60bca5ae9bb7aae9a17d7eceb53996`; ElasticsearchSearchEngine.swift `fcbcab394ac9fcb4eabf6da6ee4da6729f35edcd565f5da3132fbea7bb13db48` (pre-redaction hash `92d9451ef4395f1bea795aca16c8a858e89acc0384c990af1c93a3e744f348a9`); ElasticsearchHTTPTransport.swift `82939873ca5b52a8cf98cf1e58f9eaaf4ae76df88a94bfe4ceb319c7166d6248`; ElasticsearchRequestBodies.swift `d7843fe3de1955c721d0b9e961d743eb95fcd2a7d7b9c29824be279b79be1e09`; ElasticsearchSearchEngineTests.swift `f40b8daac597a9aaef3cefe45fd1a055ffee3860f607d38d65924ea15fce8cbc`; SearchEngineFactoryTests.swift `3f8f967a82d5347b06fd9112bcaa0adb96ce92783d6ab59a8fe915feb1588a13`; ElasticsearchLiveTests.swift `2ac866db75cb31447e9a0e307fa856d0f8acfd634385610cde19f99fd23daeea`. Shared contract inputs remained read-only.
+- 2026-10-04: `mise run build` passed (exit 0; `tmp/search-engine-adapter/P3/build-final.log`). The first build log recorded transient compile errors in shared search-service/synchronizer files while downstream work was in progress; a later build on the stable shared source passed.
+- 2026-10-04: Focused final-source tests passed: `swift test --filter ElasticsearchSearchEngine` (8 tests, 0 failures; `tmp/search-engine-adapter/P3/attempt-3-adapter.log`); `swift test --filter SearchEngineFactory` (4 tests, 0 failures; `tmp/search-engine-adapter/P3/attempt-3-factory.log`); with `KAIBA_ELASTICSEARCH_URL` unset, `swift test --filter ElasticsearchLive` skipped 1 test and had 0 failures (`tmp/search-engine-adapter/P3/attempt-3-live-skipped.log`). An earlier adapter-test attempt exposed direct NSLock calls in the async mock; moved locking into a synchronous helper and reran successfully.
+- 2026-10-04: Exact changed-file SwiftLint passed using the nonempty NUL-delimited manifest `tmp/search-engine-adapter/P3/changed-swift-files.nul` (exit 0; `tmp/search-engine-adapter/P3/swiftlint-changed-final.log`). Repository `mise run lint` passed with 3 non-serious repository findings (exit 0; `tmp/search-engine-adapter/P3/lint-final.log`). Symbol-boundary grep, line counts (all adapter/factory source files under 1000 lines), and `git diff --check` passed.
+- 2026-10-04: After changing the live test to use the explicit `try XCTSkipUnless` API, reran it with `KAIBA_ELASTICSEARCH_URL` unset: 1 test skipped, 0 failures (exit 0; `tmp/search-engine-adapter/P3/final-live-skipped.log`). Re-ran selected-file SwiftLint and repository `mise run lint` on the final test source; both exited 0 (`swiftlint-changed-final2.log`, `lint-final2.log`). Final source-boundary grep, line counts, and whitespace check exited 0 (`source-shape-final.log`).
+- Step 6 complete. Independent test-integrity/adversarial review and workflow finalization are downstream.
+- 2026-10-04 Step 6 rerun: all seven P3 source/test SHA-256 hashes still match the final hashes above. `mise run build`, exact-file strict SwiftLint, and repository `mise run lint` passed (`tmp/search-engine-adapter/P3/step6-rerun/`). `swift test --skip-build` ran the existing source-matched XCTest binary: adapter 8/8 passed, factory 4/4 passed, and the unset-URL live test skipped (1 skipped, 0 failures). Fresh compile-enabled adapter, factory, and live test commands could not compile because the shared pending P6 `NoteGraphQLDocumentExecutor.swift` calls `searchEngineCapability`, `engineSearchNotes`, and `relatedNotes` methods not yet present on `GraphQLNoteGraphQLService`; complete logs are `adapter.log`, `factory.log`, and `live-skipped.log` in that directory. Those methods are P6-owned and were not edited here. No live Elasticsearch cluster test was run.
+- 2026-10-04 Step 6 continuation: on the updated combined source, `mise run build` passed and fresh compile-enabled `swift test --filter ElasticsearchSearchEngine` passed 8/8 while `swift test --filter SearchEngineFactory` passed 4/4 (`tmp/search-engine-adapter/P3/step6-current/`). With `KAIBA_ELASTICSEARCH_URL` unset, the live suite skipped its one test and reported 0 failures. The exact seven-file strict SwiftLint check passed; repository `mise run lint` exited 0 with 3 non-serious repository findings. Symbol-boundary grep, source line counts (all below 1000), and `git diff --check` passed. P6 methods now compile in the shared tree. Live cluster execution remains P11-owned and was not run.
+- 2026-10-04 final Step 6 source-matched rerun: adapter suite passed 8/8, factory suite passed 4/4, and the unset-URL live suite skipped 1 test with 0 failures; all three commands exited 0. Logs: `tmp/search-engine-adapter/P3/step6-final-2/adapter.log`, `factory.log`, and `live-skipped.log`. Source-boundary grep, line counts, and whitespace check exited 0 (`source-shape.log`). All seven adapter/factory source and test hashes still match the recorded final hashes. The live cluster run remains P11-owned.

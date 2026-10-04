@@ -11,7 +11,7 @@ final class NoteStoreSchemaVersion22Tests: NoteTestCase {
     try NoteStoreSchema.prepare(on: driver)
     try driver.withDatabase { database in
       XCTAssertEqual(try database.query("PRAGMA table_info(notes)").last?["name"], "search_text")
-      XCTAssertEqual(try versions(in: database), [22])
+      XCTAssertEqual(try versions(in: database), [23])
     }
   }
 
@@ -90,7 +90,7 @@ final class NoteStoreSchemaVersion22Tests: NoteTestCase {
       ).first)
       XCTAssertEqual(ordinaryRow["body_markdown"], "ordinary markdown")
       XCTAssertNil(ordinaryRow["search_text"])
-      XCTAssertEqual(try versions(in: database), [21, 22])
+      XCTAssertEqual(try versions(in: database), [21, 22, 23])
     }
     XCTAssertEqual(try service.searchNotes(query: "quantum").first?.note.noteId, page.noteId)
     let report = try service.checkStore()
@@ -100,7 +100,7 @@ final class NoteStoreSchemaVersion22Tests: NoteTestCase {
 
     try NoteStoreSchema.prepare(on: driver)
     try driver.withDatabase { database in
-      XCTAssertEqual(try versions(in: database), [21, 22])
+      XCTAssertEqual(try versions(in: database), [21, 22, 23])
       let row = try XCTUnwrap(try database.query(
         "SELECT body_markdown, search_text FROM notes WHERE note_id = ?",
         bindings: [.id(page.noteId)]
@@ -129,7 +129,7 @@ final class NoteStoreSchemaVersion22Tests: NoteTestCase {
       ).first)
       XCTAssertEqual(row["body_markdown"], "")
       XCTAssertEqual(row["search_text"], "Existing column text")
-      XCTAssertEqual(try versions(in: database), [21, 22])
+      XCTAssertEqual(try versions(in: database), [21, 22, 23])
     }
   }
 
@@ -163,19 +163,19 @@ final class NoteStoreSchemaVersion22Tests: NoteTestCase {
       ).first)
       XCTAssertEqual(row["body_markdown"], "")
       XCTAssertEqual(row["search_text"], "Legacy twenty text")
-      XCTAssertEqual(try versions(in: database), [20, 21, 22])
+      XCTAssertEqual(try versions(in: database), [20, 21, 22, 23])
     }
   }
 
-  func testVersion23IsRejectedAsFuture() throws {
+  func testVersion24IsRejectedAsFuture() throws {
     let driver = try makeNoteDriver()
     try NoteStoreSchema.prepare(on: driver)
     try driver.withDatabase { database in
       try database.execute("DELETE FROM note_schema_version")
-      try database.execute("INSERT INTO note_schema_version VALUES (23, 'then')")
+      try database.execute("INSERT INTO note_schema_version VALUES (24, 'then')")
     }
     XCTAssertThrowsError(try NoteStoreSchema.prepare(on: driver)) { error in
-      XCTAssertEqual(error as? NoteStoreSchemaError, .unsupportedFutureVersion(found: 23, supported: 22))
+      XCTAssertEqual(error as? NoteStoreSchemaError, .unsupportedFutureVersion(found: 24, supported: 23))
     }
   }
 

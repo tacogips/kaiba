@@ -165,6 +165,17 @@ public struct KaibaNoteSearchResult: Codable, Equatable, Sendable {
   public var termCoverage: Double
 }
 
+public struct KaibaEngineNoteHit: Codable, Equatable, Sendable {
+  public var note: KaibaNote
+  public var snippet: String
+  public var score: Double
+}
+
+public struct KaibaSearchEngineCapabilityPayload: Codable, Equatable, Sendable {
+  public var result: KaibaControlPlaneResult
+  public var enabled: Bool
+}
+
 public struct KaibaNoteGraphNeighbor: Codable, Equatable, Sendable {
   public var seedNoteId: KaibaNoteID
   public var note: KaibaNote

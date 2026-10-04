@@ -54,6 +54,13 @@ func optionalIdentifierArrayArray<Identifier: KaibaIdentifier>(
   try optionalStringArrayArray(key, variables: variables)?.map { $0.map(Identifier.init) }
 }
 
+func requiredStringValue(_ key: String, variables: JSONObject) throws -> String {
+  guard case let .string(value)? = variables[key] else {
+    throw NoteGraphQLDocumentExecutorError.missingVariable(key)
+  }
+  return value
+}
+
 func requiredString(_ key: String, variables: JSONObject) throws -> String {
   guard case let .string(value)? = variables[key] else {
     throw NoteGraphQLDocumentExecutorError.missingVariable(key)
@@ -119,6 +126,7 @@ func optionalInt(_ key: String, variables: JSONObject) throws -> Int? {
 let noteGraphQLMaximumLimit = 200
 /// The maximum `offset` accepted on every list/search field.
 let noteGraphQLMaximumOffset = 1_000_000
+let noteGraphQLMaximumEngineSearchOffset = 1_000
 
 func validatedLimit(_ value: Int?, defaultValue: Int) throws -> Int {
   guard let value else {
@@ -143,6 +151,18 @@ func validatedGraphLimit(_ value: Int?, defaultValue: Int) throws -> Int {
   guard (0...NoteGraphPolicy.maximumLimit).contains(value) else {
     throw NoteGraphQLDocumentExecutorError.invalidVariable(
       "limit must be between 0 and \(NoteGraphPolicy.maximumLimit) for graph fields"
+    )
+  }
+  return value
+}
+
+func validatedEngineSearchOffset(_ value: Int?) throws -> Int {
+  guard let value else {
+    return 0
+  }
+  guard (0...noteGraphQLMaximumEngineSearchOffset).contains(value) else {
+    throw NoteGraphQLDocumentExecutorError.invalidVariable(
+      "offset must be between 0 and 1000 for engineSearchNotes"
     )
   }
   return value

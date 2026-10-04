@@ -8,6 +8,7 @@ import type {
   AgenticSearchResult,
   AgentReplyStreamPoll,
   ControlResult,
+  EngineNoteHit,
   GraphQLEnvelope,
   MutationPayload,
   Note,
@@ -834,6 +835,56 @@ export class NoteGraphQLClient {
       limit: input.limit ?? 20,
       offset: input.offset ?? 0,
     }, (data) => data.searchNotes)
+  }
+
+  async searchEngineCapability(): Promise<boolean> {
+    const data = await this.request<{
+      searchEngineCapability: { result: ControlResult; enabled: boolean }
+    }>('SearchEngineCapability', `
+      query SearchEngineCapability {
+        searchEngineCapability { result { accepted status diagnostics } enabled }
+      }
+    `, {})
+    const payload = data.searchEngineCapability
+    return Boolean(payload?.result.accepted && payload.enabled)
+  }
+
+  async engineSearchNotes(input: {
+    query: string
+    notebookId?: NotebookId
+    tagFilter?: string[]
+    limit?: number
+    offset?: number
+  }): Promise<EngineNoteHit[]> {
+    return this.queryValue<{
+      engineSearchNotes: QueryPayload<EngineNoteHit[]>
+    }, EngineNoteHit[]>('EngineSearchNotes', `
+      query EngineSearchNotes($query: String!, $notebookId: String, $tagFilter: [String!], $limit: Int, $offset: Int) {
+        engineSearchNotes(query: $query, notebookId: $notebookId, tagFilter: $tagFilter, limit: $limit, offset: $offset) {
+          result { accepted status diagnostics }
+          value { snippet score note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
+        }
+      }
+    `, {
+      query: input.query,
+      ...(input.notebookId ? { notebookId: input.notebookId } : {}),
+      ...(input.tagFilter?.length ? { tagFilter: input.tagFilter } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      ...(input.offset !== undefined ? { offset: input.offset } : {}),
+    }, (data) => data.engineSearchNotes)
+  }
+
+  async relatedNotes(noteId: NoteId, limit = 8): Promise<EngineNoteHit[]> {
+    return this.queryValue<{
+      relatedNotes: QueryPayload<EngineNoteHit[]>
+    }, EngineNoteHit[]>('RelatedNotes', `
+      query RelatedNotes($noteId: String!, $limit: Int) {
+        relatedNotes(noteId: $noteId, limit: $limit) {
+          result { accepted status diagnostics }
+          value { snippet score note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
+        }
+      }
+    `, { noteId, limit }, (data) => data.relatedNotes)
   }
 
   /** Agentic search: the configured agent answers the question, grounded in a

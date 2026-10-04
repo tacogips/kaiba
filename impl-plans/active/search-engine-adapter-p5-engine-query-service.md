@@ -1,6 +1,6 @@
 # P5 Engine query service: engineSearchNotes, relatedNotes, scope filter and store re-check
 
-**Status**: Ready
+**Status**: Implementation complete; independent review pending
 **planId**: P5-engine-query-service
 **Wave**: 2
 **dependsOn**: P1-core-contract, P2-store-outbox
@@ -99,9 +99,10 @@ unauthenticated services, libraries and members are created, for example
 ### `Sources/AppCore/NoteService.swift`
 
 - Add one stored property next to `changeObserver`:
-  `public var searchEngine: (any SearchEngine)? = nil`, with a one-line doc
-  comment citing design SE1.
-- No init change; the default value covers it.
+  `public var searchEngine: (any SearchEngine)?`, with a one-line doc comment
+  citing design SE1. Swift implicitly initializes the optional to nil; omitting
+  an explicit `= nil` satisfies the repository's strict SwiftLint rule.
+- No init change; the optional default covers it.
 - P2 already edited this file in wave 1. Fresh-read and hash it first.
 - The file must stay at or under 943 lines.
 
@@ -276,13 +277,42 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `NoteService.searchEngine` exists, and scoped copies inherit it.
-- [ ] `engineSearchNotes` and `relatedNotes` implement the three-phase flow,
+- [x] `NoteService.searchEngine` exists, defaults to nil, and scoped copies inherit it.
+- [x] `engineSearchNotes` and `relatedNotes` implement the three-phase flow,
       with the pinned errors and limits.
-- [ ] The store re-check uses the same predicates as `searchNotesInDatabase`.
+- [x] The store re-check uses the same predicates as `searchNotesInDatabase`.
       Every access test passes with filter-ignoring scripted hits.
-- [ ] `searchNotes` behavior is unchanged, and its regression suites pass.
+- [x] `searchNotes` behavior is unchanged, and its regression suites pass.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: Implemented `NoteService.searchEngine`, extracted shared scope
+  construction, added filter mapping and the scoped store re-check, then added
+  engine search and related-note queries with store/engine/re-check phases.
+  `NoteService.swift` is 942 lines; `NoteService+SearchEngine.swift` is 126
+  lines; `SearchEngineScope.swift` is 61 lines.
+- Final current-source verification (complete logs under
+  `tmp/search-engine-adapter/P5/`): `mise run build` exited 0;
+  `swift test --filter SearchEngineQuery` ran 5 tests, 0 failures;
+  `swift test --filter SearchEngineAccess` ran 6 tests, 0 failures;
+  `swift test --filter NoteSearch` ran 1 test, 0 failures;
+  `swift test --filter Library` ran 99 XCTest tests, 0 failures (the Swift
+  Testing runner also reported its selected single test passed);
+  `mise run lint` exited 0 with 3 non-serious baseline warnings.
+- Strict selected-file SwiftLint ran against the nonempty manifest
+  `tmp/search-engine-adapter/P5/changed-swift-files.nul` and exited 1 only for
+  the P2 baseline `large_tuple` in `NoteService.swift:722`; the new P5 files
+  and changed hunks have no diagnostics. The repository lint command above
+  remains the plan's passing lint gate.
+- Earlier attempts: the first build found an incorrect `appendCreatedAtPredicates`
+  overload, corrected to the existing predicate-array API; the next compile
+  exposed a public-extension visibility diagnostic, fixed by marking the scope
+  helper internal. The first access run used the unscoped-operator fixture for
+  an empty reachability case and failed its assertion; the test now uses an
+  authenticated non-admin with an unreachable selected library and passes.
+  A concurrent intermediate test build also failed in downstream P3/P4 test
+  files while those files were being written; the final current-source reruns
+  above pass.
+- Independent formal review and integration review remain downstream workflow
+  steps; they are not implementation work for P5.

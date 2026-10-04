@@ -18,12 +18,12 @@ private struct KaibaRootPayload<Value: Codable & Equatable & Sendable>: Codable,
   }
 }
 
-private protocol KaibaControlPlaneDiagnosticsSanitizable {
+protocol KaibaControlPlaneDiagnosticsSanitizable {
   func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self
 }
 
 extension KaibaControlPlaneResult: KaibaControlPlaneDiagnosticsSanitizable {
-  fileprivate func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
+  func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
     var copy = self
     copy.diagnostics = diagnostics.map(sanitizer)
     return copy
@@ -31,7 +31,7 @@ extension KaibaControlPlaneResult: KaibaControlPlaneDiagnosticsSanitizable {
 }
 
 extension KaibaOperationPayload: KaibaControlPlaneDiagnosticsSanitizable {
-  fileprivate func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
+  func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
     var copy = self
     copy.result = result.sanitizingDiagnostics(sanitizer)
     return copy
@@ -39,7 +39,7 @@ extension KaibaOperationPayload: KaibaControlPlaneDiagnosticsSanitizable {
 }
 
 extension KaibaLongTermMemoryAppendPayload: KaibaControlPlaneDiagnosticsSanitizable {
-  fileprivate func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
+  func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
     var copy = self
     copy.result = result.sanitizingDiagnostics(sanitizer)
     return copy
@@ -47,7 +47,7 @@ extension KaibaLongTermMemoryAppendPayload: KaibaControlPlaneDiagnosticsSanitiza
 }
 
 extension KaibaValuePayload: KaibaControlPlaneDiagnosticsSanitizable {
-  fileprivate func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
+  func sanitizingDiagnostics(_ sanitizer: (String) -> String) -> Self {
     var copy = self
     copy.result = result.sanitizingDiagnostics(sanitizer)
     return copy
@@ -778,7 +778,7 @@ extension KaibaClient {
     )
   }
 
-  private func operation<Value: Codable & Equatable & Sendable & KaibaControlPlaneDiagnosticsSanitizable>(
+  func operation<Value: Codable & Equatable & Sendable & KaibaControlPlaneDiagnosticsSanitizable>(
     _ document: String,
     variables: [String: KaibaJSONValue] = [:],
     as type: Value.Type
@@ -830,9 +830,9 @@ extension KaibaClient {
     return .object(value)
   }
 
-  private static let tagFields = "tag { tagId name classId parentTagId isSystem createdAt } provenance assignedBy deletable createdAt"
-  private static let tagDefinitionFields = "tagId name classId parentTagId isSystem createdAt"
-  private static let noteFields = "noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON tags { \(tagFields) } createdBy updatedBy"
+  static let tagFields = "tag { tagId name classId parentTagId isSystem createdAt } provenance assignedBy deletable createdAt"
+  static let tagDefinitionFields = "tagId name classId parentTagId isSystem createdAt"
+  static let noteFields = "noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON tags { \(tagFields) } createdBy updatedBy"
   private static let notebookFields = "notebookId title readOnly createdAt updatedAt metaJSON tags { \(tagFields) } firstNotePreview noteCount libraryId ownerUserId createdBy updatedBy"
   private static let fileFields = "fileId storageKind localPath s3Profile s3Bucket s3Key mediaType byteSize sha256 originalFilename createdAt migratedAt"
 }

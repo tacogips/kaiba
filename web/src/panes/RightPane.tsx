@@ -4,6 +4,7 @@ import { TabPanel, Tabs, type TabDescriptor } from '../components/Tabs'
 import { MemoTab } from '../components/MemoTab'
 import { NoteInfoTab } from '../components/NoteInfoTab'
 import { LinkedDocsTab } from '../components/LinkedDocsTab'
+import { RelatedNotesSection } from '../components/RelatedNotesSection'
 import { NotebookLinksTab, NotebookTagsTab } from '../components/NotebookAggregateTabs'
 import { TagPane } from '../components/TagPane'
 import { useApp } from '../state/appStore'
@@ -85,7 +86,10 @@ export function RightPane(props: { onClose?: () => void; conversationId?: Notebo
           </TabPanel>
           <TabPanel idPrefix="right" value="links" active={app.state.pane.rightTab}>
             <Show when={noteMode()} fallback={<NotebookLinksTab />}>
-              <LinkedDocsTab />
+              <>
+                <LinkedDocsTab />
+                <RelatedNotesSection />
+              </>
             </Show>
           </TabPanel>
         </div>

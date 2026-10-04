@@ -113,12 +113,44 @@ retries them.
 
 ## Done criteria
 
-- [ ] The compose file has a pinned 8.x image, single-node, security off,
+- [x] The compose file has a pinned 8.x image, single-node, security off,
       a loopback-only port, a named volume and a healthcheck.
-- [ ] The four mise tasks exist, and the existing tasks are unchanged.
-- [ ] The verification commands show `exit=0`, or have explicit Docker
+- [x] The four mise tasks exist, and the existing tasks are unchanged.
+- [x] The verification commands show `exit=0`, or have explicit Docker
       blockers recorded.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: Implemented P10. Pulled the pinned Elasticsearch 8.19.0 image
+  successfully. Compose config, task listing, loopback bind check, and
+  `search:up`, `search:status` (`green`), and `search:down` all exited 0.
+  `search:down` omitted `-v`; the named volume was created and retained by
+  the Compose project. Complete logs are in
+  `tmp/search-engine-adapter/P10/attempt-1/`. Final authored-file SHA-256:
+  compose `1f3cf5133f04fad6086950417bcef21e4f86ff288b32b472a6ada7c509aa3840`,
+  mise `36e25bb3a3b544fd3b96bf0672693e395f92c39743aba928dba499156c566afc`.
+- 2026-10-04: Re-ran the command-level checks against the current source.
+  Compose config, task listing, loopback bind, startup healthcheck, green
+  single-node status, teardown and volume-retention checks all exited 0.
+  Complete logs are in `tmp/search-engine-adapter/P10/attempt-2/`. Compose
+  and mise SHA-256 remain
+  `1f3cf5133f04fad6086950417bcef21e4f86ff288b32b472a6ada7c509aa3840` and
+  `36e25bb3a3b544fd3b96bf0672693e395f92c39743aba928dba499156c566afc`.
+- 2026-10-04: Step 6 resume current-source verification is in
+  `tmp/search-engine-adapter/P10/attempt-3/`. Compose config, all four task
+  listings, loopback binding, `search:up`, green `search:status`,
+  `search:down`, and retained named-volume checks exited 0. The additional
+  `search:test-live` attempt exited 1 during Swift compilation because the
+  shared tree's `GraphQLNoteGraphQLService` lacks the P6 methods
+  `searchEngineCapability`, `engineSearchNotes`, and `relatedNotes`; the live
+  tests did not execute. This is downstream combined-tree integration work
+  for P11, not a P10-owned command-level criterion. The local service was
+  stopped after the attempt and its data volume remains.
+- 2026-10-04: Attempt-4 current-source verification is in
+  `tmp/search-engine-adapter/P10/attempt-4/`. Compose config, the four task
+  listings and `anydoc:native` dependency, loopback binding, startup,
+  green single-node status, live Elasticsearch integration (1 test passed,
+  0 failures), teardown, volume retention and `git diff --check` all exited
+  0. This combined-tree live-test pass supersedes the attempt-3 compile
+  failure; the local service is stopped and its named data volume remains.

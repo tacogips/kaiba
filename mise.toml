@@ -229,3 +229,31 @@ else
   echo "Using existing custom Git hooks path: $hooks_path"
 fi
 '''
+
+[tasks."search:up"]
+description = "Start the local single-node Elasticsearch (local development only)"
+run = '''
+docker compose -f docker/elasticsearch/compose.yaml up -d --wait
+'''
+
+[tasks."search:down"]
+description = "Stop the local Elasticsearch (keeps the data volume)"
+run = '''
+docker compose -f docker/elasticsearch/compose.yaml down
+'''
+
+[tasks."search:status"]
+description = "Show local Elasticsearch cluster health"
+run = '''
+curl -fsS http://127.0.0.1:9200/_cluster/health
+'''
+
+[tasks."search:test-live"]
+description = "Run the gated Elasticsearch live integration test against the local cluster"
+depends = ["anydoc:native"]
+run = '''
+KAIBA_ELASTICSEARCH_URL=${KAIBA_ELASTICSEARCH_URL:-http://127.0.0.1:9200} swift test --filter ElasticsearchLive
+'''
+
+[tasks."search:test-live".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"

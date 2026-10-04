@@ -83,6 +83,8 @@ public struct NoteService: Sendable {
   /// Notified after each committed mutation visible to live clients. Nil
   /// disables the change feed entirely.
   public var changeObserver: (any NoteChangeObserving)?
+  /// Optional engine for explicit engine-backed note search (design SE1).
+  public var searchEngine: (any SearchEngine)?
   /// Shared registry of background dispatch tasks fired by this service value,
   /// awaited by `drainAutoActionDispatches()`.
   let autoActionDispatchTasks: AutoActionDispatchTaskTracker
@@ -922,6 +924,7 @@ func deleteNoteRows(noteId: NoteID, in database: SQLiteDatabase) throws {
     bindings: [.id(noteId), .id(noteId)]
   )
   try database.execute("DELETE FROM note_comments WHERE note_id = ?", bindings: [.id(noteId)])
+  try enqueueSearchEngineSync(noteIds: [noteId], in: database)
   try database.execute("DELETE FROM notes WHERE note_id = ?", bindings: [.id(noteId)])
 }
 

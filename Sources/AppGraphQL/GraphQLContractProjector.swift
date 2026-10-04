@@ -42,6 +42,9 @@ public enum GraphQLContractProjector {
     tagComments(tagId: String!, limit: Int, offset: Int): TagCommentsQueryPayload!
     agentModels(provider: String): AgentModelsPayload!
     agenticSearch(query: String!, notebookId: String, limit: Int): AgenticSearchPayload!
+    searchEngineCapability: SearchEngineCapabilityPayload!
+    engineSearchNotes(query: String!, notebookId: String, tagFilter: [String!], limit: Int, offset: Int): EngineNoteSearchQueryPayload!
+    relatedNotes(noteId: String!, limit: Int): EngineNoteSearchQueryPayload!
     appSetting(key: String!): AppSettingPayload!
     userAgentCredential: UserAgentCredentialPayload!
     actionHistory(limit: Int, beforeSeq: Int): ActionHistoryPayload!

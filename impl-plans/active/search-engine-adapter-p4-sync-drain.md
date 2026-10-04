@@ -1,6 +1,6 @@
 # P4 Sync drain: document builder and SearchIndexSynchronizer
 
-**Status**: Ready
+**Status**: Implemented; independent review and serial integration pending
 **planId**: P4-sync-drain
 **Wave**: 2
 **dependsOn**: P1-core-contract, P2-store-outbox
@@ -179,14 +179,18 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `SearchIndexSynchronizer` and `SearchIndexDrainReport` exist with the
+- [x] `SearchIndexSynchronizer` and `SearchIndexDrainReport` exist with the
       pinned API.
-- [ ] Documents mirror the FTS text derivation. Deletes are pushed for
+- [x] Documents mirror the FTS text derivation. Deletes are pushed for
       missing notes.
-- [ ] Failures never affect the note write and back off through P2 settle.
+- [x] Failures never affect the note write and back off through P2 settle.
       Generation races keep the row.
-- [ ] All verification commands show `exit=0`.
+- [x] All verification commands show `exit=0`.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: Implemented the pinned synchronizer API and FTS-matched document builder. The drain claims with a fresh UUID, builds operation/row pairs in one database read, applies after leaving that closure, maps missing/per-note/throwing failures, settles with a fresh clock value, and reports backlog counts. `drainUntilIdle` accumulates results and stops on no due rows or zero progress.
+- 2026-10-04: Added 7 `SearchIndexSynchronizerTests` covering two-document upsert and derivation, delete, failure isolation and retry, per-note failure, generation race and re-push, 250-note batching and zero-progress termination, long-term-memory metadata, and inactive-store behavior.
+- 2026-10-04: Final verification passed: `mise run build` (exit 0; `tmp/search-engine-adapter/P4/build-final.log`); `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchIndexSynchronizer` (7 tests, 0 failures; `tmp/search-engine-adapter/P4/drain-final.log`); `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter SearchEngineSyncOutbox` (8 tests, 0 failures; `tmp/search-engine-adapter/P4/outbox-attempt1.log`); `mise run lint` (exit 0; 3 shared-tree warnings, none in P4; `tmp/search-engine-adapter/P4/lint-final.log`); strict changed-file SwiftLint (exit 0; `tmp/search-engine-adapter/P4/swiftlint-changed-final2.log`); `wc -l Sources/AppCore/SearchIndexSynchronizer.swift Tests/AppCoreTests/SearchIndexSynchronizerTests.swift` (172 and 191 lines).
+- 2026-10-04: The preserved `drain-attempt1.log` and `drain-attempt2.log` record transient P5 and P3 compile blockers in the moving shared tree. P4's initial XCTest clock-capture diagnostics were corrected; the earlier failed `drain-final.log` was overwritten by its successful current-source rerun, so that first attempt is not preserved as a complete log. Final build and behavioral reruns pass. Independent review and the combined-tree serial integration review remain downstream.

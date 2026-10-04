@@ -188,14 +188,25 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] The pinned protocol, types, error and protocol extension exist, with
+- [x] The pinned protocol, types, error and protocol extension exist, with
       the exact names.
-- [ ] `KaibaConfiguration.searchEngine` decodes, defaults to nil, and
+- [x] `KaibaConfiguration.searchEngine` decodes, defaults to nil, and
       existing init call sites compile unchanged.
-- [ ] `FakeSearchEngine` implements the specified semantics and knobs.
-- [ ] All verification commands show `exit=0`, and the evidence paths are
+- [x] `FakeSearchEngine` implements the specified semantics and knobs.
+- [x] All verification commands show `exit=0`, and the evidence paths are
       recorded below.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: Implemented the pinned AppCore protocol and value types, optional
+  configuration decoding, lock-protected fake, and focused tests. Verification
+  passed: `mise run build` (`tmp/search-engine-adapter/P1/build.log`),
+  `SearchEngineContract` (5 tests; `contract-current-tree.log`),
+  `KaibaSearchEngineConfigurationDecoding` (3 tests; `config-current-tree.log`),
+  existing `KaibaConfiguration` (8 tests; `existing-config-final.log`), strict
+  changed-file SwiftLint (`swiftlint-changed-final.log`), and repository
+  `mise run lint` (`lint.log`, exit 0). Protocol/config shape and line counts
+  are recorded in `contract-shape-final.log` (197 and 520 lines). An earlier
+  existing-config compile attempt caught a concurrent P2 test edit; the owner
+  corrected that shared file and the final current-tree rerun passed.

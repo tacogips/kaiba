@@ -1,6 +1,6 @@
 # P2 Store outbox: schema v23, gated enqueue hooks, activation, claim and settle
 
-**Status**: Ready
+**Status**: Implemented; awaiting independent review
 **planId**: P2-store-outbox
 **Wave**: 1
 **dependsOn**: none
@@ -282,14 +282,66 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] Schema v23 is in place. The tables are created before the upgrade
+- [x] Schema v23 is in place. The tables are created before the upgrade
       chain. The existing schema tests are updated with their intent kept.
-- [ ] There are four gated enqueue call sites and no others.
-- [ ] Activation, enqueue-all, claim, settle and status match the pinned
+- [x] There are four gated enqueue call sites and no others.
+- [x] Activation, enqueue-all, claim, settle and status match the pinned
       signatures and semantics.
-- [ ] A never-activated store gets zero outbox rows on every write path.
-- [ ] All verification commands show `exit=0`, and the evidence is logged.
+- [x] A never-activated store gets zero outbox rows on every write path.
+- [x] All plan verification commands show `exit=0`, and the evidence is logged.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: Implemented store v23 tables before version checks, supported
+  upgrade chains through v23, activation/backfill and durable outbox APIs,
+  plus the four gated note-write/library hooks. Added outbox lifecycle and
+  schema migration tests and preserved existing schema assertions.
+- 2026-10-04 verification: `mise run build` passed (exit 0; `build.log`);
+  `swift test --filter SearchEngineSyncOutbox` passed 7 tests (`outbox-final.log`);
+  `swift test --filter NoteStoreSchema` passed 26 tests (`schema-final.log`);
+  `NoteSearch`, `NoteStoreMaintenance`, `Library` and `TagDetail` focused
+  suites passed (1, 5, 97 and 27 tests; corresponding plan-local logs);
+  repository `mise run lint` exited 0 (`lint.log`). The exact changed-file
+  strict SwiftLint check reports only the pre-existing `large_tuple` at
+  `NoteService.swift:720`; the same diagnostic is present in the saved
+  pre-edit snapshot (`swiftlint-note-service-baseline.log`). The other changed
+  Swift files pass the strict check (`swiftlint-changed-excluding-baseline.log`).
+  Hook grep found exactly four enqueue call sites. `NoteStoreSchema.swift` is
+  887 lines and `NoteService.swift` is 940 lines; all changed Swift files are
+  below 1000 lines.
+- 2026-10-04 final-source rerun after guarding negative retry-attempt inputs:
+  `mise run build` passed (exit 0; `build-final.log`) and the outbox suite
+  passed 7 tests with zero failures (exit 0; `outbox-final2.log`). Exact
+  changed-file strict SwiftLint repeated the same `NoteService.swift:720`
+  diagnostic (exit 1; `swiftlint-changed-final2.log`); the untouched pre-edit
+  snapshot has that same diagnostic (exit 2; `swiftlint-note-service-baseline.log`).
+  The other changed files pass strict SwiftLint (exit 0;
+  `swiftlint-changed-excluding-baseline-final.log`).
+- 2026-10-04 read-only implementation review found that never-activated
+  coverage omitted tag apply. The test now applies a tag before checking that
+  no row is written; the renewed outbox suite passed 7 tests with zero
+  failures (exit 0; `outbox-final3.log`).
+- 2026-10-04 final-source focused reruns passed: `NoteStoreSchema` 26,
+  `NoteSearch` 1, `NoteStoreMaintenance` 5, `Library` 97, and `TagDetail` 27
+  tests, all with zero failures and exit 0 (`*-final.log`). Repository lint
+  exited 0 with three existing warnings (`lint-final3.log`). Changed-file
+  strict lint still reports only the unchanged `NoteService.swift:720`
+  baseline finding (exit 1; `swiftlint-changed-final3.log`); all other changed
+  files pass strict lint (exit 0; `swiftlint-changed-excluding-baseline-final3.log`).
+- 2026-10-04 test-integrity repairs for `P2-TI-settle-success-delete-unverified`
+  and `P2-TI-migration-fixtures-keep-outbox-tables`: added a matching-generation
+  success settle test using a two-row claim, and made the v21/v22 fixtures drop
+  and verify absence of both v23 outbox tables before prepare. The outbox suite
+  passed 8 tests and the schema suite passed 26 tests, both with zero failures
+  and exit 0 (`outbox-ti-fix.log`, `schema-ti-fix.log`). `mise run lint` exited
+  0 (`lint-ti-fix.log`); the changed-file strict check reports only the
+  previously evidenced `NoteService.swift:720` baseline diagnostic (exit 1;
+  `swiftlint-ti-fix.log`). Independent integrity review remains pending.
+- 2026-10-04 final rerun after explicit v21 table-presence assertions and test
+  naming alignment: outbox passed 8 tests and schema passed 26 tests, with zero
+  failures and exit 0 (`outbox-ti-fix2.log`, `schema-ti-fix2.log`). Repository
+  lint exited 0 (`lint-ti-fix2.log`). Exact changed-file strict lint reports
+  only the pre-existing `NoteService.swift:720` baseline diagnostic (exit 1;
+  `swiftlint-ti-fix2.log`); all other changed Swift files pass (exit 0;
+  `swiftlint-excluding-baseline-ti-fix2.log`).

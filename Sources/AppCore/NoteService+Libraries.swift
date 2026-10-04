@@ -250,6 +250,7 @@ public extension NoteService {
             .id(notebookId)
           ]
         )
+        try enqueueSearchEngineSync(notebookId: notebookId, in: db)
         try stampNotebookUpdated(notebookId, in: db)
         return try requireLibrary(library.libraryId, in: db)
       }

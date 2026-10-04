@@ -1,6 +1,6 @@
 # P6 GraphQL fields and KaibaClient operations
 
-**Status**: Ready
+**Status**: Implementation complete; formal review pending
 **planId**: P6-graphql-client
 **Wave**: 3
 **dependsOn**: P1-core-contract, P5-engine-query-service
@@ -268,13 +268,33 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] The SDL, registries, dispatch and validators match the pinned
+- [x] The SDL, registries, dispatch and validators match the pinned
       contract.
-- [ ] Error statuses are `feature-disabled` and `search-engine-unavailable`,
+- [x] Error statuses are `feature-disabled` and `search-engine-unavailable`,
       with fixed diagnostics.
-- [ ] The 3 KaibaClient operations and their models exist and are tested.
-- [ ] Every existing GraphQL and KaibaClient suite passes.
+- [x] The 3 KaibaClient operations and their models exist and are tested.
+- [x] Every existing GraphQL and KaibaClient suite passes.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: P6 implementation complete. Added the three pinned Query fields
+  and result types, registered and dispatched each field, enforced engine
+  offset and related-note limits, and added GraphQL and KaibaClient resolvers
+  and models. Empty engine queries preserve the service's `invalid_request`
+  status. Added five GraphQL behavior tests and two KaibaClient operation tests;
+  existing `searchNotes` output is asserted equal with and without an engine.
+- 2026-10-04: Final-source verification passed: `mise run build`;
+  SearchEngineGraphQL 5/5; NoteGraphQLSchemaInventory 1/1; AppGraphQLTests
+  167/167; KaibaClientTests 59/59; strict SwiftLint over all 12 changed Swift
+  paths. `mise run lint` exited 0 with three baseline warnings. Complete logs
+  are under `tmp/search-engine-adapter/P6/`.
+- 2026-10-04: Two early build attempts and an intermediate GraphQL test attempt
+  failed during implementation. The first build exposed Swift access-control
+  issues and the second exposed a private helper scope issue; the intermediate
+  test run exposed test helper expectations. These were corrected, and the
+  later final-source build and all assigned suites passed. See
+  `build-attempt1.log`, `build-final.log`, and `graphql-attempt2.log` for the
+  preserved failed attempts.
+- 2026-10-04: Independent formal review and workflow finalization remain
+  downstream.

@@ -236,12 +236,57 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] Client methods, state flag, SearchView engine path with fallback, and
+- [x] Client methods, state flag, SearchView engine path with fallback, and
       the Related notes section exist as specified.
-- [ ] The disabled path is unchanged. The new tests cover hidden and visible
+- [x] The disabled path is unchanged. The new tests cover hidden and visible
       states and the fallback.
-- [ ] `web:check` and `tauri:check` show `exit=0`.
+- [x] `web:check` and `tauri:check` show `exit=0`.
 
 ## Progress Log
 
 - 2026-10-04: Plan created.
+- 2026-10-04: Implemented engine capability/search client operations, capability
+  state loading, capability-gated grep search with status-only fallback, and
+  the Links-tab Related notes section. Added dedicated client and UI tests;
+  `web/src/notes/client.test.ts` remains unchanged.
+- 2026-10-04: Read-only P9 audit found capability stayed disabled after an
+  initial unauthenticated read; capability now reloads after successful
+  sign-in and reconnect, with an integration test for sign-in recovery.
+- 2026-10-04: Final `mise run web:check` passed (177 bun tests and 87 vitest
+  tests; typecheck, lint and production build passed); full log:
+  `tmp/search-engine-adapter/P9/web-check-final3.log`. A generation guard
+  prevents a stale fallback from updating the notice after a route change.
+  Final `mise run tauri:check` passed; log:
+  `tmp/search-engine-adapter/P9/tauri-check-final3.log`. Required symbol greps
+  passed, the credential test diff is empty, and `git diff --check` passed.
+  Earlier failed attempts and logs are retained as `web-check-attempt1.log`
+  and `web-check-attempt2.log`.
+- 2026-10-04: Step 6 resume reran the required checks against the current shared
+  tree. `mise run web:check` passed (177 bun tests + 87 Vitest tests, 264 total;
+  typecheck, lint and production build passed), log:
+  `tmp/search-engine-adapter/P9/web-check-step6-resume2.log`.
+  `mise run tauri:check` exited 0, log:
+  `tmp/search-engine-adapter/P9/tauri-check-step6-resume.log`.
+- 2026-10-04: Step 6 current-source rerun passed `mise run web:check` with
+  177 bun tests and 87 Vitest tests (264 total), plus typecheck, lint and
+  production build; complete log: `tmp/search-engine-adapter/P9/attempt-3/web-check.log`.
+  `mise run tauri:check` passed; complete log:
+  `tmp/search-engine-adapter/P9/attempt-3/tauri-check.log`. Required symbol
+  checks and `git diff --check` passed; `web/src/notes/client.test.ts` has no
+  diff.
+- 2026-10-04: Step 6 attempt-4 current-source verification passed
+  `mise run web:check` (177 bun tests + 87 Vitest tests, 264 total; typecheck,
+  lint and production build passed), complete log:
+  `tmp/search-engine-adapter/P9/attempt-4/web-check.log`. `mise run
+  tauri:check` exited 0; complete log:
+  `tmp/search-engine-adapter/P9/attempt-4/tauri-check.log`. Required symbol
+  checks passed, `web/src/notes/client.test.ts` has no diff, and `git diff
+  --check` passed.
+- 2026-10-04: Step 6 final current-tree verification passed `mise run
+  web:check` (177 bun tests + 87 Vitest tests, 264 total; typecheck, lint and
+  production build passed), complete log:
+  `tmp/search-engine-adapter/P9/step6-final/web-check.log`. `mise run
+  tauri:check` exited 0; complete log:
+  `tmp/search-engine-adapter/P9/step6-final/tauri-check.log`. Required symbol
+  checks passed, `web/src/notes/client.test.ts` has no diff, and `git diff
+  --check` passed. Formal review and serial integration remain downstream.

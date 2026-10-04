@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, type JSX } from 'solid-js'
 import { MarkdownBody } from '../components/Markdown'
 import { errorMessage, useApp } from '../state/appStore'
+import { NoteTransportError } from '../notes/client'
 import { noteDisplayTitle } from '../notes/noteText'
 import type { NoteSearchResult } from '../notes/types'
 import type { Route } from '../router'
@@ -17,6 +18,7 @@ export function SearchView(): JSX.Element {
   const [results, setResults] = createSignal<NoteSearchResult[]>([])
   const [answer, setAnswer] = createSignal('')
   const [status, setStatus] = createSignal('')
+  const [notice, setNotice] = createSignal('')
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
   let generation = 0
@@ -31,6 +33,7 @@ export function SearchView(): JSX.Element {
       setResults([])
       setAnswer('')
       setStatus('')
+      setNotice('')
       return
     }
     void run(current)
@@ -43,14 +46,46 @@ export function SearchView(): JSX.Element {
     setResults([])
     setAnswer('')
     setStatus('')
+    setNotice('')
     const notebookId = current.scope === 'notebook' ? current.notebookId : undefined
     try {
       if (current.method === 'grep') {
-        const found = await app.client.searchNotes({
-          query: current.query,
-          ...(notebookId ? { notebookId } : {}),
-          limit: 50,
-        })
+        let found: NoteSearchResult[]
+        if (app.state.searchEngineEnabled) {
+          try {
+            const hits = await app.client.engineSearchNotes({
+              query: current.query,
+              ...(notebookId ? { notebookId } : {}),
+              limit: 50,
+            })
+            found = hits.map((hit) => ({
+              note: hit.note,
+              snippet: hit.snippet,
+              rank: hit.score,
+              matchedTags: [],
+              isLinkedNeighbor: false,
+              termCoverage: 1,
+            }))
+          } catch (searchError) {
+            if (!(searchError instanceof NoteTransportError)
+              || !['search-engine-unavailable', 'feature-disabled'].includes(searchError.resultStatus ?? '')) {
+              throw searchError
+            }
+            found = await app.client.searchNotes({
+              query: current.query,
+              ...(notebookId ? { notebookId } : {}),
+              limit: 50,
+            })
+            if (requested !== generation) return
+            setNotice('Search engine unavailable; showing built-in results')
+          }
+        } else {
+          found = await app.client.searchNotes({
+            query: current.query,
+            ...(notebookId ? { notebookId } : {}),
+            limit: 50,
+          })
+        }
         if (requested !== generation) return
         setResults(found)
       } else {
@@ -98,6 +133,10 @@ export function SearchView(): JSX.Element {
             if (current) app.openSearch(current.query, current.scope, 'grep')
           }}>Find text instead</button>
         </p>
+      </Show>
+
+      <Show when={notice()}>
+        <p class="chat-banner" role="status">{notice()}</p>
       </Show>
 
       <Show when={route()?.method === 'grep' && !loading()}>

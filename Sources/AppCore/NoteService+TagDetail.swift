@@ -375,6 +375,7 @@ public extension NoteService {
               "UPDATE notebooks SET library_id = ?, updated_at = ? WHERE notebook_id = ?",
               bindings: [.id(sourceLibraryId), .text(NoteStoreClock.system.now()), .id(existingId)]
             )
+            try enqueueSearchEngineSync(notebookId: existingId, in: db)
             try stampNotebookUpdated(existingId, in: db)
           }
           return TagMemoNotebookCreationResult(

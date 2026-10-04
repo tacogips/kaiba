@@ -29,6 +29,8 @@ func refreshFTS(noteId: NoteID, previous: FTSPayload?, in database: SQLiteDataba
     """,
     bindings: [.int(payload.rowId), .id(noteId), .text(payload.context)]
   )
+  // Keep the durable engine outbox aligned with indexed note writes (design SE3).
+  try enqueueSearchEngineSync(noteIds: [noteId], in: database)
 }
 
 /// Removes one indexed row. A contentless FTS5 table only accepts a 'delete'

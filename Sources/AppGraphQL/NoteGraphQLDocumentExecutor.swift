@@ -225,6 +225,7 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     )
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   private func execute(fieldName: String, request: GraphQLDocumentRequest) async throws -> JSONValue {
     let variables = request.variables
     switch fieldName {
@@ -337,6 +338,21 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
         query: requiredString("query", variables: variables),
         notebookId: try optionalIdentifier("notebookId", as: NotebookID.self, variables: variables),
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 20)
+      ))
+    case "searchEngineCapability":
+      return try await encodedJSONValue(service.searchEngineCapability())
+    case "engineSearchNotes":
+      return try await encodedJSONValue(service.engineSearchNotes(
+        query: requiredStringValue("query", variables: variables),
+        notebookId: try optionalIdentifier("notebookId", as: NotebookID.self, variables: variables),
+        tagFilter: try optionalStringArray("tagFilter", variables: variables) ?? [],
+        limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 20),
+        offset: validatedEngineSearchOffset(try optionalInt("offset", variables: variables))
+      ))
+    case "relatedNotes":
+      return try await encodedJSONValue(service.relatedNotes(
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
+        limit: validatedGraphLimit(try optionalInt("limit", variables: variables), defaultValue: 8)
       ))
     case "appSetting":
       return try await encodedJSONValue(service.appSetting(

@@ -220,6 +220,12 @@ export interface SetUserAgentCredentialInput {
   enabled?: boolean
 }
 
+export interface EngineNoteHit {
+  note: Note
+  snippet: string
+  score: number
+}
+
 export interface NoteSearchResult {
   note: Note
   snippet: string

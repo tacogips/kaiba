@@ -6,19 +6,22 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
   public var libraries: [KaibaLibraryBinding]
   public var importSettings: KaibaImportConfiguration?
   public var ai: KaibaAIConfiguration?
+  public var searchEngine: KaibaSearchEngineConfiguration?
 
   public init(
     database: KaibaDatabaseConfiguration = .sqlite(path: nil),
     storageProfiles: [KaibaS3ProfileConfiguration] = [],
     libraries: [KaibaLibraryBinding] = [],
     importSettings: KaibaImportConfiguration? = nil,
-    ai: KaibaAIConfiguration? = nil
+    ai: KaibaAIConfiguration? = nil,
+    searchEngine: KaibaSearchEngineConfiguration? = nil
   ) {
     self.database = database
     self.storageProfiles = storageProfiles
     self.libraries = libraries
     self.importSettings = importSettings
     self.ai = ai
+    self.searchEngine = searchEngine
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -27,6 +30,7 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
     case libraries
     case importSettings = "import"
     case ai
+    case searchEngine
   }
 
   public init(from decoder: any Decoder) throws {
@@ -48,6 +52,7 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
       forKey: .importSettings
     )
     ai = try container.decodeIfPresent(KaibaAIConfiguration.self, forKey: .ai)
+    searchEngine = try container.decodeIfPresent(KaibaSearchEngineConfiguration.self, forKey: .searchEngine)
   }
 
   public func libraryBinding(named name: String) -> KaibaLibraryBinding? {
@@ -64,6 +69,39 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
     }
     return [profile.accessKeyIdEnvironmentVariable, profile.secretAccessKeyEnvironmentVariable]
   }
+}
+
+/// Optional search-engine settings (`design-docs/specs/search-engine-adapter.md`).
+/// Credential fields hold environment-variable names only, never secret values.
+public struct KaibaSearchEngineConfiguration: Codable, Equatable, Sendable {
+  public var kind: String
+  public var enabled: Bool?
+  public var url: String
+  public var indexPrefix: String?
+  public var apiKeyEnvironmentVariable: String?
+  public var usernameEnvironmentVariable: String?
+  public var passwordEnvironmentVariable: String?
+
+  public init(
+    kind: String,
+    enabled: Bool? = nil,
+    url: String,
+    indexPrefix: String? = nil,
+    apiKeyEnvironmentVariable: String? = nil,
+    usernameEnvironmentVariable: String? = nil,
+    passwordEnvironmentVariable: String? = nil
+  ) {
+    self.kind = kind
+    self.enabled = enabled
+    self.url = url
+    self.indexPrefix = indexPrefix
+    self.apiKeyEnvironmentVariable = apiKeyEnvironmentVariable
+    self.usernameEnvironmentVariable = usernameEnvironmentVariable
+    self.passwordEnvironmentVariable = passwordEnvironmentVariable
+  }
+
+  public var isEnabled: Bool { enabled ?? true }
+  public var resolvedIndexPrefix: String { indexPrefix ?? "kaiba" }
 }
 
 /// Binds a library to the credential scope it reads from. Policy — whether the

@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 22
+  public static let currentVersion = 23
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -52,6 +52,9 @@ public enum NoteStoreSchema {
   public static func prepare(in database: SQLiteDatabase) throws {
     try NoteSQLiteCapabilityCache.requireAvailable(in: database)
     try database.execute(noteSchemaVersionTableStatement)
+    for statement in searchEngineSyncSchemaStatements {
+      try database.execute(statement)
+    }
     try requireSupportedVersion(in: database)
     let isFirstSchemaCreation = try appliedSchemaVersions(in: database).isEmpty
 
@@ -210,8 +213,7 @@ public enum NoteStoreSchema {
   }
 
   /// Versions 19 and 20 can each represent one side of the schema changes
-  /// merged into version 21. Upgrade both additions idempotently so stores
-  /// created by either line preserve their credentials and tag bindings.
+  /// merged into version 21; every supported path continues through v23.
   private static func requireSupportedVersion(in database: SQLiteDatabase) throws {
     guard let newest = try appliedSchemaVersions(in: database).max() else {
       return
@@ -222,10 +224,16 @@ public enum NoteStoreSchema {
     if newest == 19 || newest == 20 {
       try upgradeToVersion21(in: database)
       try upgradeToVersion22(in: database)
+      try upgradeToVersion23(in: database)
       return
     }
     if newest == 21 {
       try upgradeToVersion22(in: database)
+      try upgradeToVersion23(in: database)
+      return
+    }
+    if newest == 22 {
+      try upgradeToVersion23(in: database)
       return
     }
     if newest < 19 {
@@ -281,6 +289,12 @@ public enum NoteStoreSchema {
         try refreshFTS(noteId: noteId, previous: previous, in: db)
       }
       try recordSchemaVersion(22, in: db)
+    }
+  }
+
+  private static func upgradeToVersion23(in database: SQLiteDatabase) throws {
+    try database.transaction { db in
+      try recordSchemaVersion(23, in: db)
     }
   }
 

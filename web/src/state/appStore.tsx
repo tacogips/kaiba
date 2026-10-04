@@ -86,6 +86,8 @@ export interface AppState {
    * (the chat tab's conversations) can follow store-wide changes. */
   catalogRevision: number
   searchOpen: boolean
+  /** Whether the configured server can serve engine-backed search. */
+  searchEngineEnabled: boolean
   /** App settings from the store's sqlite (`app_settings`, key "web"). */
   settings: WebAppSettings
   /** Route hashes to restore via the Back control, pushed by right-pane
@@ -196,6 +198,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     notebookRevisions: {},
     catalogRevision: 0,
     searchOpen: false,
+    searchEngineEnabled: false,
     settings: { ...defaultWebSettings },
     returnStack: [],
   })
@@ -227,6 +230,14 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       setState('settings', parseWebSettings(await client.appSetting(webSettingsKey)))
     } catch {
       // No stored settings (or an offline host) keeps the defaults.
+    }
+  }
+
+  const loadSearchEngineCapability = async (): Promise<void> => {
+    try {
+      setState('searchEngineEnabled', await client.searchEngineCapability())
+    } catch {
+      setState('searchEngineEnabled', false)
     }
   }
 
@@ -470,6 +481,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       setState('message', `Client registration failed: ${errorMessage(error)}`)
     }
     void loadSettings()
+    void loadSearchEngineCapability()
     await refreshCatalog()
   })()
 
@@ -492,6 +504,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     onConnect: () => {
       setState('live', true)
       if (firstConnect) { firstConnect = false; return }
+      void loadSearchEngineCapability()
       scheduleCatalogRefresh()
     },
     onUnavailable: () => setState('live', false),
@@ -598,7 +611,10 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       client.useCredential(key)
       setState({ auth: 'unknown', error: '', message: '' })
       await refreshCatalog()
-      if (state.auth === 'authenticated') return
+      if (state.auth === 'authenticated') {
+        await loadSearchEngineCapability()
+        return
+      }
       // A refused key must not linger: the next request would answer 401 and
       // the login view would look broken rather than unaccepted.
       client.clearCredential()
