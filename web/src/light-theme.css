@@ -321,3 +321,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 .pane-right .chat { height: 100%; }
 .chatbook .chat > :not(.chat-transcript) { flex-shrink: 0; }
 .chatbook .chat-transcript { flex: 1; min-height: 80px; overflow-y: auto; align-content: start; }
+
+/* Settings primary/selected buttons (W16): override the legacy dark button cascade. */
+.chatbook .config-section button:not(.secondary) {
+  color: var(--ink); border-color: var(--green-line); background: var(--green-primary);
+}
+.chatbook .config-section button:not(.secondary):hover:not(:disabled) { background: var(--green-hover); }
+.chatbook .config-section button[aria-pressed="true"] {
+  color: var(--green-ink); border-color: var(--green-focus); background: var(--green-selected);
+}

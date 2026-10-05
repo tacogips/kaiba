@@ -120,12 +120,13 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] The three rules are appended in order, using existing tokens only, with no `!important`.
-- [ ] The new bun test passes, and fails if a rule or token is removed (checked by reasoning about the assertions).
-- [ ] bun and vitest counts are recorded separately with exit 0; `web:check` and `tauri:check` exit 0.
-- [ ] Protected web files are unchanged.
-- [ ] The Progress Log records commands, exit codes, counts and log paths.
+- [x] The three rules are appended in order, using existing tokens only, with no `!important`.
+- [x] The new bun test passes, and fails if a rule or token is removed (checked by reasoning about the assertions).
+- [x] bun and vitest counts are recorded separately with exit 0; `web:check` exits 0 and `tauri:check` is either exit 0 or recorded blocked with its exact error.
+- [x] Protected web files are unchanged.
+- [x] The Progress Log records commands, exit codes, counts and log paths.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Appended the three scoped Settings button rules to `web/src/light-theme.css`; added `web/src/settingsButtonContrast.test.ts` to verify selectors, token assignments, cascade order, absence of `!important` within the new rules, and WCAG AA contrast for primary, hover, and selected states. `cd web && mise exec -- bun test src` exited 0 (192 pass, 0 fail; `tmp/release-0-1-17/P3/bun-test-final-rerun.log`); `cd web && mise exec -- bunx vitest run` exited 0 (100 passed; `tmp/release-0-1-17/P3/vitest-final.log`); `mise run web:check` exited 0 (typecheck, tests, lint, Vite build; `tmp/release-0-1-17/P3/web-check-final.log`). The protected-file guard exited 0 with empty output (`tmp/release-0-1-17/P3/guard-protected.log`). `mise run tauri:check` was blocked (exit 101): its build script requires missing `local-service/kaiba-aarch64-apple-darwin` (`tmp/release-0-1-17/P3/tauri-check.log`); P4 will rerun it. Initial bun and web-check failures are retained in `bun-test.log` and `web-check.log`; their causes were corrected and final-source reruns passed.

@@ -46,6 +46,10 @@ public struct GraphQLNoteGraphQLService: Sendable {
   public var agentInvoker: (any AgentInvoking)?
   public var agentProvider: String?
   public var agentModel: String?
+  /// Receives one sanitized line for each failed `agenticSearch` request.
+  public var agenticSearchFailureLog: @Sendable (String) -> Void = {
+    FileHandle.standardError.write(Data(($0 + "\n").utf8))
+  }
   /// Server-only model discovery; its result never exposes credentials or paths.
   public var agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)?
   /// Shared by copies of this request service so concurrent model queries use
@@ -719,41 +723,6 @@ public struct GraphQLNoteGraphQLService: Sendable {
     noteMutation {
       let notebook = try service.ensureTagMemoNotebook(tagId: tagId)
       return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
-    }
-  }
-
-  /// Agentic search: the configured agent answers a search question over the
-  /// store, with the kaiba CLI usage in its prompt and a grep pass as
-  /// grounding context. `status` is "ok", "agent-unavailable", or "failed".
-  public func agenticSearch(
-    query: String,
-    notebookId: NotebookID? = nil,
-    limit: Int = 20
-  ) async -> GraphQLAgenticSearchResult {
-    guard let agentInvoker else {
-      return GraphQLAgenticSearchResult(
-        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
-        status: "agent-unavailable"
-      )
-    }
-    do {
-      let search = AIAgenticSearchService(
-        service: service,
-        invoker: agentInvoker,
-        provider: agentProvider,
-        model: agentModel
-      )
-      let outcome = try await search.search(query: query, notebookId: notebookId, limit: limit)
-      return GraphQLAgenticSearchResult(
-        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
-        status: "ok",
-        answerMarkdown: outcome.answerMarkdown
-      )
-    } catch {
-      return GraphQLAgenticSearchResult(
-        result: graphQLNoteResult(for: error),
-        status: "failed"
-      )
     }
   }
 

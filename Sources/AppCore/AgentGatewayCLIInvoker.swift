@@ -146,7 +146,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     else {
       let diagnostic: String
       if executionMode != .local {
-        diagnostic = "agent-gateway produced no reply (exit \(execution.exitCode))"
+        diagnostic = Self.servedNoReplyDiagnostic(exitCode: execution.exitCode, stderr: execution.stderr)
       } else {
         let stderrTail = String(data: execution.stderr.suffix(500), encoding: .utf8) ?? ""
         diagnostic = "agent-gateway produced no reply (exit \(execution.exitCode))"

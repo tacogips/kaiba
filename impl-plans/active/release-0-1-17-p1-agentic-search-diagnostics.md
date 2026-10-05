@@ -1,6 +1,6 @@
 # P1 Served agenticSearch diagnostics: sandbox-start classification, public reason, server log
 
-**Status**: Planned.
+**Status**: In Progress.
 **planId**: P1-agentic-search-diagnostics
 **Wave**: 1
 **dependsOn**: none
@@ -189,12 +189,17 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `publicDiagnostic` and `servedNoReplyDiagnostic` exist with the pinned signatures and exact strings.
-- [ ] `agenticSearch` lives in `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift`; diagnostics and the log line follow AI13.
-- [ ] All listed tests exist and pass with XCTest N > 0; the existing served-diagnostic tests pass unchanged.
-- [ ] build and lint exit 0; line limits are met.
-- [ ] The Progress Log records commands, exit codes, counts and log paths.
+- [x] `publicDiagnostic` and `servedNoReplyDiagnostic` exist with the pinned signatures and exact strings.
+- [x] `agenticSearch` lives in `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift`; diagnostics and the log line follow AI13.
+- [ ] All listed tests exist and pass with XCTest N > 0; the existing served-diagnostic tests pass unchanged. The P1 XCTest suites ran, but the macOS fake-gateway hook test did not observe its scripted stderr prefix; see the Progress Log.
+- [x] build and lint exit 0; line limits are met.
+- [x] The Progress Log records commands, exit codes, counts and log paths.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented the fixed public diagnostic allowlist and served no-reply stderr classifier in `Sources/AppCore/AgentGatewayInvocationSanitization.swift`; wired the served invoker in `Sources/AppCore/AgentGatewayCLIInvoker.swift`; moved `agenticSearch` into `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift`; added injectable safe failure logging and both XCTest classes.
+- 2026-10-05: `mise run build` exited 0. Complete log: `tmp/release-0-1-17/P1/build-final.log`.
+- 2026-10-05: The focused Swift test command `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgentGatewayPublicDiagnosticTests|AgenticSearchDiagnosticsGraphQLTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|NoteGraphQLSchemaInventoryTests|GraphQLIntrospectionTests"` exited 1 after 47 XCTest cases: 46 passed, 1 failed. The failing case is `AgentGatewayPublicDiagnosticTests.testServedInvokerClassifiesSandboxExecStderrPrefix`: the fake gateway exits 3 but the served invocation reports `agent-gateway produced no reply (exit 3)` instead of the expected sandbox-start reason. Complete initial log: `tmp/release-0-1-17/P1/swift-test-rerun.log`; after changing the fixture to the existing shell `echo` idiom, the isolated rerun still exited 1 with 47 cases, 46 passed, 1 failed. Complete log: `tmp/release-0-1-17/P1/swift-test-isolated.log`. The other new diagnostic and GraphQL tests passed, including 6/6 in `AgenticSearchDiagnosticsGraphQLTests`; existing `AgentGatewayCLIInvokerTests` (25/25), served safety (3/3), GraphQL introspection (7/7), and schema inventory (1/1) passed unchanged.
+- 2026-10-05: Selected-file strict lint, `xargs -0 swiftlint lint --strict --quiet --no-cache < tmp/release-0-1-17/P1/changed-swift-files.nul`, exited 0; complete log: `tmp/release-0-1-17/P1/swiftlint-changed.log`. Repository-wide `mise run lint` exited 0 with 3 non-serious warnings in unchanged files; complete log: `tmp/release-0-1-17/P1/lint.log`.
+- 2026-10-05: `grep -n "agenticSearch(" Sources/AppGraphQL/NoteGraphQLService.swift` produced an empty `tmp/release-0-1-17/P1/guard-moved.log` and the guard exited 0. The six Swift files are below 1000 lines; `AgentGatewayCLIInvoker.swift` is 984 lines. Complete count log: `tmp/release-0-1-17/P1/wc-final.log`; guard exit 0.
