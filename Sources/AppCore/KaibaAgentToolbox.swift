@@ -99,10 +99,38 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
       depth: 1,
       limit: parameters.limit
     )
-    return .object([
-      "query": .string(parameters.query),
+    return searchNotesJSON(query: parameters.query, results: results, retrieval: "full-text")
+  }
+
+  private func searchNotesRouted(_ input: KaibaAgentToolInput) async throws -> JSONValue {
+    let parameters = try SearchNotesToolParameters(input: input)
+    let outcome = try await service.retrieveNotes(
+      query: parameters.query,
+      tagFilter: parameters.tagFilter,
+      notebookId: parameters.notebookId,
+      includeLinked: parameters.includeLinked,
+      depth: 1,
+      limit: parameters.limit,
+      offset: 0
+    )
+    return searchNotesJSON(
+      query: parameters.query,
+      results: outcome.results,
+      retrieval: outcome.usedSearchEngine ? "search-engine" : "full-text",
+      includeProvenance: outcome.usedSearchEngine
+    )
+  }
+
+  private func searchNotesJSON(
+    query: String,
+    results: [NoteSearchResult],
+    retrieval: String,
+    includeProvenance: Bool = false
+  ) -> JSONValue {
+    .object([
+      "query": .string(query),
       "results": .array(results.map { result in
-        .object([
+        var value: JSONObject = [
           "note_id": .id(result.note.noteId),
           "notebook_id": .id(result.note.notebookId),
           "title": result.note.title.map(JSONValue.string) ?? .null,
@@ -111,55 +139,16 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
           "term_coverage": .number(result.termCoverage),
           "is_linked_neighbor": .bool(result.isLinkedNeighbor),
           "tags": Self.tagNames(result.note.tags)
-        ])
+        ]
+        if includeProvenance, let provenance = result.provenance {
+          value["provenance"] = .object([
+            "sources": .array(provenance.sources.map { .string($0.rawValue) }),
+            "reasons": .array(provenance.reasons.map { .string($0.rawValue) })
+          ])
+        }
+        return .object(value)
       }),
-      "retrieval": .string("full-text")
-    ])
-  }
-
-  private func searchNotesRouted(_ input: KaibaAgentToolInput) async throws -> JSONValue {
-    let parameters = try SearchNotesToolParameters(input: input)
-    guard service.isSearchEngineEnabled, !parameters.includeLinked else {
-      return try searchNotes(input)
-    }
-
-    let hits: [NoteEngineSearchHit]
-    do {
-      hits = try await service.engineSearchNotes(
-        query: parameters.query,
-        notebookId: parameters.notebookId,
-        tagFilter: parameters.tagFilter,
-        limit: parameters.limit,
-        offset: 0
-      )
-    } catch let error as SearchEngineError {
-      _ = error
-      return try searchNotes(input)
-    }
-
-    let retrievalTexts = try service.retrievalTexts(for: hits.map(\.note))
-    let terms = indexableSearchTerms(from: parameters.query)
-    return .object([
-      "query": .string(parameters.query),
-      "results": .array(hits.map { hit in
-        let retrievalText = retrievalTexts[hit.note.noteId] ?? hit.note.bodyMarkdown
-        let searchableText = (hit.note.title ?? "") + " " + retrievalText
-        let matchedTerms = terms.filter { term in
-          searchableText.range(of: term, options: .caseInsensitive) != nil
-        }.count
-        let coverage = terms.isEmpty ? 0.0 : Double(matchedTerms) / Double(terms.count)
-        return .object([
-          "note_id": .id(hit.note.noteId),
-          "notebook_id": .id(hit.note.notebookId),
-          "title": hit.note.title.map(JSONValue.string) ?? .null,
-          "snippet": .string(hit.snippet),
-          "updated_at": .string(hit.note.updatedAt),
-          "term_coverage": .number(coverage),
-          "is_linked_neighbor": .bool(false),
-          "tags": Self.tagNames(hit.note.tags)
-        ])
-      }),
-      "retrieval": .string("search-engine")
+      "retrieval": .string(retrieval)
     ])
   }
 

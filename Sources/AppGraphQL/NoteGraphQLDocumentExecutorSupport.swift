@@ -413,6 +413,10 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "kind": nil,
     "tags": nil
   ],
+  "NoteRetrievalProvenance": [
+    "sources": nil,
+    "reasons": nil
+  ],
   "EngineSearchFacets": [
     "tagClasses": "EngineFacetBucket",
     "tags": "EngineTagFacetBucket"
@@ -733,7 +737,8 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "rank": nil,
     "matchedTags": "NoteTag",
     "isLinkedNeighbor": nil,
-    "termCoverage": nil
+    "termCoverage": nil,
+    "provenance": "NoteRetrievalProvenance"
   ],
   "NoteGraphNeighbor": [
     "seedNoteId": nil,

@@ -11,8 +11,10 @@
   SE1-SE9. Where a delta section changes an earlier rule, it says so
   explicitly, and the earlier text stays as the base record.
 - F1-F6 (engine-seeded retrieval, the unified reranker and the Meilisearch
-  adapter): proposed (2026-10-05) in
-  `design-docs/specs/design-search-engine-fusion.md`. It changes SE1 "Out
+  adapter): accepted (2026-10-05) and implemented in session-268
+  (integration review comm-004081) in
+  `design-docs/specs/design-search-engine-fusion.md`, with plans archived
+  under `impl-plans/completed/search-engine-fusion*.md`. It changes SE1 "Out
   of scope", SE5 "`searchNotes` is unchanged" (now only for
   `includeLinked` false), D4 agent routing and D4 agentic grounding; its
   "Changed base rules" section lists each change.

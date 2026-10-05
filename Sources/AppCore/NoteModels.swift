@@ -534,7 +534,8 @@ public struct NoteSearchResult: Equatable, Sendable {
   public var snippet: String
   /// Retriever-specific score: bm25 (lower is better) for a strict full-text
   /// hit, a reciprocal-rank-fusion score for a relaxed hit, personalized
-  /// PageRank mass for a graph neighbour, and 1 for a substring fallback hit.
+  /// PageRank mass for a graph neighbour, and 1 for a substring fallback hit;
+  /// the fused reciprocal-rank score (higher is better) for a direct hit of engine-seeded retrieval.
   public var rank: Double
   public var matchedTags: [Tag]
   public var isLinkedNeighbor: Bool
@@ -542,6 +543,7 @@ public struct NoteSearchResult: Equatable, Sendable {
   /// match, `m/n` for a relaxed match
   /// (`design-docs/specs/note-retrieval-fusion.md`, RF2).
   public var termCoverage: Double
+  public var provenance: NoteRetrievalProvenance?
 
   public init(
     note: Note,
@@ -549,7 +551,8 @@ public struct NoteSearchResult: Equatable, Sendable {
     rank: Double,
     matchedTags: [Tag],
     isLinkedNeighbor: Bool = false,
-    termCoverage: Double = 1
+    termCoverage: Double = 1,
+    provenance: NoteRetrievalProvenance? = nil
   ) {
     self.note = note
     self.snippet = snippet
@@ -557,6 +560,7 @@ public struct NoteSearchResult: Equatable, Sendable {
     self.matchedTags = matchedTags
     self.isLinkedNeighbor = isLinkedNeighbor
     self.termCoverage = termCoverage
+    self.provenance = provenance
   }
 }
 

@@ -1,11 +1,11 @@
 # P8 Web settings test for the Meilisearch descriptor
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P8-web-settings-test
 **Wave**: 1
 **dependsOn**: none (the test uses mocked GraphQL data)
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F4 (web settings need no code change; one integration test case)
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -40,7 +40,7 @@ Repository facts:
 
 - `web/src/components/SearchEngineSettings.integration.tsx`
 - `web/dist`
-- `impl-plans/active/search-engine-fusion-p8-web-settings-test.md`
+- `impl-plans/completed/search-engine-fusion-p8-web-settings-test.md`
 - `tmp/search-engine-fusion/P8`
 
 ## sharedPaths (read-only)
@@ -93,9 +93,12 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] The Meilisearch descriptor case is added and passes.
-- [ ] bun and vitest counts are recorded separately. `web:check` passes.
+- [x] The Meilisearch descriptor case is added and passes.
+- [x] bun and vitest counts are recorded separately. `web:check` passes.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Added the Meilisearch descriptor integration case. It confirms the auth options are exactly `none` and `apiKey`, selecting `apiKey` shows a password secret field without a username field, and the save input uses `kind: meilisearch` / `authMode: apiKey` with no `username` property. No UI defect was found; no P10 issue was needed.
+- 2026-10-05: Final-source verification after adding the exact loopback URL assertion passed: `mise exec -- bun test src` (187 pass; `tmp/search-engine-fusion/P8/attempt-4/bun-test.log`), `mise exec -- bunx vitest run` (98 passed; `tmp/search-engine-fusion/P8/attempt-4/vitest.log`), and `mise run web:check` (typecheck, tests, lint, and build; exit 0; `tmp/search-engine-fusion/P8/attempt-4/web-check.log`). `git diff --stat -- web/src` listed only `SearchEngineSettings.integration.tsx`.
+- 2026-10-05: The previous source version also passed all three checks in attempt 3; it did not yet assert the required loopback URL. Failed earlier `web:check` logs are preserved at `web-check.log` and `attempt-2/web-check.log`; the two test-only TypeScript assertion issues were fixed before final verification. Vitest logs emit existing ECONNREFUSED localhost:3000 messages while all tests pass.

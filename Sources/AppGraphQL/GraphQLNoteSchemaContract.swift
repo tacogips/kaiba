@@ -46,7 +46,8 @@ type NoteFileAttachment { noteId: String!, file: NoteFile!, role: String!, posit
 type NotebookFileAttachment { notebookId: String!, file: NoteFile!, role: String! }
 type NoteComment { commentId: String!, noteId: String, notebookId: String, bodyMarkdown: String!, author: String!, createdAt: String! }
 type NoteLink { fromNoteId: String!, toNoteId: String!, linkKind: String!, provenance: String!, createdAt: String! }
-type NoteSearchResult { note: Note!, snippet: String!, rank: Float!, matchedTags: [NoteTag!]!, isLinkedNeighbor: Boolean!, termCoverage: Float! }
+type NoteSearchResult { note: Note!, snippet: String!, rank: Float!, matchedTags: [NoteTag!]!, isLinkedNeighbor: Boolean!, termCoverage: Float!, provenance: NoteRetrievalProvenance! }
+type NoteRetrievalProvenance { sources: [String!]!, reasons: [String!]! }
 type SearchEngineCapabilityPayload { result: ControlPlaneResult!, enabled: Boolean! }
 type EngineNoteHit { note: Note!, snippet: String!, score: Float!, reasons: [EngineHitReason!]! }
 type EngineHitReason { kind: String!, tags: [String!]! }

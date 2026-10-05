@@ -1,11 +1,11 @@
 # P6 GraphQL graph-search routing, provenance field and KaibaClient
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P6-graphql-client-provenance
 **Wave**: 3
 **dependsOn**: P2-engine-seeded-retrieval
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F1 "Callers" table, F2 "GraphQL and KaibaClient (additive)"
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -59,7 +59,7 @@ Repository facts:
 - `Sources/KaibaClient/KaibaOperations.swift`
 - `Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift`
 - `Tests/AppGraphQLTests/EngineSeededSearchGraphQLTests.swift`
-- `impl-plans/active/search-engine-fusion-p6-graphql-client-provenance.md`
+- `impl-plans/completed/search-engine-fusion-p6-graphql-client-provenance.md`
 - `tmp/search-engine-fusion/P6`
 
 ## sharedPaths (read-only)
@@ -187,12 +187,13 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `includeLinked: true` routes through `retrieveNotes`; other searches
+- [x] `includeLinked: true` routes through `retrieveNotes`; other searches
       are unchanged.
-- [ ] `provenance` is in the schema, the selection map, the DTO and the
+- [x] `provenance` is in the schema, the selection map, the DTO and the
       client.
-- [ ] Tests pass with positive counts. Evidence is recorded.
+- [x] Tests pass with positive counts. Evidence is recorded.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented GraphQL engine-seeded routing for `includeLinked: true`, additive provenance schema/DTO/client decoding, and regression coverage. `mise run build` passed (`tmp/search-engine-fusion/P6/build.log`); GraphQL filters passed 32 XCTest tests (`graphql.log`); client filters passed 60 swift-testing tests (`client.log`); repository lint exited 0 with three existing warnings outside P6 (`lint.log`); strict changed-file SwiftLint passed on the nine-file manifest (`swiftlint-strict.log`). Files remain below 1000 lines. Independent review and combined-tree integration remain downstream.

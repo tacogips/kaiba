@@ -1,0 +1,21 @@
+# Local development only. No master key is configured and the port is bound
+# to loopback only. Do not expose this service to an untrusted network.
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.10.3
+    container_name: kaiba-meilisearch
+    environment:
+      MEILI_ENV: development
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "127.0.0.1:7700:7700"
+    volumes:
+      - kaiba-meilisearch-data:/meili_data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7700/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  kaiba-meilisearch-data:

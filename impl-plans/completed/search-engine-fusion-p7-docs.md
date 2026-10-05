@@ -1,11 +1,11 @@
 # P7 README: choosing an engine, Meilisearch setup, engine-seeded search
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P7-docs
 **Wave**: 3
 **dependsOn**: P3-meilisearch-adapter (the documented config, identity and auth modes exist and are tested before the README describes them; P10 checks the task names against `mise.toml` after P9 lands)
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F6, F3 "Engine choice", F4 README guidance, F5 task names
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -44,7 +44,7 @@ Repository facts:
 ## writePaths
 
 - `README.md`
-- `impl-plans/active/search-engine-fusion-p7-docs.md`
+- `impl-plans/completed/search-engine-fusion-p7-docs.md`
 - `tmp/search-engine-fusion/P7`
 
 ## sharedPaths (read-only)
@@ -117,8 +117,8 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] README items 1-7 are present, with no secrets and no local paths.
-- [ ] The factory behavioral record has a positive XCTest count. Evidence
+- [x] README items 1-7 are present, with no secrets and no local paths.
+- [x] The factory behavioral record has a positive XCTest count. Evidence
       is recorded in the progress log.
 
 ## Progress Log
@@ -126,3 +126,31 @@ Expected evidence:
 - 2026-10-05: Plan created.
 - 2026-10-05: Revised after Step 5 (SEF-PLAN-003): moved to wave 3 after
   P3 and added a factory test record as behavioral evidence.
+- 2026-10-05: Updated `README.md` with the engine comparison, Meilisearch
+  config and local task names, restricted-key guidance, engine switching and
+  backfill behavior, engine-seeded retrieval and FTS fallback. The API-key
+  guidance notes that `/health` is unauthenticated, so Test connection does
+  not validate the key. `mise run search:meilisearch:{up,down,status,test-live}`
+  names and the config grep matched; the `/Users/|/home/` grep printed
+  nothing (exit 1); README is 623 lines.
+- 2026-10-05: Required factory behavioral check is pending. Attempt 1
+  (`tmp/search-engine-fusion/P7/factory.log`) exited 1 because the concurrent
+  P6 GraphQL caller referenced `engineSeededSearchNotes` before its extension
+  was visible to the build. Attempt 2
+  (`tmp/search-engine-fusion/P7/factory-attempt-2.log`) exited 1 after P6 files
+  appeared: AppGraphQL reported a fileprivate `.ok` access error and a missing
+  `return`, and SwiftPM reported `GraphQLNoteSchemaContract.swift` modified
+  during the build. These failures are outside P7 write paths; rerun the
+  factory command once the shared P6 edits are stable. Neither attempt is
+  passing behavioral evidence.
+- 2026-10-05: Resumed the factory behavioral check after the shared tree
+  stabilized. `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise
+  exec -- swift test --filter "MeilisearchFactoryTests|SearchEngineFactoryTests"`
+  exited 0 with 12 XCTest cases passed and 0 failures; full log:
+  `tmp/search-engine-fusion/P7/factory-resume-1.log`. The README task and
+  configuration greps matched, the absolute-path grep found no matches
+  (exit 1), README remains 623 lines, and `git diff --check` passed. This
+  resolves the earlier shared-tree compile blocker; the two failed attempts
+  above are retained as historical evidence.
+- 2026-10-05: Aligned the introduction with the plan's exact line-13 wording:
+  “An optional Elasticsearch or Meilisearch engine”.

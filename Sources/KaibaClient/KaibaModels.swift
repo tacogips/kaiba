@@ -156,6 +156,11 @@ public struct KaibaConversationTurn: Codable, Equatable, Sendable {
   }
 }
 
+public struct KaibaNoteRetrievalProvenance: Codable, Equatable, Sendable {
+  public var sources: [String]
+  public var reasons: [String]
+}
+
 public struct KaibaNoteSearchResult: Codable, Equatable, Sendable {
   public var note: KaibaNote
   public var snippet: String
@@ -163,6 +168,7 @@ public struct KaibaNoteSearchResult: Codable, Equatable, Sendable {
   public var matchedTags: [KaibaTag]
   public var isLinkedNeighbor: Bool
   public var termCoverage: Double
+  public var provenance: KaibaNoteRetrievalProvenance?
 }
 
 public struct KaibaEngineNoteHit: Codable, Equatable, Sendable {

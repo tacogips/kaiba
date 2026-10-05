@@ -750,7 +750,8 @@ private enum ContractFixture {
 
   static let searchResult: KaibaJSONValue = .object([
     "note": note, "snippet": .string("matched snippet"), "rank": .double(0.9),
-    "matchedTags": .array([tag]), "isLinkedNeighbor": .bool(true), "termCoverage": .double(0.8)
+    "matchedTags": .array([tag]), "isLinkedNeighbor": .bool(true), "termCoverage": .double(0.8),
+    "provenance": .object(["sources": .array([.string("graph-neighbor")]), "reasons": .array([])])
   ])
 
   static let graphNeighbor: KaibaJSONValue = .object([
@@ -844,7 +845,7 @@ private enum TypedDocuments {
     ) {
       result { accepted status diagnostics }
       value { note { \(noteFields) } snippet rank matchedTags { \(tagDefinitionFields) }
-        isLinkedNeighbor termCoverage }
+        isLinkedNeighbor termCoverage provenance { sources reasons } }
     }
   }
   """

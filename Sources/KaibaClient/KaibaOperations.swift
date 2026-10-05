@@ -167,7 +167,7 @@ extension KaibaClient {
         ) {
           result { accepted status diagnostics }
           value { note { \(Self.noteFields) } snippet rank matchedTags { \(Self.tagDefinitionFields) }
-            isLinkedNeighbor termCoverage }
+            isLinkedNeighbor termCoverage provenance { sources reasons } }
         }
       }
       """,

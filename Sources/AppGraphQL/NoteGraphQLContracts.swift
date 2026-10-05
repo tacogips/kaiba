@@ -279,6 +279,16 @@ public struct GraphQLNoteLinkDTO: Codable, Equatable, Sendable {
   }
 }
 
+public struct GraphQLNoteRetrievalProvenanceDTO: Codable, Equatable, Sendable {
+  public var sources: [String]
+  public var reasons: [String]
+
+  public init(sources: [String], reasons: [String]) {
+    self.sources = sources
+    self.reasons = reasons
+  }
+}
+
 public struct GraphQLNoteSearchResultDTO: Codable, Equatable, Sendable {
   public var note: GraphQLNoteDTO
   public var snippet: String
@@ -286,6 +296,7 @@ public struct GraphQLNoteSearchResultDTO: Codable, Equatable, Sendable {
   public var matchedTags: [GraphQLNoteTagDTO]
   public var isLinkedNeighbor: Bool
   public var termCoverage: Double
+  public var provenance: GraphQLNoteRetrievalProvenanceDTO
 
   public init(result: NoteSearchResult) {
     note = GraphQLNoteDTO(note: result.note)
@@ -294,6 +305,13 @@ public struct GraphQLNoteSearchResultDTO: Codable, Equatable, Sendable {
     matchedTags = result.matchedTags.map(GraphQLNoteTagDTO.init)
     isLinkedNeighbor = result.isLinkedNeighbor
     termCoverage = result.termCoverage
+    let appCoreProvenance = result.provenance ?? NoteRetrievalProvenance(
+      sources: [result.isLinkedNeighbor ? .graphNeighbor : .fullText]
+    )
+    provenance = GraphQLNoteRetrievalProvenanceDTO(
+      sources: appCoreProvenance.sources.map(\.rawValue),
+      reasons: appCoreProvenance.reasons.map(\.rawValue)
+    )
   }
 }
 

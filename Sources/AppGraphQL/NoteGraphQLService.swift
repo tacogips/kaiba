@@ -222,7 +222,25 @@ public struct GraphQLNoteGraphQLService: Sendable {
     limit: Int = 20,
     offset: Int = 0
   ) async -> GraphQLNoteQueryResult<[GraphQLNoteSearchResultDTO]> {
-    noteResult {
+    if includeLinked {
+      do {
+        return await engineSeededSearchNotes(
+          query: query,
+          tagFilter: tagFilter,
+          classFilter: classFilter,
+          notebookId: notebookId,
+          sort: try graphQLNoteListSort(sort),
+          createdAfter: createdAfter,
+          createdBefore: createdBefore,
+          depth: depth,
+          limit: limit,
+          offset: offset
+        )
+      } catch {
+        return GraphQLNoteQueryResult(result: graphQLNoteResult(for: error))
+      }
+    }
+    return noteResult {
       try service.searchNotes(
         query: query,
         tagFilter: tagFilter,
@@ -231,7 +249,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
         sort: try graphQLNoteListSort(sort),
         createdAfter: createdAfter,
         createdBefore: createdBefore,
-        includeLinked: includeLinked,
+        includeLinked: false,
         depth: depth,
         limit: limit,
         offset: offset

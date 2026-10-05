@@ -594,7 +594,7 @@ private func searchNotesByTextLike(
   }
 }
 
-private func appendLinkedNeighborResults(
+func appendLinkedNeighborResults(
   to directResults: [NoteSearchResult],
   query: String,
   tagFilterIds: [TagID],

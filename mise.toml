@@ -273,3 +273,32 @@ KAIBA_ELASTICSEARCH_URL=${KAIBA_ELASTICSEARCH_URL:-http://127.0.0.1:9200} swift 
 
 [tasks."search:test-live".env]
 PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."search:meilisearch:up"]
+description = "Start the local Meilisearch (local development only)"
+depends = ["search:docker"]
+run = '''
+docker compose -f docker/meilisearch/compose.yaml up -d --wait
+'''
+
+[tasks."search:meilisearch:down"]
+description = "Stop local Meilisearch (keeps the data volume)"
+run = '''
+docker compose -f docker/meilisearch/compose.yaml down
+'''
+
+[tasks."search:meilisearch:status"]
+description = "Show local Meilisearch health"
+run = '''
+curl -fsS http://127.0.0.1:7700/health
+'''
+
+[tasks."search:meilisearch:test-live"]
+description = "Start local Meilisearch and run the gated live integration tests"
+depends = ["anydoc:native", "search:meilisearch:up"]
+run = '''
+KAIBA_MEILISEARCH_URL=${KAIBA_MEILISEARCH_URL:-http://127.0.0.1:7700} swift test --filter MeilisearchLive
+'''
+
+[tasks."search:meilisearch:test-live".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"

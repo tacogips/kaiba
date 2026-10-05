@@ -68,7 +68,7 @@ final class SearchEngineFactoryTests: XCTestCase {
     XCTAssertNil(SearchEngineFactory.normalizedTarget("not-a-url"))
     XCTAssertEqual(SearchEngineFactory.adapters, [SearchEngineAdapterDescriptor(
       kind: "elasticsearch", displayName: "Elasticsearch", authModes: [.none, .basic, .apiKey]
-    )])
+    ), SearchEngineAdapterDescriptor(kind: "meilisearch", displayName: "Meilisearch", authModes: [.none, .apiKey])])
 
     let invalidSettings: [(SearchEngineConnectionSettings, String?)] = [
       (settings { $0.kind = "other" }, nil),

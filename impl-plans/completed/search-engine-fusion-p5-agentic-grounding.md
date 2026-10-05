@@ -1,11 +1,11 @@
 # P5 Agentic grounding with engine-seeded retrieval
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P5-agentic-grounding
 **Wave**: 3
 **dependsOn**: P2-engine-seeded-retrieval
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F1 "Agentic grounding", F2 rule 5 (reduction property), Invariants 1-2
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -44,7 +44,7 @@ Repository facts:
 
 - `Sources/AppCore/AIAgenticSearch.swift`
 - `Tests/AppCoreTests/AgenticGroundingEngineTests.swift`
-- `impl-plans/active/search-engine-fusion-p5-agentic-grounding.md`
+- `impl-plans/completed/search-engine-fusion-p5-agentic-grounding.md`
 - `tmp/search-engine-fusion/P5`
 
 ## sharedPaths (read-only)
@@ -141,10 +141,10 @@ Repository facts:
 
 ```bash
 mkdir -p tmp/search-engine-fusion/P5
-bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P5/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgenticGroundingEngineTests|NoteRetrievalFusionTests" 2>&1 | tee tmp/search-engine-fusion/P5/grounding.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P5/lint.log; echo exit=${PIPESTATUS[0]}'
-swiftlint lint --strict --quiet --no-cache Sources/AppCore/AIAgenticSearch.swift Tests/AppCoreTests/AgenticGroundingEngineTests.swift
+bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P5/build-final.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgenticGroundingEngineTests|NoteRetrievalFusionTests" 2>&1 | tee tmp/search-engine-fusion/P5/grounding-final.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P5/lint-final.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+xargs -0 swiftlint lint --strict --quiet --no-cache < tmp/search-engine-fusion/P5/changed-swift-files.nul
 git diff --stat -- Tests/AppCoreTests/NoteRetrievalFusionTests.swift
 wc -l Sources/AppCore/AIAgenticSearch.swift
 ```
@@ -159,12 +159,20 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] Engine-mode grounding uses `retrieveNotes` plus `fuse` with the
+- [x] Engine-mode grounding uses `retrieveNotes` plus `fuse` with the
       all-or-nothing fallback.
-- [ ] No-engine grounding is identical and uses `fuse`.
-- [ ] The provenance suffix appears only in engine mode.
-- [ ] Tests pass with positive counts. Evidence is recorded.
+- [x] No-engine grounding is identical and uses `fuse`.
+- [x] The provenance suffix appears only in engine mode.
+- [x] Tests pass with positive counts. Evidence is recorded.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented P5 in `Sources/AppCore/AIAgenticSearch.swift`. The sync `groundingResults` now delegates to `NoteRetrievalReranker.fuse` with the original 2/1 weights and nil labels. Engine mode calls `retrieveNotes` once per term, stops on the first FTS fallback, fuses term lists with `agent-query` labels, preserves first-query neighbors as related notes, and appends provenance only to non-nil-provenance context lines.
+  - Added five cases in `Tests/AppCoreTests/AgenticGroundingEngineTests.swift`: legacy FTS order/context parity, engine-only provenance and request bound, non-first-term provenance, engine-failure fallback context parity, and full-query neighbor separation.
+  - `mise run build` exited 0 (`tmp/search-engine-fusion/P5/build-final.log`).
+  - `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgenticGroundingEngineTests|NoteRetrievalFusionTests"` exited 0; XCTest executed 17 tests with 0 failures, including 5 new P5 tests and the existing grounding test (`tmp/search-engine-fusion/P5/grounding-final.log`).
+  - Exact changed-file gate `xargs -0 swiftlint lint --strict --quiet --no-cache < tmp/search-engine-fusion/P5/changed-swift-files.nul` exited 0 with empty output (`tmp/search-engine-fusion/P5/swiftlint-final.log`). Repository `mise run lint` exited 0 and reported 3 existing warnings in untouched files (`tmp/search-engine-fusion/P5/lint-final.log`).
+  - `git diff --stat -- Tests/AppCoreTests/NoteRetrievalFusionTests.swift` was empty; `Sources/AppCore/AIAgenticSearch.swift` is 352 lines.
+  - Earlier evidence retained: `build.log` and `grounding.log` were blocked by concurrent P6/P9 compile errors; `grounding-attempt-2.log` had the same shared-tree compile errors; `grounding-attempt-3.log` exposed one test-fixture aliasing assertion (3 recorded requests vs 2), corrected before the final successful run. These attempts are superseded by final-source evidence.
+  - Independent test-integrity and adversarial reviews remain downstream workflow steps.

@@ -1,11 +1,11 @@
 # P4 Agent `search_notes` through engine-seeded retrieval
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P4-agent-search-notes
 **Wave**: 3
 **dependsOn**: P2-engine-seeded-retrieval
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F1 "Agent `search_notes` output", "Changed base rules" (D4 routing replaced)
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -47,7 +47,7 @@ Repository facts:
 - `Sources/AppCore/KaibaAgentToolbox.swift`
 - `Tests/AppCoreTests/AgentSearchNotesFusionTests.swift`
 - `Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift`
-- `impl-plans/active/search-engine-fusion-p4-agent-search-notes.md`
+- `impl-plans/completed/search-engine-fusion-p4-agent-search-notes.md`
 - `tmp/search-engine-fusion/P4`
 
 ## sharedPaths (read-only)
@@ -156,12 +156,40 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `search_notes` uses `retrieveNotes` for both `include_linked`
+- [x] `search_notes` uses `retrieveNotes` for both `include_linked`
       values.
-- [ ] Output with no engine is byte-identical. Engine-mode output adds only
+- [x] Output with no engine is byte-identical. Engine-mode output adds only
       `provenance`.
-- [ ] Tests pass with positive counts. Evidence is recorded.
+- [x] Tests pass with positive counts. Evidence is recorded.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented the routed `search_notes` path through
+  `NoteService.retrieveNotes` for both `include_linked` values. The sync FTS
+  path and routed fallback now share one per-result JSON builder; only an
+  engine-used outcome adds `retrieval: search-engine` and result provenance.
+  Added four fusion tests and removed only the superseded
+  `testIncludeLinkedKeepsFullTextRouting` test.
+- Verification: `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise
+  exec -- swift test --filter
+  "AgentSearchNotesFusionTests|AgentSearchNotesRoutingTests|KaibaAgentToolboxTests"`
+  exited 0; XCTest executed 17 tests with 0 failures (4 fusion, 5 routing,
+  8 toolbox). Complete output: `tmp/search-engine-fusion/P4/agent-attempt-5.log`.
+- Verification: `mise run build` exited 0; complete output:
+  `tmp/search-engine-fusion/P4/build-attempt-2.log`.
+- Verification: strict changed-file SwiftLint via the non-empty NUL manifest
+  `tmp/search-engine-fusion/P4/changed-swift-files.nul` exited 0 with no
+  diagnostics; complete output: `tmp/search-engine-fusion/P4/swiftlint-strict-rerun.log`.
+  Repository `mise run lint` exited 0 and reported four warnings in the shared
+  tree, including `Sources/AppCore/NoteService.swift`; output:
+  `tmp/search-engine-fusion/P4/lint.log`.
+- Scope checks: routing-test diff removes exactly one function;
+  `git diff --stat -- Sources/AppCore/KaibaAgentToolSchema.swift
+  Tests/AppCoreTests/KaibaAgentToolboxTests.swift` is empty; toolbox source is
+  533 lines.
+- Superseded attempts: `build.log` stopped because a shared source changed
+  during compilation. `agent.log`, `agent-attempt-2.log`,
+  `agent-attempt-3.log` and `agent-attempt-4.log` stopped on P4's corrected
+  test assertion or concurrent P6/P9 compile errors; the current-source
+  passing build and test runs above supersede these attempts.

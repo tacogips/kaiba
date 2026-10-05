@@ -1,11 +1,11 @@
 # P3 Meilisearch adapter, factory and settings integration
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P3-meilisearch-adapter
 **Wave**: 2
 **dependsOn**: P1-fusion-contract (neutral transport and `NoteRetrievalReranker.fuse`)
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F3 (all subsections) and F4
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -68,7 +68,7 @@ Repository facts and patterns to imitate:
 - `Tests/AppCoreTests/MeilisearchSearchEngineTests.swift`
 - `Tests/AppCoreTests/MeilisearchFactoryTests.swift`
 - `Tests/AppCoreTests/SearchEngineFactoryTests.swift`
-- `impl-plans/active/search-engine-fusion-p3-meilisearch-adapter.md`
+- `impl-plans/completed/search-engine-fusion-p3-meilisearch-adapter.md`
 - `tmp/search-engine-fusion/P3`
 
 ## sharedPaths (read-only)
@@ -343,13 +343,39 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] The adapter conforms to `SearchEngine` with the F3 behavior.
-- [ ] The factory registers Meilisearch, enforces the auth-mode rule, and
+- [x] The adapter conforms to `SearchEngine` with the F3 behavior.
+- [x] The factory registers Meilisearch, enforces the auth-mode rule, and
       leaves Elasticsearch unchanged.
-- [ ] Mock-transport and factory tests pass with positive counts, and the
+- [x] Mock-transport and factory tests pass with positive counts, and the
       regressions pass.
-- [ ] Evidence is recorded in the progress log.
+- [x] Evidence is recorded in the progress log.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented the Meilisearch adapter, request/response helpers,
+  factory descriptor/auth validation and mock-transport/factory tests. Final
+  verification on current source:
+  - `mise run build`: exit 0 (`tmp/search-engine-fusion/P3/build-final.log`).
+  - `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "MeilisearchSearchEngineTests|MeilisearchFactoryTests"`:
+    exit 0, XCTest 32 run / 32 passed / 0 failed (25 adapter + 7 factory;
+    `tmp/search-engine-fusion/P3/meili-final.log`).
+  - `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "ElasticsearchSearchEngineTests|SearchEngineFactoryTests|SearchEngineSettingsTests|KaibaSearchEngineConfiguration"`:
+    exit 0, XCTest 24 run / 24 passed / 0 failed plus 3 swift-testing
+    configuration tests (`tmp/search-engine-fusion/P3/regression-final.log`).
+  - `mise run lint`: exit 0; three warnings in untouched
+    `Sources/AppCore/NoteService.swift`,
+    `Sources/AppCore/ResendGatewayCLIMailSender.swift` and
+    `Tests/AppCoreTests/AITranslationTests.swift`
+    (`tmp/search-engine-fusion/P3/lint-final.log`).
+  - Strict changed-file SwiftLint: exit 0 using the seven-path NUL manifest
+    `tmp/search-engine-fusion/P3/changed-swift-files.nul`.
+  - Elasticsearch/protocol diff stat: empty. Existing factory-test diff:
+    only the adapters expectation. Adapter boundary grep: empty.
+    `wc -l`: new Meilisearch source files 114/68/300; factory 142;
+    Meilisearch tests 324/64. All files are below 450 and 1000 lines.
+  - Earlier failed build/test attempts are preserved as
+    `build-attempt-1.log`, `build-attempt-2.log`, `meili-attempt-1.log` and
+    `meili-attempt-2.log`; later final-source builds and tests above pass.
+  - Independent test-integrity/adversarial review and serial integration
+    review remain downstream workflow steps.

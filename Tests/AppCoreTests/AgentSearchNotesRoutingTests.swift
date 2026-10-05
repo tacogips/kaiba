@@ -51,22 +51,6 @@ final class AgentSearchNotesRoutingTests: NoteTestCase {
     XCTAssertNotNil(hit["tags"]?.asArray)
   }
 
-  func testIncludeLinkedKeepsFullTextRouting() async throws {
-    let service = try makeService(function: #function)
-    _ = try service.createNote(bodyMarkdown: "alpha beta")
-    let engine = FakeSearchEngine()
-    let enabled = service
-    enabled.searchEngine = engine
-    let tools = KaibaAgentToolbox(service: enabled)
-
-    let result = try payload(await tools.execute(call([
-      "query": .string("alpha"), "include_linked": .bool(true)
-    ])))
-
-    XCTAssertEqual(result["retrieval"]?.asString, "full-text")
-    XCTAssertTrue(engine.recordedSearches.isEmpty)
-  }
-
   func testSearchEngineErrorFallsBackToFullText() async throws {
     let service = try makeService(function: #function)
     let note = try service.createNote(bodyMarkdown: "alpha beta")

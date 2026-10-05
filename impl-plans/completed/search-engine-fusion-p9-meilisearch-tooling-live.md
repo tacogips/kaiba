@@ -1,11 +1,11 @@
 # P9 Meilisearch local tooling, live suite and runtime hot-swap test
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P9-meilisearch-tooling-live
 **Wave**: 3
 **dependsOn**: P2-engine-seeded-retrieval, P3-meilisearch-adapter
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F5, F4 (hot-swap reuse), F3 (live acceptance gate)
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -54,7 +54,7 @@ Repository facts and patterns:
 - `mise.toml`
 - `Tests/AppCoreTests/MeilisearchLiveTests.swift`
 - `Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift`
-- `impl-plans/active/search-engine-fusion-p9-meilisearch-tooling-live.md`
+- `impl-plans/completed/search-engine-fusion-p9-meilisearch-tooling-live.md`
 - `tmp/search-engine-fusion/P9`
 
 ## sharedPaths (read-only)
@@ -211,14 +211,46 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] Compose and tasks exist and work through `search:docker`.
-- [ ] The live suite passes with a positive XCTest count against the
+- [x] Compose and tasks exist and work through `search:docker`.
+- [x] The live suite passes with a positive XCTest count against the
       pinned image, including the Japanese query.
-- [ ] The runtime hot-swap test passes.
-- [ ] Evidence is recorded in the Progress Log: the pinned tag, the
+- [x] The runtime hot-swap test passes.
+- [x] Evidence is recorded in the Progress Log: the pinned tag, the
       RepoDigest, the pull command with its exit code, the log paths and
       the counts.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented local Meilisearch tooling and acceptance coverage.
+  Pinned `getmeili/meilisearch:v1.10.3`; exact pull command
+  `docker pull getmeili/meilisearch:v1.10.3` exited 0. RepoDigest:
+  `getmeili/meilisearch@sha256:9d1b9b02fe6c68f60b54ce40092d8078f051b9341c400c90f907607636b7c9c1`.
+  Pull log: `tmp/search-engine-fusion/P9/pull.log`; digest log:
+  `tmp/search-engine-fusion/P9/image-digest-final.log`. Verified image
+  healthcheck tooling with `docker run --rm --entrypoint sh
+  getmeili/meilisearch:v1.10.3 -c 'command -v curl; command -v wget'`
+  (exit 0; `/usr/bin/curl` and `/usr/bin/wget`). Compose config validation
+  passed; up exited 0 (`up.log`), status returned `{"status":"available"}`
+  (exit 0; `status.log`).
+  `mise run search:meilisearch:test-live` passed against the pinned service:
+  XCTest `Executed 4 tests, with 0 failures` (exit 0;
+  `live-attempt-2.log`). This covers Japanese search, ontology filters and
+  facets, related reasons, deletion, and service-level engine-seeded graph
+  retrieval with provenance. The first live attempt exited 1 because the
+  test resolved the adapter but did not attach it to the service; assigning
+  `service.searchEngine = engine` fixed the test setup. Its log remains at
+  `live.log` and is superseded by the passing final-source run.
+  Runtime verification command
+  `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "SearchEngineRuntimeMeilisearchTests|SearchEngineRuntimeControllerTests"`
+  exited 0 with XCTest `Executed 8 tests, with 0 failures`
+  (`runtime-final.log`). Selected-file strict SwiftLint exited 0 using
+  `changed-swift-files.nul` (`swiftlint-strict-final-2.log`). `mise run lint`
+  exited 0 (`lint-final.log`) and reports three existing violations in
+  untouched `Sources/AppCore/NoteService.swift`,
+  `Sources/AppCore/ResendGatewayCLIMailSender.swift`, and
+  `Tests/AppCoreTests/AITranslationTests.swift`.
+  Earlier verification attempts are retained: `runtime.log` exited 1 on
+  the P9 optional-provenance compile issue and concurrent P6 compile errors;
+  `live-appcore.log` exited 64 because this SwiftPM has no `--target` option.
+  The later complete package build and the final live/runtime suites passed.

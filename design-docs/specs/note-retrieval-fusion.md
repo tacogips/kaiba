@@ -18,7 +18,8 @@ Accepted (2026-09-03)
   adds engine-backed search and related notes as separate operations; the
   FTS path described here remains the default and is unchanged by it.
 - Engine-seeded fusion: `design-docs/specs/design-search-engine-fusion.md`
-  (proposed 2026-10-05). With an engine attached, RF3 seeds and RF5
+  (accepted and implemented 2026-10-05; plans in
+  `impl-plans/completed/search-engine-fusion.md`). With an engine attached, RF3 seeds and RF5
   grounding lists come from the fusion of engine and FTS hits; with no
   engine, or after an engine error, RF1-RF5 hold exactly as written here.
 

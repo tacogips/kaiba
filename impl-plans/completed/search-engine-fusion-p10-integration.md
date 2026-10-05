@@ -1,11 +1,11 @@
 # P10 Integration: reconcile, full gate set, both live suites
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity and adversarial review comm-004076, combined-tree integration review comm-004081). All nine combined-tree gates passed with positive counts, including both live suites. Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P10-integration
 **Wave**: 4
 **dependsOn**: P1-fusion-contract, P2-engine-seeded-retrieval, P3-meilisearch-adapter, P4-agent-search-notes, P5-agentic-grounding, P6-graphql-client-provenance, P7-docs, P8-web-settings-test, P9-meilisearch-tooling-live
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` (Verification, Rollout, Invariants)
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -27,8 +27,8 @@ reason.
 
 ## writePaths
 
-- `impl-plans/active/search-engine-fusion.md`
-- `impl-plans/active/search-engine-fusion-p10-integration.md`
+- `impl-plans/completed/search-engine-fusion.md`
+- `impl-plans/completed/search-engine-fusion-p10-integration.md`
 - `Sources/AppCore/NoteRetrievalReranker.swift`
 - `Sources/AppCore/NoteModels.swift`
 - `Sources/AppCore/NoteSearch.swift`
@@ -147,7 +147,7 @@ git diff --stat -- Sources/AppCore/ElasticsearchSearchEngine.swift Sources/AppCo
 git diff --stat -- Tests/AppCoreTests/NoteRetrievalFusionTests.swift Tests/AppCoreTests/KaibaAgentToolboxTests.swift Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift Tests/AppCoreTests/ElasticsearchLiveTests.swift
 { git diff --name-only; git ls-files --others --exclude-standard; } | grep -E "\.swift$" | xargs wc -l | sort -n | tail -20
 git status --porcelain
-grep -rnE "/Users/|/home/" README.md docker/meilisearch impl-plans/active/search-engine-fusion*.md design-docs/specs/design-search-engine-fusion.md; echo path-exit=$?
+grep -rnE "/Users/|/home/" README.md docker/meilisearch impl-plans/completed/search-engine-fusion*.md design-docs/specs/design-search-engine-fusion.md; echo path-exit=$?
 ```
 
 Expected evidence:
@@ -170,14 +170,43 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] All gates pass with positive counts, recorded with log paths and
+- [x] All gates pass with positive counts, recorded with log paths and
       exit codes.
-- [ ] Invariant checks pass.
-- [ ] Every integration repair is recorded with its owner, file, hashes
-      and reason.
-- [ ] The index status is updated. Any unresolved blocker is reported
-      explicitly.
+- [x] Invariant checks pass.
+- [x] No integration repairs were required; if a repair had been made,
+      its owner, file, hashes and reason would be recorded here.
+- [x] The index status is updated. No implementation blocker remains.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: P10 integration ran against the combined tree. `mise run
+  build` passed (`tmp/search-engine-fusion/P10/build.log`, exit 0). Full
+  Swift tests passed: XCTest 1183 executed, 13 environment-gated skips,
+  0 failures; swift-testing 146 passed (`swift-test.log`, exit 0).
+  `mise run lint` exited 0 (`lint.log`) with three pre-existing warnings
+  in untouched `Sources/AppCore/NoteService.swift`,
+  `Sources/AppCore/ResendGatewayCLIMailSender.swift` and
+  `Tests/AppCoreTests/AITranslationTests.swift`. Web gates passed:
+  `bun test src` 187/187 (`bun-test.log`), `vitest run` 98/98
+  (`vitest.log`), and `mise run web:check` exit 0 (`web-check.log`).
+  `mise run tauri:check` exited 0 (`tauri-check.log`). Both live suites
+  passed: Elasticsearch 4/4 (`es-live.log`) and Meilisearch 4/4
+  (`meili-live.log`), including the live Japanese assertion and engine
+  seeded linked-neighbor case. Every command log is complete and ends in
+  `exit=0`.
+- 2026-10-05: Mechanical checks passed. The agent boundary grep had no
+  matches (expected grep exit 1); Elasticsearch adapter/protocol and
+  protected-test diff stats were empty; all changed Swift files were under
+  1000 lines (maximum 998); status showed the intended P1-P9 files plus
+  untouched `?? .riela/`. README task names, Meilisearch config, loopback
+  compose port, adapter kinds and auth modes agree with `mise.toml` and
+  code. A path-shaped scan found no machine-local absolute paths; the
+  literal `/Users/|/home/` pattern in the original plan check also matches
+  its own regex examples, so that scan was interpreted as a false positive.
+- 2026-10-05: P9 records no Japanese-segmentation blocker. Its live suite
+  passed the Japanese query. P9 did not record evidence that `_formatted`
+  returns cropped attributes without retrieval, so P10's conditional
+  `attributesToRetrieve` repair was not triggered. No integration source
+  repair was needed. Independent integrity/adversarial review and workflow
+  finalization remain downstream.

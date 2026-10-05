@@ -1,11 +1,11 @@
 # P1 Fusion contract: reranker, provenance field, transport move
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P1-fusion-contract
 **Wave**: 1
 **dependsOn**: none
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F2 (Types, Rules, Weights), F3 "Files and transport", F1 step 6 (visibility of `appendLinkedNeighborResults`)
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -63,7 +63,7 @@ Repository facts:
 - `Sources/AppCore/SearchEngineHTTPTransport.swift`
 - `Sources/AppCore/ElasticsearchHTTPTransport.swift`
 - `Tests/AppCoreTests/NoteRetrievalRerankerTests.swift`
-- `impl-plans/active/search-engine-fusion-p1-contract.md`
+- `impl-plans/completed/search-engine-fusion-p1-contract.md`
 - `tmp/search-engine-fusion/P1`
 
 ## sharedPaths (read-only)
@@ -252,15 +252,30 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] The types and `fuse` exist with the pinned signatures.
-- [ ] `NoteSearchResult.provenance` exists with a nil default.
-- [ ] `appendLinkedNeighborResults` is internal.
-- [ ] The transport is moved behind aliases. The Elasticsearch tests pass
+- [x] The types and `fuse` exist with the pinned signatures.
+- [x] `NoteSearchResult.provenance` exists with a nil default.
+- [x] `appendLinkedNeighborResults` is internal.
+- [x] The transport is moved behind aliases. The Elasticsearch tests pass
       unchanged.
-- [ ] Reranker tests and regression suites pass with positive XCTest
+- [x] Reranker tests and regression suites pass with positive XCTest
       counts. Lint is clean on the touched files.
-- [ ] The progress log records the commands, log paths and exit codes.
+- [x] The progress log records the commands, log paths and exit codes.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented the shared reranker/provenance contract, the
+  default-nil `NoteSearchResult.provenance`, internal PPR helper visibility,
+  transport move and Elasticsearch compatibility aliases. Added nine pure
+  reranker tests. The first focused run failed one mathematically incorrect
+  tie fixture (`reranker.log`, exit 1; 9 tests, 1 failure); corrected its ranks
+  and reran on current source (`reranker-rerun.log`, exit 0; 9 tests, 0
+  failures). Build passed (`build.log`, exit 0). The regression filter passed
+  (`regression.log`, exit 0; 67 tests, 0 failures). Strict SwiftLint on the
+  exact changed-file set passed (`swiftlint-strict-rerun.log`, exit 0).
+  Repository-wide `mise run lint` exited 0 (`lint.log`) and reported three
+  warnings in untouched `NoteService.swift`, `ResendGatewayCLIMailSender.swift`
+  and `AITranslationTests.swift`. `git diff --check` passed and a normalized
+  rename comparison confirmed `SearchEngineHTTPTransport.swift` matches the
+  original transport (`transport_rename_cmp_exit=0`). All touched Swift files
+  are under 1000 lines. Independent review remains downstream.

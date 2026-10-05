@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed (2026-10-05). This design extends
+Accepted (2026-10-05, comm-003999) and implemented in session-268
+(2026-10-05). The combined-tree integration review accepted plans P1-P10
+(comm-004081). This design extends
 `design-docs/specs/search-engine-adapter.md` (SE1-SE9, D0-D5) and
 `design-docs/specs/note-retrieval-fusion.md` (RF1-RF5). It does not
 redesign them. Where a section below changes an earlier rule, it names the
@@ -21,6 +23,12 @@ rule, and the earlier text stays as the base record.
 - Decisions and open questions:
   `design-docs/user-qa/search-engine-adapter.md`, section
   "Fusion and lightweight engine (2026-10-05)".
+- Implementation plan: `impl-plans/completed/search-engine-fusion.md` with
+  plans P1-P10 and the dispatch manifest
+  `impl-plans/active/search-engine-fusion-dispatch.json`. All plans are
+  completed and archived under `impl-plans/completed/` with their original
+  file names. The dispatch manifest is a workflow runtime artifact and
+  stays in `impl-plans/active/`.
 - Code read for this design (current `main`):
   - `Sources/AppCore/NoteSearch.swift`: `searchNotesInDatabase`,
     `appendLinkedNeighborResults` (the only query-seeded graph expansion).

@@ -99,13 +99,31 @@ public struct AIAgenticSearchService: Sendable {
     // fusion (`design-docs/specs/note-retrieval-fusion.md`, RF5) so the note
     // supported by the most terms leads the grounding document, and the full
     // query also reaches linked notes, which are reported separately.
-    let grounding = try Self.groundingResults(
-      query: trimmed,
-      terms: Self.grepTerms(from: trimmed),
-      notebookId: notebookId,
-      limit: limit,
-      service: service
-    )
+    let terms = Self.grepTerms(from: trimmed)
+    let grounding: GroundingResults
+    if service.isSearchEngineEnabled {
+      grounding = try await Self.engineGroundingResults(
+        query: trimmed,
+        terms: terms,
+        notebookId: notebookId,
+        limit: limit,
+        service: service
+      ) ?? Self.groundingResults(
+        query: trimmed,
+        terms: terms,
+        notebookId: notebookId,
+        limit: limit,
+        service: service
+      )
+    } else {
+      grounding = try Self.groundingResults(
+        query: trimmed,
+        terms: terms,
+        notebookId: notebookId,
+        limit: limit,
+        service: service
+      )
+    }
     var memoMatches: [NoteComment] = []
     var seenCommentIds = Set<CommentID>()
     for term in Self.grepTerms(from: trimmed) {
@@ -146,7 +164,7 @@ public struct AIAgenticSearchService: Sendable {
     limit: Int,
     service: NoteService
   ) throws -> GroundingResults {
-    var lists: [(weight: Double, ids: [NoteID])] = []
+    var lists: [NoteRetrievalCandidateList] = []
     var resultsById: [NoteID: NoteSearchResult] = [:]
     var relatedNotes: [NoteSearchResult] = []
     for (index, term) in terms.enumerated() {
@@ -158,7 +176,7 @@ public struct AIAgenticSearchService: Sendable {
         depth: 1,
         limit: limit
       )
-      var directIds: [NoteID] = []
+      var directEntries: [NoteRetrievalCandidateEntry] = []
       for result in results {
         if result.isLinkedNeighbor {
           if resultsById[result.note.noteId] == nil,
@@ -167,21 +185,86 @@ public struct AIAgenticSearchService: Sendable {
           }
           continue
         }
-        directIds.append(result.note.noteId)
+        directEntries.append(NoteRetrievalCandidateEntry(
+          noteId: result.note.noteId,
+          provenance: NoteRetrievalProvenance()
+        ))
         if resultsById[result.note.noteId] == nil {
           resultsById[result.note.noteId] = result
         }
       }
-      lists.append((weight: isFullQuery ? 2 : 1, ids: directIds))
+      lists.append(NoteRetrievalCandidateList(
+        label: nil,
+        weight: isFullQuery ? 2 : 1,
+        tier: .direct,
+        entries: directEntries
+      ))
     }
-    let fused = reciprocalRankFusion(lists: lists)
-    let noteMatches = fused
-      .sorted { lhs, rhs in
-        if lhs.value != rhs.value { return lhs.value > rhs.value }
-        return lhs.key < rhs.key
+    let noteMatches = NoteRetrievalReranker.fuse(lists, limit: limit)
+      .compactMap { resultsById[$0.noteId] }
+    let matchedIds = Set(noteMatches.map(\.note.noteId))
+    return GroundingResults(
+      noteMatches: noteMatches,
+      relatedNotes: Array(relatedNotes.filter { !matchedIds.contains($0.note.noteId) }.prefix(limit))
+    )
+  }
+
+  /// Runs engine-seeded retrieval for each grounding term. If any term takes
+  /// the FTS fallback, discard this pass so search can rebuild today's FTS
+  /// grounding as a whole.
+  static func engineGroundingResults(
+    query: String,
+    terms: [String],
+    notebookId: NotebookID?,
+    limit: Int,
+    service: NoteService
+  ) async throws -> GroundingResults? {
+    var lists: [NoteRetrievalCandidateList] = []
+    var resultsById: [NoteID: NoteSearchResult] = [:]
+    var relatedNotes: [NoteSearchResult] = []
+
+    for (index, term) in terms.enumerated() {
+      let outcome = try await service.retrieveNotes(
+        query: term,
+        notebookId: notebookId,
+        includeLinked: index == 0,
+        depth: 1,
+        limit: limit
+      )
+      guard outcome.usedSearchEngine else { return nil }
+
+      var directEntries: [NoteRetrievalCandidateEntry] = []
+      for result in outcome.results {
+        if result.isLinkedNeighbor {
+          if index == 0,
+             resultsById[result.note.noteId] == nil,
+             !relatedNotes.contains(where: { $0.note.noteId == result.note.noteId }) {
+            relatedNotes.append(result)
+          }
+          continue
+        }
+        directEntries.append(NoteRetrievalCandidateEntry(
+          noteId: result.note.noteId,
+          provenance: result.provenance ?? NoteRetrievalProvenance()
+        ))
+        if resultsById[result.note.noteId] == nil {
+          resultsById[result.note.noteId] = result
+        }
       }
-      .prefix(limit)
-      .compactMap { resultsById[$0.key] }
+      lists.append(NoteRetrievalCandidateList(
+        label: index == 0 ? nil : .agentQuery,
+        weight: index == 0 ? 2 : 1,
+        tier: .direct,
+        entries: directEntries
+      ))
+    }
+
+    let fused = NoteRetrievalReranker.fuse(lists, limit: limit)
+    let noteMatches = fused.compactMap { candidate -> NoteSearchResult? in
+      guard var result = resultsById[candidate.noteId] else { return nil }
+      result.provenance = candidate.provenance
+      return result
+    }
     let matchedIds = Set(noteMatches.map(\.note.noteId))
     return GroundingResults(
       noteMatches: noteMatches,
@@ -232,14 +315,14 @@ public struct AIAgenticSearchService: Sendable {
           ? " [partial match: \(Int((match.termCoverage * 100).rounded()))% of terms]"
           : ""
         return "- noteId: \(match.note.noteId) (notebook \(match.note.notebookId)) — "
-          + "\(match.note.title ?? "(untitled)")\(coverage)\n  \(match.snippet)"
+          + "\(match.note.title ?? "(untitled)")\(coverage)\(provenanceSuffix(match.provenance))\n  \(match.snippet)"
       }
       sections.append("## Note matches\n\(lines.joined(separator: "\n"))")
     }
     if !relatedNotes.isEmpty {
       let lines = relatedNotes.map { related in
         "- noteId: \(related.note.noteId) (notebook \(related.note.notebookId)) — "
-          + "\(related.note.title ?? "(untitled)")\n  \(related.snippet)"
+          + "\(related.note.title ?? "(untitled)")\(provenanceSuffix(related.provenance))\n  \(related.snippet)"
       }
       sections.append(
         "## Related notes (reached through links or shared tags, not text matches)\n"
@@ -257,5 +340,13 @@ public struct AIAgenticSearchService: Sendable {
       sections.append("## Memo matches\n\(lines.joined(separator: "\n"))")
     }
     return sections.joined(separator: "\n\n")
+  }
+
+  private static func provenanceSuffix(_ provenance: NoteRetrievalProvenance?) -> String {
+    guard let provenance else { return "" }
+    let sources = provenance.sources.map(\.rawValue).joined(separator: ", ")
+    let reasons = provenance.reasons.map(\.rawValue).joined(separator: ", ")
+    let reasonText = reasons.isEmpty ? "" : "; reasons: \(reasons)"
+    return " [sources: \(sources)\(reasonText)]"
   }
 }

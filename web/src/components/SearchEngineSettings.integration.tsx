@@ -124,6 +124,49 @@ describe('SearchEngineSettings', () => {
     }
   })
 
+  test('uses only the authentication modes declared by the Meilisearch descriptor', async () => {
+    const settings: Settings = {
+      ...initial,
+      hasSecret: false,
+      adapters: [
+        { kind: 'elasticsearch', displayName: 'Elasticsearch', authModes: ['none', 'basic', 'apiKey'] },
+        { kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'] },
+      ],
+    }
+    const view = mount(settings)
+    try {
+      await settle()
+      const engine = view.host.querySelector<HTMLSelectElement>('label select')
+      expect(engine).not.toBeNull()
+      engine!.value = 'meilisearch'
+      engine!.dispatchEvent(new Event('change', { bubbles: true }))
+
+      const url = inputByLabel(view.host, 'URL')
+      url.value = 'http://127.0.0.1:7700'
+      url.dispatchEvent(new Event('input', { bubbles: true }))
+
+      const authMode = [...view.host.querySelectorAll('label')]
+        .find((label) => label.textContent?.includes('Authentication'))
+        ?.querySelector<HTMLSelectElement>('select')
+      expect([...authMode!.options].map((option) => option.value)).toEqual(['none', 'apiKey'])
+      expect(inputByLabel(view.host, 'Username')).toBeFalsy()
+
+      authMode!.value = 'apiKey'
+      authMode!.dispatchEvent(new Event('change', { bubbles: true }))
+      const secret = inputByLabel(view.host, 'Secret')
+      expect(secret.type).toBe('password')
+      expect(inputByLabel(view.host, 'Username')).toBeFalsy()
+      secret.value = 'meilisearch-test-key'
+      secret.dispatchEvent(new Event('input', { bubbles: true }))
+      view.host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click()
+
+      await vi.waitFor(() => expect(view.client.updateSearchEngineSettings).toHaveBeenCalled())
+      const input = vi.mocked(view.client.updateSearchEngineSettings).mock.calls.at(0)?.[0]
+      expect(input).toMatchObject({ kind: 'meilisearch', url: 'http://127.0.0.1:7700', authMode: 'apiKey' })
+      expect(input).not.toHaveProperty('username')
+    } finally { view.dispose(); view.host.remove() }
+  })
+
   test('storage scan detects a secret persisted as a value under an ordinary key', () => {
     const storage = memoryStorage()
     storage.setItem('kaiba.searchEngineForm', JSON.stringify({ secret: 'p20-secret-value' }))

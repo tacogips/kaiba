@@ -2,7 +2,8 @@ import Foundation
 
 public enum SearchEngineFactory {
   public static let adapters: [SearchEngineAdapterDescriptor] = [
-    SearchEngineAdapterDescriptor(kind: "elasticsearch", displayName: "Elasticsearch", authModes: [.none, .basic, .apiKey])
+    SearchEngineAdapterDescriptor(kind: "elasticsearch", displayName: "Elasticsearch", authModes: [.none, .basic, .apiKey]),
+    SearchEngineAdapterDescriptor(kind: "meilisearch", displayName: "Meilisearch", authModes: [.none, .apiKey])
   ]
 
   public static func normalizedTarget(_ url: String) -> String? {
@@ -20,8 +21,12 @@ public enum SearchEngineFactory {
     environment: [String: String]
   ) throws -> (any SearchEngine)? {
     guard let configuration, configuration.isEnabled else { return nil }
-    guard configuration.kind == "elasticsearch" else {
+    guard adapters.contains(where: { $0.kind == configuration.kind }) else {
       throw KaibaConfigurationError.invalid("searchEngine.kind")
+    }
+    if configuration.kind == "meilisearch",
+       configuration.usernameEnvironmentVariable != nil || configuration.passwordEnvironmentVariable != nil {
+      throw KaibaConfigurationError.invalid("searchEngine.credentials")
     }
     guard let components = URLComponents(string: configuration.url),
           components.url != nil,
@@ -77,6 +82,9 @@ public enum SearchEngineFactory {
     guard adapters.contains(where: { $0.kind == settings.kind }) else {
       throw KaibaConfigurationError.invalid("searchEngine.kind")
     }
+    guard let descriptor = adapters.first(where: { $0.kind == settings.kind }), descriptor.authModes.contains(settings.authMode) else {
+      throw KaibaConfigurationError.invalid("searchEngine.authMode")
+    }
     let urlString = settings.url
     guard urlString.count <= 2048,
           !urlString.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
@@ -91,7 +99,7 @@ public enum SearchEngineFactory {
     guard settings.indexPrefix.range(of: "^[a-z0-9][a-z0-9_-]{0,63}$", options: .regularExpression) != nil else {
       throw KaibaConfigurationError.invalid("searchEngine.indexPrefix")
     }
-    if settings.authMode == .basic {
+    if settings.kind == "elasticsearch", settings.authMode == .basic {
       guard let username = settings.username, !username.isEmpty, username.count <= 256,
             !username.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
         throw KaibaConfigurationError.invalid("searchEngine.username")
@@ -108,6 +116,11 @@ public enum SearchEngineFactory {
     }
     if !settings.verifyTLS && (scheme != "https" || !URLSessionElasticsearchTransport.supportsInsecureTLS) {
       throw KaibaConfigurationError.invalid("searchEngine.verifyTLS")
+    }
+    if settings.kind == "meilisearch" {
+      return MeilisearchSearchEngine(baseURL: url, indexPrefix: settings.indexPrefix,
+        apiKey: settings.authMode == .apiKey ? secret : nil, requestTimeoutSeconds: settings.requestTimeoutSeconds,
+        verifyTLS: settings.verifyTLS, transport: transport)
     }
     let authorization: ElasticsearchAuthorization
     switch settings.authMode {

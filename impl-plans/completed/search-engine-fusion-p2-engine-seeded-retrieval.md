@@ -1,11 +1,11 @@
 # P2 Engine-seeded retrieval (`retrieveNotes`)
 
-**Status**: Not Started
+**Status**: Completed. Accepted in session-268 (test-integrity, adversarial and combined-tree integration review, comm-004081). The P10 combined-tree gates passed (`impl-plans/completed/search-engine-fusion.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P2-engine-seeded-retrieval
 **Wave**: 2
 **dependsOn**: P1-fusion-contract
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` F1 (Entry point, Algorithm, Health and per-call cost), Invariants 1-3
-**Index**: `impl-plans/active/search-engine-fusion.md`
+**Index**: `impl-plans/completed/search-engine-fusion.md`
 
 ## Intent and context
 
@@ -56,7 +56,7 @@ Repository facts:
 
 - `Sources/AppCore/NoteService+EngineSeededRetrieval.swift`
 - `Tests/AppCoreTests/EngineSeededRetrievalTests.swift`
-- `impl-plans/active/search-engine-fusion-p2-engine-seeded-retrieval.md`
+- `impl-plans/completed/search-engine-fusion-p2-engine-seeded-retrieval.md`
 - `tmp/search-engine-fusion/P2`
 
 ## sharedPaths (read-only)
@@ -229,11 +229,16 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `retrieveNotes` exists with the pinned signature and F1 semantics.
-- [ ] The no-engine and error paths are proven equal to `searchNotes`.
-- [ ] Re-check, PPR seeding, provenance and size caps are tested.
-- [ ] Verification evidence is recorded with log paths and exit codes.
+- [x] `retrieveNotes` exists with the pinned signature and F1 semantics.
+- [x] The no-engine and error paths are proven equal to `searchNotes`.
+- [x] Re-check, PPR seeding, provenance and size caps are tested.
+- [x] Verification evidence is recorded with log paths and exit codes.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Initial verification attempt after implementing `retrieveNotes` and `eligibleSearchCandidateIds` stopped during compilation in concurrent P3 files `Sources/AppCore/MeilisearchSearchEngine.swift` and `Sources/AppCore/MeilisearchRequestBodies.swift`. The initial aggregate lint exited 0 with 12 P3 warnings. These interim failures were resolved after P3 edits landed; final-source results are recorded below. Initial logs: `build.log`, `retrieval.log`, `regression.log`, and `lint.log` under `tmp/search-engine-fusion/P2`.
+- 2026-10-05: Before the shared P3 compile fix, P2-local strict SwiftLint passed using `tmp/search-engine-fusion/P2/changed-swift-files.nul`; retrieval source was 287 lines and the agent-boundary grep was empty. Logs: `swiftlint-strict.log`, `boundary-and-lines.log`, and `parse.log` under `tmp/search-engine-fusion/P2`. Final-source checks are recorded in the next progress entry.
+- 2026-10-05: Interim passing evidence before the final pending-ingest test was added: build-attempt-3, retrieval-attempt-4 (12 tests), regression-attempt-2 (63 tests), swiftlint-strict-final, lint-final, boundary-and-lines-final, and parse-final. Initial P3 compile failures are preserved in `build.log`, `retrieval.log`, and `regression.log`. `retrieval-attempt-2.log` records 12 tests with one fixture-only failure (`status` class not defined); after adding the class, `retrieval-attempt-3.log` passed all 12 with compiler warnings and `retrieval-attempt-4.log` passed cleanly after changing `var` to `let`.
+- 2026-10-05: Final P2 verification includes the pending-ingest re-check test. `mise run build` exited 0 (`tmp/search-engine-fusion/P2/build-attempt-5.log`); `swift test --filter EngineSeededRetrievalTests` exited 0 with 13 tests and 0 failures (`tmp/search-engine-fusion/P2/retrieval-attempt-6.log`); regression filter `NoteRetrievalFusionTests|SearchEngineAccessTests|SearchEngineQueryTests|NoteServiceTests` exited 0 with 63 tests and 0 failures (`tmp/search-engine-fusion/P2/regression-attempt-3.log`). Changed-file strict SwiftLint exited 0 (`tmp/search-engine-fusion/P2/swiftlint-strict-final-2.log`). Repository-wide `mise run lint` exited 0 with three existing warnings in untouched `Sources/AppCore/NoteService.swift`, `Sources/AppCore/ResendGatewayCLIMailSender.swift`, and `Tests/AppCoreTests/AITranslationTests.swift` (`tmp/search-engine-fusion/P2/lint-final-2.log`). Boundary grep remains empty and production retrieval file is 287 lines (`boundary-and-lines-final.log`); parser check exited 0 (`parse-final.log`). P4/P5/P6 caller wiring and independent review remain downstream.
+- 2026-10-05: Addressed test-integrity finding `P2-TI-001` in `Tests/AppCoreTests/EngineSeededRetrievalTests.swift` only. Added a same-class sibling plus independent tag-only and class-only calls with exact survivor assertions; retained the combined case and asserted engine use on the created-at case. Added default-user memory-owner and nil-user unauthenticated calls with hits `[memory, ownerNote]`; both preserve `ownerNote`, drop the long-term-memory note and assert `usedSearchEngine == true`. Added/confirmed `usedSearchEngine == true` on every engine-path result in the suite. No production code changed and no existing assertion was removed. The fresh retrieval run passed 13/13 (`retrieval-attempt-7.log`, exit 0); regression passed 63/63 (`regression-attempt-4.log`, exit 0); strict lint passed on the unchanged two-file manifest (`swiftlint-strict-final-4.log`, exit 0). The nil-user test confirms the engine path is reachable and exercises the nil-acting-user LTM exclusion branch.

@@ -10,8 +10,8 @@ content-addressed file attachments (local by default, migratable to
 S3-compatible storage). Search is SQLite FTS5 with tag/class filters,
 contextual indexing, relaxed multi-term matching with rank fusion, and
 graph expansion ranked by personalized PageRank
-(`design-docs/specs/note-retrieval-fusion.md`). An optional Elasticsearch
-adapter adds engine-ranked, ontology-aware search and related notes (see
+(`design-docs/specs/note-retrieval-fusion.md`). An optional Elasticsearch or
+Meilisearch engine adds engine-ranked, ontology-aware search and related notes (see
 [Optional search engine](#optional-search-engine)).
 
 ## Quick Start
@@ -185,6 +185,15 @@ and related notes. Without an engine, Kaiba keeps its built-in search behavior.
 Search results are filtered by the engine and checked again against the note
 store before they are returned.
 
+### Choosing an engine
+
+| | Elasticsearch | Meilisearch |
+| --- | --- | --- |
+| Runtime and resources | JVM service; the local compose config sets a 512 MB heap | Rust service with a single binary; no JVM |
+| Japanese analysis | `cjk` analyzer uses bigrams | Built-in Japanese segmentation, with the `jpn` locale |
+| Related notes | Elasticsearch `more_like_this` query | Kaiba composes text, link, tag and entity searches |
+| Authentication | `none`, `basic` or `apiKey` | `none` or `apiKey` |
+
 Add a `searchEngine` section to `config.json` to use the local Elasticsearch
 adapter:
 
@@ -202,6 +211,28 @@ Remote clusters should use an `https` URL and credentials supplied through
 `apiKeyEnvironmentVariable`, or the username and password environment-variable
 names. Do not put secrets directly in the configuration file.
 
+Meilisearch can be used locally without an API key:
+
+```json
+{
+  "searchEngine": {
+    "kind": "meilisearch",
+    "url": "http://127.0.0.1:7700",
+    "indexPrefix": "kaiba"
+  }
+}
+```
+
+For a remote Meilisearch server, use `https` and add
+`"apiKeyEnvironmentVariable": "KAIBA_MEILISEARCH_API_KEY"`; keep the key in
+the environment, not in `config.json`. Use an API key restricted to the
+`<prefix>-notes-*` index pattern and only the required actions: search,
+documents add/delete, indexes create/get, settings update and tasks get. Do
+not use the Meilisearch master key. Meilisearch's health endpoint does not
+require authentication, so **Test connection** can report the server as
+available even when the API key is wrong; authenticated index operations or
+backfill will reveal an invalid key.
+
 For local development, use the compose setup in `docker/elasticsearch/compose.yaml`:
 
 ```bash
@@ -213,6 +244,21 @@ mise run search:down
 
 This compose cluster disables Elasticsearch security and binds to
 `127.0.0.1`. It is for local use only and must not be exposed to a network.
+
+Meilisearch's local compose service also binds to `127.0.0.1` and runs in
+development mode without a master key, so it is for local use only:
+
+```bash
+mise run search:meilisearch:up         # starts colima on macOS when Docker is down
+mise run search:meilisearch:status
+mise run search:meilisearch:test-live
+mise run search:meilisearch:down
+```
+
+Switch engines in **Settings** or by changing the `searchEngine` section in
+`config.json`. A change to engine identity triggers an index backfill through
+the durable outbox; existing notes remain searchable through full-text search
+while it runs. Kaiba does not delete the old engine index automatically.
 
 The server syncs the index on startup, after note changes, and every 15 seconds.
 Changes are stored in a durable outbox and retried when the engine is
@@ -256,9 +302,11 @@ and shared person or event tags. Results include machine-readable reasons such
 as `linked`, `shared-tag`, `shared-entity` and `text-similarity`; the web panel
 shows those reasons.
 
-When an engine is active, the agent `search_notes` tool uses it when
-`include_linked` is false and falls back to SQLite FTS if the engine reports an
-error. User-facing ontology search and related notes do not call an LLM.
+With an engine attached, graph search (`includeLinked: true`), the agent
+`search_notes` tool (with either `include_linked` value) and AI search grounding
+fuse engine and full-text results deterministically. Provenance identifies the
+contributing sources. Retrieval uses no LLM; if an engine call fails, Kaiba
+returns the existing full-text results.
 
 A `searchEngine` section in `config.json` takes precedence and locks the
 connection settings. Without that section, administrators can choose an

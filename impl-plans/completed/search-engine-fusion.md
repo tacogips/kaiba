@@ -1,6 +1,6 @@
 # Search Engine Fusion and Meilisearch Adapter (index)
 
-**Status**: In Progress (plans created 2026-10-05)
+**Status**: Completed. All 10 plans (P1-P10) were accepted in session-268; the combined-tree integration review accepted them with no revision (comm-004081). The P10 gates below passed with positive counts, including both live suites. The browser E2E step was skipped because the repository has no E2E harness and no browser-facing production code changed. Archived to `impl-plans/completed/` at Step 8 on 2026-10-05. The dispatch manifest `impl-plans/active/search-engine-fusion-dispatch.json` is a workflow runtime artifact and stays in `impl-plans/active/`.
 **Design Reference**: `design-docs/specs/design-search-engine-fusion.md` (F1-F6)
 **Related designs**: `design-docs/specs/search-engine-adapter.md`, `design-docs/specs/note-retrieval-fusion.md`, `design-docs/user-qa/search-engine-adapter.md`
 **Evidence root**: `tmp/search-engine-fusion/<planId>/` (gitignored; each plan writes only its own directory)
@@ -18,20 +18,40 @@ path behaves exactly as it does today.
 
 | wave | planId | plan | dependsOn |
 | --- | --- | --- | --- |
-| 1 | P1-fusion-contract | `impl-plans/active/search-engine-fusion-p1-contract.md` | none |
-| 1 | P8-web-settings-test | `impl-plans/active/search-engine-fusion-p8-web-settings-test.md` | none |
-| 2 | P2-engine-seeded-retrieval | `impl-plans/active/search-engine-fusion-p2-engine-seeded-retrieval.md` | P1 |
-| 2 | P3-meilisearch-adapter | `impl-plans/active/search-engine-fusion-p3-meilisearch-adapter.md` | P1 |
-| 3 | P4-agent-search-notes | `impl-plans/active/search-engine-fusion-p4-agent-search-notes.md` | P2 |
-| 3 | P5-agentic-grounding | `impl-plans/active/search-engine-fusion-p5-agentic-grounding.md` | P2 |
-| 3 | P6-graphql-client-provenance | `impl-plans/active/search-engine-fusion-p6-graphql-client-provenance.md` | P2 |
-| 3 | P7-docs | `impl-plans/active/search-engine-fusion-p7-docs.md` | P3 |
-| 3 | P9-meilisearch-tooling-live | `impl-plans/active/search-engine-fusion-p9-meilisearch-tooling-live.md` | P2, P3 |
-| 4 | P10-integration | `impl-plans/active/search-engine-fusion-p10-integration.md` | P1-P9 |
+| 1 | P1-fusion-contract | `impl-plans/completed/search-engine-fusion-p1-contract.md` | none |
+| 1 | P8-web-settings-test | `impl-plans/completed/search-engine-fusion-p8-web-settings-test.md` | none |
+| 2 | P2-engine-seeded-retrieval | `impl-plans/completed/search-engine-fusion-p2-engine-seeded-retrieval.md` | P1 |
+| 2 | P3-meilisearch-adapter | `impl-plans/completed/search-engine-fusion-p3-meilisearch-adapter.md` | P1 |
+| 3 | P4-agent-search-notes | `impl-plans/completed/search-engine-fusion-p4-agent-search-notes.md` | P2 |
+| 3 | P5-agentic-grounding | `impl-plans/completed/search-engine-fusion-p5-agentic-grounding.md` | P2 |
+| 3 | P6-graphql-client-provenance | `impl-plans/completed/search-engine-fusion-p6-graphql-client-provenance.md` | P2 |
+| 3 | P7-docs | `impl-plans/completed/search-engine-fusion-p7-docs.md` | P3 |
+| 3 | P9-meilisearch-tooling-live | `impl-plans/completed/search-engine-fusion-p9-meilisearch-tooling-live.md` | P2, P3 |
+| 4 | P10-integration | `impl-plans/completed/search-engine-fusion-p10-integration.md` | P1-P9 |
 
 The DAG is P1 -> {P2, P3} -> {P4, P5, P6, P7, P9} -> P10. P8 is
 independent and feeds only P10. P7 is the only `README.md` writer in
 wave 3.
+
+## Final integration evidence
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| `mise run build` | exit 0 | `tmp/search-engine-fusion/P10/build.log` |
+| Full Swift tests | exit 0; XCTest 1183 executed / 0 failed (13 skipped), swift-testing 146 passed | `tmp/search-engine-fusion/P10/swift-test.log` |
+| `mise run lint` | exit 0; 3 warnings in untouched files | `tmp/search-engine-fusion/P10/lint.log` |
+| `bun test src` | exit 0; 187 passed | `tmp/search-engine-fusion/P10/bun-test.log` |
+| `vitest run` | exit 0; 98 passed | `tmp/search-engine-fusion/P10/vitest.log` |
+| `mise run web:check` | exit 0 | `tmp/search-engine-fusion/P10/web-check.log` |
+| `mise run tauri:check` | exit 0 | `tmp/search-engine-fusion/P10/tauri-check.log` |
+| `mise run search:test-live` | exit 0; XCTest 4/4 | `tmp/search-engine-fusion/P10/es-live.log` |
+| `mise run search:meilisearch:test-live` | exit 0; XCTest 4/4, includes Japanese query | `tmp/search-engine-fusion/P10/meili-live.log` |
+
+Integration invariants passed: boundary grep empty, Elasticsearch/protocol
+and protected-test diffs empty, changed Swift files under 1000 lines, no
+machine-local paths, and `.riela/` untouched. No cross-plan source repair
+was required. The combined-tree integration review accepted the result
+(comm-004081).
 
 ## Shared-file ownership
 
@@ -98,3 +118,7 @@ working directory. Each file below has exactly one writer:
     the image digest.
   - SEF-PLAN-002: P3 adds an internal task-wait test seam.
   - SEF-PLAN-003: P7 moves to wave 3 after P3, with a factory test record.
+- 2026-10-05: P1-P10 implemented and accepted (P10 reviews comm-004076,
+  combined-tree integration review comm-004081). Step 7b recorded no
+  browser E2E run (no harness exists). Step 8 archived the index and all
+  ten plans to `impl-plans/completed/` and marked the design implemented.
