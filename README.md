@@ -426,6 +426,28 @@ Server policy lives in `config.json`:
 { "ai": { "userAgent": { "enabled": true, "allowCustomBaseURL": false, "maxToolRounds": 24 } } }
 ```
 
+### Agentic search on the server
+
+GraphQL `agenticSearch` on `kaiba serve` uses the server's `ai.agent` runtime.
+With the `agent-gateway-cli` backend and an API provider such as `openrouter`,
+a macOS server runs `agent-gateway` under `sandbox-exec`. The gateway path is
+resolved to its physical file first, so a Homebrew `bin` symlink works. The
+gateway receives only `PATH`, `LANG`, `LC_ALL`, the variable named by
+`apiKeyEnvironmentVariable`, and `HOME`, `TMPDIR`, `XDG_CONFIG_HOME` and
+`XDG_CACHE_HOME` pointing into a per-request workspace, and it may write only
+inside that workspace. Tool-capable vendors are refused in this mode, and
+Linux servers refuse served gateway execution.
+
+When a search fails, `result.diagnostics` holds one sanitized reason, such as
+`agent runtime is unavailable`, `agent-gateway request failed` or
+`agent-gateway could not start inside the server sandbox (exit N)`. Any other
+gateway error is reported as `agent request failed`. The server also writes one
+`kaiba: agenticSearch failed: <reason>` line to standard error. Gateway stderr,
+provider responses, the query, paths and key values are never returned or
+logged. The macOS log may show non-fatal `Sandbox` denials for the gateway
+during a successful search. They are expected and stay denied. See AI13 in the
+[AI agent integration design](design-docs/specs/ai-agent-integration.md).
+
 ## macOS and iPhone clients
 
 The same SolidJS client is packaged with Tauri 2 for macOS and iPhone. On macOS,

@@ -1,11 +1,11 @@
 # P3 Web Settings: legible primary and selected buttons
 
-**Status**: Completed. The W16 rules and test are checkpointed in commit 0172b87; resume verification passed on 2026-10-06.
+**Status**: Completed. The W16 rules and test are checkpointed in commit 0172b87; resume verification passed on 2026-10-06. Accepted in session-279; P4's combined-tree gates and the session-281 adversarial review (comm-004342) accepted the release. Archived to `impl-plans/completed/` at Step 8 on 2026-10-06.
 **planId**: P3-settings-contrast
 **Wave**: 1
 **dependsOn**: none. Web-only; no Swift.
 **Design Reference**: `design-docs/specs/web-chatbook-ui.md` W16
-**Index**: `impl-plans/active/release-0-1-17.md`
+**Index**: `impl-plans/completed/release-0-1-17.md`
 
 ## Resume scope (read first)
 

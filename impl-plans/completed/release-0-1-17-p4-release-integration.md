@@ -1,6 +1,6 @@
 # P4 Release integration: version 0.1.17, README check, combined-tree gates
 
-**Status**: Planned (session-281: not started).
+**Status**: Completed. Implemented in session-281; the branch test-integrity and adversarial reviews and the session-281 adversarial review (comm-004342) accepted it with no findings. Archived to `impl-plans/completed/` at Step 8 on 2026-10-06.
 **planId**: P4-release-integration
 **Wave**: 2 (session-281). P1 and P3 are accepted dependencies, and P2 is wave 1.
 **dependsOn**: P1-agentic-search-diagnostics (accepted), P2-served-sandbox, P3-settings-contrast (accepted)
@@ -10,7 +10,7 @@
 - `design-docs/specs/web-chatbook-ui.md`: W16 and Verification
 - the Step 2 release decision: the five version files, and README "Optional search engine" confirmed accurate
 
-**Index**: `impl-plans/active/release-0-1-17.md`
+**Index**: `impl-plans/completed/release-0-1-17.md`
 
 ## Intent and context
 
@@ -174,12 +174,12 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] Version 0.1.17 is in all five files, and no stray `0.1.16` remains outside docs and plans.
-- [ ] The README search section is confirmed accurate (or corrected, with the reason recorded).
-- [ ] The index "Final integration evidence" table is filled with exit codes, counts and log paths, and the index Status is updated.
-- [ ] Every integration repair is recorded, and no assertion is weakened.
-- [ ] `guard-design-docs.log` and `guard-allowances.log` are empty.
-- [ ] No high or mid finding is unresolved. Any blocker (missing key, Docker/colima, `log show`) is reported explicitly, never as passed.
+- [x] Version 0.1.17 is in all five files, and no stray `0.1.16` remains outside docs and plans.
+- [x] The README search section is confirmed accurate; no factual correction was needed.
+- [x] The index "Final integration evidence" table is filled with exit codes, counts and log paths, and the index Status is updated.
+- [x] No integration repair was needed; no assertion was weakened.
+- [x] `guard-design-docs.log` and `guard-allowances.log` are empty.
+- [x] No high or mid finding is known to be unresolved. Independent review and workflow finalization remain downstream.
 
 ## Progress Log
 
@@ -189,3 +189,13 @@ Expected evidence:
   - P4 is now wave 2, after P2.
   - Added the no-new-allowance guard, the empty design-docs guard and the P2 residual-denial reference row.
   - Not started.
+- 2026-10-06: Session-281 Step 6 implementation:
+  - Updated only the 0.1.16 tokens in the five release version files. `cargo-lock-diff.log` is exactly one insertion and one deletion; no Cargo update ran.
+  - Confirmed README's Optional search engine section matches the accepted design: Meilisearch only/default, Elasticsearch rejected, server-side URL resolution/fallback, optional backend-only boundary, and `mise run search:test-live`; no README edit was warranted.
+  - All P4 gates passed: build; full Swift tests (XCTest 1199, 10 skipped, 0 failures; swift-testing 148 passed); live served agent gateway (XCTest 1 passed); lint (392 files, 3 non-serious violations, exit 0); bun (192 passed); Vitest (100 passed); web check; Tauri check; and Meilisearch live tests (XCTest 4 passed). Full logs are listed in the index table.
+  - P2 residual denial evidence is `tmp/release-0-1-17/P2/accept/sandbox-denial-classes-2.log` (file-read-data 13, file-read-xattr 4, file-write-create 2, file-write-mode 1, file-write-unlink 1, mach-lookup 4, system-socket 1, user-preference-read 9; 18 duplicate-report lines); evidence only, not a gate.
+  - Version, old-version, protected-path, release-wide local-path, secret, design-docs and allowance guards passed with empty match logs. Changed Swift files are under 1000 lines. No integration repair was needed, no assertions were weakened, no release/tag/tap action was taken, and no `.riela/` path was touched.
+  - `mise run search:docker`, `search:up`, `search:test-live`, and `search:down` each exited 0; the service was stopped after verification. Independent review and workflow finalization are downstream.
+- 2026-10-06: Step 8 (documentation refresh, after the adversarial review accepted in comm-004342):
+  - Added the README subsection "Agentic search on the server" under "Personal AI agent". It documents the shipped AI13 behavior: the macOS sandbox, the isolated environment, the sanitized `agenticSearch` diagnostics, the server log line, and that residual non-fatal Sandbox denials are expected. The "Optional search engine" section is unchanged, as P4 confirmed.
+  - Archived P1-P4 and the index to `impl-plans/completed/`. The dispatch manifest stays in `impl-plans/active/` as a workflow runtime artifact. The `writePaths` entries and executed verification commands in this plan and its siblings keep the `impl-plans/active/` paths they ran with.

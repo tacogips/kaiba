@@ -1,6 +1,6 @@
 # P1 Served agenticSearch diagnostics: sandbox-start classification, public reason, server log
 
-**Status**: Completed. The source work is checkpointed in commit 0172b87. This run fixed the launcher fixture, replaced hook-rejected path literals in the two test files, and passed the focused verification.
+**Status**: Completed. The source work is checkpointed in commit 0172b87. This run fixed the launcher fixture, replaced hook-rejected path literals in the two test files, and passed the focused verification. Accepted in session-279; P4's combined-tree gates and the session-281 adversarial review (comm-004342) accepted the release. Archived to `impl-plans/completed/` at Step 8 on 2026-10-06.
 **planId**: P1-agentic-search-diagnostics
 **Wave**: 1
 **dependsOn**: none
@@ -9,7 +9,7 @@
 - the GraphQL Surface Additions `agenticSearch` bullet
 - Verification item 13: the classifier bullet, the macOS invoker-level bullet, the fixture-literal bullet, and the mapping and `agenticSearch` bullets
 
-**Index**: `impl-plans/active/release-0-1-17.md`
+**Index**: `impl-plans/completed/release-0-1-17.md`
 
 ## Resume scope (read first)
 

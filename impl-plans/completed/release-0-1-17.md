@@ -1,6 +1,6 @@
 # Release 0.1.17 Preparation (index)
 
-**Status**: Active (resume, session-281). Plans P1-P4 were created in session-278 (design accepted in comm-004276) and revised in session-279. In session-281, P1 and P3 are accepted dependencies. P2 is verified and accepted under the amended AI13 "Diagnosis gate" (Step 3 accepted it in comm-004324), and P4 runs afterwards.
+**Status**: Completed. The session-281 adversarial review accepted the release (comm-004342), and the gates below passed with positive counts. The browser E2E step was skipped because the repository has no E2E harness; W16 is covered by `web/src/settingsButtonContrast.test.ts`, bun and Vitest. Archived to `impl-plans/completed/` at Step 8 on 2026-10-06. The dispatch manifest `impl-plans/active/release-0-1-17-dispatch.json` is a workflow runtime artifact and stays in `impl-plans/active/`. Plans P1-P4 were created in session-278 (design accepted in comm-004276) and revised in session-279. In session-281, P1 and P3 are accepted dependencies. P2 is verified and accepted under the amended AI13 "Diagnosis gate" (Step 3 accepted it in comm-004324), and P4 has completed its combined-tree gates.
 **Design Reference**: `design-docs/specs/ai-agent-integration.md` (the Runtime and Provider Adapter Boundary paragraph, AI13 including the "Diagnosis gate" revised on 2026-10-06, the GraphQL Surface Additions `agenticSearch` bullet, and Verification item 13), `design-docs/specs/web-chatbook-ui.md` (W16) and `design-docs/user-qa/ai-agent-runtime-and-ui.md` ("Served sandbox: residual non-fatal denials (decided 2026-10-06)", read-only)
 **Evidence root**: `tmp/release-0-1-17/<planId-prefix>/`. It is gitignored by `tmp/`, and each plan writes only its own directory.
 
@@ -37,10 +37,10 @@ Pre-commit hook: the repository hook rejects staged text containing absolute pat
 
 | wave (session-281) | planId | plan | dependsOn |
 | --- | --- | --- | --- |
-| accepted | P1-agentic-search-diagnostics | `impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md` | none |
-| accepted | P3-settings-contrast | `impl-plans/active/release-0-1-17-p3-settings-contrast.md` | none |
-| 1 | P2-served-sandbox | `impl-plans/active/release-0-1-17-p2-served-sandbox.md` | P1 (accepted) |
-| 2 | P4-release-integration | `impl-plans/active/release-0-1-17-p4-release-integration.md` | P1 (accepted), P2, P3 (accepted) |
+| accepted | P1-agentic-search-diagnostics | `impl-plans/completed/release-0-1-17-p1-agentic-search-diagnostics.md` | none |
+| accepted | P3-settings-contrast | `impl-plans/completed/release-0-1-17-p3-settings-contrast.md` | none |
+| 1 | P2-served-sandbox | `impl-plans/completed/release-0-1-17-p2-served-sandbox.md` | P1 (accepted) |
+| 2 | P4-release-integration | `impl-plans/completed/release-0-1-17-p4-release-integration.md` | P1 (accepted), P2, P3 (accepted) |
 
 DAG: P1 -> P2 -> P4, and P3 -> P4. P3 never touches Swift. In session-281, only P2 and P4 are dispatched.
 
@@ -133,18 +133,18 @@ P4 fills this table.
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| `mise run build` | pending | `tmp/release-0-1-17/P4/build.log` |
-| Full Swift tests | pending | `tmp/release-0-1-17/P4/swift-test.log` |
-| Live served agenticSearch | pending | `tmp/release-0-1-17/P4/live-agent-gateway.log` |
-| P2 residual Sandbox denials (evidence only, not a gate) | pending | `tmp/release-0-1-17/P2/accept/sandbox-denial-classes.log` |
-| `mise run lint` | pending | `tmp/release-0-1-17/P4/lint.log` |
-| `bun test src` | pending | `tmp/release-0-1-17/P4/bun-test.log` |
-| `vitest run` | pending | `tmp/release-0-1-17/P4/vitest.log` |
-| `mise run web:check` | pending | `tmp/release-0-1-17/P4/web-check.log` |
-| `mise run tauri:check` | pending | `tmp/release-0-1-17/P4/tauri-check.log` |
-| `mise run search:test-live` | pending | `tmp/release-0-1-17/P4/search-live.log` |
-| Version guard | pending | `tmp/release-0-1-17/P4/version.log` |
-| Protected-path, local-path, design-docs and allowance guards | pending | `tmp/release-0-1-17/P4/guard-*.log` |
+| `mise run build` | exit 0 | `tmp/release-0-1-17/P4/build.log` |
+| Full Swift tests | exit 0; XCTest 1199 run, 10 skipped, 0 failed; swift-testing 148 passed | `tmp/release-0-1-17/P4/swift-test.log` |
+| Live served agenticSearch | exit 0; XCTest 1 run, 1 passed, 0 failed | `tmp/release-0-1-17/P4/live-agent-gateway.log` |
+| P2 residual Sandbox denials (evidence only, not a gate) | accepted evidence; 35 residual denials across 8 classes plus 18 duplicate-report lines | `tmp/release-0-1-17/P2/accept/sandbox-denial-classes-2.log` |
+| `mise run lint` | exit 0; 392 files, 3 non-serious violations | `tmp/release-0-1-17/P4/lint.log` |
+| `bun test src` | exit 0; 192 passed, 0 failed | `tmp/release-0-1-17/P4/bun-test.log` |
+| `vitest run` | exit 0; 100 passed across 21 files, 0 failed | `tmp/release-0-1-17/P4/vitest.log` |
+| `mise run web:check` | exit 0; includes bun 192 and Vitest 100 passed | `tmp/release-0-1-17/P4/web-check.log` |
+| `mise run tauri:check` | exit 0 | `tmp/release-0-1-17/P4/tauri-check.log` |
+| `mise run search:test-live` | exit 0; XCTest 4 run, 4 passed, 0 failed | `tmp/release-0-1-17/P4/search-live.log` |
+| Version guard | exit 0; all five files show 0.1.17; old-version log empty; Cargo lock 1 insertion/1 deletion | `tmp/release-0-1-17/P4/version.log`, `guard-old-version.log`, `cargo-lock-diff.log` |
+| Protected-path, local-path, secret, design-docs and allowance guards | exit 0; all match logs empty | `tmp/release-0-1-17/P4/guard-protected.log`, `guard-local-paths.log`, `guard-secrets.log`, `guard-design-docs.log`, `guard-allowances.log` |
 
 ## Progress Log
 
@@ -155,3 +155,5 @@ P4 fills this table.
   - The manifest moves P1 and P3 into `acceptedDependencies` and drops them from the dispatched plans.
   - P2 is now a wave-1 verify-and-accept plan under the amended gate, with evidence in `tmp/release-0-1-17/P2/accept/`.
   - P4 is now wave 2 and has the no-new-allowance and empty-design-docs guards.
+- 2026-10-06: Session-281 Step 6 completed P4's version bump, README fact check, full combined-tree gates and guards. P2 residual Sandbox denials remain denied by design and are evidence only. Independent review and workflow finalization remain downstream.
+- 2026-10-06: The session-281 adversarial review accepted the release (comm-004342). The browser E2E step was skipped because there is no E2E harness. Step 8 added the README subsection "Agentic search on the server" and archived this index and P1-P4 to `impl-plans/completed/`. The dispatch manifest stays in `impl-plans/active/`. Operator follow-up before the cask release: open Settings (`#/config`) in the light theme and check the selected font-size button and the personal-agent primary button.

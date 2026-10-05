@@ -1,11 +1,11 @@
 # P2 Served sandbox root-cause fix and live agenticSearch proof
 
-**Status**: Implemented in c35c0a3. Session-281 verifies it and accepts it against the amended gate (operator decision of 2026-10-06).
+**Status**: Completed (accepted under the 2026-10-06 operator decision). The session-281 adversarial review (comm-004342) accepted the release. Archived to `impl-plans/completed/` at Step 8 on 2026-10-06.
 **planId**: P2-served-sandbox
 **Wave**: 1 (session-281). P1 and P3 are accepted dependencies.
 **dependsOn**: P1-agentic-search-diagnostics (accepted in session-279). Both plans build in AppCore, and P1's sanitized diagnostics make a failing live run informative.
 **Design Reference**: `design-docs/specs/ai-agent-integration.md`: the Runtime and Provider Adapter Boundary paragraph, AI13 ("Executable resolution", "Profile additions", "What does not change", and "Diagnosis gate" as revised on 2026-10-06), and Verification item 13 (bullets 1-3 and the live test). Decision source (read-only): `design-docs/user-qa/ai-agent-runtime-and-ui.md`, "Served sandbox: residual non-fatal denials (decided 2026-10-06)".
-**Index**: `impl-plans/active/release-0-1-17.md`
+**Index**: `impl-plans/completed/release-0-1-17.md`
 
 ## Amended gate (session-281, read first)
 
@@ -154,11 +154,11 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `live.log` (or the numbered passing attempt) exits 0 with XCTest Executed N > 0 and 0 failures, with status `ok` and a non-empty answer.
-- [ ] `sandbox-window.log` covers that passing window. `sandbox-denial-classes.log` records the residual classes and counts, and the Progress Log copies them with generic path or service classes. No denial was fatal.
-- [ ] The focused unit suite, build and lint exit 0, with XCTest N > 0 for the unit suite.
-- [ ] `guard-allowances.log`, `design-diff.log` and `guard-literals.log` are empty. No sandbox allowance was added or widened.
-- [ ] Status reads `Completed (accepted under the 2026-10-06 operator decision)`, or `blocked: <sanitized reason>`.
+- [x] `live-2.log` exits 0 with XCTest Executed 1 and 0 failures, with status `ok` and a non-empty answer.
+- [x] `sandbox-window-2.log` covers that passing window. `sandbox-denial-classes-2.log` records the residual classes and counts, and the Progress Log copies them with generic path or service classes. No denial was fatal.
+- [x] The focused unit suite, build and lint exit 0, with XCTest N > 0 for the unit suite.
+- [x] `guard-allowances.log`, `design-diff.log` and `guard-literals.log` are empty. No sandbox allowance was added or widened.
+- [x] Status reads `Completed (accepted under the 2026-10-06 operator decision)`.
 
 ## Progress Log
 
@@ -196,3 +196,8 @@ Expected evidence:
   - The operator decision of 2026-10-06 replaces the clean-log gate (AI13 "Diagnosis gate" revised).
   - P2 is now verify-and-accept only, with no allowance change, and its evidence goes to `tmp/release-0-1-17/P2/accept/`.
   - Not yet run.
+- 2026-10-06: Session-281 P2 acceptance run:
+  - `key-presence.log`: `present`; `build.log`: exit 0; `swift-test.log`: exit 0, XCTest Executed 45, 0 failures and 2 credential-gated skips.
+  - The first live attempt passed 1 XCTest but its output tee used a nonexistent evidence directory, so it is not counted as acceptance evidence. The corrected second attempt, `live-2.log`, exited 0; XCTest Executed 1 with 0 failures, and `testServedAgenticSearchReturnsAnswer` asserts status `ok` and a non-empty answer.
+  - `sandbox-window-2.log` covers the second live run and `log show` exited 0. It recorded 13 `file-read-data` denials across gateway executable, preference, network configuration, cache and HTTP storage classes; 4 `file-read-xattr` denials for cache and HTTP storage; 2 `file-write-create`, 1 `file-write-mode`, and 1 `file-write-unlink` denial for gateway cache and HTTP storage; 4 `mach-lookup` denials for OS SSO, core-services, disk-arbitration and distributed-notification services; 1 `system-socket` denial; and 9 `user-preference-read` denials for the application preference domain. The duplicate-report count was 18. These residual denials did not prevent the passing request and remain denied; no fatal denial was observed.
+  - `lint.log`: `mise run lint` exit 0 (three warnings in unrelated existing files); the P2 files were not changed. `wc.log`: 230, 137 and 68 lines. `design-diff.log`, `guard-allowances.log` and `guard-literals.log` are empty.
