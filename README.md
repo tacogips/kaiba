@@ -205,8 +205,9 @@ names. Do not put secrets directly in the configuration file.
 For local development, use the compose setup in `docker/elasticsearch/compose.yaml`:
 
 ```bash
-mise run search:up
+mise run search:up         # starts colima first on macOS if Docker is not running
 mise run search:status
+mise run search:test-live  # brings the cluster up, then runs the live tests
 mise run search:down
 ```
 

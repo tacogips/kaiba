@@ -122,6 +122,9 @@ enum ElasticsearchRequestBodies {
         "min_term_freq": 1,
         "min_doc_freq": 1,
         "max_query_terms": 25,
+        // The cjk analyzer turns a note into many bigrams, so the 30% default
+        // drops notes that share only a phrase with the source.
+        "minimum_should_match": "10%",
         "_name": SearchEngineHitReasonKind.textSimilarity.rawValue
       ]])
     }

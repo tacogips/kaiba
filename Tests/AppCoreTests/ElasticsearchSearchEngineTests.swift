@@ -153,6 +153,7 @@ final class ElasticsearchSearchEngineTests: XCTestCase {
     XCTAssertEqual(moreLike["_name"] as? String, "text-similarity")
     XCTAssertEqual(moreLike["like"] as? String, "some text")
     XCTAssertEqual(moreLike["min_doc_freq"] as? Int, 1)
+    XCTAssertEqual(moreLike["minimum_should_match"] as? String, "10%")
     XCTAssertTrue((bool["must_not"] as? [[String: Any]])?.contains {
       ($0["ids"] as? [String: [String]])?["values"] == ["source"]
     } == true)

@@ -576,8 +576,10 @@ SwiftPM dependencies. `FoundationNetworking` is imported under
     are plain text and safe to render.
   - `_source` is limited to `note_id`.
 - **Related.** `more_like_this` over the same four fields with `like:
-  likeText`, `min_term_freq: 1`, `min_doc_freq: 1` and `max_query_terms: 25`,
-  inside the same filter `bool`.
+  likeText`, `min_term_freq: 1`, `min_doc_freq: 1`, `max_query_terms: 25` and
+  `minimum_should_match: "10%"`, inside the same filter `bool`. The `cjk`
+  analyzer splits a note into many bigrams, so the Elasticsearch default of
+  30% hides notes that share only a phrase with the source.
 - **Health.** `GET /_cluster/health`. A `red` status or any error means
   `isAvailable: false`.
 

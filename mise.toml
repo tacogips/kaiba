@@ -230,8 +230,24 @@ else
 fi
 '''
 
+[tasks."search:docker"]
+description = "Ensure a Docker daemon is reachable (starts colima on macOS when needed)"
+run = '''
+if docker info >/dev/null 2>&1; then
+  exit 0
+fi
+if [ "$(uname -s)" = "Darwin" ] && command -v colima >/dev/null 2>&1; then
+  echo "Docker daemon not reachable; starting colima"
+  colima start
+  docker info >/dev/null 2>&1 && exit 0
+fi
+echo "Docker daemon not reachable; start Docker (on macOS: colima start) and retry" >&2
+exit 1
+'''
+
 [tasks."search:up"]
 description = "Start the local single-node Elasticsearch (local development only)"
+depends = ["search:docker"]
 run = '''
 docker compose -f docker/elasticsearch/compose.yaml up -d --wait
 '''
@@ -249,8 +265,8 @@ curl -fsS http://127.0.0.1:9200/_cluster/health
 '''
 
 [tasks."search:test-live"]
-description = "Run the gated Elasticsearch live integration test against the local cluster"
-depends = ["anydoc:native"]
+description = "Start the local Elasticsearch if needed and run the gated live integration tests"
+depends = ["anydoc:native", "search:up"]
 run = '''
 KAIBA_ELASTICSEARCH_URL=${KAIBA_ELASTICSEARCH_URL:-http://127.0.0.1:9200} swift test --filter ElasticsearchLive
 '''
