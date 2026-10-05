@@ -10,6 +10,27 @@ Accepted (2026-10-05, comm-003999) and implemented in session-268
 redesign them. Where a section below changes an earlier rule, it names the
 rule, and the earlier text stays as the base record.
 
+Later changes:
+
+- **Elasticsearch removed (137c6f7, 2026-10-05).** Meilisearch is now the
+  only and default adapter (`SearchEngineFactory.defaultKind`), and an
+  `elasticsearch` kind is rejected with `searchEngine.kind`. One
+  lightweight engine covers the requirements this design set (Japanese
+  segmentation, no JVM, optional key), and a second adapter doubled the
+  request, mapping and live-test surface without a user who needed it.
+  Text below that treats Elasticsearch as current (invariant 6, the F3
+  transport aliases, F4 `make` dispatch, F6, the Elasticsearch test-plan
+  items and the Elasticsearch rollout bullet) is historical and is marked
+  where it appears.
+- **Backend-only engine boundary (proposed 2026-10-05).**
+  `search-engine-adapter.md` B0-B8 states the premise that only the kaiba
+  backend talks to the engine, records the audit, removes the
+  client-visible `defaultURL` added in 137c6f7, and makes the settings URL
+  optional with server-side default resolution. It supersedes the F4
+  statement that the web settings form needs no code change. F1-F3 are
+  unchanged: every engine call in this design is made by AppCore inside
+  the backend.
+
 ## Traceability
 
 - Request: workflow issue "Search engine: engine-seeded graph search and
@@ -114,7 +135,12 @@ Out of scope:
    requests. The D4 boundary grep is extended to the new files.
 6. **Elasticsearch is unchanged.** The Elasticsearch adapter's requests,
    responses, index name and `indexIdentity` do not change. Its
-   mock-transport tests pass unchanged.
+   mock-transport tests pass unchanged. (Historical: the adapter and its
+   tests were removed in 137c6f7; see Status.)
+7. **Only the backend reaches the engine.** Every engine call in F1-F3 is
+   made by AppCore inside the kaiba backend. Clients receive results,
+   provenance labels and the capability flag, never engine coordinates or
+   credentials (`search-engine-adapter.md` B0).
 
 ## F1. Engine-seeded retrieval
 
@@ -651,6 +677,12 @@ headers, the API key or URL userinfo (SE1).
 
 ## F4. Configuration and settings
 
+> Current state: Elasticsearch dispatch and its auth modes below are
+> historical (137c6f7). Meilisearch is the default kind, the config `url`
+> and the settings URL are optional and resolve on the backend
+> (`search-engine-adapter.md` B2-B4), and the web settings form changes
+> per B6.
+
 - `SearchEngineFactory.adapters` appends
   `SearchEngineAdapterDescriptor(kind: "meilisearch", displayName: "Meilisearch", authModes: [.none, .apiKey])`.
   The web settings select, the GraphQL settings read and kind validation
@@ -727,6 +759,11 @@ headers, the API key or URL userinfo (SE1).
 
 ## F6. Documentation
 
+> Historical where it names Elasticsearch or the `search:meilisearch:*`
+> tasks: 137c6f7 rewrote the README for Meilisearch only and renamed the
+> tasks to `search:up`, `search:down`, `search:status` and
+> `search:test-live`.
+
 - `README.md`: an "Optional search engine" subsection on choosing an
   engine (Elasticsearch: JVM, 512 MB heap in the local compose, `cjk`
   bigrams, `more_like_this`; Meilisearch: single Rust binary, no JVM,
@@ -763,6 +800,10 @@ settings and hot-swap (D5), store schema version 23, and every FTS stage
 (RF1, RF2, RF4).
 
 ## Test plan
+
+> The Elasticsearch suites named below (`ElasticsearchSearchEngineTests`,
+> `ElasticsearchLiveTests`) were removed with the adapter in 137c6f7 and
+> are historical.
 
 - **AppCore `NoteRetrievalRerankerTests`** (pure): single-list
   order preservation; weighted RRF; ties by note id; deduplication;
@@ -854,7 +895,10 @@ path and the final exit status.
 
 - **No engine configured:** no behavior change. GraphQL gains an
   additive field.
-- **Existing Elasticsearch deployments:** the identity is unchanged, so
+- **Existing Elasticsearch deployments** (historical; since 137c6f7 a
+  configured `elasticsearch` kind fails server start with
+  `searchEngine.kind`, and a stored one is logged and runs FTS only until
+  the settings select Meilisearch): the identity is unchanged, so
   there is no backfill. Graph search, the agent tool and agentic
   grounding start using engine seeds at once, and fall back to FTS on any
   engine error.

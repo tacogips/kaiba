@@ -268,10 +268,15 @@ result and the outbox progress. It never prints credentials, and it exits
 `0` even when the engine is unhealthy. `sync` ensures the index, activates
 it and drains pending note changes. It exits `1` if any rows failed.
 `reindex` re-enqueues every note first, then behaves like `sync`; it does
-not delete stale documents. The adapter kind is `elasticsearch` or
-`meilisearch`; the commands behave the same for both. See
-`search-engine-adapter.md` (SE6, D0, D5) and
-`design-search-engine-fusion.md` (F3, F4).
+not delete stale documents. The only adapter kind is `meilisearch`, the
+default. The Elasticsearch adapter was removed in 137c6f7; a configured or
+stored `elasticsearch` kind is rejected with `searchEngine.kind`. When
+neither the config section nor the stored settings give a URL, the command
+uses the server default resolved from its own environment
+(`KAIBA_MEILISEARCH_URL`, then `http://127.0.0.1:7700` on the host that
+runs the command). The commands run on the backend host; clients never
+connect to the engine. See `search-engine-adapter.md` (SE6, D0, D5, B2)
+and `design-search-engine-fusion.md` (F3, F4).
 
 ## Exit Codes
 

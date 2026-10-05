@@ -18,6 +18,25 @@
   of scope", SE5 "`searchNotes` is unchanged" (now only for
   `includeLinked` false), D4 agent routing and D4 agentic grounding; its
   "Changed base rules" section lists each change.
+- Elasticsearch removal (commit 137c6f7, 2026-10-05): the Elasticsearch
+  adapter, its tests and `docker/elasticsearch/compose.yaml` were removed,
+  and Meilisearch became the only and default adapter
+  (`SearchEngineFactory.defaultKind = "meilisearch"`). Reason: one
+  lightweight engine (single binary, no JVM, built-in Japanese
+  segmentation, optional key) covers every requirement, and a second
+  adapter doubled the request, mapping and live-test surface without a
+  user who needed it. A configured or stored `elasticsearch` kind is now
+  rejected with `searchEngine.kind` (config: fatal; store: logged, FTS
+  only). SE8, SE9 and the Elasticsearch-specific parts of SE2, D1, D2, D3
+  and the delta test plan are kept as the historical record and are marked
+  "Historical" where they appear. Current adapter behavior is in
+  `design-search-engine-fusion.md` F3-F5.
+- B0-B8 (backend-only engine boundary, the third delta at the end of this
+  document): proposed 2026-10-05 (session-272). It states the premise that
+  only the kaiba backend talks to the engine, records the audit of 137c6f7,
+  removes the client-visible `defaultURL`, and makes the settings URL
+  optional with server-side default resolution. Its "Changed base rules"
+  list names each earlier rule it changes.
 
 ## Traceability
 
@@ -175,6 +194,14 @@ environment: [String: String]) throws -> (any SearchEngine)?`.
 defaults to `nil`. Scoped copies of the service inherit it.
 
 ## SE2. Configuration
+
+> Current rules differ from the table below (base record). `kind` is
+> optional and defaults to `meilisearch`, the only accepted kind
+> (Elasticsearch was removed in 137c6f7). `url` is optional: absent, empty
+> or whitespace-only means the server default resolved on the backend
+> (B2). Username/password variables are rejected for Meilisearch
+> (`searchEngine.credentials`, F4). The sample below is historical; the
+> current sample is in `README.md`.
 
 `KaibaConfiguration` gains `searchEngine: KaibaSearchEngineConfiguration?`
 under the JSON key `searchEngine`, decoded with `decodeIfPresent`. It is a
@@ -538,6 +565,11 @@ authorization surface without a requirement behind it.
 
 ## SE8. Elasticsearch adapter
 
+> Historical. The Elasticsearch adapter was removed in 137c6f7 (see
+> Status). The rules below describe the removed code and do not apply to
+> the current tree. The current adapter is Meilisearch
+> (`design-search-engine-fusion.md` F3).
+
 All adapter code lives in `Sources/AppCore/Elasticsearch*.swift`, with no new
 SwiftPM dependencies. `FoundationNetworking` is imported under
 `#if canImport`, as `TursoHTTPDatabase.swift` does.
@@ -602,6 +634,11 @@ Tests:
   refresh, search, related and delete, and deletes its index when done.
 
 ## SE9. Local development
+
+> Historical. `docker/elasticsearch/compose.yaml` was removed in 137c6f7.
+> The `search:*` mise tasks now run the Meilisearch compose service in
+> `docker/meilisearch/compose.yaml` (`design-search-engine-fusion.md`
+> F5).
 
 - **Compose file.** `docker/elasticsearch/compose.yaml` runs one service on a
   pinned `docker.elastic.co/elasticsearch/elasticsearch:8.x.y` tag; the
@@ -768,6 +805,9 @@ these fields from the store in the same read it already does. The existing
 
 ### Elasticsearch mapping (index `-v2`)
 
+> Historical (Elasticsearch removed in 137c6f7). The Meilisearch index
+> settings are in `design-search-engine-fusion.md` F3.
+
 | field | type | source |
 | --- | --- | --- |
 | `path_tag_ids` | keyword | `pathTags.tagId` |
@@ -781,6 +821,11 @@ All base fields stay as they are, and `dynamic: strict` stays. Keys use tag
 ids, not names, so a filter never depends on name normalization.
 
 ### Index identity bump
+
+> The `elasticsearch:` identity below is historical. The current identity
+> is `meilisearch:<normalized base URL>/<indexPrefix>-notes-v1`
+> (`design-search-engine-fusion.md` F3); the normalized base URL rule is
+> unchanged.
 
 - The index name becomes `<indexPrefix>-notes-v2`.
 - `indexIdentity` becomes `elasticsearch:<base>/<indexName>`. `<base>` is
@@ -904,6 +949,9 @@ Ontology expansion is deterministic, with no LLM, and runs only when
 
 ### Elasticsearch query (search)
 
+> Historical (Elasticsearch removed in 137c6f7). The Meilisearch search
+> request is in `design-search-engine-fusion.md` F3.
+
 The base `must` clause becomes a scored `should` with
 `minimum_should_match: 1`. With no expansion ids, it scores exactly like
 the base query.
@@ -1010,6 +1058,9 @@ behavior). It holds `sourceNoteId`, `sharedTagIds` (S), `nearTagIds`
 (S union P), `ancestorTagIds` (A) and `entityTags` (E).
 
 ### Elasticsearch query (related)
+
+> Historical (Elasticsearch removed in 137c6f7). Meilisearch related notes
+> are composed in the adapter (`design-search-engine-fusion.md` F3).
 
 The query is a `bool` with `minimum_should_match: 1` and the base `filter`
 and `must_not`. The source note stays excluded through `excludedNoteIds`.
@@ -1176,8 +1227,10 @@ Behavior:
   `searchEngine.verifyTLS`. The web form shows a warning next to the
   option.
 - **Adapter registry.** `SearchEngineFactory.adapters` is a static list of
-  `SearchEngineAdapterDescriptor(kind, displayName, authModes)`. Today the
-  list is only Elasticsearch, with `none`, `basic` and `apiKey`. Both the
+  `SearchEngineAdapterDescriptor(kind, displayName, authModes)`. When D5
+  was written the list was only Elasticsearch, with `none`, `basic` and
+  `apiKey`; it is now only Meilisearch, with `none` and `apiKey` (F4,
+  137c6f7). The descriptor carries no URL (B5). Both the
   GraphQL settings read and kind validation use the list, so a new adapter
   shows up in the picker by appending a descriptor.
 
@@ -1373,6 +1426,11 @@ adds `searchEngineSettings()`, `updateSearchEngineSettings(_:)` and
 
 ## Delta test plan
 
+> The `ElasticsearchSearchEngineTests` and `ElasticsearchLiveTests` items
+> below are historical: both suites were removed with the adapter in
+> 137c6f7. Their Meilisearch counterparts are `MeilisearchSearchEngineTests`
+> and `MeilisearchLiveTests` (`design-search-engine-fusion.md` test plan).
+
 - **AppCore, `SearchEngineOntologyIndexTests`.**
   - The document builder fills the D1 fields: ancestors, classes,
     provenance and links in both directions.
@@ -1451,6 +1509,10 @@ adds `searchEngineSettings()`, `updateSearchEngineSettings(_:)` and
 
 ## Delta verification
 
+> The Elasticsearch live step below is historical. The current live step
+> is `mise run search:test-live` against the Meilisearch compose service
+> (`KAIBA_MEILISEARCH_URL`, F5).
+
 Gate-compatible evidence: each behavioral record is a test-runner command
 (`swift test`, `bun test`, `vitest run`, or `mise run <task containing
 test>`) with exitCode 0. Every count it records (testsRun, testsPassed,
@@ -1512,3 +1574,404 @@ Shared hot files need one owner per wave: `SearchEngine.swift`,
 lists, and `KaibaServerRuntime.swift`. D2 and D3 both touch the
 adapter-neutral types and the ES request bodies. Either serialize them or
 give the type additions to D1.
+
+---
+
+# Delta: backend-only engine boundary (B0-B8)
+
+Status: proposed 2026-10-05 (session-272, workflow issue "Search engine is
+backend-only: audit and fix the design so clients never need engine
+coordinates"). It extends SE1-SE9, D0-D5 and F1-F6. Each earlier rule it
+changes is listed in "B changed base rules"; the earlier text stays as the
+record. Decisions are recorded in
+`design-docs/user-qa/search-engine-adapter.md`, section "Backend-only
+engine boundary (2026-10-05)".
+
+## B0. Premise
+
+Only the kaiba backend talks to the search engine: the AppCore and
+AppServer code inside a `kaiba serve` process, and the `kaiba
+search-engine` CLI run by an operator on the server host. Clients (the web
+SPA, the Tauri macOS/iPhone shell, KaibaClient SDK users) talk only to
+kaiba's GraphQL/HTTP API. A client never connects to the engine and never
+needs the engine's coordinates (URL, host, port, index name) or
+credentials to work.
+
+Why:
+
+1. **Access.** The engine has no per-user access control. SE4 makes the
+   store re-check the authority on access; a client that reached the
+   engine directly would bypass it.
+2. **Credentials.** Engine API keys are server secrets (D5 store format,
+   SE2 environment variables). A client that needed them would have to
+   hold them.
+3. **Local engine posture.** The bundled compose engine runs without a
+   master key and binds to loopback on the server host (F5). It is safe
+   only because nothing but the backend on that host reaches it.
+4. **Optional and swappable.** Clients see only
+   `searchEngineCapability.enabled` and engine-neutral results, so the
+   engine can be absent, swapped (D5 hot-swap) or replaced by another
+   adapter without a client change.
+
+The only API surfaces where engine coordinates may cross to a client are
+the administrator-only settings operations of D5: the settings read, the
+update and test-connection inputs, and the test-connection result. Even
+there the server returns only what an administrator entered (a URL typed
+in Settings) or wrote in the config file. It never volunteers a
+coordinate that comes from the server environment or the built-in
+fallback. An administrator-entered URL is backend configuration that the
+backend connects to; the client only displays and edits it.
+
+## B1. Audit of main at 137c6f7
+
+| # | Area | Finding | Verdict | Action |
+| --- | --- | --- | --- | --- |
+| A1 | AppCore descriptor | `SearchEngineAdapterDescriptor.defaultURL` and `SearchEngineFactory.adapters(environment:)` copy the server's `KAIBA_MEILISEARCH_URL` value, or the fallback URL, into every settings read (`SearchEngineSettingsTypes.swift`, `SearchEngineFactory.swift`, `NoteService+SearchEngineSettings.swift`). | Violation | Remove (B5). |
+| A2 | GraphQL | `SearchEngineAdapterDescriptor { defaultURL }` in `GraphQLNoteSchemaContract.swift`, the selection map in `NoteGraphQLDocumentExecutorSupport.swift` and the DTO in `NoteGraphQLService+SearchEngineSettings.swift`. | Violation | Remove (B5). |
+| A3 | KaibaClient | `KaibaSearchEngineAdapterDescriptor.defaultURL` (`KaibaModels+SearchEngine.swift`) and the `defaultURL` selections in `KaibaOperations+SearchEngine.swift`. | Violation | Remove (B5). |
+| A4 | Web | `defaultURL` in `web/src/notes/types.ts` and in both settings documents in `client.ts`; `defaultEngineURL` in `searchEngineSettings.ts` prefills the URL in `SearchEngineSettings.tsx`; test fixtures carry the engine port. | Violation | Remove; show a server-default hint (B6). |
+| A5 | Settings read, config case | `url: config.resolvedURL(environment:)` returns the environment or fallback URL when the config section has no `url`. | Violation | Return `null` (B4). |
+| A6 | Store settings | `validatedSettings` turns an omitted URL into `""` and fails with `searchEngine.url`, so a client must know a URL to save or test. The web validation also requires a URL. | Violation (forces coordinates onto the client) | Omitted URL means server default (B2, B3). |
+| A7 | Environment source | The settings read uses `ProcessInfo.processInfo.environment`, while the server runtime resolves with `config.environment`, also stored in `SearchEngineSlot.environment` (`KaibaServerRuntime.swift`). | Inconsistency | All backend resolution uses one environment (B2). |
+| A8 | Engine read fields | `searchEngineCapability` returns a boolean. `engineSearchNotes` and `relatedNotes` failures return status `search-engine-unavailable` with the fixed diagnostic `search engine unavailable` (`NoteGraphQLService+SearchEngine.swift`). Provenance carries source labels such as `search-engine`, not coordinates. `indexIdentity` is not exposed through GraphQL. | Compliant | None. |
+| A9 | Test-connection detail | Meilisearch errors are reduced to `<code>: <message>`, `HTTP <n>`, `URLError <n>`, `task pending` or `transport failure`; the service redacts the secret and username and truncates to 200 characters. No URL or header is included. | Compliant | Add a test that the resolved server-default URL never appears (B7). |
+| A10 | Logs and CLI | Runtime log lines carry field or type names only. `kaiba search-engine status` prints `indexIdentity`, which contains the engine URL, but it runs on the backend host for a store administrator; it is not a client surface. | Compliant | None. |
+| A11 | Tauri | `tauri.conf.json` has `csp: null`; `capabilities/default.json` grants `http:default` for `http://*:*` and `https://*:*`. Both exist so the shell can reach a user-configured kaiba server at any origin. No engine origin is listed. `src-tauri/src/local_server.rs` only spawns a local `kaiba serve` child (a backend process on the same machine) and never touches the engine. | Compliant, documented | No change. The wildcard cannot by itself exclude an engine origin; the premise is enforced by clients never receiving engine coordinates (B4, B5) and by the web guard (B6). Narrowing the CSP or the capability is out of scope. |
+| A12 | Web build | `web/vite.config.ts` has no proxy, and `web/src` has no engine origin outside the A4 files. | Compliant | Guard it (B6). |
+| A13 | README | States that only the backend reaches the engine and that Elasticsearch was removed. Its `127.0.0.1:7700` lines are operator configuration and tooling for the server host. | Compliant | Add the Settings server-default sentence (B8). |
+| A14 | Design and command docs | `command.md` lists `elasticsearch` as a current kind; SE2, SE8, SE9, D1-D3 and the delta test plan, and the fusion design's invariant 6, F4, F6 and rollout, describe Elasticsearch as current. | Stale | Marked historical or corrected in this design step (B8). |
+| A15 | Tooling | `mise.toml` `search:*` tasks and `docker/meilisearch/compose.yaml` use port 7700. | Compliant (backend tooling) | None. |
+| A16 | Plan records | `impl-plans/active/search-engine-fusion-dispatch.json` mentions `127.0.0.1:7700` for the compose binding and no `defaultURL`. It is a completed workflow runtime record. | Compliant | Leave unchanged, as the earlier designs leave dispatch manifests in place. |
+
+## B2. Server-default URL resolution
+
+- **Explicit vs default.** A URL is explicit when, after trimming
+  whitespace, it is non-empty. An omitted, `null`, empty or
+  whitespace-only URL means "server default". The same rule applies to:
+  - `SearchEngineSettingsInput.url` (GraphQL, KaibaClient, AppCore), for
+    both `updateSearchEngineSettings` and `testSearchEngineConnection`;
+  - the stored settings record (B3);
+  - the config section `KaibaSearchEngineConfiguration.url`. An empty or
+    whitespace-only `url` in `config.json` now resolves like an absent one
+    instead of failing with `searchEngine.url`.
+
+  An explicit value is validated and stored exactly as today.
+- **Resolution.** The default is resolved only on the backend, by the
+  existing `SearchEngineFactory.defaultURL(for:environment:)`: the trimmed
+  `KAIBA_MEILISEARCH_URL` when it is set and non-empty, otherwise
+  `SearchEngineFactory.fallbackMeilisearchURL` (`http://127.0.0.1:7700`).
+  A kind without a default resolves to nothing and fails with
+  `searchEngine.url`. This backend resolver keeps its name and stays in
+  AppCore (`SearchEngineFactory.swift`, called by
+  `KaibaSearchEngineConfiguration.resolvedURL(environment:)` and by the
+  B3 store resolution). It is not the client-visible descriptor field
+  `SearchEngineAdapterDescriptor.defaultURL` that B5 removes.
+- **When.** At every resolution: server start, the D5 reload, every
+  `kaiba search-engine` command, the settings read (for `hasSecret`), and
+  the validation inside update and test connection. The resolved value is
+  never persisted and never returned (B3, B4, B5).
+- **One environment.** All backend paths resolve from the environment the
+  backend was started with. AppCore settings operations read
+  `searchEngineSlot.environment`, which `KaibaServerRuntime` sets from
+  `config.environment`. The resolver used by the runtime and the CLI takes
+  the caller's environment as a parameter. No search-engine path reads
+  `ProcessInfo.processInfo.environment` directly. Because the environment
+  is fixed for a process, a changed `KAIBA_MEILISEARCH_URL` takes effect
+  at the next server start or CLI run.
+- **Validation.** A resolved default is validated exactly like an explicit
+  URL (D5 "Normalized connection settings and factory").
+- **Network position.** The plain-`http`-only-on-loopback rule is
+  evaluated against the URL the backend connects to. "Loopback" means the
+  host that runs the kaiba backend, never the client's device. A client on
+  another machine whose server uses the default `127.0.0.1` URL is served
+  by the engine on the server host, through kaiba; the client never
+  connects to that address itself. For the Tauri local service, the
+  backend is the `kaiba serve` child process on the user's Mac, so
+  loopback is that Mac.
+- **Failures.** A resolved default that fails validation behaves like an
+  invalid explicit URL. The diagnostic is the field name only, and the
+  resolved value is never echoed:
+  - config section: fatal at start, as in SE2;
+  - stored settings at start or reload: logged as `kaiba search-engine:
+    stored settings invalid: searchEngine.url`, FTS only;
+  - update: `invalid-settings` with `searchEngine.url`, nothing persisted;
+  - test connection: status `invalid-settings`, detail `searchEngine.url`,
+    no network call.
+
+## B3. Stored settings persist "server default", never the resolved value
+
+- **Store format.** `auth.search-engine.settings` omits the `url` key when
+  the input URL is server default, and holds the explicit URL otherwise.
+  The decoder already accepts a missing `url`. Records written before this
+  change keep their explicit URL; there is no migration. A record saved
+  through the 137c6f7 prefill therefore stays explicit until an
+  administrator clears the field and saves.
+- **Resolver.** For a record without `url`, the `.store` resolution builds
+  the connection settings with the URL resolved per B2. The resolution
+  also tells callers whether the URL was explicit, so the settings read
+  applies B4 without comparing URL strings.
+- **Index identity.** The adapter computes `indexIdentity` from the URL it
+  connects to (`meilisearch:<normalized target>/<prefix>-notes-v1`), as
+  today. When `KAIBA_MEILISEARCH_URL` names another engine at the next
+  start, the identity differs and the existing SE3/D5 activation enqueues
+  every note (backfill). The old index is left in place, as in SE3. No new
+  code path is needed; B7 tests it.
+- **Secret binding.** The secret record keeps `{authMode, target, secret}`.
+  For a server-default save, `target` is the normalized resolved URL at
+  save time. Every later use compares it with the normalized URL resolved
+  now:
+  - unchanged target: the secret is used;
+  - changed target (the environment now names another engine): the secret
+    is not used. With `authMode: apiKey` the adapter cannot be built, so
+    the server logs `stored settings invalid: searchEngine.secret` and runs
+    FTS only, the settings read reports `hasSecret: false`, and the web
+    form requires the key again (its existing rule for
+    `hasSecret: false`). With `authMode: none` only the backfill happens.
+
+  This fails closed: a stored key is never sent to a host it was not
+  entered for, even when the change comes from the server environment. It
+  keeps the D5 rule from review finding DR-D5-SECRET-RETARGET.
+- **Secret reuse on update and test.** The D5 rule is unchanged, with
+  `target` computed from the resolved URL of the input. Moving between an
+  explicit URL and the server default reuses the stored secret only when
+  both resolve to the same normalized target and the auth mode is
+  unchanged.
+
+## B4. Settings read: `url` is explicit or `null`
+
+- `SearchEngineSettings.url` is the explicit URL from the stored record or
+  from the config section, and `null` otherwise. It is never the
+  environment or fallback value. This changes the config case, which
+  returned `config.resolvedURL(environment:)` (A5).
+- A `kind` other than `none` together with `url: null` means "server
+  default". `managedBy: default` (no settings) always has `kind: none`, so
+  the pair is unambiguous. No `usesServerDefault` field is added.
+- `hasSecret` for store settings compares the stored secret's target with
+  the currently resolved URL (B3).
+- The read stays administrator-only (D5). Returning an explicit URL is
+  needed to edit it and to apply the web form's secret re-entry rule. It
+  echoes the administrator's own backend configuration and gives the
+  client nothing it connects to.
+
+## B5. GraphQL and KaibaClient
+
+- `SearchEngineAdapterDescriptor` returns to the D5 shape
+  `{ kind, displayName, authModes }`. `defaultURL` is removed from the
+  AppCore descriptor (together with
+  `SearchEngineFactory.adapters(environment:)`; the static `adapters` list
+  stays), the schema contract, the executor selection map, the GraphQL
+  DTO, the KaibaClient model and both KaibaClient operation documents.
+  The settings read uses the static list. The backend resolver
+  `SearchEngineFactory.defaultURL(for:environment:)` (B2) is retained and
+  is never called from a GraphQL or KaibaClient path.
+- `input SearchEngineSettingsInput` already declares `url: String`
+  (nullable), so that schema line does not change. Its meaning is now: an
+  omitted, `null`, empty or whitespace-only `url` is the server default.
+  KaibaClient documents this on `KaibaSearchEngineSettingsInput.url`, and
+  documents `null` on `KaibaSearchEngineSettings.url` per B4.
+- `SearchEngineConnectionTestResult` keeps `{available, status, detail}`.
+  It does not report the resolved URL; an operator who needs the server
+  default reads the server environment on the server host.
+- Compatibility: `defaultURL` was added in 137c6f7, after the latest
+  release tag `v0.1.16`, and was never released. Removing it reverts an
+  unreleased addition. A client built from 137c6f7 that selects it gets a
+  GraphQL validation error, which is acceptable for an unreleased field.
+- The schema inventory, authorization and KaibaClient contract tests are
+  updated in the same change, so schema, server and clients stay
+  consistent.
+
+## B6. Web client
+
+- Remove `defaultURL` from `SearchEngineAdapterDescriptor` in `types.ts`
+  and from both settings documents in `client.ts`. Remove
+  `defaultEngineURL` and its call; choosing an engine no longer changes
+  the URL field.
+- **URL field.** Optional. The input has `placeholder="Server default"`,
+  and a note under it reads `Leave empty to use the server default. Only
+  the Kaiba server connects to the search engine.` An administrator can
+  still type an explicit URL, which is validated as today.
+- **Validation** (`validateSearchEngineForm`): an empty URL is valid (the
+  `URL is required.` error is removed); a non-empty URL keeps every
+  current rule. `Verify TLS certificates` can still be turned off only for
+  an explicit `https` URL, so the server-default case always verifies TLS.
+- **Input** (`searchEngineSettingsInput`): it already omits `url` when the
+  field is empty, which now means server default.
+- **Secret re-entry.** The existing rule compares
+  `normalizedTarget(form.url)` with `normalizedTarget(loaded.url)`. Two
+  server-default values (empty and `null`) compare equal, so the stored
+  secret is kept. Switching between explicit and default requires the
+  secret again. This is stricter than the server, which may accept reuse
+  when both resolve to the same target; the server stays authoritative.
+- **Read-only config view.** The URL row shows `Server default` when
+  `kind` is not `none` and `url` is `null`.
+- **Guard.** A bun test, `web/src/notes/engineBoundary.test.ts`, reads
+  every file under `web/src` and fails if any contains the engine port
+  string, `defaultURL` or `KAIBA_MEILISEARCH_URL`. It builds the port
+  needle at run time (for example `String(77 * 100)`) so its own source
+  does not contain the literal. Test fixtures for explicit URLs use
+  placeholders without the engine port, such as `https://search.example`.
+  `grep -rn '7700' web/src` must return nothing.
+- No `web/src-tauri` change (A11).
+
+## B7. Tests
+
+Swift (AppCore unless noted):
+
+- **Resolution** (`SearchEngineFactoryTests`,
+  `KaibaSearchEngineConfigurationDecodingTests`): config `url` absent,
+  `""` and `"  "` each resolve to the environment value; the environment
+  value is trimmed; an unset or empty `KAIBA_MEILISEARCH_URL` gives the
+  fallback; an explicit URL wins over the environment. The assertions on
+  `SearchEngineFactory.adapters(environment:)` and on the descriptor's
+  `defaultURL` field are removed. The assertions on the retained resolver
+  `SearchEngineFactory.defaultURL(for:environment:)` (for example `nil`
+  for an unknown kind) stay.
+- **Settings** (`SearchEngineSettingsTests`), with the slot environment
+  set explicitly:
+  - update with `url` nil, `""` and `"  "` persists a record without a
+    `url` key (asserted on the raw `app_settings` row), and the read
+    returns `kind: meilisearch`, `url: null`;
+  - an explicit URL is persisted and returned as before;
+  - the config-managed read with no `url` returns `url: null`;
+  - the store engine built under environment A has an identity containing
+    A; under environment B the identity contains B, and activating B after
+    A backfills;
+  - an `apiKey` secret saved under environment A is not used under
+    environment B: building fails with `searchEngine.secret` and the read
+    reports `hasSecret: false`; under A it is used;
+  - test connection with no URL sends its request to the environment host
+    (recording transport), and the result detail does not contain the
+    resolved URL;
+  - an invalid environment value gives `invalid-settings` with
+    `searchEngine.url` and persists nothing.
+- **AppGraphQL** (`SearchEngineSettingsGraphQLTests`): update and test
+  connection with an input that has no `url` are accepted; the read
+  returns `url: null`; no response body contains the resolved default URL;
+  the adapters selection has no `defaultURL`; the schema inventory and
+  authorization tests match the B5 schema.
+- **KaibaClient**: the operation documents validate against the contract
+  without `defaultURL`.
+- **AppServer** (`SearchEngineServerRuntimeTests` or
+  `SearchEngineRuntimeControllerTests`): stored settings without `url`
+  attach an engine whose identity uses the runtime environment's URL.
+
+Web:
+
+- `searchEngineSettings.test.ts`: an empty URL is valid; an invalid
+  explicit URL is still rejected; the input omits `url` when empty; the
+  `defaultEngineURL` cases are removed.
+- `SearchEngineSettings.integration.tsx`: choosing Meilisearch leaves the
+  URL empty with the `Server default` placeholder and note; saving sends
+  no `url`; an explicit URL is sent; the read-only config view shows
+  `Server default`.
+- `engineBoundary.test.ts`: the B6 guard.
+
+## B8. Documentation
+
+Done in this design step:
+
+- `design-docs/specs/command.md` "Search engine": the kind is
+  `meilisearch` only, with the removal recorded.
+- This document and `design-search-engine-fusion.md`: Status entries for
+  the Elasticsearch removal and this delta, and "Historical" markers on
+  the Elasticsearch-specific sections.
+- `design-docs/user-qa/search-engine-adapter.md`: the B decisions, and
+  historical markers on the Elasticsearch-only decisions.
+
+For the implementation:
+
+- `README.md` "Optional search engine": in the Settings paragraph, state
+  that the URL may be left empty to use the server default
+  (`KAIBA_MEILISEARCH_URL`, then the fallback, both resolved on the server
+  host), that the loopback rule applies to the server host, and that an
+  environment change triggers a backfill and, with an API key, requires
+  entering the key again.
+
+## B changed base rules
+
+- SE2 `url` (required) and 137c6f7 (`url` optional, absent only): absent,
+  empty or whitespace-only all mean server default.
+- D5 store format: `url` may be absent, meaning server default.
+- D5 `searchEngineSettings()`: `url` is explicit or `null`, never the
+  resolved default (137c6f7 returned the resolved value for config).
+- D5 secret binding: `target` is the normalized URL resolved at save and
+  is compared with the URL resolved at each use.
+- D5 update and test connection: an omitted URL is accepted.
+- D5 GraphQL: `SearchEngineAdapterDescriptor` is again
+  `{kind, displayName, authModes}`; the 137c6f7 `defaultURL` is removed
+  from AppCore, GraphQL, KaibaClient and the web client.
+- D5 web settings: the URL is optional with a `Server default` hint, and
+  client validation no longer requires it.
+- F4 "The web settings form needs no code change": superseded by B6.
+
+Unchanged: SE3 outbox and backfill, SE4 access control, SE5 engine read
+fields, the D5 admin gate, config lock, hot-swap and sanitizing, F1-F3,
+and store schema version 23.
+
+## B verification
+
+Each behavioral record is a test-runner command with exitCode 0 and
+counts greater than 0, with its complete log path and final exit status.
+
+- `mise run build`
+- `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test`
+  (full suite)
+- `mise run lint`
+- `cd web && mise exec -- bun test src` (bun count, its own record)
+- `cd web && mise exec -- bunx vitest run` (vitest count, its own record)
+- `mise run web:check` (not a behavioral record on its own; plans that
+  run it declare `web/dist` as an artifact root)
+- `mise run tauri:check` (macOS, local only)
+- `mise run search:docker`, `mise run search:up`, then
+  `mise run search:test-live`, recording only the XCTest
+  `Executed N tests` count with N > 0; then `mise run search:down`
+- Client-boundary guards; each returns nothing:
+  - `grep -rn '7700' web/src`
+  - `grep -rn 'defaultURL' web/src Sources/AppGraphQL Sources/KaibaClient`
+    (client-facing code; the descriptor field is gone from GraphQL,
+    KaibaClient and web)
+  - `grep -n 'defaultURL' Sources/AppCore/SearchEngineSettingsTypes.swift`
+    (the AppCore descriptor has no `defaultURL` member)
+  - `grep -rn 'adapters(environment' Sources Tests`
+    (`SearchEngineFactory.adapters(environment:)` is removed)
+
+  `Sources/AppCore` as a whole is deliberately not in the `defaultURL`
+  grep. The backend resolver `SearchEngineFactory.defaultURL(for:environment:)`
+  and its caller in `KaibaConfiguration.swift` keep that name (B2), so
+  matches in `SearchEngineFactory.swift`, `KaibaConfiguration.swift` and
+  the B3 resolver are expected.
+- `wc -l` on every touched Swift file: each is under 1000 lines
+
+## B rollout
+
+- **No engine configured:** unchanged.
+- **Config section with `url`:** unchanged; the read returns that URL.
+- **Config section without `url`:** the engine is unchanged; the read now
+  returns `url: null` instead of the resolved value.
+- **Store settings with a URL:** unchanged.
+- **Store settings without a URL** (new saves only): resolved at each
+  start; an environment change backfills, and with an API key needs the
+  key again.
+- **Clients:** the web client and KaibaClient ship with the server from
+  this repository and change in the same integration. Only unreleased
+  137c6f7 builds select `defaultURL`.
+- **Store schema:** unchanged (version 23).
+
+## B plan partition guidance (for the plan author)
+
+Boundaries, not binding plan ids.
+
+- The Swift change is one compile chain: removing the AppCore descriptor
+  field breaks the AppGraphQL DTO and the KaibaClient contract tests until
+  they change too. Give all Swift sources and Swift tests (AppCore
+  resolution, persistence and read; AppGraphQL schema, executor map and
+  DTO; KaibaClient model and operations; the CLI resolver call site; the
+  AppServer test) to one owner, or split them into dependent waves where
+  the first wave owns the descriptor removal across AppCore, AppGraphQL
+  and KaibaClient.
+- The web change (`web/src` only, with the guard test) is independent of
+  the Swift compile and can run in parallel. It declares `web/dist` as an
+  artifact root.
+- The README paragraph can go with either plan.
+- A final integration plan owns cross-plan compile and lint fixes and runs
+  the full B verification set, including the live suite.

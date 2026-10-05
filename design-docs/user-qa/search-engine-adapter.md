@@ -2,6 +2,12 @@
 
 Design: `design-docs/specs/search-engine-adapter.md`.
 
+The Elasticsearch adapter was removed in 137c6f7 (2026-10-05); Meilisearch
+is the only and default adapter. Decisions below that are specific to
+Elasticsearch are marked "(Historical)" and no longer describe current
+behavior. The reason for the removal is recorded in the design's Status
+section.
+
 ## Decisions taken without a user answer (2026-10-04)
 
 - Consistency uses a durable outbox in the note store (store version 23),
@@ -16,16 +22,19 @@ Design: `design-docs/specs/search-engine-adapter.md`.
   notebook, tags and long-term memory, and by a store re-check that uses
   the `searchNotes` predicates. Library membership changes need no reindex,
   because reachable libraries are resolved at query time.
-- Text is analyzed with Elasticsearch's built-in `cjk` analyzer, so the
-  stock image works with no plugins.
+- (Historical) Text is analyzed with Elasticsearch's built-in `cjk`
+  analyzer, so the stock image works with no plugins. Meilisearch uses its
+  built-in segmentation with the `jpn` locale (fusion F3).
 - Reindex and backfill are available from the CLI only, through
   `kaiba search-engine sync|reindex`, and require a store administrator.
   The server also backfills automatically on first activation and whenever
   the index identity changes. There is no GraphQL admin mutation.
 - KaibaClient operations are hand-written, following the existing
   `KaibaOperations.swift` style, not generated.
-- The local compose Elasticsearch runs with `xpack.security.enabled=false`
-  and is bound to `127.0.0.1` only. This is documented as local-only.
+- (Historical) The local compose Elasticsearch runs with
+  `xpack.security.enabled=false` and is bound to `127.0.0.1` only. This is
+  documented as local-only. The Meilisearch compose service follows the
+  same rule without a master key (fusion F5).
 - A plain `http` engine URL is accepted only for loopback hosts, so
   credentials are never sent unencrypted across a network. There is no
   override flag.
@@ -75,7 +84,9 @@ These cover design sections D0-D5.
 - **Related-note boosts.** Linked 5.0, shared tag 3.0, shared person or
   event tag +2.0, near tag (sibling, parent, child or ancestor) 1.5, and
   `more_like_this` text 1.0. The reasons come from Elasticsearch named
-  queries. Shared-tag reasons are confirmed against the store.
+  queries (Historical: the Meilisearch adapter composes related notes and
+  their reasons from sub-queries, fusion F3). Shared-tag reasons are
+  confirmed against the store.
 - **Facets.** Engine aggregations over the engine-filtered set, computed
   only on request. The counts can include notes the store re-check drops,
   such as pending ingests in a reachable library or entries one drain
@@ -121,7 +132,8 @@ Decisions taken without a user answer for
   n-gram only. The live Japanese assertion is the acceptance gate.
 - **No capability flags.** Meilisearch gaps (no `more_like_this`, no
   clause boosts) are closed inside the adapter, so the protocol and the
-  Elasticsearch adapter do not change.
+  Elasticsearch adapter do not change. (The Elasticsearch adapter was
+  later removed in 137c6f7.)
 - **Meilisearch auth modes** are `none` and `apiKey`. `basic` is
   rejected with `searchEngine.authMode`.
 - **Japanese locale.** The Meilisearch index forces locale `jpn` for Han
@@ -129,15 +141,88 @@ Decisions taken without a user answer for
 - **Deep pages.** A fused window above 1000 results runs on FTS only.
   This bounds the fused candidate count.
 
+## Backend-only engine boundary (2026-10-05)
+
+Decisions taken without a user answer for
+`design-docs/specs/search-engine-adapter.md` B0-B8. The premise comes from
+the user: only the kaiba backend talks to the search engine, and clients
+never need its coordinates or credentials.
+
+- **Premise and audit.** The audit of 137c6f7 (B1) found one real leak:
+  the adapter descriptor's `defaultURL`, which carried the server's
+  `KAIBA_MEILISEARCH_URL` value or the built-in fallback through GraphQL,
+  KaibaClient and the web settings prefill. The config-case settings read
+  also returned the resolved URL, and a save required a URL, which pushed
+  engine coordinates onto the client. All engine query fields, logs, CLI
+  output and test-connection details were already compliant.
+- **Remove the descriptor field `defaultURL`.** The
+  `SearchEngineAdapterDescriptor.defaultURL` field and
+  `SearchEngineFactory.adapters(environment:)` are removed from AppCore,
+  and the field is removed from GraphQL, KaibaClient and the web client.
+  It was never in a release (latest tag `v0.1.16`), so no deprecation
+  period is needed. The backend resolver
+  `SearchEngineFactory.defaultURL(for:environment:)` keeps its name; it is
+  backend-only, so the verification grep for `defaultURL` covers
+  `web/src`, `Sources/AppGraphQL` and `Sources/KaibaClient`, plus targeted
+  AppCore checks on the descriptor file and `adapters(environment`.
+- **Omitted URL means server default.** For update, test connection, the
+  stored record and the config section, an omitted, null, empty or
+  whitespace-only URL is the server default. The backend resolves it with
+  `SearchEngineFactory.defaultURL(for:environment:)`:
+  `KAIBA_MEILISEARCH_URL`, then `SearchEngineFactory.fallbackMeilisearchURL`,
+  each time it builds an engine. Treating empty like omitted everywhere
+  avoids a third state that would only produce `searchEngine.url` errors.
+- **Persist the marker, not the value.** A server-default save stores the
+  settings without a `url` key. An environment change then takes effect at
+  the next start, and the existing identity check backfills the new
+  index. Persisting the resolved value was rejected: the setting would
+  silently ignore later environment changes, and an administrator could
+  only see or correct it by learning the value on the client.
+- **Secret stays bound to the resolved target.** The stored secret's
+  `target` is the URL resolved at save, compared with the URL resolved at
+  each use. If the environment moves to another engine, an API key is not
+  sent there: the engine stays detached (FTS only, logged as
+  `searchEngine.secret`) until an administrator enters the key again.
+  Binding the secret to a "server default" marker instead was rejected,
+  because it would send a stored key to whatever host the environment
+  names, which breaks the D5 rule from DR-D5-SECRET-RETARGET.
+- **Settings read returns `url: null` for the default.** `url` is the
+  explicit URL (stored or config) or `null`. A non-`none` kind with
+  `url: null` means server default, which the web form shows as `Server
+  default`. No `usesServerDefault` field is added: the pair is already
+  unambiguous, and the schema stays smaller. Returning the effective URL
+  to administrators was rejected: the client does not need it, cannot
+  change the environment, and the value can reveal internal hosts to every
+  remote administrator session.
+- **Test connection reports no URL.** The result stays
+  `{available, status, detail}`, with the existing sanitizing. It never
+  reports the resolved URL.
+- **Loopback rule.** The plain-`http`-only-on-loopback rule applies to the
+  backend's network position: loopback is the host running `kaiba serve`
+  (for the Tauri local service, the user's Mac), not the client device.
+- **Tauri CSP and capabilities stay as they are.** `csp: null` and the
+  `http://*:*`/`https://*:*` capability exist so the shell can reach a
+  kaiba server at any user-configured origin. They list no engine origin.
+  An allowlist cannot exclude an engine origin without also blocking
+  arbitrary kaiba servers, so the premise is enforced by never giving the
+  client engine coordinates and by a `web/src` guard test. Narrowing them
+  is out of scope.
+- **Web guard.** A bun test fails if any file under `web/src` contains the
+  engine port string, `defaultURL` or `KAIBA_MEILISEARCH_URL`; test
+  fixtures use placeholders such as `https://search.example`.
+- **Plan records.** `impl-plans/active/search-engine-fusion-dispatch.json`
+  stays unchanged as a completed workflow record. Its port mentions refer
+  to the server-host compose binding.
+
 ## Open questions
 
 - Should kaiba offer a `kaiba search-engine detach` command? It would clear
   the activation marker and the outbox once an operator has permanently
   stopped using an engine. Today the outbox stays bounded at one row per
   note.
-- Should an optional `analyzer: "kuromoji"` setting be supported for
-  clusters that have the `analysis-kuromoji` plugin, to improve Japanese
-  morphology over bigrams?
+- (Obsolete since 137c6f7: Elasticsearch-only.) Should an optional
+  `analyzer: "kuromoji"` setting be supported for clusters that have the
+  `analysis-kuromoji` plugin, to improve Japanese morphology over bigrams?
 - Should engine search also cover the link-picker popup
   (`NoteSearchPopup`)? It stays on FTS. The agent `search_notes` tool is
   now covered by delta D4.
@@ -162,3 +247,10 @@ Decisions taken without a user answer for
 - Is non-loopback plain `http`, for example a LAN cluster without TLS,
   needed? If so, it would take an explicit opt-in flag like Turso's
   `allowInsecureLoopbackHTTP`.
+- Should the Tauri shell narrow `csp` and the `http:default` capability,
+  for example to the origin of the kaiba server the user configured? The
+  B0 premise does not need it (B1 A11), so it is not part of B0-B8.
+- Should an administrator be able to see which URL the server default
+  resolves to, for example in `kaiba search-engine status` (already
+  printed as part of `indexIdentity` on the server host) or in a future
+  admin-only field? B4 returns `null` to clients for now.
