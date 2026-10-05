@@ -268,7 +268,10 @@ result and the outbox progress. It never prints credentials, and it exits
 `0` even when the engine is unhealthy. `sync` ensures the index, activates
 it and drains pending note changes. It exits `1` if any rows failed.
 `reindex` re-enqueues every note first, then behaves like `sync`; it does
-not delete stale documents. See `search-engine-adapter.md` (SE6, D0, D5).
+not delete stale documents. The adapter kind is `elasticsearch` or
+`meilisearch`; the commands behave the same for both. See
+`search-engine-adapter.md` (SE6, D0, D5) and
+`design-search-engine-fusion.md` (F3, F4).
 
 ## Exit Codes
 

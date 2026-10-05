@@ -87,6 +87,48 @@ These cover design sections D0-D5.
   It is allowed only with `https` and only where the Security framework is
   available, and the form shows a warning next to it.
 
+## Fusion and lightweight engine (2026-10-05)
+
+Decisions taken without a user answer for
+`design-docs/specs/design-search-engine-fusion.md` (F1-F6).
+
+- **Where fusion applies.** GraphQL `searchNotes` with
+  `includeLinked: true`, the agent `search_notes` tool (both
+  `include_linked` values) and `AIAgenticSearch` grounding. `searchNotes`
+  without `includeLinked`, the link picker, `kaiba search`, memo search
+  and long-term-memory recall stay on FTS, because the web client already
+  offers engine search through `engineSearchNotes` and the link picker was
+  kept on FTS earlier.
+- **Fallback.** With no engine, or after any engine error in a call,
+  each path runs today's code. There is no partial engine contribution and
+  no per-call health probe. A thrown error is the unhealthy signal.
+- **Weights.** Engine and full-text lists weigh 1.0 each per query. The
+  grounding weights stay full query 2.0 and terms 1.0. RRF `k` stays 60.
+  Coverage is reported, not used as a cross-source sort key.
+- **Related-notes signals** are not fused into search paths, which have
+  no source note. The Meilisearch adapter fuses its own related and
+  expansion sub-queries with the same reranker.
+- **Provenance.** Additive GraphQL field
+  `NoteSearchResult.provenance { sources, reasons }`, a per-result
+  `provenance` key in the agent tool output when the engine was used, and
+  a sources suffix in the agentic context. The web client does not show
+  it yet.
+- **Agent output with no engine** stays byte-identical, with no
+  `provenance` key.
+- **Engine choice.** Meilisearch, for its built-in Japanese segmentation,
+  small single-binary footprint and optional key. Typesense keeps the
+  index in RAM and always needs a key. Manticore's stock CJK handling is
+  n-gram only. The live Japanese assertion is the acceptance gate.
+- **No capability flags.** Meilisearch gaps (no `more_like_this`, no
+  clause boosts) are closed inside the adapter, so the protocol and the
+  Elasticsearch adapter do not change.
+- **Meilisearch auth modes** are `none` and `apiKey`. `basic` is
+  rejected with `searchEngine.authMode`.
+- **Japanese locale.** The Meilisearch index forces locale `jpn` for Han
+  text, so kanji-only notes are not segmented as Chinese.
+- **Deep pages.** A fused window above 1000 results runs on FTS only.
+  This bounds the fused candidate count.
+
 ## Open questions
 
 - Should kaiba offer a `kaiba search-engine detach` command? It would clear
@@ -99,8 +141,20 @@ These cover design sections D0-D5.
 - Should engine search also cover the link-picker popup
   (`NoteSearchPopup`)? It stays on FTS. The agent `search_notes` tool is
   now covered by delta D4.
-- Should `AIAgenticSearch` grounding also retrieve candidates from the
-  engine, fused by rank like its FTS terms? It stays on FTS for now.
+- (Resolved 2026-10-05 by F1.) Should `AIAgenticSearch` grounding also
+  retrieve candidates from the engine? Yes, fused with its FTS term lists,
+  with an exact FTS fallback.
+- Should the Meilisearch locale be configurable (for example `cmn` for
+  Chinese-language stores) instead of the fixed `jpn`?
+- Should there be a cross-call circuit breaker, so that an engine that is
+  timing out stops being queried for a while? Today each call pays at
+  most one engine timeout before it falls back.
+- Should `searchNotes` without `includeLinked`, or the link picker, also
+  use fusion when an engine is attached?
+- Should the web client show retrieval provenance (for example "engine",
+  "tag match", "linked") next to search results?
+- Should the fusion weights be adjustable per store? They are fixed
+  constants for now.
 - Should tag rename, merge or delete APIs be added? None exist today. Any
   future rename must call the subtree enqueue described in D1.
 - Should the related-note and expansion boosts be adjustable per store?
