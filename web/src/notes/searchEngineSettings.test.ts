@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizedTarget, searchEngineSettingsInput, validateSearchEngineForm, type SearchEngineForm } from './searchEngineSettings'
+import { defaultEngineURL, normalizedTarget, searchEngineSettingsInput, validateSearchEngineForm, type SearchEngineForm } from './searchEngineSettings'
 import type { SearchEngineSettings } from './types'
 
 const loaded: SearchEngineSettings = {
-  managedBy: 'store', kind: 'elasticsearch', url: 'http://localhost:9200', indexPrefix: 'kaiba',
+  managedBy: 'store', kind: 'example-engine', url: 'http://localhost:8080', indexPrefix: 'kaiba',
   authMode: 'basic', username: 'admin', hasSecret: true, verifyTLS: true,
-  requestTimeoutSeconds: 10, adapters: [{ kind: 'elasticsearch', displayName: 'Elasticsearch', authModes: ['none', 'basic', 'apiKey'] }], active: true,
+  requestTimeoutSeconds: 10, adapters: [{ kind: 'example-engine', displayName: 'Example engine', authModes: ['none', 'basic', 'apiKey'] }], active: true,
 }
 
 function form(patch: Partial<SearchEngineForm> = {}): SearchEngineForm {
   return {
-    kind: 'elasticsearch', url: 'http://localhost:9200', indexPrefix: 'kaiba', authMode: 'basic',
+    kind: 'example-engine', url: 'http://localhost:8080', indexPrefix: 'kaiba', authMode: 'basic',
     username: 'admin', secret: '', clearSecret: false, verifyTLS: true, requestTimeoutSeconds: '10',
     ...patch,
   }
@@ -22,7 +22,7 @@ function fields(value: SearchEngineForm): string[] {
 
 describe('search engine settings validation', () => {
   test('rejects non-loopback http, bad prefixes and invalid timeouts', () => {
-    expect(fields(form({ url: 'http://example.com:9200' }))).toContain('searchEngine.url')
+    expect(fields(form({ url: 'http://example.com:8080' }))).toContain('searchEngine.url')
     expect(fields(form({ indexPrefix: 'Bad Prefix' }))).toContain('searchEngine.indexPrefix')
     expect(fields(form({ requestTimeoutSeconds: '0' }))).toContain('searchEngine.requestTimeoutSeconds')
   })
@@ -51,10 +51,24 @@ describe('search engine settings validation', () => {
   })
 
   test('normalizes scheme and host and strips a trailing slash', () => {
-    expect(normalizedTarget('HTTP://LocalHost:9200/')).toBe('http://localhost:9200')
+    expect(normalizedTarget('HTTP://LocalHost:8080/')).toBe('http://localhost:8080')
   })
 
   test('omits a stale secret when authentication is disabled', () => {
     expect(searchEngineSettingsInput(form({ authMode: 'none', secret: 'stale-secret' }))).not.toHaveProperty('secret')
+  })
+})
+
+describe('defaultEngineURL', () => {
+  const adapters = [
+    { kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'], defaultURL: 'http://search.lan:7700' },
+    { kind: 'example-engine', displayName: 'Example engine', authModes: ['none'], defaultURL: null },
+  ]
+  test('prefills the server-resolved default only when the URL is empty', () => {
+    expect(defaultEngineURL('meilisearch', '', adapters)).toBe('http://search.lan:7700')
+    expect(defaultEngineURL('meilisearch', '  ', adapters)).toBe('http://search.lan:7700')
+    expect(defaultEngineURL('meilisearch', 'https://search.example', adapters)).toBe('https://search.example')
+    expect(defaultEngineURL('example-engine', '', adapters)).toBe('')
+    expect(defaultEngineURL('unknown', '', adapters)).toBe('')
   })
 })

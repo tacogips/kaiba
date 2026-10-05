@@ -246,59 +246,30 @@ exit 1
 '''
 
 [tasks."search:up"]
-description = "Start the local single-node Elasticsearch (local development only)"
-depends = ["search:docker"]
-run = '''
-docker compose -f docker/elasticsearch/compose.yaml up -d --wait
-'''
-
-[tasks."search:down"]
-description = "Stop the local Elasticsearch (keeps the data volume)"
-run = '''
-docker compose -f docker/elasticsearch/compose.yaml down
-'''
-
-[tasks."search:status"]
-description = "Show local Elasticsearch cluster health"
-run = '''
-curl -fsS http://127.0.0.1:9200/_cluster/health
-'''
-
-[tasks."search:test-live"]
-description = "Start the local Elasticsearch if needed and run the gated live integration tests"
-depends = ["anydoc:native", "search:up"]
-run = '''
-KAIBA_ELASTICSEARCH_URL=${KAIBA_ELASTICSEARCH_URL:-http://127.0.0.1:9200} swift test --filter ElasticsearchLive
-'''
-
-[tasks."search:test-live".env]
-PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
-
-[tasks."search:meilisearch:up"]
 description = "Start the local Meilisearch (local development only)"
 depends = ["search:docker"]
 run = '''
 docker compose -f docker/meilisearch/compose.yaml up -d --wait
 '''
 
-[tasks."search:meilisearch:down"]
-description = "Stop local Meilisearch (keeps the data volume)"
+[tasks."search:down"]
+description = "Stop the local Meilisearch (keeps the data volume)"
 run = '''
 docker compose -f docker/meilisearch/compose.yaml down
 '''
 
-[tasks."search:meilisearch:status"]
+[tasks."search:status"]
 description = "Show local Meilisearch health"
 run = '''
 curl -fsS http://127.0.0.1:7700/health
 '''
 
-[tasks."search:meilisearch:test-live"]
-description = "Start local Meilisearch and run the gated live integration tests"
-depends = ["anydoc:native", "search:meilisearch:up"]
+[tasks."search:test-live"]
+description = "Start the local Meilisearch if needed and run the gated live integration tests"
+depends = ["anydoc:native", "search:up"]
 run = '''
 KAIBA_MEILISEARCH_URL=${KAIBA_MEILISEARCH_URL:-http://127.0.0.1:7700} swift test --filter MeilisearchLive
 '''
 
-[tasks."search:meilisearch:test-live".env]
+[tasks."search:test-live".env]
 PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"

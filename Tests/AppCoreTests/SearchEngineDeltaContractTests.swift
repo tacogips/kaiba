@@ -72,7 +72,7 @@ final class SearchEngineDeltaContractTests: NoteTestCase {
   }
 
   func testSettingsInputDescriptionsRedactSecretAndReasonKindsArePinned() {
-    let input = SearchEngineSettingsInput(kind: "elasticsearch", secret: "s3cr3t")
+    let input = SearchEngineSettingsInput(kind: "meilisearch", secret: "s3cr3t")
     XCTAssertFalse(String(describing: input).contains("s3cr3t"))
     XCTAssertFalse(String(reflecting: input).contains("s3cr3t"))
     XCTAssertTrue(String(describing: input).contains("[redacted]"))

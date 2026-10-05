@@ -6,9 +6,9 @@ import type { AppStore } from '../state/appStore'
 import { SearchEngineSettings } from './SearchEngineSettings'
 
 const initial: Settings = {
-  managedBy: 'store', kind: 'elasticsearch', url: 'https://search.example.com:9200', indexPrefix: 'kaiba',
+  managedBy: 'store', kind: 'example-engine', url: 'https://search.example.com:8080', indexPrefix: 'kaiba',
   authMode: 'basic', username: 'admin', hasSecret: true, verifyTLS: true,
-  requestTimeoutSeconds: 10, adapters: [{ kind: 'elasticsearch', displayName: 'Elasticsearch', authModes: ['none', 'basic', 'apiKey'] }], active: true,
+  requestTimeoutSeconds: 10, adapters: [{ kind: 'example-engine', displayName: 'Example engine', authModes: ['none', 'basic', 'apiKey'] }], active: true,
 }
 
 function mount(settings: Settings | null, overrides: Partial<NoteGraphQLClient> = {}) {
@@ -74,6 +74,21 @@ describe('SearchEngineSettings', () => {
     } finally { view.dispose(); view.host.remove() }
   })
 
+  test('choosing Meilisearch with an empty URL prefills the server default URL', async () => {
+    const view = mount({
+      ...initial, kind: 'none', url: null, authMode: 'none', username: null, hasSecret: false, active: false,
+      adapters: [{ kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'], defaultURL: 'http://search.lan:7700' }],
+    })
+    try {
+      await settle()
+      const select = view.host.querySelector('select') as HTMLSelectElement
+      select.value = 'meilisearch'
+      select.dispatchEvent(new Event('change'))
+      await settle()
+      expect(inputByLabel(view.host, 'URL').value).toBe('http://search.lan:7700')
+    } finally { view.dispose(); view.host.remove() }
+  })
+
   test('disables Save for an invalid URL', async () => {
     const view = mount({ ...initial, hasSecret: false })
     try {
@@ -129,7 +144,7 @@ describe('SearchEngineSettings', () => {
       ...initial,
       hasSecret: false,
       adapters: [
-        { kind: 'elasticsearch', displayName: 'Elasticsearch', authModes: ['none', 'basic', 'apiKey'] },
+        { kind: 'example-engine', displayName: 'Example engine', authModes: ['none', 'basic', 'apiKey'] },
         { kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'] },
       ],
     }
@@ -178,7 +193,7 @@ describe('SearchEngineSettings', () => {
     try {
       await settle()
       const url = inputByLabel(view.host, 'URL')
-      url.value = 'https://other.example.com:9200'
+      url.value = 'https://other.example.com:8080'
       url.dispatchEvent(new Event('input', { bubbles: true }))
       expect(inputByLabel(view.host, 'Secret').required).toBe(true)
       expect(view.host.querySelectorAll('button').length).toBe(2)

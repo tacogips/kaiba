@@ -3,6 +3,7 @@ import { useApp, type AppStore } from '../state/appStore'
 import type { NoteGraphQLClient } from '../notes/client'
 import type { SearchEngineSettings as Settings } from '../notes/types'
 import {
+  defaultEngineURL,
   searchEngineSettingsInput,
   normalizedTarget,
   validateSearchEngineForm,
@@ -129,7 +130,7 @@ export function SearchEngineSettings(props: SearchEngineSettingsProps = {}): JSX
                   <select value={form()?.kind} onChange={(event) => {
                     const kind = event.currentTarget.value
                     const adapter = value().adapters.find((item) => item.kind === kind)
-                    update({ kind, authMode: adapter?.authModes[0] ?? 'none' })
+                    update({ kind, authMode: adapter?.authModes[0] ?? 'none', url: defaultEngineURL(kind, form()?.url ?? '', value().adapters) })
                   }}>
                     <option value="none">None</option>
                     <For each={value().adapters}>{(adapter) => <option value={adapter.kind}>{adapter.displayName}</option>}</For>

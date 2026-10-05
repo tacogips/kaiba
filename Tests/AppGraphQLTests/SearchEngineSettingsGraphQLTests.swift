@@ -12,7 +12,7 @@ final class SearchEngineSettingsGraphQLTests: XCTestCase {
     XCTAssertEqual(try string(adminResponse, ["searchEngineSettings", "result", "status"]), "ok")
     XCTAssertTrue(try bool(adminResponse, ["searchEngineSettings", "value", "hasSecret"]) == false)
     let adapters = try array(adminResponse, ["searchEngineSettings", "value", "adapters"])
-    XCTAssertEqual(try string(try XCTUnwrap(adapters.first), ["kind"]), "elasticsearch")
+    XCTAssertEqual(try string(try XCTUnwrap(adapters.first), ["kind"]), "meilisearch")
 
     let user = try service.service.createUser(email: "reader@example.test", displayName: "Reader")
     let denied = await run(executor, "query { searchEngineSettings { result { accepted status diagnostics } } }", actingUserId: user.userId)
@@ -23,7 +23,7 @@ final class SearchEngineSettingsGraphQLTests: XCTestCase {
   func testConfigLockAndInvalidSettingsMapToStableStatuses() async throws {
     let service = try makeService()
     service.service.searchEngineSlot.setManagedConfiguration(
-      KaibaSearchEngineConfiguration(kind: "elasticsearch", url: "https://es.internal")
+      KaibaSearchEngineConfiguration(kind: "meilisearch", url: "https://search.internal")
     )
     let executor = NoteGraphQLDocumentExecutor(service: service)
     let managed = await run(executor, "mutation { updateSearchEngineSettings(input: { kind: \"none\" }) { result { status diagnostics } } }")
@@ -34,7 +34,7 @@ final class SearchEngineSettingsGraphQLTests: XCTestCase {
     )
 
     let ordinary = try makeService()
-    let invalid = await run(NoteGraphQLDocumentExecutor(service: ordinary), "mutation { updateSearchEngineSettings(input: { kind: \"elasticsearch\", url: \"not-a-url\" }) { result { status diagnostics } } }")
+    let invalid = await run(NoteGraphQLDocumentExecutor(service: ordinary), "mutation { updateSearchEngineSettings(input: { kind: \"meilisearch\", url: \"not-a-url\" }) { result { status diagnostics } } }")
     XCTAssertEqual(try string(invalid, ["updateSearchEngineSettings", "result", "status"]), "invalid-settings")
     XCTAssertEqual(try stringArray(invalid, ["updateSearchEngineSettings", "result", "diagnostics"]), ["searchEngine.url"])
   }
@@ -49,8 +49,8 @@ final class SearchEngineSettingsGraphQLTests: XCTestCase {
     """
     let secret = "TOPSECRET-123"
     let saved = await run(executor, update, variables: ["input": .object([
-      "kind": .string("elasticsearch"), "url": .string("https://es.internal:9200"),
-      "authMode": .string("basic"), "username": .string("operator"), "secret": .string(secret)
+      "kind": .string("meilisearch"), "url": .string("https://search.internal:7700"),
+      "authMode": .string("apiKey"), "secret": .string(secret)
     ])])
     XCTAssertTrue(try bool(saved, ["updateSearchEngineSettings", "result", "accepted"]))
     XCTAssertTrue(try bool(saved, ["updateSearchEngineSettings", "value", "hasSecret"]))
@@ -61,8 +61,8 @@ final class SearchEngineSettingsGraphQLTests: XCTestCase {
     }
     """
     let tested = await run(executor, retarget, variables: ["input": .object([
-      "kind": .string("elasticsearch"), "url": .string("https://other.internal:9200"),
-      "authMode": .string("basic"), "username": .string("operator")
+      "kind": .string("meilisearch"), "url": .string("https://other.internal:7700"),
+      "authMode": .string("apiKey")
     ])])
     XCTAssertTrue(try bool(tested, ["testSearchEngineConnection", "result", "accepted"]))
     XCTAssertEqual(try string(tested, ["testSearchEngineConnection", "value", "status"]), "invalid-settings")

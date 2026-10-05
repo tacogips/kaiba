@@ -10,8 +10,8 @@ content-addressed file attachments (local by default, migratable to
 S3-compatible storage). Search is SQLite FTS5 with tag/class filters,
 contextual indexing, relaxed multi-term matching with rank fusion, and
 graph expansion ranked by personalized PageRank
-(`design-docs/specs/note-retrieval-fusion.md`). An optional Elasticsearch or
-Meilisearch engine adds engine-ranked, ontology-aware search and related notes (see
+(`design-docs/specs/note-retrieval-fusion.md`). An optional Meilisearch
+engine adds engine-ranked, ontology-aware search and related notes (see
 [Optional search engine](#optional-search-engine)).
 
 ## Quick Start
@@ -185,33 +185,17 @@ and related notes. Without an engine, Kaiba keeps its built-in search behavior.
 Search results are filtered by the engine and checked again against the note
 store before they are returned.
 
-### Choosing an engine
+### Engine
 
-| | Elasticsearch | Meilisearch |
-| --- | --- | --- |
-| Runtime and resources | JVM service; the local compose config sets a 512 MB heap | Rust service with a single binary; no JVM |
-| Japanese analysis | `cjk` analyzer uses bigrams | Built-in Japanese segmentation, with the `jpn` locale |
-| Related notes | Elasticsearch `more_like_this` query | Kaiba composes text, link, tag and entity searches |
-| Authentication | `none`, `basic` or `apiKey` | `none` or `apiKey` |
+Meilisearch is the bundled adapter and the default. It is a single Rust
+binary (no JVM) with built-in Japanese segmentation (`jpn` locale); related
+notes are composed by Kaiba from text, link, tag and entity searches. The
+engine is reached only by the Kaiba backend: clients talk to Kaiba's GraphQL
+API and never to the engine directly. The Elasticsearch adapter was removed;
+a `searchEngine.kind` of `elasticsearch` is now rejected as unsupported.
 
-Add a `searchEngine` section to `config.json` to use the local Elasticsearch
-adapter:
-
-```json
-{
-  "searchEngine": {
-    "kind": "elasticsearch",
-    "url": "http://127.0.0.1:9200",
-    "indexPrefix": "kaiba"
-  }
-}
-```
-
-Remote clusters should use an `https` URL and credentials supplied through
-`apiKeyEnvironmentVariable`, or the username and password environment-variable
-names. Do not put secrets directly in the configuration file.
-
-Meilisearch can be used locally without an API key:
+Add a `searchEngine` section to `config.json`. Every field is optional; an
+empty section selects Meilisearch:
 
 ```json
 {
@@ -223,6 +207,9 @@ Meilisearch can be used locally without an API key:
 }
 ```
 
+When `url` is omitted, the server uses the `KAIBA_MEILISEARCH_URL` environment
+variable, and falls back to `http://127.0.0.1:7700` when it is unset.
+
 For a remote Meilisearch server, use `https` and add
 `"apiKeyEnvironmentVariable": "KAIBA_MEILISEARCH_API_KEY"`; keep the key in
 the environment, not in `config.json`. Use an API key restricted to the
@@ -233,27 +220,18 @@ require authentication, so **Test connection** can report the server as
 available even when the API key is wrong; authenticated index operations or
 backfill will reveal an invalid key.
 
-For local development, use the compose setup in `docker/elasticsearch/compose.yaml`:
+For local development, use the compose setup in `docker/meilisearch/compose.yaml`:
 
 ```bash
 mise run search:up         # starts colima first on macOS if Docker is not running
 mise run search:status
-mise run search:test-live  # brings the cluster up, then runs the live tests
+mise run search:test-live  # brings Meilisearch up, then runs the live tests
 mise run search:down
 ```
 
-This compose cluster disables Elasticsearch security and binds to
-`127.0.0.1`. It is for local use only and must not be exposed to a network.
-
-Meilisearch's local compose service also binds to `127.0.0.1` and runs in
-development mode without a master key, so it is for local use only:
-
-```bash
-mise run search:meilisearch:up         # starts colima on macOS when Docker is down
-mise run search:meilisearch:status
-mise run search:meilisearch:test-live
-mise run search:meilisearch:down
-```
+The local compose service binds to `127.0.0.1` and runs in development mode
+without a master key, so it is for local use only and must not be exposed to
+a network.
 
 Switch engines in **Settings** or by changing the `searchEngine` section in
 `config.json`. A change to engine identity triggers an index backfill through
@@ -280,12 +258,10 @@ and `search engine is not configured` when neither selects an engine.
 To clear stale documents, delete the current index and rebuild it:
 
 ```bash
-curl -X DELETE http://127.0.0.1:9200/<prefix>-notes-v2
+curl -X DELETE http://127.0.0.1:7700/indexes/<prefix>-notes-v1
 kaiba search-engine reindex
 ```
-
-After upgrading, the `<prefix>-notes-v1` index is no longer used and can be
-deleted by the operator in the same way. See the [search engine design](design-docs/specs/search-engine-adapter.md)
+ See the [search engine design](design-docs/specs/search-engine-adapter.md)
 for configuration, behavior, and rollout details.
 
 ### Ontology-aware search and settings

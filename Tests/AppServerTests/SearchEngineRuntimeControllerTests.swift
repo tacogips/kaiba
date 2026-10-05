@@ -160,7 +160,7 @@ final class SearchEngineRuntimeControllerTests: XCTestCase {
   }
 
   func testManagedConfigurationReloadIsNoOp() async throws {
-    let configuration = KaibaSearchEngineConfiguration(kind: "elasticsearch", url: "http://127.0.0.1:9200")
+    let configuration = KaibaSearchEngineConfiguration(kind: "meilisearch", url: "http://127.0.0.1:7700")
     let slot = SearchEngineSlot(engine: ControllerFakeSearchEngine(identity: "managed"))
     let service = try makeService(slot: slot)
     slot.setManagedConfiguration(configuration)

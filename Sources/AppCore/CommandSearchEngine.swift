@@ -134,7 +134,7 @@ public enum SearchEngineCommand {
       options,
       environment: environment,
       engine: engine,
-      kind: options.configuration.searchEngine?.kind ?? "elasticsearch"
+      kind: options.configuration.searchEngine?.kind ?? SearchEngineFactory.defaultKind
     )
   }
 

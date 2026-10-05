@@ -32,6 +32,8 @@ public struct KaibaSearchEngineAdapterDescriptor: Codable, Equatable, Sendable {
   public var kind: String
   public var displayName: String
   public var authModes: [String]
+  /// Server-resolved URL to prefill when this adapter is chosen with an empty URL.
+  public var defaultURL: String?
 }
 
 public struct KaibaSearchEngineSettings: Codable, Equatable, Sendable {

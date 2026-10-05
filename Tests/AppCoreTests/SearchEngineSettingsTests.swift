@@ -17,19 +17,19 @@ final class SearchEngineSettingsTests: NoteTestCase {
     if case .none = none {} else { XCTFail("expected none") }
 
     let input = SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://es.internal:9200/", authMode: "basic",
-      username: "operator", secret: "secret-value"
+      kind: "meilisearch", url: "https://search.internal:7700/", authMode: "apiKey",
+      secret: "secret-value"
     )
     _ = try await service.updateSearchEngineSettings(input)
     let stored = try service.resolveSearchEngineSettings(configuration: nil)
     if case let .store(settings, secret) = stored {
-      XCTAssertEqual(settings.url, "https://es.internal:9200/")
+      XCTAssertEqual(settings.url, "https://search.internal:7700/")
       XCTAssertEqual(secret, "secret-value")
     } else {
       XCTFail("expected store settings")
     }
 
-    let config = KaibaSearchEngineConfiguration(kind: "elasticsearch", enabled: false, url: "https://config.internal")
+    let config = KaibaSearchEngineConfiguration(kind: "meilisearch", enabled: false, url: "https://config.internal")
     let managed = try service.resolveSearchEngineSettings(configuration: config)
     if case .managedByConfig(let resolved) = managed {
       XCTAssertEqual(resolved, config)
@@ -39,7 +39,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
 
     try service.setAppSetting(
       key: NoteService.searchEngineSecretKey,
-      valueJSON: #"{"authMode":"basic","target":"https://attacker.example","secret":"secret-value"}"#,
+      valueJSON: #"{"authMode":"apiKey","target":"https://attacker.example","secret":"secret-value"}"#,
       allowReserved: true
     )
     let mismatched = try service.resolveSearchEngineSettings(configuration: nil)
@@ -53,8 +53,8 @@ final class SearchEngineSettingsTests: NoteTestCase {
   func testUpdateRetargetRequiresNewSecretAndTestMakesNoEngineCall() async throws {
     let service = try makeService(function: #function)
     let original = SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://es.internal:9200", authMode: "basic",
-      username: "operator", secret: "secret-value"
+      kind: "meilisearch", url: "https://search.internal:7700", authMode: "apiKey",
+      secret: "secret-value"
     )
     let view = try await service.updateSearchEngineSettings(original)
     XCTAssertTrue(view.hasSecret)
@@ -62,7 +62,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
     let before = try service.appSetting(key: NoteService.searchEngineSettingsKey, allowReserved: true)
 
     let retarget = SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://attacker.example", authMode: "basic", username: "operator"
+      kind: "meilisearch", url: "https://attacker.example", authMode: "apiKey"
     )
     do {
       _ = try await service.updateSearchEngineSettings(retarget)
@@ -85,16 +85,22 @@ final class SearchEngineSettingsTests: NoteTestCase {
   func testNormalizedTargetRetainsSecretAndAuthModeChangeDoesNot() async throws {
     let service = try makeService(function: #function)
     _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://es.internal:9200/", authMode: "basic",
-      username: "operator", secret: "secret-value"
+      kind: "meilisearch", url: "https://search.internal:7700/", authMode: "apiKey",
+      secret: "secret-value"
     ))
     let sameTarget = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://es.internal:9200", authMode: "basic", username: "operator"
+      kind: "meilisearch", url: "https://search.internal:7700", authMode: "apiKey"
     ))
     XCTAssertTrue(sameTarget.hasSecret)
 
+    // A secret stored for another auth mode on the same target is not reused.
+    try service.setAppSetting(
+      key: NoteService.searchEngineSecretKey,
+      valueJSON: #"{"authMode":"basic","target":"https://search.internal:7700","secret":"secret-value"}"#,
+      allowReserved: true
+    )
     let changedAuth = SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://es.internal:9200", authMode: "apiKey"
+      kind: "meilisearch", url: "https://search.internal:7700", authMode: "apiKey"
     )
     let result = try await service.testSearchEngineConnection(changedAuth) { _, _ in FakeSearchEngine() }
     XCTAssertEqual(result.detail, "searchEngine.secret")
@@ -110,14 +116,14 @@ final class SearchEngineSettingsTests: NoteTestCase {
       return SearchEngineReloadOutcome(active: true, indexIdentity: "test")
     }
     let input = SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://es.internal", authMode: "basic",
-      username: "operator", secret: "secret-value"
+      kind: "meilisearch", url: "https://search.internal", authMode: "apiKey",
+      secret: "secret-value"
     )
     _ = try await service.updateSearchEngineSettings(input)
     XCTAssertEqual(reloadCount.count, 1)
 
     let fake = FakeSearchEngine()
-    fake.failure = .unavailable("boom secret-value operator " + String(repeating: "x", count: 300))
+    fake.failure = .unavailable("boom secret-value " + String(repeating: "x", count: 300))
     let result = try await service.testSearchEngineConnection(input) { settings, secret in
       _ = try SearchEngineFactory.make(settings: settings, secret: secret)
       return fake
@@ -125,14 +131,13 @@ final class SearchEngineSettingsTests: NoteTestCase {
     XCTAssertEqual(fake.healthCalls, 1)
     XCTAssertEqual(result.status, .unavailable)
     XCTAssertFalse(result.detail.contains("secret-value"))
-    XCTAssertFalse(result.detail.contains("operator"))
     XCTAssertLessThanOrEqual(result.detail.count, 200)
 
     do {
       _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
-        kind: "elasticsearch", url: "https://es.internal", authMode: "basic", username: "operator", clearSecret: true
+        kind: "meilisearch", url: "https://search.internal", authMode: "apiKey", clearSecret: true
       ))
-      XCTFail("clearSecret with basic auth should fail")
+      XCTFail("clearSecret with API key auth should fail")
     } catch {
       XCTAssertEqual(error as? SearchEngineSettingsError, .invalid(field: "searchEngine.secret"))
     }
@@ -142,8 +147,8 @@ final class SearchEngineSettingsTests: NoteTestCase {
   func testDisableDeletesSecretAndGenericSettingsCannotReachReservedKeys() async throws {
     let service = try makeService(function: #function)
     _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "https://es.internal", authMode: "basic",
-      username: "operator", secret: "secret-value"
+      kind: "meilisearch", url: "https://search.internal", authMode: "apiKey",
+      secret: "secret-value"
     ))
     let view = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(kind: "none"))
     XCTAssertEqual(view.kind, "none")
@@ -155,13 +160,12 @@ final class SearchEngineSettingsTests: NoteTestCase {
   func testConfigManagedViewIsReadOnly() async throws {
     let slot = SearchEngineSlot()
     slot.setManagedConfiguration(KaibaSearchEngineConfiguration(
-      kind: "elasticsearch", url: "https://config.internal", usernameEnvironmentVariable: "ES_USER",
-      passwordEnvironmentVariable: "ES_PASS"
+      kind: "meilisearch", url: "https://config.internal", apiKeyEnvironmentVariable: "SEARCH_API_KEY"
     ))
     let service = try NoteService(driver: try makeNoteDriver(function: #function), searchEngineSlot: slot)
     let view = try service.searchEngineSettings()
     XCTAssertEqual(view.managedBy, .config)
-    XCTAssertEqual(view.authMode, .basic)
+    XCTAssertEqual(view.authMode, .apiKey)
     XCTAssertTrue(view.hasSecret)
     do {
       _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(kind: "none"))
@@ -181,7 +185,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
     let service = try makeService(function: #function)
     try service.setAppSetting(
       key: NoteService.searchEngineSettingsKey,
-      valueJSON: #"{"kind":"elasticsearch","url":"not a url"}"#,
+      valueJSON: #"{"kind":"meilisearch","url":"not a url"}"#,
       allowReserved: true
     )
     XCTAssertThrowsError(try service.makeResolvedSearchEngine(configuration: nil, environment: [:])) { error in
@@ -193,13 +197,13 @@ final class SearchEngineSettingsTests: NoteTestCase {
   func testTestConnectionReportsEveryInvalidFieldWithoutPersisting() async throws {
     let service = try makeService(function: #function)
     let cases: [(SearchEngineSettingsInput, String)] = [
-      (SearchEngineSettingsInput(kind: "unknown", url: "https://es.internal"), "searchEngine.kind"),
-      (SearchEngineSettingsInput(kind: "elasticsearch", url: "https://es.internal", authMode: "token"), "searchEngine.authMode"),
-      (SearchEngineSettingsInput(kind: "elasticsearch", url: "bad target"), "searchEngine.url"),
-      (SearchEngineSettingsInput(kind: "elasticsearch", url: "https://es.internal", indexPrefix: "Bad Prefix"), "searchEngine.indexPrefix"),
-      (SearchEngineSettingsInput(kind: "elasticsearch", url: "https://es.internal", authMode: "basic", username: "", secret: "s"), "searchEngine.username"),
-      (SearchEngineSettingsInput(kind: "elasticsearch", url: "https://es.internal", authMode: "basic", username: "user"), "searchEngine.secret"),
-      (SearchEngineSettingsInput(kind: "elasticsearch", url: "http://127.0.0.1:9200", verifyTLS: false), "searchEngine.verifyTLS")
+      (SearchEngineSettingsInput(kind: "unknown", url: "https://search.internal"), "searchEngine.kind"),
+      (SearchEngineSettingsInput(kind: "meilisearch", url: "https://search.internal", authMode: "token"), "searchEngine.authMode"),
+      (SearchEngineSettingsInput(kind: "meilisearch", url: "bad target"), "searchEngine.url"),
+      (SearchEngineSettingsInput(kind: "meilisearch", url: "https://search.internal", indexPrefix: "Bad Prefix"), "searchEngine.indexPrefix"),
+      (SearchEngineSettingsInput(kind: "meilisearch", url: "https://search.internal", authMode: "basic", username: "user", secret: "s"), "searchEngine.authMode"),
+      (SearchEngineSettingsInput(kind: "meilisearch", url: "https://search.internal", authMode: "apiKey"), "searchEngine.secret"),
+      (SearchEngineSettingsInput(kind: "meilisearch", url: "http://127.0.0.1:7700", verifyTLS: false), "searchEngine.verifyTLS")
     ]
     var factoryCalls = 0
     for (input, field) in cases {
@@ -216,7 +220,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
     XCTAssertEqual(factoryCalls, 0)
     do {
       _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
-        kind: "elasticsearch", url: "https://es.internal", requestTimeoutSeconds: 121
+        kind: "meilisearch", url: "https://search.internal", requestTimeoutSeconds: 121
       ))
       XCTFail("update must reject a timeout above the configured range")
     } catch {

@@ -17,7 +17,7 @@ final class SearchEngineServerRuntimeTests: XCTestCase {
 
   func testUnreachableEngineDoesNotBlockStartAndStops() async throws {
     let configuration = KaibaConfiguration(searchEngine: KaibaSearchEngineConfiguration(
-      kind: "elasticsearch",
+      kind: "meilisearch",
       url: "http://127.0.0.1:1"
     ))
     let runtime = KaibaServerRuntime(KaibaServeConfiguration(
@@ -34,7 +34,7 @@ final class SearchEngineServerRuntimeTests: XCTestCase {
   func testUnsupportedEngineKindFailsBeforeStart() async throws {
     let configuration = KaibaConfiguration(searchEngine: KaibaSearchEngineConfiguration(
       kind: "opensearch",
-      url: "http://127.0.0.1:9200"
+      url: "http://127.0.0.1:7700"
     ))
     let runtime = KaibaServerRuntime(KaibaServeConfiguration(
       noteRoot: try makeNoteRoot(),

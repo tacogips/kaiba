@@ -99,7 +99,7 @@ describe('search engine GraphQL client', () => {
 
   test('settings mutations send secrets only when supplied in mutation input', async () => {
     const value: SearchEngineSettings = {
-      managedBy: 'store', kind: 'elasticsearch', url: 'https://search.example', indexPrefix: 'kaiba',
+      managedBy: 'store', kind: 'meilisearch', url: 'https://search.example', indexPrefix: 'kaiba',
       authMode: 'apiKey', username: null, hasSecret: true, verifyTLS: true, requestTimeoutSeconds: 10,
       adapters: [], active: true,
     }
@@ -108,12 +108,12 @@ describe('search engine GraphQL client', () => {
       { data: { testSearchEngineConnection: { result: { accepted: true, status: 'ok', diagnostics: [] }, value: { available: true, status: 'available', detail: 'green' } } } },
     ])
     const client = new NoteGraphQLClient(harness.value)
-    await client.updateSearchEngineSettings({ kind: 'elasticsearch', authMode: 'apiKey', secret: 'provided-only-in-variable' })
-    await client.testSearchEngineConnection({ kind: 'elasticsearch', authMode: 'apiKey', secret: undefined })
+    await client.updateSearchEngineSettings({ kind: 'meilisearch', authMode: 'apiKey', secret: 'provided-only-in-variable' })
+    await client.testSearchEngineConnection({ kind: 'meilisearch', authMode: 'apiKey', secret: undefined })
     expect(requestBody(harness.requests[0]).operationName).toBe('UpdateSearchEngineSettings')
-    expect(requestBody(harness.requests[0]).variables).toEqual({ input: { kind: 'elasticsearch', authMode: 'apiKey', secret: 'provided-only-in-variable' } })
+    expect(requestBody(harness.requests[0]).variables).toEqual({ input: { kind: 'meilisearch', authMode: 'apiKey', secret: 'provided-only-in-variable' } })
     expect(requestBody(harness.requests[1]).operationName).toBe('TestSearchEngineConnection')
-    expect(requestBody(harness.requests[1]).variables).toEqual({ input: { kind: 'elasticsearch', authMode: 'apiKey' } })
+    expect(requestBody(harness.requests[1]).variables).toEqual({ input: { kind: 'meilisearch', authMode: 'apiKey' } })
   })
 
   test('capability returns the accepted enabled value', async () => {

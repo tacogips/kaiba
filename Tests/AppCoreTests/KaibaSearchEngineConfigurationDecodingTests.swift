@@ -11,14 +11,14 @@ import Testing
 @Test func searchEngineConfigurationDecodesDefaultsAndUnknownKinds() throws {
   let enabled = try JSONDecoder().decode(
     KaibaConfiguration.self,
-    from: Data(#"{"searchEngine":{"kind":"elasticsearch","url":"http://127.0.0.1:9200"}}"#.utf8)
+    from: Data(#"{"searchEngine":{"kind":"meilisearch","url":"http://127.0.0.1:7700"}}"#.utf8)
   ).searchEngine
   #expect(enabled?.isEnabled == true)
   #expect(enabled?.resolvedIndexPrefix == "kaiba")
 
   let disabled = try JSONDecoder().decode(
     KaibaSearchEngineConfiguration.self,
-    from: Data(#"{"kind":"elasticsearch","url":"http://127.0.0.1:9200","enabled":false}"#.utf8)
+    from: Data(#"{"kind":"meilisearch","url":"http://127.0.0.1:7700","enabled":false}"#.utf8)
   )
   #expect(!disabled.isEnabled)
 
@@ -31,7 +31,7 @@ import Testing
 
 @Test func searchEngineConfigurationRoundTripsEveryField() throws {
   let expected = KaibaSearchEngineConfiguration(
-    kind: "elasticsearch",
+    kind: "meilisearch",
     enabled: false,
     url: "https://search.example",
     indexPrefix: "custom-index",

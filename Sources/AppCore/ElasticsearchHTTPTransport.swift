@@ -1,4 +1,0 @@
-import Foundation
-
-typealias ElasticsearchHTTPTransport = SearchEngineHTTPTransport
-typealias URLSessionElasticsearchTransport = URLSessionSearchEngineTransport

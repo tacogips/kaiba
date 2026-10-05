@@ -3,7 +3,8 @@ import Foundation
 public extension NoteService {
   func searchEngineSettings() throws -> SearchEngineSettingsView {
     try requireSearchEngineAdministrator()
-    let adapters = SearchEngineFactory.adapters
+    let environment = ProcessInfo.processInfo.environment
+    let adapters = SearchEngineFactory.adapters(environment: environment)
     let active = searchEngineSlot.engine != nil
     if let config = searchEngineSlot.managedConfiguration {
       let authMode: SearchEngineAuthMode = config.apiKeyEnvironmentVariable != nil ? .apiKey :
@@ -11,7 +12,7 @@ public extension NoteService {
       return SearchEngineSettingsView(
         managedBy: .config,
         kind: config.isEnabled ? config.kind : "none",
-        url: config.url,
+        url: config.resolvedURL(environment: environment),
         indexPrefix: config.resolvedIndexPrefix,
         authMode: authMode,
         username: nil,

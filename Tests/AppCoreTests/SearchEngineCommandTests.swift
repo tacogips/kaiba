@@ -33,7 +33,7 @@ final class SearchEngineCommandTests: NoteTestCase {
 
     var invalidConfiguration = KaibaConfiguration()
     invalidConfiguration.searchEngine = KaibaSearchEngineConfiguration(
-      kind: "opensearch", url: "http://127.0.0.1:9200"
+      kind: "opensearch", url: "http://127.0.0.1:7700"
     )
     let invalidOptions = SearchEngineCommand.Options(
       noteRoot: noteRoot(function: #function),
@@ -51,18 +51,18 @@ final class SearchEngineCommandTests: NoteTestCase {
     let root = noteRoot(function: #function)
     let service = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root))
     _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
-      kind: "elasticsearch", url: "http://127.0.0.1:9200"
+      kind: "meilisearch", url: "http://127.0.0.1:7700"
     ))
     let options = SearchEngineCommand.Options(
       noteRoot: root, configuration: KaibaConfiguration(), subcommand: .status, json: false
     )
     let result = await SearchEngineCommand.run(options, environment: [:])
     XCTAssertEqual(result.1, 0)
-    XCTAssertTrue(result.0.contains("kind elasticsearch"))
+    XCTAssertTrue(result.0.contains("kind meilisearch"))
 
     try service.setAppSetting(
       key: NoteService.searchEngineSettingsKey,
-      valueJSON: #"{"kind":"elasticsearch","url":"bad target"}"#,
+      valueJSON: #"{"kind":"meilisearch","url":"bad target"}"#,
       allowReserved: true
     )
     let invalid = await SearchEngineCommand.run(options, environment: [:])
@@ -73,14 +73,14 @@ final class SearchEngineCommandTests: NoteTestCase {
 
   func testStatusReportsKindFromEnabledConfigSection() async throws {
     let configuration = KaibaConfiguration(searchEngine: KaibaSearchEngineConfiguration(
-      kind: "elasticsearch", url: "http://127.0.0.1:9200"
+      kind: "meilisearch", url: "http://127.0.0.1:7700"
     ))
     let options = SearchEngineCommand.Options(
       noteRoot: noteRoot(function: #function), configuration: configuration, subcommand: .status, json: false
     )
     let result = await SearchEngineCommand.run(options, environment: [:])
     XCTAssertEqual(result.1, 0)
-    XCTAssertTrue(result.0.contains("kind elasticsearch"))
+    XCTAssertTrue(result.0.contains("kind meilisearch"))
   }
 
   func testSyncIsIdempotentAndReindexEnqueuesEveryNote() async throws {
@@ -128,7 +128,7 @@ final class SearchEngineCommandTests: NoteTestCase {
   func testUnavailableStatusSucceedsAndJSONOmitsURL() async throws {
     var configuration = KaibaConfiguration()
     configuration.searchEngine = KaibaSearchEngineConfiguration(
-      kind: "elasticsearch", url: "http://127.0.0.1:9200", apiKeyEnvironmentVariable: "SEARCH_KEY"
+      kind: "meilisearch", url: "http://127.0.0.1:7700", apiKeyEnvironmentVariable: "SEARCH_KEY"
     )
     let options = SearchEngineCommand.Options(
       noteRoot: noteRoot(function: #function), configuration: configuration, subcommand: .status, json: true
@@ -165,7 +165,7 @@ final class SearchEngineCommandTests: NoteTestCase {
       arguments: arguments,
       noteRoot: noteRoot(function: function),
       configuration: KaibaConfiguration(searchEngine: KaibaSearchEngineConfiguration(
-        kind: "elasticsearch", url: "http://127.0.0.1:9200"
+        kind: "meilisearch", url: "http://127.0.0.1:7700"
       ))
     )
   }

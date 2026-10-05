@@ -10,11 +10,15 @@ public struct SearchEngineAdapterDescriptor: Equatable, Sendable {
   public var kind: String
   public var displayName: String
   public var authModes: [SearchEngineAuthMode]
+  /// The URL a client prefills when this adapter is chosen with an empty URL;
+  /// resolved from the server environment.
+  public var defaultURL: String?
 
-  public init(kind: String, displayName: String, authModes: [SearchEngineAuthMode]) {
+  public init(kind: String, displayName: String, authModes: [SearchEngineAuthMode], defaultURL: String? = nil) {
     self.kind = kind
     self.displayName = displayName
     self.authModes = authModes
+    self.defaultURL = defaultURL
   }
 }
 

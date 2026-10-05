@@ -104,23 +104,23 @@ struct KaibaSearchEngineOperationTests {
     {"data":{"root":{"result":{"accepted":true,"status":"ok","diagnostics":[]},
     "value":{"managedBy":"default","kind":"none","url":null,"indexPrefix":null,
     "authMode":"none","username":null,"hasSecret":false,"verifyTLS":true,
-    "requestTimeoutSeconds":10,"adapters":[{"kind":"elasticsearch",
-    "displayName":"Elasticsearch","authModes":["none","basic","apiKey"]}],"active":false}}}}
+    "requestTimeoutSeconds":10,"adapters":[{"kind":"meilisearch",
+    "displayName":"Meilisearch","authModes":["none","basic","apiKey"]}],"active":false}}}}
     """#.utf8)
     let settingsTransport = SearchEngineOperationTransport(responseBody: settingsResponse)
     let settings = try await makeClient(settingsTransport).searchEngineSettings()
-    #expect(settings.value?.adapters.first?.kind == "elasticsearch")
+    #expect(settings.value?.adapters.first?.kind == "meilisearch")
 
     let updateResponse = Data(#"""
     {"data":{"root":{"result":{"accepted":true,"status":"ok","diagnostics":[]},
-    "value":{"managedBy":"store","kind":"elasticsearch","url":"https://es.internal",
+    "value":{"managedBy":"store","kind":"meilisearch","url":"https://search.internal",
     "indexPrefix":"kaiba","authMode":"basic","username":"operator","hasSecret":true,
     "verifyTLS":true,"requestTimeoutSeconds":10,"adapters":[],"active":true}}}}
     """#.utf8)
     let updateTransport = SearchEngineOperationTransport(responseBody: updateResponse)
     let updated = try await makeClient(updateTransport).updateSearchEngineSettings(
       KaibaSearchEngineSettingsInput(
-        kind: "elasticsearch", url: "https://es.internal", authMode: "basic",
+        kind: "meilisearch", url: "https://search.internal", authMode: "basic",
         username: "operator", secret: "request-only-secret"
       )
     )
@@ -137,7 +137,7 @@ struct KaibaSearchEngineOperationTests {
     """#.utf8)
     let testTransport = SearchEngineOperationTransport(responseBody: testResponse)
     let connection = try await makeClient(testTransport).testSearchEngineConnection(
-      KaibaSearchEngineSettingsInput(kind: "elasticsearch", url: "https://other.internal", authMode: "basic")
+      KaibaSearchEngineSettingsInput(kind: "meilisearch", url: "https://other.internal", authMode: "basic")
     )
     #expect(connection.value?.status == "invalid-settings")
     let testRequest = try #require(await testTransport.request)

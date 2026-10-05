@@ -76,16 +76,18 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
 public struct KaibaSearchEngineConfiguration: Codable, Equatable, Sendable {
   public var kind: String
   public var enabled: Bool?
-  public var url: String
+  /// When nil, `resolvedURL(environment:)` uses the adapter default
+  /// (`KAIBA_MEILISEARCH_URL`, then `SearchEngineFactory.fallbackMeilisearchURL`).
+  public var url: String?
   public var indexPrefix: String?
   public var apiKeyEnvironmentVariable: String?
   public var usernameEnvironmentVariable: String?
   public var passwordEnvironmentVariable: String?
 
   public init(
-    kind: String,
+    kind: String = SearchEngineFactory.defaultKind,
     enabled: Bool? = nil,
-    url: String,
+    url: String? = nil,
     indexPrefix: String? = nil,
     apiKeyEnvironmentVariable: String? = nil,
     usernameEnvironmentVariable: String? = nil,
@@ -100,8 +102,31 @@ public struct KaibaSearchEngineConfiguration: Codable, Equatable, Sendable {
     self.passwordEnvironmentVariable = passwordEnvironmentVariable
   }
 
+  private enum CodingKeys: String, CodingKey {
+    case kind, enabled, url, indexPrefix, apiKeyEnvironmentVariable
+    case usernameEnvironmentVariable, passwordEnvironmentVariable
+  }
+
+  /// `kind` defaults to Meilisearch and an absent `url` resolves from the
+  /// environment, so `"searchEngine": {}` enables the default Meilisearch.
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? SearchEngineFactory.defaultKind
+    enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
+    url = try container.decodeIfPresent(String.self, forKey: .url)
+    indexPrefix = try container.decodeIfPresent(String.self, forKey: .indexPrefix)
+    apiKeyEnvironmentVariable = try container.decodeIfPresent(String.self, forKey: .apiKeyEnvironmentVariable)
+    usernameEnvironmentVariable = try container.decodeIfPresent(String.self, forKey: .usernameEnvironmentVariable)
+    passwordEnvironmentVariable = try container.decodeIfPresent(String.self, forKey: .passwordEnvironmentVariable)
+  }
+
   public var isEnabled: Bool { enabled ?? true }
   public var resolvedIndexPrefix: String { indexPrefix ?? "kaiba" }
+
+  /// The configured URL, or the adapter default resolved from `environment`.
+  public func resolvedURL(environment: [String: String]) -> String {
+    url ?? SearchEngineFactory.defaultURL(for: kind, environment: environment) ?? ""
+  }
 }
 
 /// Binds a library to the credential scope it reads from. Policy — whether the
