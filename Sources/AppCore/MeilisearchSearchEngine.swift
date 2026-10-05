@@ -9,6 +9,12 @@ private struct MeilisearchRelatedSubquery {
   var reason: SearchEngineHitReasonKind
 }
 
+private struct MeilisearchSearchSubquery {
+  var body: [String: Any]
+  var weight: Double
+  var reason: SearchEngineHitReasonKind
+}
+
 private struct MeilisearchRankedHits {
   var hits: [SearchEngineHit]
   var weight: Double
@@ -122,8 +128,25 @@ public struct MeilisearchSearchEngine: SearchEngine {
 
   public func searchPage(_ query: SearchEngineQuery) async throws -> SearchEngineSearchPage {
     guard query.filter.libraryIds != [] else { return SearchEngineSearchPage(hits: [], facets: nil) }
-    if query.expansionTagIds.isEmpty {
-      var searchBody = MeilisearchRequestBodies.search(query)
+    // Meilisearch has no OR matching: every remaining query word must match.
+    // Per-term subqueries restore partial matches; the fusion ranks notes
+    // that match more terms higher.
+    let terms = MeilisearchRequestBodies.relaxedTerms(query.text)
+    var specifications = [MeilisearchSearchSubquery(body: MeilisearchRequestBodies.search(query), weight: 1.0, reason: .textMatch)]
+    specifications += terms.map {
+      MeilisearchSearchSubquery(body: MeilisearchRequestBodies.search(query, text: $0), weight: 0.5, reason: .textMatch)
+    }
+    if !query.expansionTagIds.isEmpty {
+      let expansion = query.expansionTagIds.map { quoteFilterValue($0.rawValue) }.joined(separator: ", ")
+      specifications.append(MeilisearchSearchSubquery(
+        body: MeilisearchRequestBodies.search(query, text: "", extra: ["tag_ids IN [\(expansion)]"], filterOnly: true),
+        weight: 1.0, reason: .tagMatch))
+      specifications.append(MeilisearchSearchSubquery(
+        body: MeilisearchRequestBodies.search(query, text: "", extra: ["path_tag_ids IN [\(expansion)]"], filterOnly: true),
+        weight: 0.5, reason: .tagHierarchyMatch))
+    }
+    if specifications.count == 1 {
+      var searchBody = specifications[0].body
       searchBody["offset"] = query.from
       searchBody["limit"] = query.size
       let body = try MeilisearchRequestBodies.data(searchBody)
@@ -133,34 +156,57 @@ public struct MeilisearchSearchEngine: SearchEngine {
       let facets = try query.facets.map { try MeilisearchResponses.facets(data, request: $0) }
       return SearchEngineSearchPage(hits: try MeilisearchResponses.hits(data, includeHighlight: true), facets: facets)
     }
-    let expansion = query.expansionTagIds.map { quoteFilterValue($0.rawValue) }.joined(separator: ", ")
-    let base = MeilisearchRequestBodies.search(query)
-    let textQuery = base
-    let tagQuery = MeilisearchRequestBodies.search(query, text: "", extra: ["tag_ids IN [\(expansion)]"], filterOnly: true)
-    let hierarchyQuery = MeilisearchRequestBodies.search(query, text: "", extra: ["path_tag_ids IN [\(expansion)]"], filterOnly: true)
     let (data, response) = try await send(path: "multi-search", method: "POST",
-      body: try MeilisearchRequestBodies.data(MeilisearchRequestBodies.multiSearch([textQuery, tagQuery, hierarchyQuery], index: indexUid)),
+      body: try MeilisearchRequestBodies.data(MeilisearchRequestBodies.multiSearch(specifications.map(\.body), index: indexUid)),
       timeout: TimeInterval(requestTimeoutSeconds))
     try requireSuccess(response, body: data)
-    return try expandedSearch(data, query: query)
+    var page = try fusedSearch(data, specifications: specifications, query: query)
+    if let facetRequest = query.facets {
+      page.facets = try await unionFacets(data, query: query, request: facetRequest)
+    }
+    return page
   }
 
-  private func expandedSearch(_ data: Data, query: SearchEngineQuery) throws -> SearchEngineSearchPage {
-    guard let root = try? MeilisearchResponses.object(data), let results = root["results"] as? [[String: Any]], results.count == 3 else {
+  /// Facets over every note any subquery matched, so counts are not limited
+  /// to the notes that match all query terms.
+  private func unionFacets(_ data: Data, query: SearchEngineQuery, request: SearchEngineFacetRequest) async throws -> SearchEngineFacets {
+    guard let root = try? MeilisearchResponses.object(data), let results = root["results"] as? [[String: Any]] else {
+      throw SearchEngineError.invalidResponse("multi-search response malformed")
+    }
+    var seen = Set<String>()
+    let noteIds = results.flatMap { ($0["hits"] as? [[String: Any]]) ?? [] }
+      .compactMap { $0["note_id"] as? String }.filter { seen.insert($0).inserted }
+    guard !noteIds.isEmpty else { return SearchEngineFacets(tagClasses: [], tags: []) }
+    let idFilter = "note_id IN [\(noteIds.map(quoteFilterValue).joined(separator: ", "))]"
+    var body = MeilisearchRequestBodies.search(query, text: "", extra: [idFilter], filterOnly: true)
+    body["limit"] = 0
+    body["facets"] = ["tag_classes", "tag_ids"]
+    let (facetData, response) = try await send(path: "indexes/\(indexUid)/search", method: "POST",
+      body: try MeilisearchRequestBodies.data(body), timeout: TimeInterval(requestTimeoutSeconds))
+    try requireSuccess(response, body: facetData)
+    return try MeilisearchResponses.facets(facetData, request: request)
+  }
+
+  private func fusedSearch(
+    _ data: Data, specifications: [MeilisearchSearchSubquery], query: SearchEngineQuery
+  ) throws -> SearchEngineSearchPage {
+    guard let root = try? MeilisearchResponses.object(data), let results = root["results"] as? [[String: Any]],
+          results.count == specifications.count else {
       throw SearchEngineError.invalidResponse("multi-search response malformed")
     }
     let parsed = try results.map { try MeilisearchResponses.hits(MeilisearchRequestBodies.data($0), includeHighlight: true) }
-    let labels: [SearchEngineHitReasonKind] = [.textMatch, .tagMatch, .tagHierarchyMatch]
-    let weights = [1.0, 1.0, 0.5]
-    let lists = zip(parsed, labels).enumerated().map { index, pair in
-      NoteRetrievalCandidateList(label: .searchEngine, weight: weights[index], tier: .direct,
-      entries: pair.0.map { hit in NoteRetrievalCandidateEntry(noteId: hit.noteId,
-          provenance: NoteRetrievalProvenance(reasons: [pair.1])) })
+    let lists = zip(parsed, specifications).map { hits, specification in
+      NoteRetrievalCandidateList(label: .searchEngine, weight: specification.weight, tier: .direct,
+        entries: hits.map { hit in NoteRetrievalCandidateEntry(noteId: hit.noteId,
+          provenance: NoteRetrievalProvenance(reasons: [specification.reason])) })
     }
     let fused = NoteRetrievalReranker.fuse(lists, limit: min(query.from + query.size, NoteRetrievalFusionPolicy.maximumFusedWindow))
-    let textHighlights = Dictionary(parsed[0].map { ($0.noteId, $0.highlight) }, uniquingKeysWith: { first, _ in first })
+    var highlights: [NoteID: String?] = [:]
+    for (hits, specification) in zip(parsed, specifications) where specification.reason == .textMatch {
+      for hit in hits where highlights[hit.noteId] == nil { highlights[hit.noteId] = hit.highlight }
+    }
     let hits = fused.dropFirst(query.from).prefix(query.size).map {
-      SearchEngineHit(noteId: $0.noteId, score: $0.score, highlight: textHighlights[$0.noteId] ?? nil,
+      SearchEngineHit(noteId: $0.noteId, score: $0.score, highlight: highlights[$0.noteId] ?? nil,
         reasons: $0.provenance.reasons.map { SearchEngineHitReason(kind: $0) })
     }
     let facets = try query.facets.map { try MeilisearchResponses.facets(MeilisearchRequestBodies.data(results[0]), request: $0) }
@@ -171,8 +217,17 @@ public struct MeilisearchSearchEngine: SearchEngine {
     guard query.filter.libraryIds != [] else { return [] }
     let signals = query.signals
     var specifications: [MeilisearchRelatedSubquery] = []
-    let salient = MeilisearchRequestBodies.salientTerms(query.likeText).joined(separator: " ")
-    if !salient.isEmpty { specifications.append(MeilisearchRelatedSubquery(text: salient, weight: 1.0, reason: .textSimilarity)) }
+    let salientTerms = MeilisearchRequestBodies.salientTerms(query.likeText)
+    if !salientTerms.isEmpty {
+      specifications.append(MeilisearchRelatedSubquery(text: salientTerms.joined(separator: " "), weight: 1.0, reason: .textSimilarity))
+    }
+    // The joined query needs every remaining term; single-term subqueries
+    // surface notes that share only a phrase with the source.
+    if salientTerms.count > 1 {
+      specifications += salientTerms.prefix(MeilisearchRequestBodies.maximumRelaxedTerms).map {
+        MeilisearchRelatedSubquery(text: $0, weight: 0.3, reason: .textSimilarity)
+      }
+    }
     if let signals {
       if !signals.sharedTagIds.isEmpty {
         let filter = "tag_ids IN [\(signals.sharedTagIds.map { quoteFilterValue($0.rawValue) }.joined(separator: ", "))]"

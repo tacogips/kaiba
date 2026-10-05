@@ -100,6 +100,16 @@ enum MeilisearchRequestBodies {
       "matchingStrategy": "last", "locales": ["jpn"]].merging($0) { _, new in new } }]
   }
 
+  static let maximumRelaxedTerms = 5
+
+  /// Distinct query terms for per-term subqueries; empty for a single-term
+  /// query, which the full query already covers.
+  static func relaxedTerms(_ text: String) -> [String] {
+    var seen = Set<String>()
+    let terms = ftsTerms(from: text).filter { seen.insert($0.lowercased()).inserted }
+    return terms.count > 1 ? Array(terms.prefix(maximumRelaxedTerms)) : []
+  }
+
   static func salientTerms(_ text: String) -> [String] {
     let terms = ftsTerms(from: text).map { $0.lowercased() }.filter { $0.count >= 2 }
     var count: [String: Int] = [:]

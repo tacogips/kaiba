@@ -217,7 +217,7 @@ final class MeilisearchSearchEngineTests: XCTestCase {
     let signals = SearchEngineRelatedSignals(sourceNoteId: NoteID("source"), sharedTagIds: [TagID("t")],
       nearTagIds: [TagID("near")], ancestorTagIds: [TagID("ancestor")],
       entityTags: [SearchEngineClassTag(tagClass: "kind", tagId: TagID("entity"))])
-    let query = SearchEngineRelatedQuery(likeText: "related words", filter: emptyFilter(), size: 5, signals: signals)
+    let query = SearchEngineRelatedQuery(likeText: "related", filter: emptyFilter(), size: 5, signals: signals)
     let hits = try await engine(transport).relatedNotes(query)
     let body = try XCTUnwrap(transport.requests.first?.httpBody).jsonObject()
     let queries = try XCTUnwrap(body["queries"] as? [[String: Any]])
@@ -229,10 +229,61 @@ final class MeilisearchSearchEngineTests: XCTestCase {
 
   func testRelatedNilSignalsRunsOnlyTextList() async throws {
     let transport = RecordingMeilisearchTransport { _, _ in (#"{"results":[{"hits":[{"note_id":"n","_rankingScore":0.5}]}]}"#, 200) }
-    let hits = try await engine(transport).relatedNotes(SearchEngineRelatedQuery(likeText: "one two", filter: emptyFilter(), size: 2))
+    let hits = try await engine(transport).relatedNotes(SearchEngineRelatedQuery(likeText: "one", filter: emptyFilter(), size: 2))
     XCTAssertEqual(hits.map(\.noteId), [NoteID("n")])
     let requestBody = try XCTUnwrap(transport.requests.first?.httpBody).jsonObject()
     XCTAssertEqual((requestBody["queries"] as? [[String: Any]])?.count, 1)
+  }
+
+  func testRelatedAddsPerTermTextSubqueriesForPartialOverlap() async throws {
+    let transport = RecordingMeilisearchTransport { _, _ in
+      (#"{"results":[{"hits":[]},{"hits":[{"note_id":"n","_rankingScore":0.5}]},{"hits":[]}]}"#, 200)
+    }
+    let hits = try await engine(transport).relatedNotes(SearchEngineRelatedQuery(likeText: "one two", filter: emptyFilter(), size: 2))
+    let queries = try XCTUnwrap(try XCTUnwrap(transport.requests.first?.httpBody).jsonObject()["queries"] as? [[String: Any]])
+    XCTAssertEqual(queries.map { $0["q"] as? String }, ["one two", "one", "two"])
+    XCTAssertEqual(hits.map(\.noteId), [NoteID("n")])
+    XCTAssertEqual(hits.first?.reasons.map(\.kind), [.textSimilarity])
+  }
+
+  func testMultiTermSearchAddsPerTermSubqueriesAndRanksCoverage() async throws {
+    let transport = RecordingMeilisearchTransport { request, _ in
+      if request.url!.path == "/multi-search" {
+        return (#"{"results":[{"hits":[]},{"hits":[{"note_id":"A","_rankingScore":0.9,"_formatted":{"body":"a"},"_matchesPosition":{"body":[]}},"# +
+          #"{"note_id":"B","_rankingScore":0.8,"_formatted":{"body":"b"},"_matchesPosition":{"body":[]}}]},{"hits":[{"note_id":"B","_rankingScore":0.7}]}]}"#, 200)
+      }
+      return (#"{}"#, 500)
+    }
+    let page = try await engine(transport).searchPage(SearchEngineQuery(text: "alpha beta alpha", filter: emptyFilter(), from: 0, size: 5))
+    let queries = try XCTUnwrap(try XCTUnwrap(transport.requests.first?.httpBody).jsonObject()["queries"] as? [[String: Any]])
+    XCTAssertEqual(queries.map { $0["q"] as? String }, ["alpha beta alpha", "alpha", "beta"])
+    XCTAssertEqual(page.hits.map(\.noteId), [NoteID("B"), NoteID("A")])
+    XCTAssertEqual(page.hits[0].reasons.map(\.kind), [.textMatch])
+    XCTAssertEqual(page.hits[0].highlight, "b")
+  }
+
+  func testMultiTermFacetsCountEverySubqueryMatch() async throws {
+    let transport = RecordingMeilisearchTransport { request, _ in
+      if request.url!.path == "/multi-search" {
+        return (#"{"results":[{"hits":[{"note_id":"A","_rankingScore":0.9}],"facetDistribution":{"tag_classes":{"person":1}}},"# +
+          #"{"hits":[{"note_id":"A","_rankingScore":0.9}]},{"hits":[{"note_id":"B","_rankingScore":0.7}]}]}"#, 200)
+      }
+      return (#"{"hits":[],"facetDistribution":{"tag_classes":{"person":2},"tag_ids":{"t1":2}}}"#, 200)
+    }
+    let query = SearchEngineQuery(text: "alpha beta", filter: emptyFilter(), from: 0, size: 5,
+      facets: SearchEngineFacetRequest(tagClassLimit: 5, tagLimit: 5))
+    let page = try await engine(transport).searchPage(query)
+    XCTAssertEqual(transport.requests.count, 2)
+    let facetBody = try XCTUnwrap(transport.requests.last?.httpBody).jsonObject()
+    XCTAssertEqual(facetBody["limit"] as? Int, 0)
+    XCTAssertTrue(String(describing: facetBody["filter"] ?? "").contains(#"note_id IN [\"A\", \"B\"]"#))
+    XCTAssertEqual(page.facets?.tagClasses.map(\.count), [2])
+    XCTAssertEqual(page.facets?.tags.map(\.value), ["t1"])
+  }
+
+  func testRelaxedTermsSkipSingleTermAndCap() {
+    XCTAssertEqual(MeilisearchRequestBodies.relaxedTerms("日本語"), [])
+    XCTAssertEqual(MeilisearchRequestBodies.relaxedTerms("a b A c d e f g"), ["a", "b", "c", "d", "e"])
   }
 
   func testFacetsSortAndTruncate() throws {

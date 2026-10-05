@@ -584,6 +584,21 @@ absent), `title`, `body`, `tags` (the tag names), `context`, `tag_ids`,
 No capability flag is added to the protocol: every gap is closed inside
 the adapter, so callers and the Elasticsearch adapter are untouched.
 
+- **No OR matching.** With `matchingStrategy: "last"`, Meilisearch drops
+  trailing query words but still requires every remaining word, so a
+  multi-word query returns only notes containing the leading words (an
+  end-to-end check returned one of five notes for a five-word query that
+  Elasticsearch answered with all five). When the query has more than
+  one distinct `ftsTerms` term, the same multi-search therefore adds one
+  `text-match` subquery per term (at most 5, weight 0.5) next to the full
+  query (weight 1.0). The fusion ranks notes that match more terms
+  higher, which mirrors RF2 relaxed matching. A single-term query keeps
+  the plain `POST /indexes/<uid>/search` path. When facets are
+  requested on a multi-query search, one extra request (`q: ""`,
+  `limit: 0`, filter `AND note_id IN <every subquery hit>`) computes the
+  facet counts over every matched note instead of only the full-query
+  matches.
+
 - **Ontology expansion without clause boosts.** When `expansionTagIds`
   is non-empty, one `POST /multi-search` runs three queries with the same
   base filter, each fetching `from + size` hits:
@@ -602,14 +617,17 @@ the adapter, so callers and the Elasticsearch adapter are untouched.
   The page is the fused slice `[from, from + size)`, the score is the
   fused score, and the highlight comes from the text query. Facets come
   from the text query only; D2 already presents facets as refinement
-  hints.
+  hints (see "No OR matching" for multi-term queries).
 - **Related notes without `more_like_this`.** One multi-search runs, each
   query with the base filter and `NOT note_id IN [source]`:
   - `text-similarity`: `q` = the salient terms of `likeText` (skipped when
     blank). Salient terms: the `ftsTerms` runs of the text, case-folded,
     at least 2 characters, ordered by frequency descending then first
     occurrence, at most 10 (Meilisearch uses only the first 10 query
-    words);
+    words). When there are two or more salient terms, up to 5 single-term
+    `text-similarity` subqueries (weight 0.3 each) are added, because the
+    joined query requires every remaining term and would miss notes that
+    share only a phrase with the source;
   - `shared-tag`: `tag_ids IN S`;
   - `related-tag`: `(path_tag_ids IN S union P OR tag_ids IN A)`;
   - `shared-entity`: `class_tag_keys IN E` as `"<class>:<tagId>"`;
