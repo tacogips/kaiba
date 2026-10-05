@@ -1,11 +1,12 @@
 # P4 Release integration: version 0.1.17, README check, combined-tree gates
 
-**Status**: Planned.
+**Status**: Planned (session-281: not started).
 **planId**: P4-release-integration
-**Wave**: 3
-**dependsOn**: P1-agentic-search-diagnostics, P2-served-sandbox, P3-settings-contrast
+**Wave**: 2 (session-281). P1 and P3 are accepted dependencies, and P2 is wave 1.
+**dependsOn**: P1-agentic-search-diagnostics (accepted), P2-served-sandbox, P3-settings-contrast (accepted)
 **Design Reference**:
-- `design-docs/specs/ai-agent-integration.md`: AI13 and Verification items 11-13
+- `design-docs/specs/ai-agent-integration.md`: AI13 (including the "Diagnosis gate" revised on 2026-10-06) and Verification items 11-13
+- `design-docs/user-qa/ai-agent-runtime-and-ui.md`: "Served sandbox: residual non-fatal denials (decided 2026-10-06)" (read-only)
 - `design-docs/specs/web-chatbook-ui.md`: W16 and Verification
 - the Step 2 release decision: the five version files, and README "Optional search engine" confirmed accurate
 
@@ -42,6 +43,8 @@ This plan prepares kaiba 0.1.17 for the operator, who runs `.agents/skills/macos
 - No feature work beyond repairs of P1-P3 defects.
 - Do not edit `design-docs/`. A design defect found here is reported, not patched.
 - Do not edit `.riela/`, api-key-expiration work, `NoteStoreSchema`, `Sources/AppServer/*`, `mise.toml`, `docker/`, `web/src-tauri/capabilities/` or any `*-dispatch.json`.
+- Do not add or widen any `(allow ...)` rule in a sandbox profile. The residual served-sandbox denials stay denied (operator decision of 2026-10-06). A repair to `AgentGatewayExecutionIsolation.swift` must leave its `(allow` lines identical to c35c0a3.
+- Do not write to P2's evidence directory. P4 only cites `tmp/release-0-1-17/P2/accept/sandbox-denial-classes.log` in the index table.
 
 ## writePaths
 
@@ -102,11 +105,14 @@ This plan prepares kaiba 0.1.17 for the operator, who runs `.agents/skills/macos
 - `tauri:check` needs the gitignored local-service sidecar that the operator built in this worktree. If it is missing again (exit 101), record `blocked: <exact error line>`. Do not build it, and do not edit anything under `web/src-tauri/local-service/`.
 - The final commit must pass the repository pre-commit hook without `--no-verify`. The local-path guard is the in-plan proxy for that hook; it must be empty over the whole release diff, not just the working tree.
 
-## Resume notes (session-279)
+## Resume notes (session-281)
 
-- Not started in session-278. Start only after P1, P2 and P3 report Completed or explicitly blocked in this run.
-- P1 and P3 are partly committed in 0172b87; the guards above diff against `d55f835` for that reason.
-- Fill the index table from this run's logs only. Do not reuse session-278 logs as gate evidence.
+- Not started in sessions 278 and 279.
+- P1 and P3 were accepted in session-279. They are `acceptedDependencies` in the manifest and are not re-dispatched. In this run, P4's full suites (`swift test`, `bun test src`, `vitest run`, `web:check`, `tauri:check`) are their regression check.
+- Start only after P2 reports Completed in this run, or reports an explicit blocked reason.
+- P1, P2 and P3 are committed (0172b87 and c35c0a3), and the design and plans are committed before fanout. For that reason, the guards diff against `d55f835`, and the working-tree `design-docs` guard is expected to be empty.
+- The live agent-gateway run here is a regression check only. Residual Sandbox denials do not fail P4; P2 owns that evidence.
+- Fill the index table from this run's logs only. Do not reuse earlier sessions' logs as gate evidence.
 
 ## Tests
 
@@ -134,7 +140,8 @@ bash -c 'mise run search:test-live 2>&1 | tee tmp/release-0-1-17/P4/search-live.
 bash -c 'mise run search:down 2>&1 | tee tmp/release-0-1-17/P4/search-down.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
 bash -c 'git status --porcelain | tee tmp/release-0-1-17/P4/changed-files.log'
 bash -c 'git diff --name-only -- mise.toml docker Sources/AppServer web/src-tauri/capabilities web/src/styles.css web/src/workspace.css web/src/index.tsx web/src/App.tsx Sources/AppCore/AgentGatewaySubscription.swift Sources/AppCore/ClaudeSubscriptionExecution.swift | tee tmp/release-0-1-17/P4/guard-protected.log; test ! -s tmp/release-0-1-17/P4/guard-protected.log'
-bash -c 'git diff --name-only -- design-docs | tee tmp/release-0-1-17/P4/guard-design-docs.log'
+bash -c 'git diff --name-only -- design-docs | tee tmp/release-0-1-17/P4/guard-design-docs.log; test ! -s tmp/release-0-1-17/P4/guard-design-docs.log'
+bash -c 'git diff c35c0a3 -- Sources/AppCore/AgentGatewayExecutionIsolation.swift Sources/AppCore/AgentGatewaySubscription.swift Sources/AppCore/ClaudeSubscriptionExecution.swift | grep -E "^[-+].*\(allow" | tee tmp/release-0-1-17/P4/guard-allowances.log; test ! -s tmp/release-0-1-17/P4/guard-allowances.log'
 bash -c '{ git diff --name-only --diff-filter=d d55f835; git ls-files --others --exclude-standard; } | grep -v "^\.riela/" | sort -u | tee tmp/release-0-1-17/P4/release-files.log'
 bash -c 'tr "\n" "\0" < tmp/release-0-1-17/P4/release-files.log | xargs -0 grep -nE "/U[s]ers/|/h[o]me/|/n[i]x/store/|/opt/homebrew/C[e]llar" | tee tmp/release-0-1-17/P4/guard-local-paths.log; test ! -s tmp/release-0-1-17/P4/guard-local-paths.log'
 bash -c 'tr "\n" "\0" < tmp/release-0-1-17/P4/release-files.log | xargs -0 grep -nE "sk-or-v1-[A-Za-z0-9]{16,}" | tee tmp/release-0-1-17/P4/guard-secrets.log; test ! -s tmp/release-0-1-17/P4/guard-secrets.log'
@@ -160,7 +167,9 @@ Expected evidence:
 - `cargo-lock-diff.log` shows exactly 1 insertion and 1 deletion.
 - `search:test-live` exit 0, with the XCTest count of the positive run only. The Docker lifecycle commands exit 0, or are recorded as blocked.
 - `release-files.log` lists the release's changed and untracked files and never `.riela/`. The protected, local-path and secret guard logs are empty. If a local-path match is found in a P1-P3 file, repair it with a `/opt/example/...` placeholder or a runtime-built path, and record the repair. If the match is in a plan file, fix that plan file's text without changing its meaning.
-- `guard-design-docs.log` is empty, or lists only `design-docs/specs/ai-agent-integration.md` with P2's single bounded-allowance line, which must be cross-checked against P2's Progress Log.
+- `guard-design-docs.log` is empty: no design edit after the plan checkpoint commit.
+- `guard-allowances.log` is empty: no sandbox allowance was added or removed after c35c0a3.
+- The index row "P2 residual Sandbox denials" cites `tmp/release-0-1-17/P2/accept/sandbox-denial-classes.log`, together with the classes and counts copied from P2's Progress Log. It is evidence only, not a pass/fail gate.
 - Every changed Swift file is under 1000 lines.
 
 ## Done criteria
@@ -169,9 +178,14 @@ Expected evidence:
 - [ ] The README search section is confirmed accurate (or corrected, with the reason recorded).
 - [ ] The index "Final integration evidence" table is filled with exit codes, counts and log paths, and the index Status is updated.
 - [ ] Every integration repair is recorded, and no assertion is weakened.
+- [ ] `guard-design-docs.log` and `guard-allowances.log` are empty.
 - [ ] No high or mid finding is unresolved. Any blocker (missing key, Docker/colima, `log show`) is reported explicitly, never as passed.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
 - 2026-10-06: Step 4 (session-279) revised the guards to scan the whole release diff against `d55f835`, including the pre-commit hook's literal classes, and added the tauri sidecar and resume notes. Not started.
+- 2026-10-06: Session-281 plan checkpoint:
+  - P4 is now wave 2, after P2.
+  - Added the no-new-allowance guard, the empty design-docs guard and the P2 residual-denial reference row.
+  - Not started.

@@ -1,64 +1,57 @@
 # P2 Served sandbox root-cause fix and live agenticSearch proof
 
-**Status**: Blocked — additional user decision required for remaining sandbox denials.
+**Status**: Implemented in c35c0a3. Session-281 verifies it and accepts it against the amended gate (operator decision of 2026-10-06).
 **planId**: P2-served-sandbox
-**Wave**: 2
-**dependsOn**: P1-agentic-search-diagnostics. Both plans edit the AppCore module, and P1's sanitized diagnostics make the baseline live run informative.
-**Design Reference**: `design-docs/specs/ai-agent-integration.md`: the Runtime and Provider Adapter Boundary paragraph, and AI13 ("Executable resolution", "Profile additions", "What does not change", "Diagnosis gate"), and Verification item 13 (bullets 1-3 and the live test)
+**Wave**: 1 (session-281). P1 and P3 are accepted dependencies.
+**dependsOn**: P1-agentic-search-diagnostics (accepted in session-279). Both plans build in AppCore, and P1's sanitized diagnostics make a failing live run informative.
+**Design Reference**: `design-docs/specs/ai-agent-integration.md`: the Runtime and Provider Adapter Boundary paragraph, AI13 ("Executable resolution", "Profile additions", "What does not change", and "Diagnosis gate" as revised on 2026-10-06), and Verification item 13 (bullets 1-3 and the live test). Decision source (read-only): `design-docs/user-qa/ai-agent-runtime-and-ui.md`, "Served sandbox: residual non-fatal denials (decided 2026-10-06)".
 **Index**: `impl-plans/active/release-0-1-17.md`
 
-## Resume notes (session-279)
+## Amended gate (session-281, read first)
 
-- Not started in session-278. Start only after P1 reports Completed in this run, meaning its focused suites passed with the rewritten launcher fixture.
-- The Step 2 design edit of 2026-10-06 (AI13 prefix-rule paragraph, Verification 13 fixture bullets) is committed with these plans before fanout, so `design-diff.log` starts empty.
-- P1's `testServedInvokerClassifiesSandboxExecStderrPrefix` now uses a fake gateway whose `#!` interpreter does not exist. It must keep passing after your realpath change. It is in this plan's regression filter, so do not edit it. If it fails after your change, the context is wrong, not the test.
-- Shell-script fake gateways that run under the served profile may write their own startup warnings to stderr, for example a `getcwd` denial for the workspace parents. Behavioral tests in this plan assert on the reply or on the thrown case only, never on empty stderr.
-- Fixture literal rule (Verification 13): new test files and this plan file must not contain any absolute path literal rooted in the macOS users directory, the Linux home directory or the Nix store, because the pre-commit hook rejects them. Use runtime-built paths under the current directory, or `/opt/example/...` and `/srv/example/...`. The `guard-literals` command below checks this.
+In session-279 this plan was implemented, and its live test passed. It stopped as blocked only because the old gate required a Sandbox log with no gateway denial, and about 51 non-fatal denials remained. The operator then decided:
+
+- **Keep the residual denials denied.** Add no sandbox allowance in this run, including none of the three AI13 bounded escalations. `file-read-metadata` is already adopted and stays as it is.
+- **Accept P2** when:
+  - the live, env-gated served `agenticSearch` test passes (exit 0, XCTest `Executed N tests, with 0 failures`, N > 0); and
+  - no denial is fatal. A denial counts as fatal only if the live test fails because of it.
+- **A clean Sandbox log is not required.** Instead, record the residual denial operation classes with counts, plus their path or service classes, for the passing run's time window.
+
+This run therefore has no feature work. It re-runs the gates on the committed code, captures the residual-denial evidence for one bounded window, and records acceptance. A source edit is allowed only to repair a failing gate in P2's own files, and it must never add or widen an `(allow ...)` rule.
 
 ## Intent and context
 
-Served `agenticSearch` with backend `agent-gateway-cli`, provider `openrouter` and model `openai/gpt-5-mini` fails under `/usr/bin/sandbox-exec`, while the unsandboxed `kaiba ai search` succeeds with the same configuration.
+Served `agenticSearch` used to fail under `/usr/bin/sandbox-exec` with backend `agent-gateway-cli`, provider `openrouter` and model `openai/gpt-5-mini`. Commit c35c0a3 contains the fix:
 
-`AgentGatewayCLIInvoker.servedSandboxProfile(binary:workspace:)` (`Sources/AppCore/AgentGatewayExecutionIsolation.swift:193-211`) has three gaps:
-
-- It grants `file-read*` on the literal `URL(fileURLWithPath: binary).standardizedFileURL.path`. That path is not symlink-resolved. A Homebrew `bin/agent-gateway` is a symlink into the formula keg, and Seatbelt matches the physical path.
-- It grants `(subpath "/etc")`, but `/etc` is a symlink to `/private/etc`, so TLS certificates, `hosts` and `resolv.conf` are unreadable.
-- It has no `mach-lookup` rules for TLS trust (`trustd`, `SecurityServer`) or DNS and network configuration (`dnssd`, `configd`, `networkd`).
-
-The server subscription profiles already add exactly these rules and work: `Sources/AppCore/AgentGatewaySubscription.swift:88-93` and `Sources/AppCore/ClaudeSubscriptionExecution.swift:35,49-55`.
-
-After this plan:
-
-1. In served mode, `executionContext(mode: .served, ...)` resolves the gateway with Darwin `realpath(3)` before it creates the workspace. It passes the physical path both to `servedSandboxProfile` and as the `sandbox-exec` target argument.
-2. `servedSandboxProfile` additionally contains:
-   - `(allow file-read* (subpath "/private/etc") (literal "/private/var/run/resolv.conf"))`
-   - `(allow mach-lookup (global-name "com.apple.trustd") (global-name "com.apple.SecurityServer") (global-name "com.apple.SystemConfiguration.configd") (global-name "com.apple.networkd") (global-name "com.apple.dnssd.service"))`
-3. A live, env-gated test proves that served `agenticSearch` returns `status ok` with a non-empty answer.
+- `AgentGatewayCLIInvoker.executionContext(mode: .served, ...)` (`Sources/AppCore/AgentGatewayExecutionIsolation.swift`) resolves the gateway with `realpath(3)` before it creates the workspace. It uses the physical path both as the profile literal and as the `sandbox-exec` target.
+- `servedSandboxProfile(binary:workspace:)` grants:
+  - `file-read*` on the physical binary literal;
+  - the system read subpaths, including `/private/etc`;
+  - global `file-read-metadata`;
+  - `/private/var/run/resolv.conf`;
+  - five `mach-lookup` global-names (`com.apple.trustd`, `com.apple.SecurityServer`, `com.apple.SystemConfiguration.configd`, `com.apple.networkd`, `com.apple.dnssd.service`);
+  - `file-write*` only on the workspace subpath and `/dev/null`;
+  - `network-outbound`.
+- `Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift` covers the profile, the environment, a missing binary and a symlink.
+- `Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift` is the env-gated live test (`KAIBA_LIVE_AGENT_GATEWAY=1` plus a non-empty `OPENROUTER_API_KEY`).
 
 ## Non-goals and invariants (must stay true)
 
-These must stay true:
-
-- `(deny default)` stays first after `(version 1)`. `(import "system.sb")` stays.
-- Writes are allowed only inside the workspace subpath plus the `/dev/null` literal.
-- No `subpath` read of the gateway's directory, the configured symlink's directory, or the keg.
-- No new environment keys, and the reserved-key set (`servedReservedEnvironmentKeys`) is unchanged. `HOME`, `TMPDIR` and `XDG_*` stay inside the workspace.
-- Tool-capable vendors (`claude-code`, `codex`, `cursor`) are still refused in served mode.
-- Linux still fails closed; the non-macOS branch is unchanged.
-
-Out of scope:
-
-- Do not edit `AgentGatewaySubscription.swift` or `ClaudeSubscriptionExecution.swift`. Their appended rules become harmless duplicates; do not clean them up.
-- Do not edit P1's files (`AgentGatewayInvocationSanitization.swift`, `AgentGatewayCLIInvoker.swift`, `NoteGraphQLService.swift`, `NoteGraphQLAgenticSearch.swift`).
-- Do not use `URL.resolvingSymlinksInPath()` for the binary. It can rewrite `/private/var` to `/var`, and the physical path is required. Use the `realpath` + `free` idiom of `AgentGatewayExecutionIsolation.swift:72-77`.
+- No new or widened `(allow ...)` rule in `servedSandboxProfile`. The residual denial classes (`file-read-data`, `file-read-xattr`, `file-write-*` outside the workspace, `mach-lookup`, `system-socket`, `user-preference-read`) stay denied.
+- Do not add the AI13 bounded escalations (`file-lock`, dylib literals) in this run.
+- `(deny default)` stays first after `(version 1)`, and `(import "system.sb")` stays. Writes stay limited to the workspace subpath and `/dev/null`. There is no `subpath` read of the gateway directory, the symlink directory or the keg.
+- No new environment keys, and `servedReservedEnvironmentKeys` is unchanged. Tool-capable vendors stay refused in served mode, and Linux stays fail-closed.
+- Do not edit `design-docs/`. The 2026-10-06 AI13 revision is committed with this plan before fanout. `design-docs/user-qa/ai-agent-runtime-and-ui.md` is read-only.
+- Do not edit the dispatch manifest (`impl-plans/active/release-0-1-17-dispatch.json`) or any other plan file.
+- Do not edit P1's files (`AgentGatewayInvocationSanitization.swift`, `AgentGatewayCLIInvoker.swift`, `NoteGraphQLService.swift`, `NoteGraphQLAgenticSearch.swift`, and the two P1 test files), or `AgentGatewaySubscription.swift` and `ClaudeSubscriptionExecution.swift`.
+- Never print `OPENROUTER_API_KEY`. Never copy a machine-local absolute path (home directory, Homebrew keg path) into this plan file. Describe paths by class instead.
 
 ## writePaths
 
-- `Sources/AppCore/AgentGatewayExecutionIsolation.swift`
-- `Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift`
-- `Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift`
-- `design-docs/specs/ai-agent-integration.md`
-- `impl-plans/active/release-0-1-17-p2-served-sandbox.md`
+- `Sources/AppCore/AgentGatewayExecutionIsolation.swift` (repair only, with no allowance change)
+- `Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift` (repair only)
+- `Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift` (repair only)
+- `impl-plans/active/release-0-1-17-p2-served-sandbox.md` (Status, Done criteria and Progress Log only)
 - `tmp/release-0-1-17/P2`
 
 ## sharedPaths (read-only)
@@ -67,25 +60,18 @@ Out of scope:
 - `Sources/AppCore/AgentGatewayInvocationSanitization.swift`
 - `Sources/AppCore/AgentGatewaySubscription.swift`
 - `Sources/AppCore/ClaudeSubscriptionExecution.swift`
-- `Sources/AppCore/AgentInvoking.swift`
 - `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift`
 - `Tests/AppCoreTests/AgentGatewayCLIInvokerTests.swift`
-- `Tests/AppCoreTests/AgentGatewaySubscriptionTests.swift`
-- `Tests/AppCoreTests/ClaudeSubscriptionExecutionTests.swift`
+- `Tests/AppCoreTests/AgentGatewayPublicDiagnosticTests.swift`
+- `design-docs/specs/ai-agent-integration.md`
+- `design-docs/user-qa/ai-agent-runtime-and-ui.md`
 
 ## sharedPathNotes
 
-- `Sources/AppCore/AgentGatewayExecutionIsolation.swift`:
-  - In the served branch of `executionContext`, resolve the binary with `realpath` before any workspace is created.
-  - If resolution fails, throw `AgentInvocationError.unavailable("server agent-gateway executable is unavailable")`. The invoker sanitizes it to `server agent-gateway is unavailable`, and P1 maps it to `agent runtime is unavailable`.
-  - Use the physical path for `servedSandboxProfile(binary:workspace:)` and as `arguments[2]` (`["-p", profile, physicalBinary] + arguments`).
-  - Add the two rule lines inside `servedSandboxProfile`, after the existing read rules and before the write rule.
-  - Change nothing else in the file.
-- `design-docs/specs/ai-agent-integration.md`: conditional edit. Only if the diagnosis gate forces one of the three bounded extra allowances, append it to the AI13 "Profile additions" list in one line with its reason. If no extra allowance is adopted, leave the file untouched.
-- `Tests/AppCoreTests/AgentGatewayCLIInvokerTests.swift`: read-only. `testServedInvokerUsesIsolatedWorkspaceAndAllowlistedEnvironment` (lines 247-315) must keep passing unchanged. It is the guard against sibling reads and external writes.
-- `Tests/AppCoreTests/AgentGatewaySubscriptionTests.swift` and `ClaudeSubscriptionExecutionTests.swift`: read-only; they must keep passing.
-- `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift`: read-only (P1). The live test calls `agenticSearch` through the executor.
-- `tmp/release-0-1-17/P2`: evidence logs, `hashes.txt`, `intent.md` and sandbox log captures only.
+- `Sources/AppCore/AgentGatewayExecutionIsolation.swift`: expected unchanged. Edit it only if build, lint or the focused suite fails because of this file. Any edit must leave the set of `(allow` lines identical to c35c0a3, which `guard-allowances.log` checks.
+- `Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift` and `Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift`: expected unchanged. Repair only for a failing gate. Never weaken an assertion, never add a skip, and never turn the live test's nil-invoker `XCTFail` into a skip.
+- `design-docs/specs/ai-agent-integration.md`: read-only in this run. `design-diff.log` must be empty.
+- `tmp/release-0-1-17/P2`: this run writes only under `tmp/release-0-1-17/P2/accept/`. The session-279 logs at the top level are history, not this run's evidence.
 
 ## artifactRoots
 
@@ -93,105 +79,120 @@ Out of scope:
 
 ## Task order
 
-1. **Baseline diagnosis**, before any source edit, after P1 has landed:
-   - Write the live test file first; it is test-only.
-   - Run it with the gate on (command L1 below). It is expected to fail. Record the sanitized diagnostics that the test prints, for example `agent-gateway could not start inside the server sandbox (exit N)` or `agent-gateway request failed`.
-   - Capture the Sandbox violation log (command D1) for the same time window.
-   - In the Progress Log, record only the denied operation names (for example `file-read-data`, `mach-lookup`) and path classes (for example "gateway keg executable", "/private/etc"). No secrets and no machine-local absolute paths.
-2. **Fix**: make the `AgentGatewayExecutionIsolation.swift` changes described above.
-3. **Unit tests**: write `AgentGatewayServedSandboxProfileTests.swift`.
-4. **Re-verify**:
-   - Rerun the live test. It must pass with XCTest `Executed N tests` and N > 0.
-   - Rerun D1. It must show no denial for the gateway process during the passing run.
-5. **Bounded escalation**, only if step 4 still fails or shows gateway denials. You may add only these, each confirmed by a D1 denial:
-   - a global `(allow file-read-metadata)`;
-   - `(allow file-lock (subpath <workspace>))`;
-   - individual `file-read*` literals for dylibs that `otool -L <physical gateway>` reports outside `/System` and `/usr/lib`. Do not add a `subpath`; compute these at runtime only if the dylib set is genuinely required.
+1. Write `tmp/release-0-1-17/P2/accept/intent.md`, an immutable snapshot of this run's intent: verify and accept with no allowance change. Follow the index Edit protocol for any repair (record pre/post hashes in `tmp/release-0-1-17/P2/accept/hashes.txt`).
+2. Run the key presence check, build and the focused unit suite (commands below).
+3. Run the bounded live window:
+   1. record the window start timestamp;
+   2. run the live test;
+   3. wait 5 seconds;
+   4. capture the Sandbox log from the recorded start.
 
-   Record each adopted allowance in the AI13 list (see sharedPathNotes) and add an assertion for it in the profile test. If any other allowance would be needed, stop: record `blocked: needs user decision` with the exact denial class in the Progress Log, and do not widen further. P4 and the user then decide through `design-docs/user-qa/ai-agent-runtime-and-ui.md`.
+   Use one window per live attempt. Number retried attempts (`live-2.log`, `sandbox-window-2.log` and so on), and base the evidence on the passing attempt.
+4. Derive the denial class counts from that window's log (command C1), and record them in the Progress Log.
+5. Run lint, the line counts and the guards.
+6. Update Status, Done criteria and the Progress Log.
+
+Failure handling:
+
+- **Live test fails with a provider or network diagnostic** (for example `agent-gateway request failed`, `agent-gateway exited with status N`, or a timeout) **and the window shows no new denial class compared with the residual set above.** Retry at most twice more, each in a new window. If all three attempts fail, set Status to `blocked: live provider failure` with the sanitized diagnostics. Never report it as passed.
+- **Live test fails and the window shows a denial class outside the residual set, or the diagnostic is `agent-gateway could not start inside the server sandbox (exit N)`.** Set Status to `blocked: fatal sandbox denial <operation class> <path or service class>`, and stop. Do not add an allowance. Under AI13, this reopens the gate for an operator decision.
+- **`OPENROUTER_API_KEY` is absent.** Set Status to `blocked: OPENROUTER_API_KEY absent`.
+- **`log show` itself fails** (permission or tool error). Record `blocked: <exact error>` for the denial evidence. P2 is then not accepted, because the residual-denial record is a required signal.
+- **Build or lint fails because of a peer's in-progress file.** This is not a blocker. Rerun after the peer lands, and leave cross-plan fixes to P4.
 
 ## Tests (input or situation -> expected outcome)
 
-`Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift` (new, XCTest). Each test that needs the macOS sandbox guards with `#if os(macOS)` and throws `XCTSkip` otherwise.
+No new tests. The existing tests must pass unchanged:
 
-Setup for the symlink cases: a real script lives at `tmp/AppCoreTests/sandbox-real-<uuid>/gateway.sh`, and a symlink at `tmp/AppCoreTests/sandbox-link-<uuid>/agent-gateway` points to it. Both paths are under the current directory, as in `makeExecutableGatewayScript` at `Tests/AppCoreTests/AgentGatewayServedSafetyTests.swift:135-143`.
-
-- `executionContext(mode: .served, vendor: "openrouter", binary: <symlink>, arguments: ["client"], environment: ["PROVIDER_TOKEN": "t", "PATH": "/usr/bin:/bin", "LANG": "en_US.UTF-8"], apiKeyEnvironment: "PROVIDER_TOKEN")`:
-  - `context.binary == "/usr/bin/sandbox-exec"`;
-  - `context.arguments[0] == "-p"`;
-  - `context.arguments[2]` equals `realpath(<real script>)`;
-  - `context.arguments[1]` (the profile) contains `(literal "<physical script path>")` and does not contain the symlink path;
-  - the profile does not contain `(subpath "<physical script directory>")` or `(subpath "<symlink directory>")`.
-  - Call `cleanUp()` in a `defer`.
-- The same context's profile:
-  - contains `(subpath "/private/etc")`, `(literal "/private/var/run/resolv.conf")` and each of the five `global-name` entries;
-  - starts with `(version 1)` followed by `(deny default)`;
-  - its only `file-write*` rule names the workspace subpath and `/dev/null`. Assert that the profile has exactly one `(allow file-write*` occurrence and that it contains `context.workspace!.path`.
-- The same context's environment:
-  - the keys are exactly `{HOME, TMPDIR, XDG_CONFIG_HOME, XDG_CACHE_HOME, PROVIDER_TOKEN, PATH, LANG}`;
-  - `HOME` and `TMPDIR` equal the workspace path, and both `XDG_*` values have the workspace path as a prefix;
-  - there is no `LC_ALL` because it was not provided.
-- A binary path that does not exist (`tmp/AppCoreTests/missing-<uuid>/agent-gateway`) -> `executionContext(mode: .served, ...)` throws `AgentInvocationError.unavailable`. Do not assert on the shared temporary directory's contents; parallel tests make that flaky. Resolving before creating the workspace is a code-review point, not a test.
-- Behavioral: a served `AgentGatewayCLIInvoker` with `commandPath: <symlink>`, vendor `openrouter` and `apiKeyEnvironment: "PROVIDER_TOKEN"`. The script reads stdin and prints the ACP result line used in `AgentGatewayCLIInvokerTests.swift:291-292`, with resultText `symlinked reply`. `invoke` returns `symlinked reply`. Before the fix, this fails because the physical script is unreadable.
-- Regression, unchanged existing tests: `AgentGatewayCLIInvokerTests`, `AgentGatewayServedSafetyTests`, `AgentGatewaySubscriptionTests`, `ClaudeSubscriptionExecutionTests`, `DocumentGatewayIsolationTests` -> pass.
-
-`Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift` (new, XCTest):
-
-- Gate: `ProcessInfo.processInfo.environment["KAIBA_LIVE_AGENT_GATEWAY"] == "1"` and a non-empty `OPENROUTER_API_KEY`. Otherwise `throw XCTSkip("Set KAIBA_LIVE_AGENT_GATEWAY=1 and OPENROUTER_API_KEY to run the served agenticSearch live test")`, following `Tests/AppServerTests/LiveMemoChatScenarioTests.swift:12-13`.
-- Configuration:
-  - `KaibaAIConfiguration(agent: KaibaAgentBackendConfiguration(backend: "agent-gateway-cli", commandPath: nil, provider: "openrouter", model: env["KAIBA_LIVE_AGENT_GATEWAY_MODEL"] ?? "openai/gpt-5-mini", apiKeyEnvironmentVariable: "OPENROUTER_API_KEY"))`. Check the initializer labels against `Sources/AppCore` and `Tests/AppCoreTests/AgentGatewayCLIInvokerTests.swift:70-77`.
-  - Build the invoker with `AgentInvokerFactory.makeInvoker(configuration:, environment: ProcessInfo.processInfo.environment, executionMode: .served)`.
-  - If that returns nil while the gate is on, fail with `XCTFail("agent-gateway served runtime unavailable: ...")`, giving the `describeAvailability` text. Do not skip.
-- Service: a temporary store (`makeService` pattern from `Tests/AppGraphQLTests/AgentChatGraphQLTests.swift:885-893`) with two notes, for example one containing "Yamada Taro is the project lead for the lighthouse survey." Then `GraphQLNoteGraphQLService(service:, agentInvoker:, agentProvider: "openrouter", agentModel: <model>)`.
-- Execute through `NoteGraphQLDocumentExecutor(service:)`: `query { agenticSearch(query: "Who leads the lighthouse survey?", limit: 5) { status answerMarkdown result { accepted status diagnostics } } }`.
-- Assert `status == "ok"` and that `answerMarkdown`, trimmed, is non-empty. On failure, include `result.diagnostics` (already sanitized by P1) in the assertion message. Never print environment values.
+- `AgentGatewayServedSandboxProfileTests`:
+  - symlinked gateway -> the context launches `realpath` of the script;
+  - the profile has the physical literal, no symlink path and no parent `subpath`;
+  - it contains `/private/etc`, `resolv.conf`, the five global-names and `(allow file-read-metadata)`;
+  - it has exactly one `(allow file-write*` rule, and that rule names the workspace;
+  - the environment keys are exactly HOME, TMPDIR, XDG_CONFIG_HOME, XDG_CACHE_HOME, the credential, PATH and LANG;
+  - a missing binary -> `unavailable`;
+  - a served invoke of a symlinked script returns its reply.
+- `AgentGatewayCLIInvokerTests`, `AgentGatewayServedSafetyTests`, `AgentGatewaySubscriptionTests`, `ClaudeSubscriptionExecutionTests`, `DocumentGatewayIsolationTests` and `AgentGatewayPublicDiagnosticTests` (including `testServedInvokerClassifiesSandboxExecStderrPrefix`) -> pass.
+- `LiveServedAgenticSearchTests` with the gate on -> top-level `status` is `ok` and `answerMarkdown`, trimmed, is non-empty.
 
 ## Commands
 
-```bash
-mkdir -p tmp/release-0-1-17/P2
-bash -c 'test -n "$OPENROUTER_API_KEY" && echo present || echo absent' | tee tmp/release-0-1-17/P2/key-presence.log
-# L1 live test (baseline before the fix, final after the fix; use distinct log names)
-bash -c 'KAIBA_LIVE_AGENT_GATEWAY=1 PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter LiveServedAgenticSearchTests 2>&1 | tee tmp/release-0-1-17/P2/live-final.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-# D1 sandbox violation capture for the run window (repeat after the fix as sandbox-final.log)
-bash -c 'log show --last 10m --style compact --predicate "sender == \"Sandbox\" AND eventMessage CONTAINS \"agent-gateway\"" 2>&1 | tee tmp/release-0-1-17/P2/sandbox-final.log; echo exit=${PIPESTATUS[0]}'
-bash -c 'mise run build 2>&1 | tee tmp/release-0-1-17/P2/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgentGatewayServedSandboxProfileTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|AgentGatewaySubscriptionTests|ClaudeSubscriptionExecutionTests|DocumentGatewayIsolationTests|AgentGatewayPublicDiagnosticTests" 2>&1 | tee tmp/release-0-1-17/P2/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'mise run lint 2>&1 | tee tmp/release-0-1-17/P2/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'wc -l Sources/AppCore/AgentGatewayExecutionIsolation.swift Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift | tee tmp/release-0-1-17/P2/wc.log'
-bash -c 'git diff -- design-docs | tee tmp/release-0-1-17/P2/design-diff.log'
-bash -c 'grep -nE "/U[s]ers/|/h[o]me/|/n[i]x/store/" Sources/AppCore/AgentGatewayExecutionIsolation.swift Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift impl-plans/active/release-0-1-17-p2-served-sandbox.md | tee tmp/release-0-1-17/P2/guard-literals.log; test ! -s tmp/release-0-1-17/P2/guard-literals.log'
-```
+Run from the repository root, in the foreground. Each command tees a complete log and prints its exit status.
 
-For the baseline run, use the same L1 command with `live-baseline.log`, and the same D1 command with `sandbox-baseline.log`. The baseline is expected to exit non-zero. It is diagnosis evidence, not a gate.
+```bash
+mkdir -p tmp/release-0-1-17/P2/accept
+bash -c 'test -n "$OPENROUTER_API_KEY" && echo present || echo absent' | tee tmp/release-0-1-17/P2/accept/key-presence.log
+bash -c 'mise run build 2>&1 | tee tmp/release-0-1-17/P2/accept/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgentGatewayServedSandboxProfileTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|AgentGatewaySubscriptionTests|ClaudeSubscriptionExecutionTests|DocumentGatewayIsolationTests|AgentGatewayPublicDiagnosticTests" 2>&1 | tee tmp/release-0-1-17/P2/accept/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+# W0 window start, L1 live test, D1 bounded Sandbox capture (same window)
+bash -c 'date "+%Y-%m-%d %H:%M:%S" | tee tmp/release-0-1-17/P2/accept/live-window-start.txt'
+bash -c 'KAIBA_LIVE_AGENT_GATEWAY=1 PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter LiveServedAgenticSearchTests 2>&1 | tee tmp/release-0-1-17/P2/accept/live.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'sleep 5; log show --start "$(cat tmp/release-0-1-17/P2/accept/live-window-start.txt)" --style compact --predicate "sender == \"Sandbox\" AND eventMessage CONTAINS \"agent-gateway\"" 2>&1 | tee tmp/release-0-1-17/P2/accept/sandbox-window.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+# C1 residual denial classes: distinct reports by operation class, then duplicate-report line count
+bash -c 'grep -v "duplicate report" tmp/release-0-1-17/P2/accept/sandbox-window.log | grep -oE "agent-gateway\([0-9]+\) deny\([0-9]+\) [a-z*-]+" | sed -E "s/^agent-gateway\([0-9]+\) deny\([0-9]+\) //" | sort | uniq -c | tee tmp/release-0-1-17/P2/accept/sandbox-denial-classes.log; echo duplicate-report-lines=$(grep -c "duplicate report" tmp/release-0-1-17/P2/accept/sandbox-window.log) | tee -a tmp/release-0-1-17/P2/accept/sandbox-denial-classes.log'
+bash -c 'mise run lint 2>&1 | tee tmp/release-0-1-17/P2/accept/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'wc -l Sources/AppCore/AgentGatewayExecutionIsolation.swift Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift | tee tmp/release-0-1-17/P2/accept/wc.log'
+bash -c 'git diff -- design-docs impl-plans/active/release-0-1-17-dispatch.json | tee tmp/release-0-1-17/P2/accept/design-diff.log; test ! -s tmp/release-0-1-17/P2/accept/design-diff.log'
+bash -c 'git diff c35c0a3 -- Sources/AppCore/AgentGatewayExecutionIsolation.swift | grep -E "^[-+].*\(allow" | tee tmp/release-0-1-17/P2/accept/guard-allowances.log; test ! -s tmp/release-0-1-17/P2/accept/guard-allowances.log'
+bash -c 'grep -nE "/U[s]ers/|/h[o]me/|/n[i]x/store/|/opt/homebrew/C[e]llar" Sources/AppCore/AgentGatewayExecutionIsolation.swift Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift impl-plans/active/release-0-1-17-p2-served-sandbox.md | tee tmp/release-0-1-17/P2/accept/guard-literals.log; test ! -s tmp/release-0-1-17/P2/accept/guard-literals.log'
+```
 
 Expected evidence:
 
-- `key-presence.log` reads `present`. If it reads `absent`, record `blocked: OPENROUTER_API_KEY absent`. The live gate is then not passed, and nothing is reported as passed.
-- `live-final.log`: exit 0, and an XCTest line `Executed N tests, with 0 failures` where N > 0 for this class. The swift-testing `0 tests` line is not counted.
-- `sandbox-final.log` shows no gateway denial during the passing run window. Note in the Progress Log that the window was checked; give counts only. If `log show` itself is unavailable (permission or tool error), record `blocked: <exact error>` for D1. In that case the live pass is the only root-cause evidence; say so explicitly.
-- Unit swift test exit 0 with XCTest N > 0. build and lint exit 0. Files are under 1000 lines.
-- `design-diff.log` is empty unless a bounded allowance was adopted, in which case it shows exactly that one-line addition.
-- `guard-literals.log` is empty, and the guard exits 0.
-- The unit `swift-test.log` shows `AgentGatewayPublicDiagnosticTests` passing, including `testServedInvokerClassifiesSandboxExecStderrPrefix`.
+- `key-presence.log` reads `present`.
+- `build.log`: exit 0.
+- `swift-test.log`: exit 0, with XCTest `Executed N tests, with 0 failures` where N > 0. Record N and the number of credential-gated skips. Skips are listed, not counted.
+- `live.log` (or the numbered passing attempt): exit 0 and XCTest `Executed N tests, with 0 failures` where N > 0 for `LiveServedAgenticSearchTests`. The swift-testing `0 tests` line is not counted. A skip message or `Executed 0 tests` is a failed gate.
+- `sandbox-window.log`: exit 0, covering the same window as the passing live run.
+- `sandbox-denial-classes.log`: one `count class` line per operation class, plus `duplicate-report-lines=K`.
+  - Record the classes and counts in the Progress Log, with path or service classes described generically (for example "user preference domain", "gateway keg directory", "HTTP storage", "distributed notification service").
+  - An empty class list is also valid; record it as `0 residual denials`.
+  - `file-read-metadata` is allowed globally, so its expected count is 0. Report a non-zero count as a finding in the Progress Log.
+  - A class outside the residual set is reported explicitly. It is not fatal if the live run passed.
+- `lint.log`: exit 0. `wc.log`: each file is under 1000 lines.
+- `design-diff.log`, `guard-allowances.log` and `guard-literals.log` are empty, and each guard exits 0.
 
 ## Done criteria
 
-- [x] The served context launches and allows only the realpath-resolved gateway; the profile contains the `/private/etc`, `resolv.conf` and five `mach-lookup` rules; invariants hold.
-- [x] The profile, environment and symlink behavioral tests pass; existing isolation and subscription tests pass unchanged.
-- [x] The live test passes with XCTest N > 0. The Sandbox log still records denials outside the bounded allowance list, so this plan is explicitly blocked for a user decision and does not claim a clean log.
-- [x] The only extra allowance is the bounded global `file-read-metadata` rule, documented in AI13 and asserted in a test.
-- [x] The Progress Log records baseline and final diagnostics (sanitized), commands, exit codes, counts and log paths.
-- [x] `guard-literals.log` is empty, and P1's launcher-fixture test still passes after the realpath change.
+- [ ] `live.log` (or the numbered passing attempt) exits 0 with XCTest Executed N > 0 and 0 failures, with status `ok` and a non-empty answer.
+- [ ] `sandbox-window.log` covers that passing window. `sandbox-denial-classes.log` records the residual classes and counts, and the Progress Log copies them with generic path or service classes. No denial was fatal.
+- [ ] The focused unit suite, build and lint exit 0, with XCTest N > 0 for the unit suite.
+- [ ] `guard-allowances.log`, `design-diff.log` and `guard-literals.log` are empty. No sandbox allowance was added or widened.
+- [ ] Status reads `Completed (accepted under the 2026-10-06 operator decision)`, or `blocked: <sanitized reason>`.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
 - 2026-10-06: Resume notes added at Step 4 (session-279): P1 fixture compatibility, stderr-agnostic behavioral assertions, and the literal guard. Not started.
-- 2026-10-06: Implemented P2. The served context now resolves the gateway with `realpath(3)` before workspace creation, uses only the physical executable literal/target, grants `/private/etc`, the resolver literal and the five approved TLS/DNS mach lookups, and preserves the existing environment and write boundary. Added three sandbox profile tests and the env-gated GraphQL live test.
-- Baseline: `OPENROUTER_API_KEY` presence check printed `present`. `KAIBA_LIVE_AGENT_GATEWAY=1 ... swift test --filter LiveServedAgenticSearchTests` (`live-baseline.log`) exited 1: XCTest Executed 1 with 2 assertion failures; sanitized result was `agent-gateway produced no reply (exit 1)`. `sandbox-baseline.log` captured denials for gateway executable/keg and symlink path classes, user-home preferences/cache, an OS network preference, an unapproved mach service and an OS temporary cache path.
-- Bounded escalation: after the planned realpath/profile rules, the live test still failed and D1 confirmed `file-read-metadata`; adopted only global `file-read-metadata`, asserted it in `AgentGatewayServedSandboxProfileTests`, and documented the evidence in AI13. The live test then returned status `ok` with a non-empty answer (`live-final-post-lintfix.log`, exit 0, XCTest Executed 1, 0 failures).
-- Final D1: `sandbox-final-post-lintfix.log` was captured after the passing run (command exit 0), but still contains 51 denial events for that gateway process: `file-read-data` 18, `file-read-xattr` 4, `file-write-create` 3, `file-write-mode` 1, `file-write-unlink` 1, `mach-lookup` 5, `system-socket` 2 and `user-preference-read` 17. Sanitized path/service classes include the gateway keg directory, OS user preference/cache and HTTP-storage locations, an OS network preference file, AppSSO/CoreServices/Disk Arbitration/distributed-notification services, and a system socket. These exceed AI13's three bounded escalations; no further allowance was added. **Blocked: additional sandbox allowances require a user decision** (decision target: `design-docs/user-qa/ai-agent-runtime-and-ui.md`).
-- Final verification: `mise run build` exit 0 (`build-final.log`); focused Swift filter for `AgentGatewayServedSandboxProfileTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|AgentGatewaySubscriptionTests|ClaudeSubscriptionExecutionTests|DocumentGatewayIsolationTests|AgentGatewayPublicDiagnosticTests` exit 0, XCTest Executed 45, 0 failures, 2 credential-gated skips (`swift-test-final.log`); live filter exit 0, XCTest Executed 1, 0 failures (`live-final-post-lintfix.log`); changed-file `swiftlint lint --strict --quiet --no-cache` exit 0 (`swiftlint-changed.log`); `mise run lint` exit 0, 3 non-serious diagnostics in 392 files (`lint-final.log`).
-- Final guards: touched Swift files are 230, 137 and 68 lines (`wc-final.log`); the only design diff is the documented metadata escalation (`design-diff.log`); `guard-literals.log` is empty and the guard exited 0. Evidence and per-edit intent files are under `tmp/release-0-1-17/P2/`.
-- Final-source recheck after the lint fixes and Progress Log update: `guard-literals-final.log` exited 0 with empty output, `wc-post-lintfix.log` remains 230/137/68 lines, and `git diff --check` exited 0.
+- 2026-10-06: Implemented P2 (session-279):
+  - The served context now resolves the gateway with `realpath(3)` before it creates the workspace. It uses only the physical executable as the literal and the target, and grants `/private/etc`, the resolver literal and the five approved TLS/DNS mach lookups.
+  - The existing environment and write boundary are preserved.
+  - Added three sandbox profile tests and the env-gated GraphQL live test.
+- Baseline (session-279):
+  - The `OPENROUTER_API_KEY` presence check printed `present`.
+  - The live test exited 1 (`live-baseline.log`): XCTest Executed 1, with 2 assertion failures. The sanitized result was `agent-gateway produced no reply (exit 1)`.
+  - `sandbox-baseline.log` captured denials for these path classes:
+    - the gateway executable, keg and symlink;
+    - user-home preferences and cache;
+    - an OS network preference;
+    - an unapproved mach service;
+    - an OS temporary cache path.
+- Bounded escalation (session-279):
+  - After the planned realpath and profile rules, the live test still failed, and D1 confirmed a `file-read-metadata` denial.
+  - Only the global `file-read-metadata` allowance was adopted. It is asserted in `AgentGatewayServedSandboxProfileTests` and documented in AI13.
+  - The live test then returned status `ok` with a non-empty answer (`live-final-post-lintfix.log`: exit 0, XCTest Executed 1, 0 failures).
+- Final D1 (session-279):
+  - `sandbox-final-post-lintfix.log` still contained 51 denial events for the gateway process: `file-read-data` 18, `file-read-xattr` 4, `file-write-create` 3, `file-write-mode` 1, `file-write-unlink` 1, `mach-lookup` 5, `system-socket` 2 and `user-preference-read` 17.
+  - No further allowance was added, and the plan was blocked for a user decision.
+  - That capture used `--last 10m`, so it overlapped earlier attempts. Session-281 re-captures one bounded window.
+- Final verification (session-279):
+  - `mise run build`: exit 0.
+  - Focused Swift filter: exit 0, XCTest Executed 45, 0 failures, 2 credential-gated skips.
+  - Live filter: exit 0, XCTest Executed 1, 0 failures.
+  - `mise run lint`: exit 0.
+  - Touched Swift files have 230, 137 and 68 lines.
+  - `guard-literals.log` is empty.
+- 2026-10-06: Session-281 plan checkpoint:
+  - The operator decision of 2026-10-06 replaces the clean-log gate (AI13 "Diagnosis gate" revised).
+  - P2 is now verify-and-accept only, with no allowance change, and its evidence goes to `tmp/release-0-1-17/P2/accept/`.
+  - Not yet run.

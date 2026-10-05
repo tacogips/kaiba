@@ -940,12 +940,23 @@ not claimed as coverage.
   allowlist and reserved keys, refusal of tool-capable vendors, and Linux
   failing closed.
 
-  *Diagnosis gate.* The fix is accepted only after the live test passes and
-  the sandbox violation log shows no remaining denial for the gateway process.
-  Use `log show` or `log stream` with the `Sandbox` sender, filtered to the
-  gateway process name. Record only the operation and path class in evidence,
-  never environment values. If a denial remains, the only further allowances
-  permitted without a user decision are:
+  *Diagnosis gate.* Revised by the operator decision of 2026-10-06
+  (`design-docs/user-qa/ai-agent-runtime-and-ui.md`, "Served sandbox: residual
+  non-fatal denials"). The fix is accepted when the live test passes and no
+  remaining denial for the gateway process is fatal to the request. A clean
+  Sandbox log is not required. Capture the log for the passing run with
+  `log show` or `log stream` and the `Sandbox` sender, filtered to the gateway
+  process name. Record each residual denial operation class with its count
+  (for example `file-read-data`, `file-read-xattr`, `file-write-*` outside the
+  workspace, `mach-lookup`, `system-socket`, `user-preference-read`) and its
+  path or service class. Never record environment values or user-specific
+  paths. A denial is fatal only if the live test fails because of it. The
+  residual non-fatal denials stay denied: no allowance is added for them, and
+  the D1 escalations below are not used to reduce them.
+
+  A later gateway version that fails because of one of these denials reopens
+  the gate. Then the only further allowances permitted without a user
+  decision are:
   - a global `file-read-metadata`, which exposes metadata only and is already
     in the subscription profiles;
   - `file-lock` inside the workspace;
@@ -953,8 +964,10 @@ not claimed as coverage.
     the resolved executable outside `/System` and `/usr/lib`.
 
   Any other allowance stops the work and is recorded under
-  `design-docs/user-qa/ai-agent-runtime-and-ui.md`. Every allowance that is
-  adopted is listed in this decision.
+  `design-docs/user-qa/ai-agent-runtime-and-ui.md`. The 2026-10-06 decision
+  pre-approves only the narrowest form of that case: allowing the single
+  operation and path class that made the newer gateway fail, with a profile
+  test for it. Every allowance that is adopted is listed in this decision.
 
   *Fixed served diagnostics.* These are the closed set of gateway failure
   strings that may become a public reason. The image-transport strings are not
@@ -1210,4 +1223,7 @@ the same change).
       with a non-empty `answerMarkdown`.
 
     Only a run that reports XCTest `Executed N tests` with N > 0 for this
-    class counts as evidence. A skipped run never does.
+    class counts as evidence. A skipped run never does. Record the residual
+    Sandbox denial classes and counts for that passing run as well (AI13
+    "Diagnosis gate"). They are evidence only. A non-empty denial list does
+    not fail the gate.

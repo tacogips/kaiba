@@ -1,7 +1,7 @@
 # Release 0.1.17 Preparation (index)
 
-**Status**: Active (resume, session-279). Plans P1-P4 were created in session-278 (design accepted in comm-004276). They were revised at Step 4 of session-279 after the Step 2 design clarification, which Step 3 accepted in comm-004291.
-**Design Reference**: `design-docs/specs/ai-agent-integration.md` (Runtime and Provider Adapter Boundary paragraph, AI13, the GraphQL Surface Additions `agenticSearch` bullet, Verification item 13) and `design-docs/specs/web-chatbook-ui.md` (W16)
+**Status**: Active (resume, session-281). Plans P1-P4 were created in session-278 (design accepted in comm-004276) and revised in session-279. In session-281, P1 and P3 are accepted dependencies. P2 is verified and accepted under the amended AI13 "Diagnosis gate" (Step 3 accepted it in comm-004324), and P4 runs afterwards.
+**Design Reference**: `design-docs/specs/ai-agent-integration.md` (the Runtime and Provider Adapter Boundary paragraph, AI13 including the "Diagnosis gate" revised on 2026-10-06, the GraphQL Surface Additions `agenticSearch` bullet, and Verification item 13), `design-docs/specs/web-chatbook-ui.md` (W16) and `design-docs/user-qa/ai-agent-runtime-and-ui.md` ("Served sandbox: residual non-fatal denials (decided 2026-10-06)", read-only)
 **Evidence root**: `tmp/release-0-1-17/<planId-prefix>/`. It is gitignored by `tmp/`, and each plan writes only its own directory.
 
 ## Purpose
@@ -18,31 +18,31 @@ This release ships kaiba 0.1.17 after fixing two defects found in end-to-end ver
 2. In Settings, the selected font-size preset and the primary buttons are unreadable in the light theme. P3 fixes this.
 3. P4 bumps the version to 0.1.17, confirms the README search-engine section, and runs every gate on the combined tree.
 
-## Resume state (session-279)
+## Resume state (session-281)
 
-Checkpoint 0172b87 holds session-278's wave-1 work. The waves and the DAG are unchanged.
+Checkpoint c35c0a3 holds the session-279 work.
 
 | planId | state at resume | work in this run |
 | --- | --- | --- |
-| P1-agentic-search-diagnostics | sources and tests done; 1 of 47 XCTest cases failing | Rewrite the invoker-level fixture so `sandbox-exec` itself fails (missing `#!` interpreter), replace the hook-rejected path literals in its two test files, and re-verify. No `Sources/` edit. |
-| P3-settings-contrast | done; blocked only on `tauri:check` (missing sidecar, now built) | Re-verify `bun test src`, `vitest run`, `web:check` and `tauri:check` with positive counts. |
-| P2-served-sandbox | not started | Full plan. It must keep P1's launcher-fixture test passing after the realpath change. |
-| P4-release-integration | not started | Full plan. Its guards scan the whole release diff against `d55f835`, covering the pre-commit hook's literal classes. |
+| P1-agentic-search-diagnostics | accepted in session-279 | none; in the manifest's `acceptedDependencies`. P4's full `swift test` is its regression check. |
+| P3-settings-contrast | accepted in session-279 | none; in `acceptedDependencies`. P4's `bun test src`, `vitest run`, `web:check` and `tauri:check` are its regression check. |
+| P2-served-sandbox | implemented; the live test passed; blocked only by the old clean-log gate | Verify and accept against the amended gate: live pass plus no fatal denial, and record the residual denial classes and counts for one bounded window. No sandbox allowance change and no design or manifest edit. |
+| P4-release-integration | not started | Full plan: version bump, README check, all gates, and release-wide guards including the no-new-allowance guard. |
 
-Design delta for this run: `design-docs/specs/ai-agent-integration.md` has a new AI13 prefix-rule paragraph, plus Verification 13 bullets for the invoker-level launcher fixture and the fixture-literal rule.
+Design delta for this run: AI13's "Diagnosis gate" and the Verification 13 live-test bullet in `design-docs/specs/ai-agent-integration.md` now follow the operator decision of 2026-10-06. That decision is to keep the residual non-fatal denials denied, add no allowances, and accept on a live pass with no fatal denial. Residual classes and counts are evidence. The design edit, these plans and the manifest are committed together in the plan checkpoint commit before fanout.
 
 Pre-commit hook: the repository hook rejects staged text containing absolute path literals rooted in the macOS users directory, the Linux home directory or the Nix store. No plan writes such a literal into a committed file, including plan files and this index. Guard regexes use character classes (`/U[s]ers/`) so their own text stays clean.
 
 ## Plans and waves
 
-| wave | planId | plan | dependsOn |
+| wave (session-281) | planId | plan | dependsOn |
 | --- | --- | --- | --- |
-| 1 | P1-agentic-search-diagnostics | `impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md` | none |
-| 1 | P3-settings-contrast | `impl-plans/active/release-0-1-17-p3-settings-contrast.md` | none |
-| 2 | P2-served-sandbox | `impl-plans/active/release-0-1-17-p2-served-sandbox.md` | P1 |
-| 3 | P4-release-integration | `impl-plans/active/release-0-1-17-p4-release-integration.md` | P1, P2, P3 |
+| accepted | P1-agentic-search-diagnostics | `impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md` | none |
+| accepted | P3-settings-contrast | `impl-plans/active/release-0-1-17-p3-settings-contrast.md` | none |
+| 1 | P2-served-sandbox | `impl-plans/active/release-0-1-17-p2-served-sandbox.md` | P1 (accepted) |
+| 2 | P4-release-integration | `impl-plans/active/release-0-1-17-p4-release-integration.md` | P1 (accepted), P2, P3 (accepted) |
 
-DAG: P1 -> P2 -> P4, and P3 -> P4. P3 never touches Swift.
+DAG: P1 -> P2 -> P4, and P3 -> P4. P3 never touches Swift. In session-281, only P2 and P4 are dispatched.
 
 Why the waves are ordered this way:
 
@@ -65,7 +65,7 @@ Every file has exactly one writer per wave.
 | `Sources/AppCore/AgentGatewayExecutionIsolation.swift` | - | P2 | P4 (repair only) |
 | `Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift` (new) | - | P2 | P4 (repair only) |
 | `Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift` (new) | - | P2 | P4 (repair only) |
-| `design-docs/specs/ai-agent-integration.md` | - | P2 (conditional; AI13 adopted-allowance list only) | - |
+| `design-docs/specs/ai-agent-integration.md` | - (session-281: read-only for every plan; edited only in the plan checkpoint commit) | - | - |
 | `web/src/light-theme.css` | P3 | - | P4 (repair only) |
 | `web/src/settingsButtonContrast.test.ts` (new) | P3 | - | P4 (repair only) |
 | `VERSION`, `Sources/AppCore/Version.swift`, `web/src-tauri/tauri.conf.json`, `web/src-tauri/Cargo.toml`, `web/src-tauri/Cargo.lock` | - | - | P4 |
@@ -83,7 +83,8 @@ No plan may edit the following files:
 - `mise.toml`, `docker/`
 - `web/src-tauri/capabilities/`
 - every `impl-plans/active/*-dispatch.json`
-- `design-docs/` files, except P2's conditional AI13 list edit
+- `design-docs/` files (session-281: no exception)
+- any `(allow ...)` rule in a sandbox profile (no addition, removal or widening; operator decision of 2026-10-06)
 - signing, notarization or cask scripts
 - `../homebrew-tap`
 
@@ -135,6 +136,7 @@ P4 fills this table.
 | `mise run build` | pending | `tmp/release-0-1-17/P4/build.log` |
 | Full Swift tests | pending | `tmp/release-0-1-17/P4/swift-test.log` |
 | Live served agenticSearch | pending | `tmp/release-0-1-17/P4/live-agent-gateway.log` |
+| P2 residual Sandbox denials (evidence only, not a gate) | pending | `tmp/release-0-1-17/P2/accept/sandbox-denial-classes.log` |
 | `mise run lint` | pending | `tmp/release-0-1-17/P4/lint.log` |
 | `bun test src` | pending | `tmp/release-0-1-17/P4/bun-test.log` |
 | `vitest run` | pending | `tmp/release-0-1-17/P4/vitest.log` |
@@ -142,9 +144,14 @@ P4 fills this table.
 | `mise run tauri:check` | pending | `tmp/release-0-1-17/P4/tauri-check.log` |
 | `mise run search:test-live` | pending | `tmp/release-0-1-17/P4/search-live.log` |
 | Version guard | pending | `tmp/release-0-1-17/P4/version.log` |
-| Protected-path and local-path guards | pending | `tmp/release-0-1-17/P4/guard-*.log` |
+| Protected-path, local-path, design-docs and allowance guards | pending | `tmp/release-0-1-17/P4/guard-*.log` |
 
 ## Progress Log
 
 - 2026-10-05: Plans P1-P4 were created from the accepted AI13 and W16 design (Step 3 accept, comm-004276).
 - 2026-10-06: Session-279 Step 4 revised the plans for resume. P1 is fixture-and-literals only. P3 is re-verification only. P2 gains its P1-compatibility and literal guard. P4's guards now scan the whole release diff against `d55f835`. The dispatch manifest is updated to match.
+- 2026-10-06: The session-279 run accepted P1 and P3. P2 was implemented and its live test passed, but it was blocked by the clean-log gate (about 51 non-fatal denials). Checkpoint c35c0a3.
+- 2026-10-06: Session-281 Step 4:
+  - The manifest moves P1 and P3 into `acceptedDependencies` and drops them from the dispatched plans.
+  - P2 is now a wave-1 verify-and-accept plan under the amended gate, with evidence in `tmp/release-0-1-17/P2/accept/`.
+  - P4 is now wave 2 and has the no-new-allowance and empty-design-docs guards.
