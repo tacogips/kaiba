@@ -1,11 +1,20 @@
 # P3 Web Settings: legible primary and selected buttons
 
-**Status**: Planned.
+**Status**: In Progress (resume, re-verification only). The CSS rules and the bun test are done and checkpointed in commit 0172b87.
 **planId**: P3-settings-contrast
 **Wave**: 1
 **dependsOn**: none. Web-only; no Swift.
 **Design Reference**: `design-docs/specs/web-chatbook-ui.md` W16
 **Index**: `impl-plans/active/release-0-1-17.md`
+
+## Resume scope (read first)
+
+- `web/src/light-theme.css` already ends with the three W16 rules, and `web/src/settingsButtonContrast.test.ts` already exists. Both passed in session-278: `bun test src` 192 pass, `vitest run` 100 passed, `web:check` exit 0.
+- The plan was blocked only because `mise run tauri:check` exited 101 on the missing, gitignored sidecar `web/src-tauri/local-service/kaiba-aarch64-apple-darwin`. The operator has since built it in this worktree.
+- This run makes no source edits. It reruns every Verification command, writing logs under `tmp/release-0-1-17/P3/resume/`, and records positive counts.
+- If a command fails because of a file this plan owns, re-read W16 and repair only that file, following the hash and drift protocol. Record the cause.
+- If `tauri:check` fails because the sidecar is missing again, do not build or edit anything under `web/src-tauri/`. Record `blocked: <exact error line>`; P4 reruns it.
+- Do not edit `web/src-tauri/local-service/`, `web/src-tauri/Cargo.toml` or `web/src-tauri/Cargo.lock`. P4 owns the version bump.
 
 ## Intent and context
 
@@ -102,31 +111,33 @@ Manual browser check (not a gate; record it as environment-blocked if no browser
 ## Verification
 
 ```bash
-mkdir -p tmp/release-0-1-17/P3
-bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/release-0-1-17/P3/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/release-0-1-17/P3/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'mise run web:check 2>&1 | tee tmp/release-0-1-17/P3/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'mise run tauri:check 2>&1 | tee tmp/release-0-1-17/P3/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
-bash -c 'git diff --name-only -- web/src/styles.css web/src/workspace.css web/src/index.tsx web/src/App.tsx web/index.html | tee tmp/release-0-1-17/P3/guard-protected.log; test ! -s tmp/release-0-1-17/P3/guard-protected.log'
+mkdir -p tmp/release-0-1-17/P3/resume
+bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/release-0-1-17/P3/resume/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/release-0-1-17/P3/resume/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'mise run web:check 2>&1 | tee tmp/release-0-1-17/P3/resume/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'mise run tauri:check 2>&1 | tee tmp/release-0-1-17/P3/resume/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'git diff --name-only -- web/src/styles.css web/src/workspace.css web/src/index.tsx web/src/App.tsx web/index.html web/src-tauri/Cargo.toml web/src-tauri/Cargo.lock | tee tmp/release-0-1-17/P3/resume/guard-protected.log; test ! -s tmp/release-0-1-17/P3/resume/guard-protected.log'
 ```
 
 Expected evidence:
 
-- `bun test src`: exit 0, `N pass` and `0 fail`, N > 0. Record N; it includes the new file.
-- `vitest run`: exit 0, `Tests M passed`, M > 0. Record M separately.
-- `web:check` exit 0. This is not a behavioral record, and it writes `web/dist`.
-- `tauri:check` exit 0 on macOS. If unavailable, record `blocked: <exact error>`, never passed. P4 reruns it.
+- `bun test src`: exit 0 with `N pass` and `0 fail`, N > 0. Record N; it includes `settingsButtonContrast.test.ts`.
+- `vitest run`: exit 0 with `Tests M passed`, M > 0. Record M separately.
+- `web:check`: exit 0. This is not a behavioral record, and it writes `web/dist`.
+- `tauri:check`: exit 0 on macOS. If it does not pass, record `blocked: <exact error>`, never passed. P4 reruns it.
 - The protected guard log is empty.
 
 ## Done criteria
 
-- [x] The three rules are appended in order, using existing tokens only, with no `!important`.
-- [x] The new bun test passes, and fails if a rule or token is removed (checked by reasoning about the assertions).
-- [x] bun and vitest counts are recorded separately with exit 0; `web:check` exits 0 and `tauri:check` is either exit 0 or recorded blocked with its exact error.
-- [x] Protected web files are unchanged.
-- [x] The Progress Log records commands, exit codes, counts and log paths.
+- [x] The three rules are appended in order, using existing tokens only, with no `!important` (0172b87).
+- [x] The new bun test exists and fails if a rule or token is removed (0172b87).
+- [ ] Resume run: `bun test src` exits 0 with N pass > 0 and 0 fail, and `vitest run` exits 0 with M passed > 0, recorded separately with log paths.
+- [ ] Resume run: `web:check` exits 0, and `tauri:check` exits 0 or is recorded as blocked with its exact error line.
+- [ ] Protected web files, `Cargo.toml` and `Cargo.lock` are unchanged (resume guard log is empty).
+- [ ] The Progress Log records commands, exit codes, counts and log paths, and Status is set to Completed or blocked.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
 - 2026-10-05: Appended the three scoped Settings button rules to `web/src/light-theme.css`; added `web/src/settingsButtonContrast.test.ts` to verify selectors, token assignments, cascade order, absence of `!important` within the new rules, and WCAG AA contrast for primary, hover, and selected states. `cd web && mise exec -- bun test src` exited 0 (192 pass, 0 fail; `tmp/release-0-1-17/P3/bun-test-final-rerun.log`); `cd web && mise exec -- bunx vitest run` exited 0 (100 passed; `tmp/release-0-1-17/P3/vitest-final.log`); `mise run web:check` exited 0 (typecheck, tests, lint, Vite build; `tmp/release-0-1-17/P3/web-check-final.log`). The protected-file guard exited 0 with empty output (`tmp/release-0-1-17/P3/guard-protected.log`). `mise run tauri:check` was blocked (exit 101): its build script requires missing `local-service/kaiba-aarch64-apple-darwin` (`tmp/release-0-1-17/P3/tauri-check.log`); P4 will rerun it. Initial bun and web-check failures are retained in `bun-test.log` and `web-check.log`; their causes were corrected and final-source reruns passed.
+- 2026-10-06: Resume plan revised at Step 4 (session-279). Re-verification only, now that the tauri sidecar has been built locally. Logs go under `tmp/release-0-1-17/P3/resume/`.

@@ -7,6 +7,14 @@
 **Design Reference**: `design-docs/specs/ai-agent-integration.md`: the Runtime and Provider Adapter Boundary paragraph, and AI13 ("Executable resolution", "Profile additions", "What does not change", "Diagnosis gate"), and Verification item 13 (bullets 1-3 and the live test)
 **Index**: `impl-plans/active/release-0-1-17.md`
 
+## Resume notes (session-279)
+
+- Not started in session-278. Start only after P1 reports Completed in this run, meaning its focused suites passed with the rewritten launcher fixture.
+- The Step 2 design edit of 2026-10-06 (AI13 prefix-rule paragraph, Verification 13 fixture bullets) is committed with these plans before fanout, so `design-diff.log` starts empty.
+- P1's `testServedInvokerClassifiesSandboxExecStderrPrefix` now uses a fake gateway whose `#!` interpreter does not exist. It must keep passing after your realpath change. It is in this plan's regression filter, so do not edit it. If it fails after your change, the context is wrong, not the test.
+- Shell-script fake gateways that run under the served profile may write their own startup warnings to stderr, for example a `getcwd` denial for the workspace parents. Behavioral tests in this plan assert on the reply or on the thrown case only, never on empty stderr.
+- Fixture literal rule (Verification 13): new test files and this plan file must not contain any absolute path literal rooted in the macOS users directory, the Linux home directory or the Nix store, because the pre-commit hook rejects them. Use runtime-built paths under the current directory, or `/opt/example/...` and `/srv/example/...`. The `guard-literals` command below checks this.
+
 ## Intent and context
 
 Served `agenticSearch` with backend `agent-gateway-cli`, provider `openrouter` and model `openai/gpt-5-mini` fails under `/usr/bin/sandbox-exec`, while the unsandboxed `kaiba ai search` succeeds with the same configuration.
@@ -152,6 +160,7 @@ bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- s
 bash -c 'mise run lint 2>&1 | tee tmp/release-0-1-17/P2/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
 bash -c 'wc -l Sources/AppCore/AgentGatewayExecutionIsolation.swift Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift | tee tmp/release-0-1-17/P2/wc.log'
 bash -c 'git diff -- design-docs | tee tmp/release-0-1-17/P2/design-diff.log'
+bash -c 'grep -nE "/U[s]ers/|/h[o]me/|/n[i]x/store/" Sources/AppCore/AgentGatewayExecutionIsolation.swift Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift impl-plans/active/release-0-1-17-p2-served-sandbox.md | tee tmp/release-0-1-17/P2/guard-literals.log; test ! -s tmp/release-0-1-17/P2/guard-literals.log'
 ```
 
 For the baseline run, use the same L1 command with `live-baseline.log`, and the same D1 command with `sandbox-baseline.log`. The baseline is expected to exit non-zero. It is diagnosis evidence, not a gate.
@@ -163,6 +172,8 @@ Expected evidence:
 - `sandbox-final.log` shows no gateway denial during the passing run window. Note in the Progress Log that the window was checked; give counts only. If `log show` itself is unavailable (permission or tool error), record `blocked: <exact error>` for D1. In that case the live pass is the only root-cause evidence; say so explicitly.
 - Unit swift test exit 0 with XCTest N > 0. build and lint exit 0. Files are under 1000 lines.
 - `design-diff.log` is empty unless a bounded allowance was adopted, in which case it shows exactly that one-line addition.
+- `guard-literals.log` is empty, and the guard exits 0.
+- The unit `swift-test.log` shows `AgentGatewayPublicDiagnosticTests` passing, including `testServedInvokerClassifiesSandboxExecStderrPrefix`.
 
 ## Done criteria
 
@@ -171,7 +182,9 @@ Expected evidence:
 - [ ] The live test passes with XCTest N > 0 and the Sandbox log is clean for the gateway, or the plan is explicitly blocked with the exact reason, never reported as passed.
 - [ ] Any extra allowance is one of the three bounded ones, documented in AI13 and asserted in a test.
 - [ ] The Progress Log records baseline and final diagnostics (sanitized), commands, exit codes, counts and log paths.
+- [ ] `guard-literals.log` is empty, and P1's launcher-fixture test still passes after the realpath change.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-06: Resume notes added at Step 4 (session-279): P1 fixture compatibility, stderr-agnostic behavioral assertions, and the literal guard. Not started.

@@ -99,6 +99,14 @@ This plan prepares kaiba 0.1.17 for the operator, who runs `.agents/skills/macos
 - `search:test-live` needs Docker through colima. Start it with `mise run search:docker`, then `search:up`, and always run `search:down` afterwards. If Docker or colima is unavailable, record `blocked: <exact error>`, never passed.
 - The full `swift test` output contains both XCTest and swift-testing summaries; record both counts.
 - Never print key values. Use only the presence check.
+- `tauri:check` needs the gitignored local-service sidecar that the operator built in this worktree. If it is missing again (exit 101), record `blocked: <exact error line>`. Do not build it, and do not edit anything under `web/src-tauri/local-service/`.
+- The final commit must pass the repository pre-commit hook without `--no-verify`. The local-path guard is the in-plan proxy for that hook; it must be empty over the whole release diff, not just the working tree.
+
+## Resume notes (session-279)
+
+- Not started in session-278. Start only after P1, P2 and P3 report Completed or explicitly blocked in this run.
+- P1 and P3 are partly committed in 0172b87; the guards above diff against `d55f835` for that reason.
+- Fill the index table from this run's logs only. Do not reuse session-278 logs as gate evidence.
 
 ## Tests
 
@@ -127,10 +135,18 @@ bash -c 'mise run search:down 2>&1 | tee tmp/release-0-1-17/P4/search-down.log; 
 bash -c 'git status --porcelain | tee tmp/release-0-1-17/P4/changed-files.log'
 bash -c 'git diff --name-only -- mise.toml docker Sources/AppServer web/src-tauri/capabilities web/src/styles.css web/src/workspace.css web/src/index.tsx web/src/App.tsx Sources/AppCore/AgentGatewaySubscription.swift Sources/AppCore/ClaudeSubscriptionExecution.swift | tee tmp/release-0-1-17/P4/guard-protected.log; test ! -s tmp/release-0-1-17/P4/guard-protected.log'
 bash -c 'git diff --name-only -- design-docs | tee tmp/release-0-1-17/P4/guard-design-docs.log'
-bash -c '{ git diff --name-only; git ls-files --others --exclude-standard; } | grep -v "^impl-plans/" | sort -u | xargs grep -nE "(/Users/|/opt/homebrew/Cellar)" | tee tmp/release-0-1-17/P4/guard-local-paths.log; test ! -s tmp/release-0-1-17/P4/guard-local-paths.log'
-bash -c '{ git diff --name-only; git ls-files --others --exclude-standard; } | grep -v "^impl-plans/" | sort -u | xargs grep -nE "sk-or-v1-[A-Za-z0-9]{16,}" | tee tmp/release-0-1-17/P4/guard-secrets.log; test ! -s tmp/release-0-1-17/P4/guard-secrets.log'
-bash -c '{ git diff --name-only -- "*.swift"; git ls-files --others --exclude-standard -- "*.swift"; } | xargs wc -l | tee tmp/release-0-1-17/P4/wc.log'
+bash -c '{ git diff --name-only --diff-filter=d d55f835; git ls-files --others --exclude-standard; } | grep -v "^\.riela/" | sort -u | tee tmp/release-0-1-17/P4/release-files.log'
+bash -c 'tr "\n" "\0" < tmp/release-0-1-17/P4/release-files.log | xargs -0 grep -nE "/U[s]ers/|/h[o]me/|/n[i]x/store/|/opt/homebrew/C[e]llar" | tee tmp/release-0-1-17/P4/guard-local-paths.log; test ! -s tmp/release-0-1-17/P4/guard-local-paths.log'
+bash -c 'tr "\n" "\0" < tmp/release-0-1-17/P4/release-files.log | xargs -0 grep -nE "sk-or-v1-[A-Za-z0-9]{16,}" | tee tmp/release-0-1-17/P4/guard-secrets.log; test ! -s tmp/release-0-1-17/P4/guard-secrets.log'
+bash -c 'grep "\.swift$" tmp/release-0-1-17/P4/release-files.log | tr "\n" "\0" | xargs -0 wc -l | tee tmp/release-0-1-17/P4/wc.log'
 ```
+
+Why the guards use the release base:
+
+- P1 and P3 were committed in checkpoint 0172b87, and the design and plans are committed before fanout. A working-tree-only `git diff` would therefore miss them.
+- `d55f835` is the merge base with `origin/main`. Diffing against it scans every file the release changes.
+- The regex uses character classes (`/U[s]ers/` and similar) so this command text does not itself contain the literals the pre-commit hook rejects.
+- `impl-plans/` and `design-docs/` are scanned too, because the final commit stages them.
 
 Expected evidence:
 
@@ -143,7 +159,7 @@ Expected evidence:
 - `web:check` and `tauri:check` exit 0.
 - `cargo-lock-diff.log` shows exactly 1 insertion and 1 deletion.
 - `search:test-live` exit 0, with the XCTest count of the positive run only. The Docker lifecycle commands exit 0, or are recorded as blocked.
-- The protected, local-path and secret guard logs are empty.
+- `release-files.log` lists the release's changed and untracked files and never `.riela/`. The protected, local-path and secret guard logs are empty. If a local-path match is found in a P1-P3 file, repair it with a `/opt/example/...` placeholder or a runtime-built path, and record the repair. If the match is in a plan file, fix that plan file's text without changing its meaning.
 - `guard-design-docs.log` is empty, or lists only `design-docs/specs/ai-agent-integration.md` with P2's single bounded-allowance line, which must be cross-checked against P2's Progress Log.
 - Every changed Swift file is under 1000 lines.
 
@@ -158,3 +174,4 @@ Expected evidence:
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-06: Step 4 (session-279) revised the guards to scan the whole release diff against `d55f835`, including the pre-commit hook's literal classes, and added the tauri sidecar and resume notes. Not started.

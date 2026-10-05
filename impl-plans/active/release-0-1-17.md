@@ -1,6 +1,6 @@
 # Release 0.1.17 Preparation (index)
 
-**Status**: Active. Plans P1-P4 were created at Step 4 from the accepted design (Step 3 accept, comm-004276).
+**Status**: Active (resume, session-279). Plans P1-P4 were created in session-278 (design accepted in comm-004276). They were revised at Step 4 of session-279 after the Step 2 design clarification, which Step 3 accepted in comm-004291.
 **Design Reference**: `design-docs/specs/ai-agent-integration.md` (Runtime and Provider Adapter Boundary paragraph, AI13, the GraphQL Surface Additions `agenticSearch` bullet, Verification item 13) and `design-docs/specs/web-chatbook-ui.md` (W16)
 **Evidence root**: `tmp/release-0-1-17/<planId-prefix>/`. It is gitignored by `tmp/`, and each plan writes only its own directory.
 
@@ -17,6 +17,21 @@ This release ships kaiba 0.1.17 after fixing two defects found in end-to-end ver
    - P2 also proves the fix with an env-gated live test.
 2. In Settings, the selected font-size preset and the primary buttons are unreadable in the light theme. P3 fixes this.
 3. P4 bumps the version to 0.1.17, confirms the README search-engine section, and runs every gate on the combined tree.
+
+## Resume state (session-279)
+
+Checkpoint 0172b87 holds session-278's wave-1 work. The waves and the DAG are unchanged.
+
+| planId | state at resume | work in this run |
+| --- | --- | --- |
+| P1-agentic-search-diagnostics | sources and tests done; 1 of 47 XCTest cases failing | Rewrite the invoker-level fixture so `sandbox-exec` itself fails (missing `#!` interpreter), replace the hook-rejected path literals in its two test files, and re-verify. No `Sources/` edit. |
+| P3-settings-contrast | done; blocked only on `tauri:check` (missing sidecar, now built) | Re-verify `bun test src`, `vitest run`, `web:check` and `tauri:check` with positive counts. |
+| P2-served-sandbox | not started | Full plan. It must keep P1's launcher-fixture test passing after the realpath change. |
+| P4-release-integration | not started | Full plan. Its guards scan the whole release diff against `d55f835`, covering the pre-commit hook's literal classes. |
+
+Design delta for this run: `design-docs/specs/ai-agent-integration.md` has a new AI13 prefix-rule paragraph, plus Verification 13 bullets for the invoker-level launcher fixture and the fixture-literal rule.
+
+Pre-commit hook: the repository hook rejects staged text containing absolute path literals rooted in the macOS users directory, the Linux home directory or the Nix store. No plan writes such a literal into a committed file, including plan files and this index. Guard regexes use character classes (`/U[s]ers/`) so their own text stays clean.
 
 ## Plans and waves
 
@@ -41,10 +56,10 @@ Every file has exactly one writer per wave.
 
 | file | wave 1 | wave 2 | wave 3 |
 | --- | --- | --- | --- |
-| `Sources/AppCore/AgentGatewayInvocationSanitization.swift` | P1 | - | P4 (repair only) |
-| `Sources/AppCore/AgentGatewayCLIInvoker.swift` | P1 (no-reply branch only) | - | P4 (repair only) |
-| `Sources/AppGraphQL/NoteGraphQLService.swift` | P1 | - | P4 (repair only) |
-| `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift` (new) | P1 | - | P4 (repair only) |
+| `Sources/AppCore/AgentGatewayInvocationSanitization.swift` | - (done in 0172b87; read-only in this run) | - | P4 (repair only) |
+| `Sources/AppCore/AgentGatewayCLIInvoker.swift` | - (done in 0172b87; read-only in this run) | - | P4 (repair only) |
+| `Sources/AppGraphQL/NoteGraphQLService.swift` | - (done in 0172b87; read-only in this run) | - | P4 (repair only) |
+| `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift` | - (done in 0172b87; read-only in this run) | - | P4 (repair only) |
 | `Tests/AppCoreTests/AgentGatewayPublicDiagnosticTests.swift` (new) | P1 | - | P4 (repair only) |
 | `Tests/AppGraphQLTests/AgenticSearchDiagnosticsGraphQLTests.swift` (new) | P1 | - | P4 (repair only) |
 | `Sources/AppCore/AgentGatewayExecutionIsolation.swift` | - | P2 | P4 (repair only) |
@@ -132,3 +147,4 @@ P4 fills this table.
 ## Progress Log
 
 - 2026-10-05: Plans P1-P4 were created from the accepted AI13 and W16 design (Step 3 accept, comm-004276).
+- 2026-10-06: Session-279 Step 4 revised the plans for resume. P1 is fixture-and-literals only. P3 is re-verification only. P2 gains its P1-compatibility and literal guard. P4's guards now scan the whole release diff against `d55f835`. The dispatch manifest is updated to match.

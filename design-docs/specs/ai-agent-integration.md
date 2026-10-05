@@ -972,6 +972,17 @@ not claimed as coverage.
   which is the launcher's own prefix for profile or exec failures. The stderr
   text itself is never copied.
 
+  The check is a prefix test on the whole captured stderr, after trimming
+  leading whitespace. It does not search later lines. `sandbox-exec` writes
+  its message before any child runs, so a real launch failure always starts
+  with the prefix. A child that runs under the profile and then writes
+  `sandbox-exec:` itself is not a launch failure. Such a child includes a
+  `/bin/sh` fixture script, which can print its own startup warnings first,
+  for example a `getcwd` denial for the workspace parents. The 2026-10-05 P1
+  failure (`produced no reply (exit 3)`) used that kind of fixture. Fix the
+  fixture so that the launcher fails, not the child. Do not widen the
+  classifier.
+
   *Public reason mapping (AppCore).* A pure function next to
   `sanitizedInvocationError` maps an `AgentInvocationError` to a public reason:
   - `notConfigured` maps to `agent runtime is not configured`.
@@ -1163,7 +1174,21 @@ the same change).
     - A served invocation of a symlinked script gateway succeeds. The existing
       isolation test still denies sibling reads and external writes.
     - Fixture stderr beginning with `sandbox-exec:` yields the sandbox-start
-      diagnostic and never echoes the stderr path.
+      diagnostic and never echoes the stderr path. This is a pure classifier
+      test with `Data` input.
+    - The macOS invoker-level test (`testServedInvokerClassifiesSandboxExecStderrPrefix`)
+      makes `sandbox-exec` itself fail. Its fake gateway is an executable
+      script whose `#!` interpreter does not exist, so the launcher's
+      `execvp` fails before any child runs. The test asserts the sandbox-start
+      template for the reported exit status (digits only), and asserts that the
+      error contains neither the script path nor the launcher's error text. It
+      must not depend on a fixed exit code such as 3, and must not script a
+      child that echoes the prefix (see AI13). It must still pass after the
+      realpath change.
+    - Test fixtures and docs contain no macOS user-directory, Linux
+      home-directory or Nix-store absolute path literal, because the
+      repository pre-commit hook rejects them. Use `/opt/example/...`,
+      `/srv/example/...` or paths built at runtime.
     - The public-reason mapping passes every allowlisted string, and maps
       credential-, path- or stderr-bearing text to `agent request failed`.
     - `agenticSearch` with a fake invoker returns the mapped reason, and the
