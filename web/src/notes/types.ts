@@ -246,13 +246,12 @@ export interface SearchEngineAdapterDescriptor {
   kind: string
   displayName: string
   authModes: string[]
-  /** Server-resolved URL to prefill when this adapter is chosen with an empty URL. */
-  defaultURL?: string | null
 }
 
 export interface SearchEngineSettings {
   managedBy: string
   kind: string
+  /** Null with a non-none kind means the server default. */
   url: string | null
   indexPrefix: string | null
   authMode: string

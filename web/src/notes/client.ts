@@ -907,7 +907,7 @@ export class NoteGraphQLClient {
     try {
       const data = await this.request<{ searchEngineSettings?: QueryPayload<SearchEngineSettings | null> }>(
         'SearchEngineSettings',
-        `query SearchEngineSettings { searchEngineSettings { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes defaultURL } active } } }`,
+        `query SearchEngineSettings { searchEngineSettings { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes } active } } }`,
         {},
       )
       payload = data.searchEngineSettings
@@ -922,7 +922,7 @@ export class NoteGraphQLClient {
   async updateSearchEngineSettings(input: SearchEngineSettingsInput): Promise<SearchEngineSettings> {
     return this.queryValue<{ updateSearchEngineSettings: QueryPayload<SearchEngineSettings> }, SearchEngineSettings>(
       'UpdateSearchEngineSettings',
-      `mutation UpdateSearchEngineSettings($input: SearchEngineSettingsInput!) { updateSearchEngineSettings(input: $input) { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes defaultURL } active } } }`,
+      `mutation UpdateSearchEngineSettings($input: SearchEngineSettingsInput!) { updateSearchEngineSettings(input: $input) { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes } active } } }`,
       { input: { ...input } },
       (data) => data.updateSearchEngineSettings,
     )

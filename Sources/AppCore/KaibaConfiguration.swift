@@ -76,8 +76,7 @@ public struct KaibaConfiguration: Codable, Equatable, Sendable {
 public struct KaibaSearchEngineConfiguration: Codable, Equatable, Sendable {
   public var kind: String
   public var enabled: Bool?
-  /// When nil, `resolvedURL(environment:)` uses the adapter default
-  /// (`KAIBA_MEILISEARCH_URL`, then `SearchEngineFactory.fallbackMeilisearchURL`).
+  /// An absent, empty or whitespace-only URL uses the server default.
   public var url: String?
   public var indexPrefix: String?
   public var apiKeyEnvironmentVariable: String?
@@ -123,9 +122,14 @@ public struct KaibaSearchEngineConfiguration: Codable, Equatable, Sendable {
   public var isEnabled: Bool { enabled ?? true }
   public var resolvedIndexPrefix: String { indexPrefix ?? "kaiba" }
 
+  public var explicitURL: String? {
+    guard let url, !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    return url
+  }
+
   /// The configured URL, or the adapter default resolved from `environment`.
   public func resolvedURL(environment: [String: String]) -> String {
-    url ?? SearchEngineFactory.defaultURL(for: kind, environment: environment) ?? ""
+    explicitURL ?? SearchEngineFactory.defaultURL(for: kind, environment: environment) ?? ""
   }
 }
 

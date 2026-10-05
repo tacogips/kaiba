@@ -10,15 +10,11 @@ public struct SearchEngineAdapterDescriptor: Equatable, Sendable {
   public var kind: String
   public var displayName: String
   public var authModes: [SearchEngineAuthMode]
-  /// The URL a client prefills when this adapter is chosen with an empty URL;
-  /// resolved from the server environment.
-  public var defaultURL: String?
 
-  public init(kind: String, displayName: String, authModes: [SearchEngineAuthMode], defaultURL: String? = nil) {
+  public init(kind: String, displayName: String, authModes: [SearchEngineAuthMode]) {
     self.kind = kind
     self.displayName = displayName
     self.authModes = authModes
-    self.defaultURL = defaultURL
   }
 }
 
@@ -59,6 +55,7 @@ public enum SearchEngineSettingsManagement: String, Equatable, Sendable {
 public struct SearchEngineSettingsView: Equatable, Sendable {
   public var managedBy: SearchEngineSettingsManagement
   public var kind: String
+  /// The explicit stored or configured URL, or `nil` when using the server default.
   public var url: String?
   public var indexPrefix: String?
   public var authMode: SearchEngineAuthMode
@@ -98,6 +95,7 @@ public struct SearchEngineSettingsView: Equatable, Sendable {
 
 public struct SearchEngineSettingsInput: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
   public var kind: String
+  /// Omitted, `nil`, empty or whitespace-only means the backend server default.
   public var url: String?
   public var indexPrefix: String?
   public var authMode: String?

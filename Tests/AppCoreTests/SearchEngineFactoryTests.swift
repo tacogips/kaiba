@@ -73,8 +73,6 @@ final class SearchEngineFactoryTests: XCTestCase {
       configuration: decoded, environment: ["KAIBA_MEILISEARCH_URL": "http://localhost:7701"]
     ))
     XCTAssertEqual(environmentEngine.indexIdentity, "meilisearch:http://localhost:7701/kaiba-notes-v1")
-    XCTAssertEqual(SearchEngineFactory.adapters(environment: fromEnvironment).map(\.defaultURL), ["http://search.local:7700"])
-    XCTAssertEqual(SearchEngineFactory.adapters(environment: [:]).map(\.defaultURL), ["http://127.0.0.1:7700"])
     XCTAssertNil(SearchEngineFactory.defaultURL(for: "other", environment: fromEnvironment))
   }
 

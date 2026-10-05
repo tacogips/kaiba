@@ -1,11 +1,11 @@
 # P5 Integration: reconcile, full gate set, live suite, boundary guards
 
-**Status**: Not started
+**Status**: Completed. Accepted in session-272 (test-integrity comm-004170, adversarial review comm-004171, combined-tree integration review comm-004176). All combined-tree gates passed with positive counts, including the live suite. Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P5-integration
 **Wave**: 3
 **dependsOn**: P1-descriptor-contract, P2-backend-resolution, P3-web-server-default, P4-readme
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` "B verification", "B rollout", B0 (premise), B6 (guard)
-**Index**: `impl-plans/active/search-engine-backend-boundary.md`
+**Index**: `impl-plans/completed/search-engine-backend-boundary.md`
 
 ## Intent and context
 
@@ -31,8 +31,8 @@ with the owning plan, the file, the pre and post hashes and the reason.
 
 ## writePaths
 
-- `impl-plans/active/search-engine-backend-boundary.md`
-- `impl-plans/active/search-engine-backend-boundary-p5-integration.md`
+- `impl-plans/completed/search-engine-backend-boundary.md`
+- `impl-plans/completed/search-engine-backend-boundary-p5-integration.md`
 - `Sources/AppCore/SearchEngineSettingsTypes.swift`
 - `Sources/AppCore/SearchEngineFactory.swift`
 - `Sources/AppCore/NoteService+SearchEngineSettings.swift`
@@ -161,11 +161,19 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] Every gate in the index table filled with exit status, counts and log path.
-- [ ] Four client-boundary guards empty; protected paths unchanged; no machine-local paths.
-- [ ] Every integration repair recorded (owning plan, file, pre/post hash, reason).
-- [ ] No unresolved high or mid finding; any blocker reported explicitly.
+- [x] Every gate in the index table filled with exit status, counts and log path.
+- [x] Four client-boundary guards empty; protected paths unchanged; no machine-local paths.
+- [x] No integration repairs were required; no assertion was weakened.
+- [x] No unresolved high or mid finding; the low-scope AppCLI environment caveat is recorded as a follow-up.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Integrated accepted P1-P4 changes. No source repair was required. `mise run build` exited 0 (`tmp/search-engine-backend-boundary/P5/build.log`). Full Swift tests exited 0: XCTest executed 1184 tests (9 skipped) with 0 failures and Swift Testing passed 148 tests (`swift-test.log`). `mise run lint` exited 0 with 0 serious violations and 3 non-serious baseline warnings in untouched files (`lint.log`).
+- 2026-10-05: `swiftlint lint --strict --quiet --no-cache` over the NUL-delimited changed Swift manifest `changed-swift-files.nul` exited 0 with no diagnostics (`swiftlint-changed.log`).
+- 2026-10-05: Web gates passed: `bun test src` exit 0, 190 pass/0 fail (`bun-test.log`); `bunx vitest run` exit 0, 100 passed (`vitest.log`); `mise run web:check` exit 0 (`web-check.log`); and `mise run tauri:check` exit 0 (`tauri-check.log`). Vitest logs connection-refused diagnostics for its local test endpoint while all 100 tests pass.
+- 2026-10-05: Live lifecycle passed: `search:docker`, `search:up`, `search:test-live`, and `search:down` all exited 0. The live XCTest suite executed 4 tests with 0 failures (`live.log`); the filtered Swift Testing runner reports 0 tests and is not counted.
+- 2026-10-05: Four boundary guards exited 0 with empty logs (`guard-port.log`, `guard-client.log`, `guard-descriptor.log`, `guard-adapters.log`). Protected-path guard is empty (`guard-protected.log`). The refined machine-local path guard is empty (`guard-local-paths.log`); its raw `/Users/` check matched only generic grep patterns in the P4 plan, preserved at `guard-local-paths-raw.log`. Changed Swift files range from 77 to 808 lines (`wc.log`). `changed-files.log` is the source-state capture before P5 edited its plan/index; `changed-files-final.log` includes the P5 plan/index edits plus P1-P4 changes and the pre-existing untracked `.riela/` entry, which was not touched. `git diff --check` exited 0.
+- 2026-10-05: Empty-URL contract coverage was verified across the web form integration test (`web/src/components/SearchEngineSettings.integration.tsx`, omission of `url`) and the GraphQL executor/backend test (`Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift`, omitted and empty URL accepted with `value.url == null`); both suites pass in the recorded full Bun and Swift runs. These are separate in-process component and backend protocol tests, not a browser-to-live-server network run.
+- 2026-10-05: README facts match backend behavior: blank URL is omitted, resolution uses the server environment then fallback, and API keys are not reused after environment retarget. No README correction was needed. P4's low finding remains a scoped follow-up: `Sources/AppCLI/GraphQLCommand.swift` constructs the in-process GraphQL `NoteService` without passing the process environment to its `SearchEngineSlot`; this file is outside P5 writePaths, so it was not edited. Resume criterion: amend a future plan's writePaths to include the CLI construction path, pass the process environment to the slot, and add a focused CLI resolver regression test.
+- 2026-10-05: P5 implementation verification is complete. Formal adversarial review and workflow finalization remain downstream.

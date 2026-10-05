@@ -426,8 +426,7 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
   "SearchEngineAdapterDescriptor": [
     "kind": nil,
     "displayName": nil,
-    "authModes": nil,
-    "defaultURL": nil
+    "authModes": nil
   ],
   "SearchEngineSettingsPayload": noteGraphQLQueryPayloadFields(valueType: "SearchEngineSettings"),
   "SearchEngineSettings": [

@@ -20,15 +20,6 @@ public enum SearchEngineFactory {
     return value.isEmpty ? fallbackMeilisearchURL : value
   }
 
-  /// `adapters` with each `defaultURL` resolved from the environment.
-  public static func adapters(environment: [String: String]) -> [SearchEngineAdapterDescriptor] {
-    adapters.map { adapter in
-      var resolved = adapter
-      resolved.defaultURL = defaultURL(for: adapter.kind, environment: environment)
-      return resolved
-    }
-  }
-
   public static func normalizedTarget(_ url: String) -> String? {
     guard let components = URLComponents(string: url),
           let scheme = components.scheme?.lowercased(), let rawHost = components.host, !rawHost.isEmpty else { return nil }

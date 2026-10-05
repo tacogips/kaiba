@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { defaultEngineURL, normalizedTarget, searchEngineSettingsInput, validateSearchEngineForm, type SearchEngineForm } from './searchEngineSettings'
+import { normalizedTarget, searchEngineSettingsInput, validateSearchEngineForm, type SearchEngineForm } from './searchEngineSettings'
 import type { SearchEngineSettings } from './types'
 
 const loaded: SearchEngineSettings = {
@@ -16,11 +16,23 @@ function form(patch: Partial<SearchEngineForm> = {}): SearchEngineForm {
   }
 }
 
-function fields(value: SearchEngineForm): string[] {
-  return validateSearchEngineForm(value, loaded).map((error) => error.field)
+function fields(value: SearchEngineForm, source: SearchEngineSettings = loaded): string[] {
+  return validateSearchEngineForm(value, source).map((error) => error.field)
 }
 
 describe('search engine settings validation', () => {
+  test('accepts blank and whitespace URLs as the server default', () => {
+    expect(fields(form({ url: '' }))).not.toContain('searchEngine.url')
+    expect(fields(form({ url: '   ' }))).not.toContain('searchEngine.url')
+    expect(searchEngineSettingsInput(form({ url: '' }))).not.toHaveProperty('url')
+    expect(searchEngineSettingsInput(form({ url: '  ' }))).not.toHaveProperty('url')
+  })
+
+  test('retains stored secrets when both settings use the server default', () => {
+    const serverDefault: SearchEngineSettings = { ...loaded, url: null, authMode: 'apiKey' }
+    expect(fields(form({ url: '', authMode: 'apiKey' }), serverDefault)).not.toContain('searchEngine.secret')
+  })
+
   test('rejects non-loopback http, bad prefixes and invalid timeouts', () => {
     expect(fields(form({ url: 'http://example.com:8080' }))).toContain('searchEngine.url')
     expect(fields(form({ indexPrefix: 'Bad Prefix' }))).toContain('searchEngine.indexPrefix')
@@ -47,6 +59,7 @@ describe('search engine settings validation', () => {
 
   test('allows disabled TLS verification only for https', () => {
     expect(fields(form({ verifyTLS: false }))).toContain('searchEngine.verifyTLS')
+    expect(fields(form({ url: '', verifyTLS: false }))).toContain('searchEngine.verifyTLS')
     expect(fields(form({ url: 'https://search.example.com', verifyTLS: false }))).not.toContain('searchEngine.verifyTLS')
   })
 
@@ -56,19 +69,5 @@ describe('search engine settings validation', () => {
 
   test('omits a stale secret when authentication is disabled', () => {
     expect(searchEngineSettingsInput(form({ authMode: 'none', secret: 'stale-secret' }))).not.toHaveProperty('secret')
-  })
-})
-
-describe('defaultEngineURL', () => {
-  const adapters = [
-    { kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'], defaultURL: 'http://search.lan:7700' },
-    { kind: 'example-engine', displayName: 'Example engine', authModes: ['none'], defaultURL: null },
-  ]
-  test('prefills the server-resolved default only when the URL is empty', () => {
-    expect(defaultEngineURL('meilisearch', '', adapters)).toBe('http://search.lan:7700')
-    expect(defaultEngineURL('meilisearch', '  ', adapters)).toBe('http://search.lan:7700')
-    expect(defaultEngineURL('meilisearch', 'https://search.example', adapters)).toBe('https://search.example')
-    expect(defaultEngineURL('example-engine', '', adapters)).toBe('')
-    expect(defaultEngineURL('unknown', '', adapters)).toBe('')
   })
 })

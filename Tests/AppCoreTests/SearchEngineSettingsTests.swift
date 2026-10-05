@@ -13,7 +13,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
 
   func testResolverHonorsConfigThenStoreThenNoneAndBindsSecretToTarget() async throws {
     let service = try makeService(function: #function)
-    let none = try service.resolveSearchEngineSettings(configuration: nil)
+    let none = try service.resolveSearchEngineSettings(configuration: nil, environment: [:])
     if case .none = none {} else { XCTFail("expected none") }
 
     let input = SearchEngineSettingsInput(
@@ -21,7 +21,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
       secret: "secret-value"
     )
     _ = try await service.updateSearchEngineSettings(input)
-    let stored = try service.resolveSearchEngineSettings(configuration: nil)
+    let stored = try service.resolveSearchEngineSettings(configuration: nil, environment: [:])
     if case let .store(settings, secret) = stored {
       XCTAssertEqual(settings.url, "https://search.internal:7700/")
       XCTAssertEqual(secret, "secret-value")
@@ -30,7 +30,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
     }
 
     let config = KaibaSearchEngineConfiguration(kind: "meilisearch", enabled: false, url: "https://config.internal")
-    let managed = try service.resolveSearchEngineSettings(configuration: config)
+    let managed = try service.resolveSearchEngineSettings(configuration: config, environment: [:])
     if case .managedByConfig(let resolved) = managed {
       XCTAssertEqual(resolved, config)
     } else {
@@ -42,7 +42,7 @@ final class SearchEngineSettingsTests: NoteTestCase {
       valueJSON: #"{"authMode":"apiKey","target":"https://attacker.example","secret":"secret-value"}"#,
       allowReserved: true
     )
-    let mismatched = try service.resolveSearchEngineSettings(configuration: nil)
+    let mismatched = try service.resolveSearchEngineSettings(configuration: nil, environment: [:])
     if case .store(_, let secret) = mismatched {
       XCTAssertNil(secret)
     } else {
@@ -181,6 +181,139 @@ final class SearchEngineSettingsTests: NoteTestCase {
     }
   }
 
+  func testConfigManagedViewReturnsOnlyExplicitURL() throws {
+    let slot = SearchEngineSlot()
+    slot.setEnvironment(["KAIBA_MEILISEARCH_URL": "https://environment-only.example"])
+    let service = try NoteService(driver: try makeNoteDriver(function: #function), searchEngineSlot: slot)
+
+    slot.setManagedConfiguration(KaibaSearchEngineConfiguration(kind: "meilisearch"))
+    XCTAssertNil(try service.searchEngineSettings().url)
+
+    slot.setManagedConfiguration(KaibaSearchEngineConfiguration(
+      kind: "meilisearch", url: "https://config.internal"
+    ))
+    XCTAssertEqual(try service.searchEngineSettings().url, "https://config.internal")
+  }
+
+  func testServerDefaultSavesWithoutURLAndReadsOnlyExplicitURL() async throws {
+    let slot = SearchEngineSlot()
+    let environment = ["KAIBA_MEILISEARCH_URL": "https://a.example"]
+    slot.setEnvironment(environment)
+    let service = try NoteService(driver: try makeNoteDriver(function: #function), searchEngineSlot: slot)
+
+    for inputURL in [nil, "", "  "] as [String?] {
+      let view = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
+        kind: "meilisearch", url: inputURL, authMode: "none"
+      ))
+      let raw = try XCTUnwrap(service.appSetting(key: NoteService.searchEngineSettingsKey, allowReserved: true))
+      let row = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+      XCTAssertNil(row["url"])
+      XCTAssertEqual(view.kind, "meilisearch")
+      XCTAssertNil(view.url)
+      XCTAssertNil(try service.searchEngineSettings().url)
+    }
+
+    let engine = try XCTUnwrap(service.makeResolvedSearchEngine(configuration: nil, environment: environment))
+    XCTAssertEqual(engine.indexIdentity, "meilisearch:https://a.example/kaiba-notes-v1")
+
+    let explicit = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
+      kind: "meilisearch", url: "https://search.internal:7700/", authMode: "none"
+    ))
+    XCTAssertEqual(explicit.url, "https://search.internal:7700/")
+    let explicitRaw = try XCTUnwrap(service.appSetting(key: NoteService.searchEngineSettingsKey, allowReserved: true))
+    let explicitRow = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(explicitRaw.utf8)) as? [String: Any])
+    XCTAssertEqual(explicitRow["url"] as? String, "https://search.internal:7700/")
+  }
+
+  func testLegacyBlankStoredURLResolvesFromEnvironmentButViewStaysNull() throws {
+    let slot = SearchEngineSlot()
+    let environment = ["KAIBA_MEILISEARCH_URL": "https://legacy-default.example"]
+    slot.setEnvironment(environment)
+    let service = try NoteService(driver: try makeNoteDriver(function: #function), searchEngineSlot: slot)
+
+    for legacyURL in ["", "   "] {
+      try service.setAppSetting(
+        key: NoteService.searchEngineSettingsKey,
+        valueJSON: "{\"kind\":\"meilisearch\",\"url\":\"\(legacyURL)\"}",
+        allowReserved: true
+      )
+      let resolution = try service.resolveSearchEngineSettings(configuration: nil, environment: environment)
+      if case .store(let settings, _) = resolution {
+        XCTAssertEqual(settings.url, "https://legacy-default.example")
+      } else {
+        XCTFail("expected stored settings")
+      }
+      XCTAssertNil(try service.storedSearchEngineExplicitURL())
+      XCTAssertNil(try service.searchEngineSettings().url)
+    }
+  }
+
+  func testServerDefaultIdentityBackfillsAndSecretFailsClosedAfterEnvironmentRetarget() async throws {
+    let slot = SearchEngineSlot()
+    let environmentA = ["KAIBA_MEILISEARCH_URL": "https://a.example"]
+    let environmentB = ["KAIBA_MEILISEARCH_URL": "https://b.example"]
+    slot.setEnvironment(environmentA)
+    let service = try NoteService(driver: try makeNoteDriver(function: #function), searchEngineSlot: slot)
+    _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(kind: "meilisearch", authMode: "none"))
+
+    let engineA = try XCTUnwrap(service.makeResolvedSearchEngine(configuration: nil, environment: environmentA))
+    let engineB = try XCTUnwrap(service.makeResolvedSearchEngine(configuration: nil, environment: environmentB))
+    XCTAssertTrue(engineA.indexIdentity.contains("a.example"))
+    XCTAssertTrue(engineB.indexIdentity.contains("b.example"))
+    XCTAssertTrue(try service.activateSearchEngineSync(indexIdentity: engineA.indexIdentity))
+    XCTAssertTrue(try service.activateSearchEngineSync(indexIdentity: engineB.indexIdentity))
+
+    _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
+      kind: "meilisearch", authMode: "apiKey", secret: "key-a"
+    ))
+    let resolutionA = try service.resolveSearchEngineSettings(configuration: nil, environment: environmentA)
+    if case .store(_, let secret) = resolutionA {
+      XCTAssertEqual(secret, "key-a")
+    } else {
+      XCTFail("expected stored settings")
+    }
+    let resolutionB = try service.resolveSearchEngineSettings(configuration: nil, environment: environmentB)
+    if case .store(_, let secret) = resolutionB {
+      XCTAssertNil(secret)
+    } else {
+      XCTFail("expected stored settings")
+    }
+    XCTAssertThrowsError(try service.makeResolvedSearchEngine(configuration: nil, environment: environmentB)) { error in
+      XCTAssertEqual(error as? SearchEngineSettingsError, .invalid(field: "searchEngine.secret"))
+    }
+
+    slot.setEnvironment(environmentB)
+    XCTAssertFalse(try service.searchEngineSettings().hasSecret)
+  }
+
+  func testServerDefaultTestConnectionUsesResolvedURLAndInvalidEnvironmentFailsClosed() async throws {
+    let slot = SearchEngineSlot()
+    let service = try NoteService(driver: try makeNoteDriver(function: #function), searchEngineSlot: slot)
+    slot.setEnvironment(["KAIBA_MEILISEARCH_URL": "https://test-default.example"])
+    var resolvedURL: String?
+    let result = try await service.testSearchEngineConnection(SearchEngineSettingsInput(
+      kind: "meilisearch", authMode: "none"
+    )) { settings, _ in
+      resolvedURL = settings.url
+      return FakeSearchEngine()
+    }
+    XCTAssertEqual(resolvedURL, "https://test-default.example")
+    XCTAssertFalse(result.detail.contains("test-default.example"))
+
+    slot.setEnvironment(["KAIBA_MEILISEARCH_URL": "http://remote.example"])
+    do {
+      _ = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(kind: "meilisearch", authMode: "none"))
+      XCTFail("remote plain HTTP environment must be rejected")
+    } catch {
+      XCTAssertEqual(error as? SearchEngineSettingsError, .invalid(field: "searchEngine.url"))
+    }
+    XCTAssertNil(try service.appSetting(key: NoteService.searchEngineSettingsKey, allowReserved: true))
+    let invalid = try await service.testSearchEngineConnection(SearchEngineSettingsInput(kind: "meilisearch", authMode: "none"))
+    XCTAssertEqual(invalid.status, .invalidSettings)
+    XCTAssertEqual(invalid.detail, "searchEngine.url")
+    XCTAssertNil(try service.appSetting(key: NoteService.searchEngineSettingsKey, allowReserved: true))
+  }
+
   func testInvalidStoredSettingMapsToFieldOnlyAndFactoryValidatesInputs() throws {
     let service = try makeService(function: #function)
     try service.setAppSetting(
@@ -253,8 +386,8 @@ final class SearchEngineSettingsTests: NoteTestCase {
     }
   }
 
-  private func makeService(function: String) throws -> NoteService {
-    try NoteService(driver: makeNoteDriver(function: function))
+  private func makeService(function: String, slot: SearchEngineSlot = SearchEngineSlot()) throws -> NoteService {
+    try NoteService(driver: makeNoteDriver(function: function), searchEngineSlot: slot)
   }
 
 }

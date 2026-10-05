@@ -1,11 +1,11 @@
 # P2 Backend resolution: optional URL, server-default marker, explicit-or-null read
 
-**Status**: Not started
+**Status**: Completed. Accepted in session-272 (test-integrity comm-004170, adversarial review comm-004171, combined-tree integration review comm-004176). The P5 combined-tree gates passed (`impl-plans/completed/search-engine-backend-boundary.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P2-backend-resolution
 **Wave**: 2
 **dependsOn**: P1-descriptor-contract
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` B2 (server-default resolution), B3 (persist the marker; identity; secret binding), B4 (read returns explicit or null), B7 (Swift tests), B1 rows A5-A7
-**Index**: `impl-plans/active/search-engine-backend-boundary.md`
+**Index**: `impl-plans/completed/search-engine-backend-boundary.md`
 
 ## Intent and context
 
@@ -75,7 +75,7 @@ Repository facts (current code after P1):
 - `Tests/AppCoreTests/SearchEngineSettingsTests.swift`
 - `Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift`
 - `Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift`
-- `impl-plans/active/search-engine-backend-boundary-p2-backend-resolution.md`
+- `impl-plans/completed/search-engine-backend-boundary-p2-backend-resolution.md`
 - `tmp/search-engine-backend-boundary/P2`
 
 ## sharedPaths (read-only)
@@ -266,13 +266,18 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] All B7 Swift cases above exist and pass.
-- [ ] A server-default save leaves no `url` key in `auth.search-engine.settings` (raw-row assertion).
-- [ ] The view's `url` is never the env or fallback value (config and store cases tested).
-- [ ] `resolveSearchEngineSettings` requires `environment`; the CLI passes its environment; no ProcessInfo read in the settings paths.
-- [ ] Secret fails closed after an env retarget (tested).
-- [ ] Progress Log updated with commands, exit codes, counts and log paths.
+- [x] All B7 Swift cases above exist and pass.
+- [x] A server-default save leaves no `url` key in `auth.search-engine.settings` (raw-row assertion).
+- [x] The view's `url` is never the env or fallback value (config and store cases tested).
+- [x] `resolveSearchEngineSettings` requires `environment`; the CLI passes its environment; no ProcessInfo read in the settings paths.
+- [x] Secret fails closed after an env retarget (tested).
+- [x] Progress Log updated with commands, exit codes, counts and log paths.
 
 ## Progress Log
 
-- 2026-10-05: Plan created.
+- 2026-10-05: Implemented server-default resolution across config, persisted settings, settings reads, CLI resolution and runtime reload. Settings input accepts omitted, empty and whitespace URLs; persistence omits the `url` key, settings reads return explicit-or-null, and secret targets remain bound to the resolved normalized URL. Added config, stored-row, GraphQL and runtime tests, including legacy blank stored URLs and environment retarget behavior.
+- 2026-10-05: `mise run build` exited 0 (`tmp/search-engine-backend-boundary/P2/build.log`).
+- 2026-10-05: `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "SearchEngine|Meilisearch|KaibaSearchEngine"` exited 0 (`tmp/search-engine-backend-boundary/P2/swift-test-rerun-1.log`): XCTest executed 128 tests with 0 failures and 4 skipped environment-gated live tests; Swift Testing passed 13 tests. The initial run (`swift-test.log`) failed during test compilation because a throwing factory call was nested in `#require`; the test was corrected without weakening assertions and the rerun passed.
+- 2026-10-05: `mise run lint` exited 0 (`tmp/search-engine-backend-boundary/P2/lint.log`): 3 non-serious baseline warnings in untouched files. Strict SwiftLint on the eight changed Swift paths selected by `changed-swift-files.nul` exited 0 with no diagnostics (`swiftlint-changed.log`).
+- 2026-10-05: ProcessInfo guard exited 0 with no matches (`guard-processinfo.log`; grep returned 1 for no matches). All eight changed Swift files are below 1000 lines (`wc.log`, maximum 549).
+- 2026-10-05: Full-tree integration gates and formal review remain assigned to P5 and later workflow steps.

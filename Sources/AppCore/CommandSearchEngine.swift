@@ -102,7 +102,10 @@ public enum SearchEngineCommand {
         environment: environment
       ))
       try service.requireStoreAdministrator()
-      let resolution = try service.resolveSearchEngineSettings(configuration: options.configuration.searchEngine)
+      let resolution = try service.resolveSearchEngineSettings(
+        configuration: options.configuration.searchEngine,
+        environment: environment
+      )
       let engine = try service.makeResolvedSearchEngine(
         configuration: options.configuration.searchEngine,
         environment: environment

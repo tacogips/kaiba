@@ -55,7 +55,7 @@ type EngineSearchFacets { tagClasses: [EngineFacetBucket!]!, tags: [EngineTagFac
 type EngineFacetBucket { value: String!, count: Int! }
 type EngineTagFacetBucket { tagId: String!, name: String!, tagClass: String, count: Int! }
 type EngineNoteSearchQueryPayload { result: ControlPlaneResult!, value: [EngineNoteHit!], facets: EngineSearchFacets }
-type SearchEngineAdapterDescriptor { kind: String!, displayName: String!, authModes: [String!]!, defaultURL: String }
+type SearchEngineAdapterDescriptor { kind: String!, displayName: String!, authModes: [String!]! }
 type SearchEngineSettings {
   managedBy: String!, kind: String!, url: String, indexPrefix: String
   authMode: String!, username: String, hasSecret: Boolean!, verifyTLS: Boolean!

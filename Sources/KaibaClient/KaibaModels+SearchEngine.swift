@@ -32,13 +32,12 @@ public struct KaibaSearchEngineAdapterDescriptor: Codable, Equatable, Sendable {
   public var kind: String
   public var displayName: String
   public var authModes: [String]
-  /// Server-resolved URL to prefill when this adapter is chosen with an empty URL.
-  public var defaultURL: String?
 }
 
 public struct KaibaSearchEngineSettings: Codable, Equatable, Sendable {
   public var managedBy: String
   public var kind: String
+  /// `nil` means the server default when `kind` is not `none`.
   public var url: String?
   public var indexPrefix: String?
   public var authMode: String
@@ -57,6 +56,7 @@ public struct KaibaSearchEngineSettingsPayload: Codable, Equatable, Sendable {
 
 public struct KaibaSearchEngineSettingsInput: Codable, Equatable, Sendable {
   public var kind: String
+  /// Omitted, `nil`, empty or whitespace-only means the server default.
   public var url: String?
   public var indexPrefix: String?
   public var authMode: String?

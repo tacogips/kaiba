@@ -66,18 +66,19 @@ describe('SearchEngineSettings', () => {
   })
 
   test('shows config-managed settings read-only without actions', async () => {
-    const view = mount({ ...initial, managedBy: 'config' })
+    const view = mount({ ...initial, managedBy: 'config', kind: 'meilisearch', url: null })
     try {
       await settle()
       expect(view.host.textContent).toContain('Managed by the server configuration file')
+      expect(view.host.textContent).toContain('Server default')
       expect(view.host.querySelector('button')).toBeNull()
     } finally { view.dispose(); view.host.remove() }
   })
 
-  test('choosing Meilisearch with an empty URL prefills the server default URL', async () => {
+  test('choosing Meilisearch keeps the URL empty and saves the server default', async () => {
     const view = mount({
       ...initial, kind: 'none', url: null, authMode: 'none', username: null, hasSecret: false, active: false,
-      adapters: [{ kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'], defaultURL: 'http://search.lan:7700' }],
+      adapters: [{ kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'] }],
     })
     try {
       await settle()
@@ -85,7 +86,29 @@ describe('SearchEngineSettings', () => {
       select.value = 'meilisearch'
       select.dispatchEvent(new Event('change'))
       await settle()
-      expect(inputByLabel(view.host, 'URL').value).toBe('http://search.lan:7700')
+      const url = inputByLabel(view.host, 'URL')
+      expect(url.value).toBe('')
+      expect(url.placeholder).toBe('Server default')
+      expect(view.host.textContent).toContain('Leave empty to use the server default. Only the Kaiba server connects to the search engine.')
+      view.host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click()
+      await vi.waitFor(() => expect(view.client.updateSearchEngineSettings).toHaveBeenCalled())
+      const input = vi.mocked(view.client.updateSearchEngineSettings).mock.calls.at(0)?.[0]
+      expect(input).toMatchObject({ kind: 'meilisearch', authMode: 'none' })
+      expect(input).not.toHaveProperty('url')
+    } finally { view.dispose(); view.host.remove() }
+  })
+
+  test('choosing an engine preserves an explicitly entered URL', async () => {
+    const view = mount({
+      ...initial,
+      adapters: [...initial.adapters, { kind: 'meilisearch', displayName: 'Meilisearch', authModes: ['none', 'apiKey'] }],
+    })
+    try {
+      await settle()
+      const select = view.host.querySelector('select') as HTMLSelectElement
+      select.value = 'meilisearch'
+      select.dispatchEvent(new Event('change'))
+      expect(inputByLabel(view.host, 'URL').value).toBe('https://search.example.com:8080')
     } finally { view.dispose(); view.host.remove() }
   })
 
@@ -157,7 +180,7 @@ describe('SearchEngineSettings', () => {
       engine!.dispatchEvent(new Event('change', { bubbles: true }))
 
       const url = inputByLabel(view.host, 'URL')
-      url.value = 'http://127.0.0.1:7700'
+      url.value = 'https://search.example'
       url.dispatchEvent(new Event('input', { bubbles: true }))
 
       const authMode = [...view.host.querySelectorAll('label')]
@@ -177,7 +200,7 @@ describe('SearchEngineSettings', () => {
 
       await vi.waitFor(() => expect(view.client.updateSearchEngineSettings).toHaveBeenCalled())
       const input = vi.mocked(view.client.updateSearchEngineSettings).mock.calls.at(0)?.[0]
-      expect(input).toMatchObject({ kind: 'meilisearch', url: 'http://127.0.0.1:7700', authMode: 'apiKey' })
+      expect(input).toMatchObject({ kind: 'meilisearch', url: 'https://search.example', authMode: 'apiKey' })
       expect(input).not.toHaveProperty('username')
     } finally { view.dispose(); view.host.remove() }
   })

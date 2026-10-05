@@ -74,7 +74,7 @@ public extension KaibaClient {
           result { accepted status diagnostics }
           value {
             managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds
-            adapters { kind displayName authModes defaultURL }
+            adapters { kind displayName authModes }
             active
           }
         }
@@ -94,7 +94,7 @@ public extension KaibaClient {
           result { accepted status diagnostics }
           value {
             managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds
-            adapters { kind displayName authModes defaultURL }
+            adapters { kind displayName authModes }
             active
           }
         }

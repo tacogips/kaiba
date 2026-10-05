@@ -3,8 +3,8 @@ import Foundation
 public extension NoteService {
   func searchEngineSettings() throws -> SearchEngineSettingsView {
     try requireSearchEngineAdministrator()
-    let environment = ProcessInfo.processInfo.environment
-    let adapters = SearchEngineFactory.adapters(environment: environment)
+    let environment = searchEngineSlot.environment
+    let adapters = SearchEngineFactory.adapters
     let active = searchEngineSlot.engine != nil
     if let config = searchEngineSlot.managedConfiguration {
       let authMode: SearchEngineAuthMode = config.apiKeyEnvironmentVariable != nil ? .apiKey :
@@ -12,7 +12,7 @@ public extension NoteService {
       return SearchEngineSettingsView(
         managedBy: .config,
         kind: config.isEnabled ? config.kind : "none",
-        url: config.resolvedURL(environment: environment),
+        url: config.explicitURL,
         indexPrefix: config.resolvedIndexPrefix,
         authMode: authMode,
         username: nil,
@@ -23,7 +23,7 @@ public extension NoteService {
         active: active
       )
     }
-    guard let settings = try storedSearchEngineSettings() else {
+    guard let settings = try storedSearchEngineSettings(environment: environment) else {
       return SearchEngineSettingsView(
         managedBy: .unset,
         kind: "none",
@@ -40,10 +40,11 @@ public extension NoteService {
     }
     let secret = try storedSearchEngineSecret()
     let target = SearchEngineFactory.normalizedTarget(settings.url)
+    let explicitURL = try storedSearchEngineExplicitURL()
     return SearchEngineSettingsView(
       managedBy: .store,
       kind: settings.kind,
-      url: settings.url,
+      url: explicitURL,
       indexPrefix: settings.indexPrefix,
       authMode: settings.authMode,
       username: settings.username,
@@ -151,7 +152,13 @@ private extension NoteService {
     guard let authMode = SearchEngineAuthMode(rawValue: input.authMode ?? "none") else {
       throw SearchEngineSettingsError.invalid(field: "searchEngine.authMode")
     }
-    let url = input.url ?? ""
+    let explicitURL = input.url.flatMap { value in
+      value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
+    }
+    let url = explicitURL ?? SearchEngineFactory.defaultURL(
+      for: input.kind,
+      environment: searchEngineSlot.environment
+    ) ?? ""
     guard let target = SearchEngineFactory.normalizedTarget(url) else {
       throw SearchEngineSettingsError.invalid(field: "searchEngine.url")
     }
@@ -185,7 +192,7 @@ private extension NoteService {
       if case .invalid(let field) = error { throw SearchEngineSettingsError.invalid(field: field) }
       throw SearchEngineSettingsError.invalid(field: "searchEngine.settings")
     }
-    let settingsStored = StoredSettingsForEncoding(settings: settings)
+    let settingsStored = StoredSettingsForEncoding(settings: settings, explicitURL: explicitURL)
     let settingsData = try JSONEncoder().encode(settingsStored)
     guard let settingsJSON = String(data: settingsData, encoding: .utf8) else {
       throw SearchEngineSettingsError.invalid(field: "searchEngine.settings")
@@ -232,16 +239,16 @@ private extension NoteService {
 
 private struct StoredSettingsForEncoding: Encodable {
   var kind: String
-  var url: String
+  var url: String?
   var indexPrefix: String
   var authMode: String
   var username: String?
   var verifyTLS: Bool
   var requestTimeoutSeconds: Int
 
-  init(settings: SearchEngineConnectionSettings) {
+  init(settings: SearchEngineConnectionSettings, explicitURL: String?) {
     kind = settings.kind
-    url = settings.url
+    url = explicitURL
     indexPrefix = settings.indexPrefix
     authMode = settings.authMode.rawValue
     username = settings.username

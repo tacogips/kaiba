@@ -74,12 +74,53 @@ final class SearchEngineSettingsGraphQLTests: XCTestCase {
     XCTAssertFalse(try serializedResponse(tested).contains(secret))
   }
 
-  private func makeService() throws -> GraphQLNoteGraphQLService {
+  func testGraphQLServerDefaultInputResolvesOnBackendAndNeverReturnsEngineURL() async throws {
+    let slot = SearchEngineSlot()
+    slot.setEnvironment(["KAIBA_MEILISEARCH_URL": "https://engine-only.internal"])
+    let service = try makeService(slot: slot)
+    let executor = NoteGraphQLDocumentExecutor(service: service)
+    let omitted = await run(executor, """
+      mutation { updateSearchEngineSettings(input: { kind: "meilisearch", authMode: "none" }) {
+        result { accepted status } value { kind url }
+      } }
+      """)
+    XCTAssertTrue(try bool(omitted, ["updateSearchEngineSettings", "result", "accepted"]))
+    XCTAssertEqual(try string(omitted, ["updateSearchEngineSettings", "value", "kind"]), "meilisearch")
+    XCTAssertEqual(try value(omitted, ["data", "updateSearchEngineSettings", "value", "url"]), .null)
+
+    let empty = await run(executor, """
+      mutation { updateSearchEngineSettings(input: { kind: "meilisearch", url: "", authMode: "none" }) {
+        result { accepted status } value { kind url }
+      } }
+      """)
+    XCTAssertTrue(try bool(empty, ["updateSearchEngineSettings", "result", "accepted"]))
+    XCTAssertEqual(try value(empty, ["data", "updateSearchEngineSettings", "value", "url"]), .null)
+
+    let testConnection = await run(executor, """
+      mutation { testSearchEngineConnection(input: { kind: "meilisearch", authMode: "apiKey" }) {
+        result { accepted status } value { status detail }
+      } }
+      """)
+    XCTAssertTrue(try bool(testConnection, ["testSearchEngineConnection", "result", "accepted"]))
+    XCTAssertEqual(try string(testConnection, ["testSearchEngineConnection", "value", "status"]), "invalid-settings")
+    XCTAssertEqual(try string(testConnection, ["testSearchEngineConnection", "value", "detail"]), "searchEngine.secret")
+
+    let read = await run(executor, "query { searchEngineSettings { result { status } value { kind url } } }")
+    XCTAssertEqual(try value(read, ["data", "searchEngineSettings", "value", "url"]), .null)
+    for response in [omitted, empty, testConnection, read] {
+      XCTAssertFalse(try serializedResponse(response).contains("engine-only.internal"))
+    }
+  }
+
+  private func makeService(slot: SearchEngineSlot = SearchEngineSlot()) throws -> GraphQLNoteGraphQLService {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
       .appendingPathComponent("tmp/SearchEngineSettingsGraphQLTests", isDirectory: true)
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    return GraphQLNoteGraphQLService(service: try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root.path)))
+    return GraphQLNoteGraphQLService(service: try NoteService(
+      driver: SQLiteNoteDatabaseDriver(noteRoot: root.path),
+      searchEngineSlot: slot
+    ))
   }
 
   private func run(

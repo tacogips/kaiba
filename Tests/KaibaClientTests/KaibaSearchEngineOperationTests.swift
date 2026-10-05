@@ -110,6 +110,11 @@ struct KaibaSearchEngineOperationTests {
     let settingsTransport = SearchEngineOperationTransport(responseBody: settingsResponse)
     let settings = try await makeClient(settingsTransport).searchEngineSettings()
     #expect(settings.value?.adapters.first?.kind == "meilisearch")
+    let settingsRequest = try #require(await settingsTransport.request)
+    let settingsWire = try #require(try JSONSerialization.jsonObject(with: settingsRequest.body) as? [String: Any])
+    let settingsDocument = try #require(settingsWire["query"] as? String)
+    #expect(settingsDocument.contains("adapters { kind displayName authModes }"))
+    #expect(!settingsDocument.contains("defaultURL"))
 
     let updateResponse = Data(#"""
     {"data":{"root":{"result":{"accepted":true,"status":"ok","diagnostics":[]},
@@ -128,6 +133,9 @@ struct KaibaSearchEngineOperationTests {
     let updateRequest = try #require(await updateTransport.request)
     let updateWire = try #require(try JSONSerialization.jsonObject(with: updateRequest.body) as? [String: Any])
     #expect((updateWire["query"] as? String)?.contains("root: updateSearchEngineSettings") == true)
+    let updateDocument = try #require(updateWire["query"] as? String)
+    #expect(updateDocument.contains("adapters { kind displayName authModes }"))
+    #expect(!updateDocument.contains("defaultURL"))
     let updateInput = try #require((updateWire["variables"] as? [String: Any])?["input"] as? [String: Any])
     #expect(updateInput["secret"] as? String == "request-only-secret")
 

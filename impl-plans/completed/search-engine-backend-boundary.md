@@ -1,6 +1,6 @@
 # Search Engine Backend-Only Boundary (index)
 
-**Status**: In Progress (plans created 2026-10-05, session-272)
+**Status**: Completed. All five plans (P1-P5) were accepted in session-272. The P5 test-integrity review (comm-004170), adversarial review (comm-004171) and the combined-tree integration review (comm-004176) found no high or mid findings. The P5 gates below passed with positive counts, including the live suite. The browser E2E step was skipped because the repository has no E2E harness; the settings form is covered by the vitest component tests and the `engineBoundary.test.ts` guard. Archived to `impl-plans/completed/` at Step 8 on 2026-10-05. The dispatch manifest `impl-plans/active/search-engine-backend-boundary-dispatch.json` is a workflow runtime artifact and stays in `impl-plans/active/`. Open low follow-up: `Sources/AppCLI/GraphQLCommand.swift:155` (see Progress Log).
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` "Delta: backend-only engine boundary (B0-B8)"
 **Related designs**: `design-docs/specs/design-search-engine-fusion.md` (Status "Later changes", invariant 7), `design-docs/specs/command.md` ("Search engine"), `design-docs/user-qa/search-engine-adapter.md` ("Backend-only engine boundary (2026-10-05)")
 **Evidence root**: `tmp/search-engine-backend-boundary/<planId-prefix>/` (gitignored by `tmp/`; each plan writes only its own directory)
@@ -24,11 +24,11 @@ design step; the README paragraph is P4.
 
 | wave | planId | plan | dependsOn |
 | --- | --- | --- | --- |
-| 1 | P1-descriptor-contract | `impl-plans/active/search-engine-backend-boundary-p1-descriptor-contract.md` | none |
-| 1 | P3-web-server-default | `impl-plans/active/search-engine-backend-boundary-p3-web-server-default.md` | none |
-| 1 | P4-readme | `impl-plans/active/search-engine-backend-boundary-p4-readme.md` | none |
-| 2 | P2-backend-resolution | `impl-plans/active/search-engine-backend-boundary-p2-backend-resolution.md` | P1 |
-| 3 | P5-integration | `impl-plans/active/search-engine-backend-boundary-p5-integration.md` | P1, P2, P3, P4 |
+| 1 | P1-descriptor-contract | `impl-plans/completed/search-engine-backend-boundary-p1-descriptor-contract.md` | none |
+| 1 | P3-web-server-default | `impl-plans/completed/search-engine-backend-boundary-p3-web-server-default.md` | none |
+| 1 | P4-readme | `impl-plans/completed/search-engine-backend-boundary-p4-readme.md` | none |
+| 2 | P2-backend-resolution | `impl-plans/completed/search-engine-backend-boundary-p2-backend-resolution.md` | P1 |
+| 3 | P5-integration | `impl-plans/completed/search-engine-backend-boundary-p5-integration.md` | P1, P2, P3, P4 |
 
 DAG: P1 -> P2 -> P5; P3 -> P5; P4 -> P5. P3 and P4 never touch Swift.
 P1 and P2 are sequenced because both edit
@@ -113,20 +113,23 @@ guards return nothing.
 
 ## Final integration evidence
 
-(P5 fills this table.)
-
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| `mise run build` | | |
-| Full Swift tests | | |
-| `mise run lint` | | |
-| `bun test src` | | |
-| `vitest run` | | |
-| `mise run web:check` | | |
-| `mise run tauri:check` | | |
-| `mise run search:test-live` | | |
-| Client-boundary guards (4) | | |
+| `mise run build` | exit 0 | `tmp/search-engine-backend-boundary/P5/build.log` |
+| Full Swift tests | exit 0; XCTest 1184 run, 9 skipped, 0 failed; Swift Testing 148 passed | `tmp/search-engine-backend-boundary/P5/swift-test.log` |
+| `mise run lint` | exit 0; 0 serious violations, 3 non-serious warnings in untouched baseline files | `tmp/search-engine-backend-boundary/P5/lint.log` |
+| `bun test src` | exit 0; 190 pass, 0 fail | `tmp/search-engine-backend-boundary/P5/bun-test.log` |
+| `vitest run` | exit 0; 100 passed, 0 failed | `tmp/search-engine-backend-boundary/P5/vitest.log` |
+| `mise run web:check` | exit 0 | `tmp/search-engine-backend-boundary/P5/web-check.log` |
+| `mise run tauri:check` | exit 0 | `tmp/search-engine-backend-boundary/P5/tauri-check.log` |
+| `mise run search:test-live` | exit 0; XCTest 4 run, 0 failed (filtered Swift Testing run reports 0 and is not counted) | `tmp/search-engine-backend-boundary/P5/live.log` |
+| Client-boundary guards (4) | exit 0; all logs empty | `guard-port.log`, `guard-client.log`, `guard-descriptor.log`, `guard-adapters.log` under `tmp/search-engine-backend-boundary/P5/` |
 
 ## Progress Log
 
 - 2026-10-05: Plans P1-P5 created from the accepted B0-B8 design (Step 3 accept, comm-004126).
+- 2026-10-05: P5 verified the combined tree. All required build, test, lint, web, Tauri and live-search gates passed; detailed exits, counts and log paths are in the Final integration evidence table and the P5 Progress Log. Docker/Meilisearch lifecycle commands `search:docker`, `search:up`, and `search:down` also exited 0 (`tmp/search-engine-backend-boundary/P5/search-docker.log`, `search-up.log`, `search-down.log`).
+- 2026-10-05: The protected-path guard and refined machine-local path guard are empty. Four client-boundary guards are empty; every changed Swift file is below 1000 lines. The raw `/Users/` substring guard matched only generic grep expressions in the P4 plan, with raw output retained at `guard-local-paths-raw.log`; the refined actual-user-path guard is empty at `guard-local-paths.log`. No integration source repair was needed and no assertion was weakened.
+- 2026-10-05: Empty-URL UI payload and backend GraphQL persistence are covered by the passing web component integration and GraphQL executor/backend tests. These run in their respective Bun and Swift suites rather than through a browser-to-live-server session. P4's low-scope `Sources/AppCLI/GraphQLCommand.swift` environment caveat is recorded as a follow-up in P5's Progress Log because that path is outside P5 writePaths. Formal adversarial review and workflow finalization remain pending.
+- 2026-10-05: Accepted. P5 test-integrity (comm-004170), adversarial (comm-004171) and combined-tree integration review (comm-004176) passed with no high or mid findings; the browser E2E step was skipped (no E2E harness in the repository). Step 8 confirmed the README "Optional search engine" section matches the shipped behavior and archived all six plan files to `impl-plans/completed/`.
+- Open follow-up (low, IR-APPCLI-SLOT-ENV): the in-process `kaiba graphql` (`Sources/AppCLI/GraphQLCommand.swift:155`) builds `NoteService` with an empty `SearchEngineSlot` environment, so a blank Settings URL saved or tested there resolves to `SearchEngineFactory.fallbackMeilisearchURL` instead of `KAIBA_MEILISEARCH_URL`. It fails closed (no `url` key is stored; a mismatched secret is never sent). Fix: call `slot.setEnvironment(ProcessInfo.processInfo.environment)` before constructing `NoteService` and add a CLI regression test. This needs a new scope because `Sources/AppCLI` was outside every plan's writePaths.

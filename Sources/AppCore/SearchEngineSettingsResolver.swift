@@ -15,10 +15,13 @@ private struct StoredSearchEngineSettings: Codable {
   var verifyTLS: Bool?
   var requestTimeoutSeconds: Int?
 
-  var connection: SearchEngineConnectionSettings {
-    SearchEngineConnectionSettings(
+  func connection(environment: [String: String]) -> SearchEngineConnectionSettings {
+    let explicitURL = url.flatMap { value in
+      value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
+    }
+    return SearchEngineConnectionSettings(
       kind: kind,
-      url: url ?? "",
+      url: explicitURL ?? SearchEngineFactory.defaultURL(for: kind, environment: environment) ?? "",
       indexPrefix: indexPrefix ?? "kaiba",
       authMode: SearchEngineAuthMode(rawValue: authMode ?? "none") ?? .none,
       username: username,
@@ -39,7 +42,8 @@ public extension NoteService {
   internal static let searchEngineSecretKey = "auth.search-engine.secret"
 
   func resolveSearchEngineSettings(
-    configuration: KaibaSearchEngineConfiguration?
+    configuration: KaibaSearchEngineConfiguration?,
+    environment: [String: String]
   ) throws -> SearchEngineSettingsResolution {
     if let configuration { return .managedByConfig(configuration) }
     guard let settingsJSON = try appSetting(key: Self.searchEngineSettingsKey, allowReserved: true) else {
@@ -54,7 +58,7 @@ public extension NoteService {
       throw SearchEngineSettingsError.invalid(field: "searchEngine.authMode")
     }
 
-    let settings = stored.connection
+    let settings = stored.connection(environment: environment)
     let storedSecret = try storedSecret()
     let secret: String?
     if let storedSecret,
@@ -71,7 +75,7 @@ public extension NoteService {
     configuration: KaibaSearchEngineConfiguration?,
     environment: [String: String]
   ) throws -> (any SearchEngine)? {
-    switch try resolveSearchEngineSettings(configuration: configuration) {
+    switch try resolveSearchEngineSettings(configuration: configuration, environment: environment) {
     case .managedByConfig(let config):
       return try SearchEngineFactory.make(configuration: config, environment: environment)
     case .store(let settings, let secret):
@@ -88,12 +92,22 @@ public extension NoteService {
     }
   }
 
-  internal func storedSearchEngineSettings() throws -> SearchEngineConnectionSettings? {
-    switch try resolveSearchEngineSettings(configuration: nil) {
+  internal func storedSearchEngineSettings(environment: [String: String]) throws -> SearchEngineConnectionSettings? {
+    switch try resolveSearchEngineSettings(configuration: nil, environment: environment) {
     case .store(let settings, _): return settings
     case .none: return nil
     case .managedByConfig: return nil
     }
+  }
+
+  internal func storedSearchEngineExplicitURL() throws -> String? {
+    guard let settingsJSON = try appSetting(key: Self.searchEngineSettingsKey, allowReserved: true),
+          let data = settingsJSON.data(using: .utf8),
+          let stored = try? JSONDecoder().decode(StoredSearchEngineSettings.self, from: data),
+          stored.kind != "none",
+          let url = stored.url,
+          !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    return url
   }
 
   internal func storedSearchEngineSecret() throws -> StoredSearchEngineSecret? {

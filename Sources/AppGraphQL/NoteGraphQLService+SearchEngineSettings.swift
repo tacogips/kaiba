@@ -6,13 +6,11 @@ public struct GraphQLSearchEngineAdapterDTO: Codable, Equatable, Sendable {
   public var kind: String
   public var displayName: String
   public var authModes: [String]
-  public var defaultURL: String?
 
   public init(adapter: SearchEngineAdapterDescriptor) {
     kind = adapter.kind
     displayName = adapter.displayName
     authModes = adapter.authModes.map(\.rawValue)
-    defaultURL = adapter.defaultURL
   }
 }
 

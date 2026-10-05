@@ -1,11 +1,11 @@
 # P1 Descriptor contract: remove the client-visible `defaultURL`
 
-**Status**: Not started
+**Status**: Completed. Accepted in session-272 (test-integrity comm-004170, adversarial review comm-004171, combined-tree integration review comm-004176). The P5 combined-tree gates passed (`impl-plans/completed/search-engine-backend-boundary.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P1-descriptor-contract
 **Wave**: 1
 **dependsOn**: none
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` B5 (GraphQL and KaibaClient), B1 rows A1-A3, B7 (KaibaClient, AppGraphQL schema), B verification guards
-**Index**: `impl-plans/active/search-engine-backend-boundary.md`
+**Index**: `impl-plans/completed/search-engine-backend-boundary.md`
 
 ## Intent and context
 
@@ -55,7 +55,7 @@ deprecation shim is needed.
 - `Tests/AppCoreTests/SearchEngineFactoryTests.swift`
 - `Tests/AppGraphQLTests/SearchEngineBackendBoundaryGraphQLTests.swift`
 - `Tests/KaibaClientTests/KaibaSearchEngineOperationTests.swift`
-- `impl-plans/active/search-engine-backend-boundary-p1-descriptor-contract.md`
+- `impl-plans/completed/search-engine-backend-boundary-p1-descriptor-contract.md`
 - `tmp/search-engine-backend-boundary/P1`
 
 ## sharedPaths (read-only)
@@ -186,13 +186,19 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `grep -rn 'defaultURL' Sources/AppGraphQL Sources/KaibaClient` is empty.
-- [ ] `grep -n 'defaultURL' Sources/AppCore/SearchEngineSettingsTypes.swift` is empty.
-- [ ] `grep -rn 'adapters(environment' Sources Tests` is empty.
-- [ ] `SearchEngineFactory.defaultURL(for:environment:)` still exists and `Sources/AppCore/KaibaConfiguration.swift` is unchanged.
-- [ ] Schema line matches the D5 shape exactly; new GraphQL test and updated KaibaClient test pass with positive counts.
-- [ ] Progress Log updated with commands, exit codes, counts and log paths.
+- [x] `grep -rn 'defaultURL' Sources/AppGraphQL Sources/KaibaClient` is empty.
+- [x] `grep -n 'defaultURL' Sources/AppCore/SearchEngineSettingsTypes.swift` is empty.
+- [x] `grep -rn 'adapters(environment' Sources Tests` is empty.
+- [x] `SearchEngineFactory.defaultURL(for:environment:)` still exists and `Sources/AppCore/KaibaConfiguration.swift` is unchanged.
+- [x] Schema line matches the D5 shape exactly; new GraphQL test and updated KaibaClient test pass with positive counts.
+- [x] Progress Log updated with commands, exit codes, counts and log paths.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Removed the client-visible descriptor URL and the environment-resolved adapter-list API from AppCore, GraphQL and KaibaClient. Added explicit server-default semantics to the relevant Swift URL fields. Added GraphQL assertions for the exact descriptor shape, rejected `defaultURL` selection and environment URL non-disclosure; updated SDK request assertions for both settings operations.
+- 2026-10-05: `mise run build` exit 0; full log `tmp/search-engine-backend-boundary/P1/build-final.log`.
+- 2026-10-05: `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "SearchEngineFactoryTests|SearchEngineBackendBoundaryGraphQLTests|SearchEngineSettingsGraphQLTests|SearchEngineSettingsTests|KaibaSearchEngineOperationTests|KaibaTypedOperationContractTests|NoteGraphQLSchemaInventoryTests|GraphQLIntrospectionTests"` exit 0; XCTest 29 passed, 0 failed; Swift Testing 7 passed; full log `tmp/search-engine-backend-boundary/P1/swift-test-rerun-1.log`. The initial run failed one new test due to a missing `data` path component; corrected the test helper call and reran successfully. Initial log retained at `tmp/search-engine-backend-boundary/P1/swift-test.log`.
+- 2026-10-05: selected-file `swiftlint lint --strict --quiet --no-cache` using NUL manifest `tmp/search-engine-backend-boundary/P1/changed-swift-files.nul` exit 0; log `tmp/search-engine-backend-boundary/P1/swiftlint-changed-rerun.log`.
+- 2026-10-05: `mise run lint` exit 0 across 387 files; reports 3 non-serious warnings in untouched `Sources/AppCore/NoteService.swift`, `Sources/AppCore/ResendGatewayCLIMailSender.swift`, and `Tests/AppCoreTests/AITranslationTests.swift`; log `tmp/search-engine-backend-boundary/P1/lint.log`.
+- 2026-10-05: descriptor/client/adapter grep guards and retained-resolver/configuration-unchanged guard all exit 0; outputs at `tmp/search-engine-backend-boundary/P1/guard-client.log`, `guard-descriptor.log`, and `guard-adapters.log`. Touched Swift files are all under 1000 lines; counts recorded in `tmp/search-engine-backend-boundary/P1/wc.log`.

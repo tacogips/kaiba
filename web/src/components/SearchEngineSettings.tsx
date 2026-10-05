@@ -3,7 +3,6 @@ import { useApp, type AppStore } from '../state/appStore'
 import type { NoteGraphQLClient } from '../notes/client'
 import type { SearchEngineSettings as Settings } from '../notes/types'
 import {
-  defaultEngineURL,
   searchEngineSettingsInput,
   normalizedTarget,
   validateSearchEngineForm,
@@ -117,7 +116,7 @@ export function SearchEngineSettings(props: SearchEngineSettingsProps = {}): JSX
               <p class="pane-note">Managed by the server configuration file</p>
               <dl>
                 <dt>Engine</dt><dd>{value().kind}</dd>
-                <dt>URL</dt><dd>{value().url ?? '—'}</dd>
+                <dt>URL</dt><dd>{value().url ?? (value().kind !== 'none' ? 'Server default' : '—')}</dd>
                 <dt>Index prefix</dt><dd>{value().indexPrefix ?? '—'}</dd>
                 <dt>Authentication</dt><dd>{value().authMode}</dd>
                 <dt>Status</dt><dd>{value().active ? 'Active' : 'Inactive'}</dd>
@@ -130,14 +129,18 @@ export function SearchEngineSettings(props: SearchEngineSettingsProps = {}): JSX
                   <select value={form()?.kind} onChange={(event) => {
                     const kind = event.currentTarget.value
                     const adapter = value().adapters.find((item) => item.kind === kind)
-                    update({ kind, authMode: adapter?.authModes[0] ?? 'none', url: defaultEngineURL(kind, form()?.url ?? '', value().adapters) })
+                    update({ kind, authMode: adapter?.authModes[0] ?? 'none' })
                   }}>
                     <option value="none">None</option>
                     <For each={value().adapters}>{(adapter) => <option value={adapter.kind}>{adapter.displayName}</option>}</For>
                   </select>
                 </label>
                 <Show when={form()?.kind !== 'none'}>
-                  <label><span>URL</span><input type="url" value={form()?.url} onInput={(event) => update({ url: event.currentTarget.value })} /></label>
+                  <label>
+                    <span>URL</span>
+                    <input type="url" value={form()?.url} placeholder="Server default" onInput={(event) => update({ url: event.currentTarget.value })} />
+                    <p class="pane-note">Leave empty to use the server default. Only the Kaiba server connects to the search engine.</p>
+                  </label>
                   <label><span>Index prefix</span><input value={form()?.indexPrefix} onInput={(event) => update({ indexPrefix: event.currentTarget.value })} /></label>
                   <label>
                     <span>Authentication</span>

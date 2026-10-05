@@ -1,4 +1,4 @@
-import type { SearchEngineAdapterDescriptor, SearchEngineSettings, SearchEngineSettingsInput } from './types'
+import type { SearchEngineSettings, SearchEngineSettingsInput } from './types'
 
 export interface SearchEngineForm {
   kind: string
@@ -15,16 +15,6 @@ export interface SearchEngineForm {
 export interface SearchEngineFieldError {
   field: string
   message: string
-}
-
-/**
- * The URL to show after choosing `kind`: the current URL when one is entered,
- * otherwise the adapter's server-resolved `defaultURL` (from the server
- * environment), otherwise the current value.
- */
-export function defaultEngineURL(kind: string, currentURL: string, adapters: SearchEngineAdapterDescriptor[]): string {
-  if (currentURL.trim()) return currentURL
-  return adapters.find((adapter) => adapter.kind === kind)?.defaultURL ?? currentURL
 }
 
 export function normalizedTarget(value: string): string | null {
@@ -47,9 +37,8 @@ export function validateSearchEngineForm(
   let target: string | null = null
 
   if (form.kind !== 'none') {
-    if (!form.url.trim()) add('searchEngine.url', 'URL is required.')
     if (form.url.length > 2048) add('searchEngine.url', 'URL must be 2048 characters or fewer.')
-    else {
+    else if (form.url.trim()) {
       target = normalizedTarget(form.url)
       if (!target) add('searchEngine.url', 'Enter an http or https URL without user information.')
       else {

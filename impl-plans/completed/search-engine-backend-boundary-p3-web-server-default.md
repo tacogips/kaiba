@@ -1,11 +1,11 @@
 # P3 Web: server-default URL hint, no engine coordinates in web/src
 
-**Status**: Not started
+**Status**: Completed. Accepted in session-272 (test-integrity comm-004170, adversarial review comm-004171, combined-tree integration review comm-004176). The P5 combined-tree gates passed (`impl-plans/completed/search-engine-backend-boundary.md`, "Final integration evidence"). Archived to `impl-plans/completed/` at Step 8 on 2026-10-05.
 **planId**: P3-web-server-default
 **Wave**: 1
 **dependsOn**: none (tests use mocked GraphQL data; the server contract is pinned in the design)
 **Design Reference**: `design-docs/specs/search-engine-adapter.md` B6 (web client), B4 (read `url` is explicit or null), B1 row A4, B7 (web tests), B verification guards
-**Index**: `impl-plans/active/search-engine-backend-boundary.md`
+**Index**: `impl-plans/completed/search-engine-backend-boundary.md`
 
 ## Intent and context
 
@@ -61,7 +61,7 @@ Repository facts:
 - `web/src/components/SearchEngineSettings.integration.tsx`
 - `web/dist`
 - `web/src-tauri/target`
-- `impl-plans/active/search-engine-backend-boundary-p3-web-server-default.md`
+- `impl-plans/completed/search-engine-backend-boundary-p3-web-server-default.md`
 - `tmp/search-engine-backend-boundary/P3`
 
 ## sharedPaths (read-only)
@@ -179,12 +179,30 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] `grep -rn '7700' web/src`, `grep -rn 'defaultURL' web/src` and `grep -rn 'KAIBA_MEILISEARCH_URL' web/src` are all empty.
-- [ ] `defaultEngineURL` no longer exists; the select no longer sets the URL.
-- [ ] The placeholder, the note and the config-view `Server default` text exist and are tested.
-- [ ] bun and vitest counts recorded separately with exit 0.
-- [ ] Progress Log updated with commands, exit codes, counts and log paths.
+- [x] `grep -rn '7700' web/src`, `grep -rn 'defaultURL' web/src` and `grep -rn 'KAIBA_MEILISEARCH_URL' web/src` are all empty.
+- [x] `defaultEngineURL` no longer exists; the select no longer sets the URL.
+- [x] The placeholder, the note and the config-view `Server default` text exist and are tested.
+- [x] bun and vitest counts recorded separately with exit 0.
+- [x] Progress Log updated with commands, exit codes, counts and log paths.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
+- 2026-10-05: Implemented the B6 web contract. Removed adapter URL data and
+  prefill, made blank URL validation server-default aware, added the input
+  hint/config display, and replaced engine-coordinate fixtures. The Bun
+  boundary test scans every file under `web/src` using runtime-built needles.
+- 2026-10-05 verification (all logs under
+  `tmp/search-engine-backend-boundary/P3/`):
+  - `cd web && mise exec -- bun test src`: exit 0, 190 pass, 0 fail;
+    `bun-test.log`.
+  - `cd web && mise exec -- bunx vitest run`: exit 0, 100 passed, 0 failed;
+    `vitest.log`.
+  - `mise run web:check`: exit 0 (typecheck, test, lint, build);
+    `web-check.log`.
+  - `mise run tauri:check`: exit 0; `tauri-check.log`.
+  - `grep -rn "7700" web/src`, `grep -rn "defaultURL" web/src`, and
+    `grep -rn "KAIBA_MEILISEARCH_URL" web/src`: each exit 0 with empty
+    output; `guard-port.log`, `guard-defaulturl.log`, `guard-env.log`.
+- 2026-10-05: P3 implementation complete. Formal review and P5 integration
+  remain downstream workflow steps.

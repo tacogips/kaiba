@@ -43,6 +43,39 @@ final class SearchEngineRuntimeMeilisearchTests: XCTestCase {
     XCTAssertEqual(scoped.searchEngine?.indexIdentity, expectedIdentity)
     await controller.stop()
   }
+
+  func testServerDefaultReloadFollowsSearchEngineEnvironment() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("SearchEngineRuntimeMeilisearchTests", isDirectory: true)
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let slot = SearchEngineSlot()
+    slot.setEnvironment(["KAIBA_MEILISEARCH_URL": "https://env-a.example"])
+    let service = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root.path), searchEngineSlot: slot)
+    let controller = SearchEngineRuntimeController(
+      slot: slot,
+      makeEngine: { service in
+        try service.makeResolvedSearchEngine(configuration: nil, environment: slot.environment)
+      },
+      makeLoop: { engine in
+        SearchIndexSyncLoop(engine: RuntimeMeilisearchFakeEngine(identity: engine.indexIdentity))
+      },
+      log: { _ in }
+    )
+
+    await controller.start(service: service)
+    let view = try await service.updateSearchEngineSettings(SearchEngineSettingsInput(
+      kind: "meilisearch", authMode: "none"
+    ))
+    XCTAssertTrue(view.active)
+    XCTAssertEqual(slot.engine?.indexIdentity, "meilisearch:https://env-a.example/kaiba-notes-v1")
+
+    slot.setEnvironment(["KAIBA_MEILISEARCH_URL": "https://env-b.example"])
+    let reloaded = await controller.reload()
+    XCTAssertTrue(reloaded.active)
+    XCTAssertEqual(slot.engine?.indexIdentity, "meilisearch:https://env-b.example/kaiba-notes-v1")
+    await controller.stop()
+  }
 }
 
 private actor RuntimeMeilisearchFakeEngine: SearchEngine {

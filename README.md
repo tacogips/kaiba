@@ -209,6 +209,8 @@ empty section selects Meilisearch:
 
 When `url` is omitted, the server uses the `KAIBA_MEILISEARCH_URL` environment
 variable, and falls back to `http://127.0.0.1:7700` when it is unset.
+An empty or whitespace-only `url` is also treated as omitted; resolution
+happens on the server host.
 
 For a remote Meilisearch server, use `https` and add
 `"apiKeyEnvironmentVariable": "KAIBA_MEILISEARCH_API_KEY"`; keep the key in
@@ -288,7 +290,13 @@ A `searchEngine` section in `config.json` takes precedence and locks the
 connection settings. Without that section, administrators can choose an
 adapter and manage its connection from **Settings**. Secrets are write-only
 and are bound to the normalized URL and authentication mode; changing either
-requires entering the secret again. **Test connection** checks unsaved
+requires entering the secret again. The URL field in **Settings** may be left
+empty to use the server default; clients never receive the resolved value.
+The plain-`http` loopback rule applies to the host running the Kaiba server,
+not to the device running the client. With the server default, a changed
+`KAIBA_MEILISEARCH_URL` takes effect at the next server start and triggers a
+backfill. If an API key is stored, it is not sent to the new host; enter the
+key again in **Settings**. **Test connection** checks unsaved
 settings, avoids a network call when a credential cannot be reused for the
 target, and sanitizes returned errors. Saving settings hot-swaps the shared
 engine without a server restart. A changed index identity triggers a backfill
