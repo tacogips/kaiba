@@ -20,7 +20,7 @@ final class AgenticSearchDiagnosticsGraphQLTests: XCTestCase {
   func testUnknownFailureIsRedactedFromDiagnosticsAndLog() async throws {
     let capture = LogCapture()
     let service = try makeService(
-      invoker: StubInvoker(response: .failure(.failed("provider said FIXTURE-SECRET at /home/example/x"))),
+      invoker: StubInvoker(response: .failure(.failed("provider said FIXTURE-SECRET at /opt/example/x"))),
       log: capture
     )
 
@@ -29,7 +29,7 @@ final class AgenticSearchDiagnosticsGraphQLTests: XCTestCase {
     XCTAssertEqual(result.result.diagnostics, ["agent request failed"])
     XCTAssertEqual(capture.lines, ["kaiba: agenticSearch failed: agent request failed"])
     XCTAssertFalse(capture.lines.joined().contains("FIXTURE-SECRET"))
-    XCTAssertFalse(capture.lines.joined().contains("/home/example"))
+    XCTAssertFalse(capture.lines.joined().contains("/opt/example"))
   }
 
   func testUnavailableFailureUsesRuntimeUnavailableReason() async throws {

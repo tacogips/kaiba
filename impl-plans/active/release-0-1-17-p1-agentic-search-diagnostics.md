@@ -1,6 +1,6 @@
 # P1 Served agenticSearch diagnostics: sandbox-start classification, public reason, server log
 
-**Status**: In Progress (resume). The source work is done and checkpointed in commit 0172b87. This run fixes one test fixture, replaces hook-rejected path literals in two test files, and re-verifies.
+**Status**: Completed. The source work is checkpointed in commit 0172b87. This run fixed the launcher fixture, replaced hook-rejected path literals in the two test files, and passed the focused verification.
 **planId**: P1-agentic-search-diagnostics
 **Wave**: 1
 **dependsOn**: none
@@ -162,6 +162,7 @@ Other tests in this file and in `AgenticSearchDiagnosticsGraphQLTests.swift` are
 mkdir -p tmp/release-0-1-17/P1/resume
 bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgentGatewayPublicDiagnosticTests|AgenticSearchDiagnosticsGraphQLTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|NoteGraphQLSchemaInventoryTests|GraphQLIntrospectionTests" 2>&1 | tee tmp/release-0-1-17/P1/resume/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
 bash -c 'mise run lint 2>&1 | tee tmp/release-0-1-17/P1/resume/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'
+bash -c 'if [ -s tmp/release-0-1-17/P1/resume/changed-swift-files.nul ]; then xargs -0 swiftlint lint --strict --quiet --no-cache < tmp/release-0-1-17/P1/resume/changed-swift-files.nul 2>&1 | tee tmp/release-0-1-17/P1/resume/swiftlint-changed.log; code=${PIPESTATUS[0]}; else printf "%s\n" "No Swift files changed; selected-file SwiftLint not run."; code=0; fi; echo exit=$code; exit $code'
 bash -c 'grep -nE "/U[s]ers/|/h[o]me/|/n[i]x/store/" Tests/AppCoreTests/AgentGatewayPublicDiagnosticTests.swift Tests/AppGraphQLTests/AgenticSearchDiagnosticsGraphQLTests.swift impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md | tee tmp/release-0-1-17/P1/resume/guard-literals.log; test ! -s tmp/release-0-1-17/P1/resume/guard-literals.log'
 bash -c 'git diff --name-only -- Sources | tee tmp/release-0-1-17/P1/resume/guard-sources.log; test ! -s tmp/release-0-1-17/P1/resume/guard-sources.log'
 bash -c 'wc -l Tests/AppCoreTests/AgentGatewayPublicDiagnosticTests.swift Tests/AppGraphQLTests/AgenticSearchDiagnosticsGraphQLTests.swift | tee tmp/release-0-1-17/P1/resume/wc.log'
@@ -178,10 +179,10 @@ Expected evidence:
 
 - [x] `publicDiagnostic` and `servedNoReplyDiagnostic` exist with the pinned signatures and exact strings (0172b87).
 - [x] `agenticSearch` lives in `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift`, and the diagnostics and log line follow AI13 (0172b87).
-- [ ] `testServedInvokerClassifiesSandboxExecStderrPrefix` uses the missing-interpreter launcher fixture and passes. The focused suites exit 0 with XCTest N > 0 and 0 failures.
-- [ ] No machine-home-style or Nix-store path literal remains in the two test files or in this plan file (`guard-literals.log` is empty).
-- [ ] No `Sources/` file is changed in this run (`guard-sources.log` is empty). Lint exits 0.
-- [ ] The Progress Log records commands, exit codes, counts and log paths. Status is set to Completed, or to blocked with the exact sanitized reason.
+- [x] `testServedInvokerClassifiesSandboxExecStderrPrefix` uses the missing-interpreter launcher fixture and passes. The focused suites exit 0 with XCTest N > 0 and 0 failures.
+- [x] No machine-home-style or Nix-store path literal remains in the two test files or in this plan file (`guard-literals.log` is empty).
+- [x] No `Sources/` file is changed in this run (`guard-sources.log` is empty). Strict changed-file SwiftLint and `mise run lint` exit 0.
+- [x] The Progress Log records commands, exit codes, counts and log paths. Status is Completed.
 
 ## Progress Log
 
@@ -191,3 +192,8 @@ Expected evidence:
 - 2026-10-05: The focused `swift test` exited 1: 47 XCTest cases, 46 passed and 1 failed (`testServedInvokerClassifiesSandboxExecStderrPrefix`, which got the no-reply string with exit 3). Logs: `tmp/release-0-1-17/P1/swift-test-rerun.log` and `tmp/release-0-1-17/P1/swift-test-isolated.log`. These also passed: `AgenticSearchDiagnosticsGraphQLTests` 6/6, `AgentGatewayCLIInvokerTests` 25/25, served safety 3/3, GraphQL introspection 7/7 and schema inventory 1/1.
 - 2026-10-05: Strict lint of the changed files exited 0 (`tmp/release-0-1-17/P1/swiftlint-changed.log`). `mise run lint` exited 0 (`tmp/release-0-1-17/P1/lint.log`). The move guard was empty. All six Swift files are under 1000 lines, and `AgentGatewayCLIInvoker.swift` has 984 (`tmp/release-0-1-17/P1/wc-final.log`).
 - 2026-10-06: Resume plan revised at Step 4 (session-279). The root cause is the fixture: a child shell under the profile, not a launcher failure. Remaining work: the missing-interpreter fixture, the literal replacement, and re-verification.
+- 2026-10-06: Replaced the child-shell fixture in `testServedInvokerClassifiesSandboxExecStderrPrefix` with an executable whose runtime-built `#!` interpreter is missing. The test passed without depending on the launcher exit code and checked only the sanitized template and that launcher details were absent. Replaced machine-home-style fixture paths with `/opt/example` in both P1 test files. No production source changed.
+- 2026-10-06: Focused command `PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter "AgentGatewayPublicDiagnosticTests|AgenticSearchDiagnosticsGraphQLTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|NoteGraphQLSchemaInventoryTests|GraphQLIntrospectionTests"` exited 0: 47 XCTest tests, 47 passed, 0 failures; the launcher fixture passed. Complete log: `tmp/release-0-1-17/P1/resume/swift-test.log`.
+- 2026-10-06: `xargs -0 swiftlint lint --strict --quiet --no-cache < tmp/release-0-1-17/P1/resume/changed-swift-files.nul` exited 0 (log `tmp/release-0-1-17/P1/resume/swiftlint-changed.log`). `mise run lint` exited 0; it reported 3 non-serious violations across the repository and 0 serious violations (log `tmp/release-0-1-17/P1/resume/lint.log`).
+- 2026-10-06: The literal guard and source-change guard exited 0 with empty logs (`tmp/release-0-1-17/P1/resume/guard-literals.log`, `tmp/release-0-1-17/P1/resume/guard-sources.log`). Both test files are under 1000 lines: 123 and 145 (`tmp/release-0-1-17/P1/resume/wc.log`). Strict lint used the NUL-delimited changed-file manifest `tmp/release-0-1-17/P1/resume/changed-swift-files.nul`.
+- 2026-10-06: After the final plan edit, the literal guard and Sources diff guard exited 0 with empty logs (`tmp/release-0-1-17/P1/resume/guard-literals-final.log`, `tmp/release-0-1-17/P1/resume/guard-sources-final.log`); `git diff --check` exited 0.

@@ -932,6 +932,8 @@ not claimed as coverage.
   - `mach-lookup` for `com.apple.trustd`, `com.apple.SecurityServer`,
     `com.apple.SystemConfiguration.configd`, `com.apple.networkd` and
     `com.apple.dnssd.service`, for TLS certificate trust and DNS.
+  - Confirmed D1 escalation: global `file-read-metadata`, after the live
+    baseline reported metadata denials while resolving and starting the gateway.
 
   *What does not change.* `(deny default)`, writes only inside the workspace
   plus `/dev/null`, no read of the binary's directory or keg, the environment

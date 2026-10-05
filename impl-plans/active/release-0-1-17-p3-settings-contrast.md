@@ -1,6 +1,6 @@
 # P3 Web Settings: legible primary and selected buttons
 
-**Status**: In Progress (resume, re-verification only). The CSS rules and the bun test are done and checkpointed in commit 0172b87.
+**Status**: Completed. The W16 rules and test are checkpointed in commit 0172b87; resume verification passed on 2026-10-06.
 **planId**: P3-settings-contrast
 **Wave**: 1
 **dependsOn**: none. Web-only; no Swift.
@@ -131,13 +131,14 @@ Expected evidence:
 
 - [x] The three rules are appended in order, using existing tokens only, with no `!important` (0172b87).
 - [x] The new bun test exists and fails if a rule or token is removed (0172b87).
-- [ ] Resume run: `bun test src` exits 0 with N pass > 0 and 0 fail, and `vitest run` exits 0 with M passed > 0, recorded separately with log paths.
-- [ ] Resume run: `web:check` exits 0, and `tauri:check` exits 0 or is recorded as blocked with its exact error line.
-- [ ] Protected web files, `Cargo.toml` and `Cargo.lock` are unchanged (resume guard log is empty).
-- [ ] The Progress Log records commands, exit codes, counts and log paths, and Status is set to Completed or blocked.
+- [x] Resume run: `bun test src` exits 0 with N pass > 0 and 0 fail, and `vitest run` exits 0 with M passed > 0, recorded separately with log paths.
+- [x] Resume run: `web:check` exits 0, and `tauri:check` exits 0 or is recorded as blocked with its exact error line.
+- [x] Protected web files, `Cargo.toml` and `Cargo.lock` are unchanged (resume guard log is empty).
+- [x] The Progress Log records commands, exit codes, counts and log paths, and Status is set to Completed or blocked.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
 - 2026-10-05: Appended the three scoped Settings button rules to `web/src/light-theme.css`; added `web/src/settingsButtonContrast.test.ts` to verify selectors, token assignments, cascade order, absence of `!important` within the new rules, and WCAG AA contrast for primary, hover, and selected states. `cd web && mise exec -- bun test src` exited 0 (192 pass, 0 fail; `tmp/release-0-1-17/P3/bun-test-final-rerun.log`); `cd web && mise exec -- bunx vitest run` exited 0 (100 passed; `tmp/release-0-1-17/P3/vitest-final.log`); `mise run web:check` exited 0 (typecheck, tests, lint, Vite build; `tmp/release-0-1-17/P3/web-check-final.log`). The protected-file guard exited 0 with empty output (`tmp/release-0-1-17/P3/guard-protected.log`). `mise run tauri:check` was blocked (exit 101): its build script requires missing `local-service/kaiba-aarch64-apple-darwin` (`tmp/release-0-1-17/P3/tauri-check.log`); P4 will rerun it. Initial bun and web-check failures are retained in `bun-test.log` and `web-check.log`; their causes were corrected and final-source reruns passed.
 - 2026-10-06: Resume plan revised at Step 4 (session-279). Re-verification only, now that the tauri sidecar has been built locally. Logs go under `tmp/release-0-1-17/P3/resume/`.
+- 2026-10-06: Resume verification completed. `bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/release-0-1-17/P3/resume/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'` exited 0 (192 pass, 0 fail; `tmp/release-0-1-17/P3/resume/bun-test.log`). `bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/release-0-1-17/P3/resume/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'` exited 0 (100 passed; `tmp/release-0-1-17/P3/resume/vitest.log`). `bash -c 'mise run web:check 2>&1 | tee tmp/release-0-1-17/P3/resume/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'` exited 0 (typecheck, Bun tests, Vitest, ESLint and Vite build; log `tmp/release-0-1-17/P3/resume/web-check.log`). `bash -c 'mise run tauri:check 2>&1 | tee tmp/release-0-1-17/P3/resume/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'` exited 0 (log `tmp/release-0-1-17/P3/resume/tauri-check.log`). Protected-path guard exited 0 with empty output (`tmp/release-0-1-17/P3/resume/guard-protected.log`). Vitest logs include refused localhost:3000 connection diagnostics; all 100 tests passed and the runner exited 0. No source edits in this resume run.

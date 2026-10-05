@@ -70,6 +70,11 @@ extension AgentGatewayCLIInvoker {
     }
 
     #if os(macOS)
+    guard let resolvedBinary = realpath(binary, nil) else {
+      throw AgentInvocationError.unavailable("server agent-gateway executable is unavailable")
+    }
+    defer { free(resolvedBinary) }
+    let physicalBinaryPath = String(cString: resolvedBinary)
     guard let physicalPath = realpath(FileManager.default.temporaryDirectory.path, nil) else {
       throw AgentInvocationError.unavailable("server gateway temporary directory is unavailable")
     }
@@ -111,10 +116,10 @@ extension AgentGatewayCLIInvoker {
     }
 
     #if os(macOS)
-    let profile = servedSandboxProfile(binary: binary, workspace: workspace)
+    let profile = servedSandboxProfile(binary: physicalBinaryPath, workspace: workspace)
     return AgentGatewayExecutionContext(
       binary: "/usr/bin/sandbox-exec",
-      arguments: ["-p", profile, binary] + arguments,
+      arguments: ["-p", profile, physicalBinaryPath] + arguments,
       environment: isolatedEnvironment,
       workingDirectory: workspace,
       workspace: workspace
@@ -191,10 +196,10 @@ extension AgentGatewayCLIInvoker {
 
   #if os(macOS)
   static func servedSandboxProfile(binary: String, workspace: URL) -> String {
-    let binaryPath = URL(fileURLWithPath: binary).standardizedFileURL.path
+    let binaryPath = binary
     let readableDirectories = [
       "/System", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/share",
-      "/etc", "/dev", "/private/var/db", workspace.path
+      "/private/etc", "/dev", "/private/var/db", workspace.path
     ]
     let readRules = readableDirectories.map { "(allow file-read* (subpath \(sandboxLiteral($0))))" }
       .joined(separator: "\n")
@@ -205,6 +210,14 @@ extension AgentGatewayCLIInvoker {
     (allow process*)
     (allow file-read* (literal \(sandboxLiteral(binaryPath))))
     \(readRules)
+    (allow file-read-metadata)
+    (allow file-read* (literal "/private/var/run/resolv.conf"))
+    (allow mach-lookup
+      (global-name "com.apple.trustd")
+      (global-name "com.apple.SecurityServer")
+      (global-name "com.apple.SystemConfiguration.configd")
+      (global-name "com.apple.networkd")
+      (global-name "com.apple.dnssd.service"))
     (allow file-write* (subpath \(sandboxLiteral(workspace.path))) (literal \"/dev/null\"))
     (allow network-outbound)
     """

@@ -1,6 +1,6 @@
 # P2 Served sandbox root-cause fix and live agenticSearch proof
 
-**Status**: Planned.
+**Status**: Blocked — additional user decision required for remaining sandbox denials.
 **planId**: P2-served-sandbox
 **Wave**: 2
 **dependsOn**: P1-agentic-search-diagnostics. Both plans edit the AppCore module, and P1's sanitized diagnostics make the baseline live run informative.
@@ -177,14 +177,21 @@ Expected evidence:
 
 ## Done criteria
 
-- [ ] The served context launches and allows only the realpath-resolved gateway; the profile contains the `/private/etc`, `resolv.conf` and five `mach-lookup` rules; invariants hold.
-- [ ] The profile, environment and symlink behavioral tests pass; existing isolation and subscription tests pass unchanged.
-- [ ] The live test passes with XCTest N > 0 and the Sandbox log is clean for the gateway, or the plan is explicitly blocked with the exact reason, never reported as passed.
-- [ ] Any extra allowance is one of the three bounded ones, documented in AI13 and asserted in a test.
-- [ ] The Progress Log records baseline and final diagnostics (sanitized), commands, exit codes, counts and log paths.
-- [ ] `guard-literals.log` is empty, and P1's launcher-fixture test still passes after the realpath change.
+- [x] The served context launches and allows only the realpath-resolved gateway; the profile contains the `/private/etc`, `resolv.conf` and five `mach-lookup` rules; invariants hold.
+- [x] The profile, environment and symlink behavioral tests pass; existing isolation and subscription tests pass unchanged.
+- [x] The live test passes with XCTest N > 0. The Sandbox log still records denials outside the bounded allowance list, so this plan is explicitly blocked for a user decision and does not claim a clean log.
+- [x] The only extra allowance is the bounded global `file-read-metadata` rule, documented in AI13 and asserted in a test.
+- [x] The Progress Log records baseline and final diagnostics (sanitized), commands, exit codes, counts and log paths.
+- [x] `guard-literals.log` is empty, and P1's launcher-fixture test still passes after the realpath change.
 
 ## Progress Log
 
 - 2026-10-05: Plan created.
 - 2026-10-06: Resume notes added at Step 4 (session-279): P1 fixture compatibility, stderr-agnostic behavioral assertions, and the literal guard. Not started.
+- 2026-10-06: Implemented P2. The served context now resolves the gateway with `realpath(3)` before workspace creation, uses only the physical executable literal/target, grants `/private/etc`, the resolver literal and the five approved TLS/DNS mach lookups, and preserves the existing environment and write boundary. Added three sandbox profile tests and the env-gated GraphQL live test.
+- Baseline: `OPENROUTER_API_KEY` presence check printed `present`. `KAIBA_LIVE_AGENT_GATEWAY=1 ... swift test --filter LiveServedAgenticSearchTests` (`live-baseline.log`) exited 1: XCTest Executed 1 with 2 assertion failures; sanitized result was `agent-gateway produced no reply (exit 1)`. `sandbox-baseline.log` captured denials for gateway executable/keg and symlink path classes, user-home preferences/cache, an OS network preference, an unapproved mach service and an OS temporary cache path.
+- Bounded escalation: after the planned realpath/profile rules, the live test still failed and D1 confirmed `file-read-metadata`; adopted only global `file-read-metadata`, asserted it in `AgentGatewayServedSandboxProfileTests`, and documented the evidence in AI13. The live test then returned status `ok` with a non-empty answer (`live-final-post-lintfix.log`, exit 0, XCTest Executed 1, 0 failures).
+- Final D1: `sandbox-final-post-lintfix.log` was captured after the passing run (command exit 0), but still contains 51 denial events for that gateway process: `file-read-data` 18, `file-read-xattr` 4, `file-write-create` 3, `file-write-mode` 1, `file-write-unlink` 1, `mach-lookup` 5, `system-socket` 2 and `user-preference-read` 17. Sanitized path/service classes include the gateway keg directory, OS user preference/cache and HTTP-storage locations, an OS network preference file, AppSSO/CoreServices/Disk Arbitration/distributed-notification services, and a system socket. These exceed AI13's three bounded escalations; no further allowance was added. **Blocked: additional sandbox allowances require a user decision** (decision target: `design-docs/user-qa/ai-agent-runtime-and-ui.md`).
+- Final verification: `mise run build` exit 0 (`build-final.log`); focused Swift filter for `AgentGatewayServedSandboxProfileTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|AgentGatewaySubscriptionTests|ClaudeSubscriptionExecutionTests|DocumentGatewayIsolationTests|AgentGatewayPublicDiagnosticTests` exit 0, XCTest Executed 45, 0 failures, 2 credential-gated skips (`swift-test-final.log`); live filter exit 0, XCTest Executed 1, 0 failures (`live-final-post-lintfix.log`); changed-file `swiftlint lint --strict --quiet --no-cache` exit 0 (`swiftlint-changed.log`); `mise run lint` exit 0, 3 non-serious diagnostics in 392 files (`lint-final.log`).
+- Final guards: touched Swift files are 230, 137 and 68 lines (`wc-final.log`); the only design diff is the documented metadata escalation (`design-diff.log`); `guard-literals.log` is empty and the guard exited 0. Evidence and per-edit intent files are under `tmp/release-0-1-17/P2/`.
+- Final-source recheck after the lint fixes and Progress Log update: `guard-literals-final.log` exited 0 with empty output, `wc-post-lintfix.log` remains 230/137/68 lines, and `git diff --check` exited 0.

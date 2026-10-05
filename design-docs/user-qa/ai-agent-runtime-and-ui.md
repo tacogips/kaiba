@@ -149,3 +149,22 @@ Linux inspector block in a container as described above:
 The shape of the answer that follows from these two results: a bound is not
 required to absorb churn, but it is the only thing that would stop a
 `hidepid`-mounted host from hanging indefinitely. Still pending.
+
+## Served sandbox: residual non-fatal denials (decided 2026-10-06)
+
+Decision by the operator for release 0.1.17 (P2-served-sandbox). With the
+AI13 bounded allowances in place, served `agenticSearch` succeeds end to end,
+but the macOS Sandbox log still records about 51 denied operations for the
+gateway process (`file-read-data`, `file-read-xattr`, `file-write-*` outside
+the workspace, `mach-lookup`, `system-socket`, `user-preference-read`).
+
+- **Keep them denied.** Do not add allowances for these operation or path
+  classes. They are non-fatal: the gateway completes the request with them
+  blocked. Granting them would only weaken the served isolation without a
+  functional gain.
+- **Acceptance for P2 changes accordingly.** P2 is complete when the live,
+  env-gated served `agenticSearch` test passes and no denial is fatal to the
+  request. A fully clean Sandbox log is not required. Record the residual
+  denial classes and counts as evidence instead.
+- **Revisit** only if a future agent-gateway version fails because of one of
+  these denials. Then allow just that operation and path class, with a test.

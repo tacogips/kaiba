@@ -64,7 +64,7 @@ final class AgentGatewayPublicDiagnosticTests: NoteTestCase {
       "agent-gateway produced no reply (exit x)",
       "agent-gateway produced no reply (exit 12345678901)",
       "provider-key-FIXTURE-secret",
-      "/home/example/bin/agent-gateway failed",
+      "/opt/example/bin/agent-gateway failed",
       "agent-gateway request failed "
     ]
     for message in rejected {
@@ -74,7 +74,8 @@ final class AgentGatewayPublicDiagnosticTests: NoteTestCase {
 
   #if os(macOS)
   func testServedInvokerClassifiesSandboxExecStderrPrefix() async throws {
-    let script = try makeExecutableGatewayScript("#!/bin/sh\necho 'sandbox-exec: fake failure' >&2\nexit 3\n")
+    let script = try makeExecutableGatewayScript()
+    defer { try? FileManager.default.removeItem(at: script) }
     let invoker = AgentGatewayCLIInvoker(
       commandPath: script.path,
       vendor: "openrouter",
@@ -89,19 +90,33 @@ final class AgentGatewayPublicDiagnosticTests: NoteTestCase {
         systemPrompt: "system",
         turns: [AgentInvocationTurn(role: .user, markdown: "query")]
       ))
-      XCTFail("expected fake gateway to produce no reply")
+      XCTFail("expected fake gateway launch to fail")
     } catch let error as AgentInvocationError {
-      XCTAssertEqual(error, .failed("agent-gateway could not start inside the server sandbox (exit 3)"))
+      guard case .failed(let message) = error else {
+        XCTFail("expected failed error, got a different AgentInvocationError case")
+        return
+      }
+      let expectedPattern = "^agent-gateway could not start inside the server sandbox \\(exit -?[0-9]+\\)$"
+      XCTAssertNotNil(message.range(of: expectedPattern, options: .regularExpression))
+      XCTAssertEqual(AgentInvocationError.failed(message).publicDiagnostic, message)
+      XCTAssertFalse(message.contains(script.path))
+      XCTAssertFalse(message.contains(script.lastPathComponent))
+      XCTAssertFalse(message.contains("execvp"))
+      XCTAssertFalse(message.contains("No such file"))
+      XCTAssertFalse(message.contains("Operation not permitted"))
+    } catch {
+      XCTFail("expected AgentInvocationError")
     }
   }
   #endif
 
-  private func makeExecutableGatewayScript(_ script: String) throws -> URL {
+  private func makeExecutableGatewayScript() throws -> URL {
     let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
       .appendingPathComponent("tmp/AppCoreTests", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let missingInterpreter = directory.appendingPathComponent("missing-interpreter-\(UUID().uuidString)")
     let scriptURL = directory.appendingPathComponent("diagnostic-gateway-\(UUID().uuidString).sh")
-    try Data(script.utf8).write(to: scriptURL)
+    try Data("#!\(missingInterpreter.path)\nexit 0\n".utf8).write(to: scriptURL)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
     return scriptURL
   }
