@@ -1,0 +1,372 @@
+{
+  "taskId": "release-0-1-17",
+  "workflowMode": "issue-resolution",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-278",
+  "implementationBranch": "release/0.1.17",
+  "baseBranch": "release/0.1.17",
+  "remote": "origin",
+  "originalHead": "d55f8358e2d1be507a7329bcba849c18f945744a",
+  "evidenceRoot": "tmp/release-0-1-17",
+  "planDocPath": "impl-plans/active/release-0-1-17.md",
+  "designDocPaths": [
+    "design-docs/specs/ai-agent-integration.md",
+    "design-docs/specs/web-chatbook-ui.md"
+  ],
+  "planPaths": [
+    "impl-plans/active/release-0-1-17.md",
+    "impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md",
+    "impl-plans/active/release-0-1-17-p2-served-sandbox.md",
+    "impl-plans/active/release-0-1-17-p3-settings-contrast.md",
+    "impl-plans/active/release-0-1-17-p4-release-integration.md"
+  ],
+  "acceptedDependencies": [],
+  "policies": {
+    "acceptance": "Design (AI13 and Verification item 13 in design-docs/specs/ai-agent-integration.md; W16 in design-docs/specs/web-chatbook-ui.md) accepted at Step 3 (comm-004276). Plans P1-P4 created at Step 4 (comm-004277) and accepted at Step 5 (comm-004278) with four low residual findings and no revision requested.",
+    "evidencePolicy": "A behavioral record is a test-runner command (swift test ..., bun test ..., vitest run ..., or mise run <task containing test>) with exit code 0 and every count > 0. For XCTest record the 'Executed N tests, with 0 failures' line with N > 0; for swift-testing the 'Test run with N tests passed' line with N > 0 only when the filter selects swift-testing tests. mise run web:check is not a behavioral record. bun test src and vitest run are recorded separately. An env-gated skip is never evidence; the live agent-gateway test (LiveServedAgenticSearchTests) records only the XCTest Executed N > 0 count of the positive run, and its swift-testing 0-tests line is not counted. Every command is teed into the plan's evidence directory and each record gives the complete log path and the final exit status.",
+    "evidenceLayout": "Evidence lives under tmp/release-0-1-17/<planId-prefix> (P1..P4), gitignored by tmp/. A retry attempt may use an attempt subdirectory inside the plan's own directory. A plan never writes another plan's evidence directory.",
+    "editProtocol": "Index 'Edit protocol': pre/post shasum per edit in tmp/release-0-1-17/<P#>/hashes.txt, an immutable intent snapshot intent.md written before the first edit, drift handling (re-read, re-apply only own intent, note drift), edit only own writePaths, peer compile/lint failures are not blockers (rerun after peers land; cross-plan fixes go to P4), no git write operations, no worktrees or branches, do not create or touch .riela/, each plan updates only the Progress Log in its own plan file. Never print OPENROUTER_API_KEY or any credential (presence check only); never copy machine-local absolute paths into committed files.",
+    "artifactPolicy": "artifactRoots are copied unchanged from the accepted plans: tmp/release-0-1-17/<P#> for every plan, web/dist and web/src-tauri/target for P3 and P4 (vite build from mise run web:check and cargo output from mise run tauri:check). All are gitignored. Authored files (sources, tests, version files, README.md, plan files) are never artifact roots.",
+    "protectedPaths": "No plan edits .riela/, api-key-expiration work, NoteStoreSchema or any store schema, web/src/styles.css, web/src/workspace.css, web/src/index.tsx, web/src/App.tsx, web/index.html, Sources/AppCore/AgentGatewaySubscription.swift, Sources/AppCore/ClaudeSubscriptionExecution.swift, Sources/AppServer/*, mise.toml, docker/, web/src-tauri/capabilities/, any impl-plans/active/*-dispatch.json, signing/notarization/cask scripts or ../homebrew-tap. design-docs/ is read-only except P2's conditional one-line AI13 'Profile additions' entry for a bounded allowance. The Step 2 design-doc edits are committed in this checkpoint, so P2 design-diff.log and P4 guard-design-docs.log start empty.",
+    "releasePolicy": "No release, tag, GitHub release, signing, notarization, cask or tap action. The operator runs .agents/skills/macos-cask-release/SKILL.md after this run.",
+    "liveGatePolicy": "Live agent-gateway runs need OPENROUTER_API_KEY, network access and a non-nested Seatbelt context; a missing key or a 'sandbox-exec:' nested-sandbox failure is recorded as blocked with the exact reason, never as passed. search:test-live needs Docker through colima (mise run search:docker, search:up, search:test-live, then search:down); if unavailable, record 'blocked: <exact error>'.",
+    "escalationPolicy": "P2 may add only the three AI13 bounded allowances (global file-read-metadata, file-lock on the workspace subpath, individual file-read* literals for non-system dylibs), each confirmed by a Sandbox log denial, documented in AI13 and asserted in a test. Any other needed allowance stops P2 as 'blocked: needs user decision' via design-docs/user-qa/ai-agent-runtime-and-ui.md."
+  },
+  "reviewContext": {
+    "issueReference": "No GitHub issue. Inline workflowInput 'Release prep 0.1.17: fix server agenticSearch sandbox failure with diagnosable errors, fix low-contrast settings buttons, bump version' (workflowExecutionId opus-luna-design-and-implement-review-loop-session-278; base release/0.1.17 at d55f835; intake comm-004274; design comm-004275; design accepted comm-004276; plans comm-004277; plans accepted comm-004278).",
+    "userProblem": "Served GraphQL agenticSearch with backend agent-gateway-cli, provider openrouter and model openai/gpt-5-mini fails under the macOS sandbox-exec isolation with the opaque diagnostic 'note operation failed', while the unsandboxed CLI 'kaiba ai search' succeeds; the cause is swallowed by graphQLNoteResult(for:). Separately, the web Settings selected font-size preset and primary buttons render near-invisible light text on a light background, and the release needs the 0.1.16 -> 0.1.17 version bump.",
+    "requiredOutcomes": [
+      "P1: AgentGatewayCLIInvoker.servedNoReplyDiagnostic(exitCode:stderr:) maps a served no-reply run whose trimmed stderr starts with 'sandbox-exec:' to 'agent-gateway could not start inside the server sandbox (exit N)' without copying stderr; otherwise keeps 'agent-gateway produced no reply (exit N)'.",
+      "P1: AgentInvocationError.publicDiagnostic is an anchored allowlist (.notConfigured -> 'agent runtime is not configured'; every .unavailable -> 'agent runtime is unavailable'; .failed passes only the eight pinned strings, else 'agent request failed').",
+      "P1: agenticSearch moves to Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift; on AgentInvocationError the result diagnostics are the single public reason with result.status 'error', accepted false and top-level status 'failed'; every failure writes exactly one 'kaiba: agenticSearch failed: <public reason>' line through the injectable agenticSearchFailureLog sink.",
+      "P2: served executionContext resolves the gateway with realpath(3) before creating the workspace (failure -> .unavailable('server agent-gateway executable is unavailable')) and uses the physical path in the profile literal and as the sandbox-exec target.",
+      "P2: servedSandboxProfile adds (allow file-read* (subpath \"/private/etc\") (literal \"/private/var/run/resolv.conf\")) and mach-lookup for com.apple.trustd, com.apple.SecurityServer, com.apple.SystemConfiguration.configd, com.apple.networkd and com.apple.dnssd.service.",
+      "P2: the env-gated live test LiveServedAgenticSearchTests (KAIBA_LIVE_AGENT_GATEWAY=1 plus OPENROUTER_API_KEY) runs served agenticSearch end to end and asserts status ok with a non-empty answer; it passes locally with XCTest Executed N > 0.",
+      "P3: light-theme.css appends scoped '.chatbook .config-section button:not(.secondary)' (ink on green-primary), its hover rule (green-hover), and '.chatbook .config-section button[aria-pressed=\"true\"]' (green-ink on green-selected) after it, using existing tokens only; a bun test guards rules, token names and WCAG contrast >= 4.5.",
+      "P4: version 0.1.17 in VERSION, Sources/AppCore/Version.swift, web/src-tauri/tauri.conf.json, web/src-tauri/Cargo.toml and the kaiba-client entry of web/src-tauri/Cargo.lock; README 'Optional search engine' confirmed accurate (changed only for a factual mismatch).",
+      "Gates: mise run build, full swift test, live agent-gateway test, mise run lint, bun test src, vitest run, mise run web:check, mise run tauri:check and mise run search:test-live pass with positive counts; protected-path, local-path, secret and old-version guards are empty."
+    ],
+    "nonGoals": [
+      "No GraphQL SDL, status value, DTO or KaibaClient change; no change to graphQLNoteResult(for:) or graphQLNotePublicDiagnostic for other operations.",
+      "No local-mode diagnostic change (local stderr tail stays).",
+      "No new environment keys or reserved-key changes; HOME, TMPDIR and XDG_* stay inside the workspace; tool-capable vendors stay refused in served mode; Linux stays fail-closed.",
+      "No edits to AgentGatewaySubscription.swift or ClaudeSubscriptionExecution.swift (their duplicate rules stay).",
+      "No styles.css, workspace.css, index.tsx, App.tsx or import-order change; no new tokens; no TSX change; no dark-theme switch work.",
+      "No release, tag, signing, notarization, cask or tap action; no api-key-expiration or NoteStoreSchema work."
+    ],
+    "constraints": [
+      "Follow AGENTS.md; Swift files under 1000 lines (AgentGatewayCLIInvoker.swift stays at most 984; NoteGraphQLService.swift must shrink); swiftlint clean.",
+      "Do not weaken agent sandbox isolation beyond what agent-gateway strictly needs: (deny default) first, system.sb import kept, writes only to the workspace subpath and /dev/null, no subpath read of the gateway, symlink or keg directory.",
+      "Search engine stays backend-only and optional.",
+      "No secrets in code, docs, logs or commits; no machine-local absolute paths in committed files (test fixtures use /home/example, /srv/example and FIXTURE tokens).",
+      "Work only in the release/0.1.17 worktree; do not touch .riela/."
+    ],
+    "designDecisionsAndRationale": [
+      "Root cause per AI13: Seatbelt matches the physical path, but the profile granted the standardized (not realpath) Homebrew symlink, /etc instead of /private/etc, and no TLS/DNS mach services; the subscription profiles already carry the identical working rules.",
+      "realpath(3) with the existing realpath+free idiom instead of URL.resolvingSymlinksInPath(), which can rewrite /private/var to /var.",
+      "Public diagnostics are an exact allowlist so no stderr, provider text, path or secret can leak; every unavailable maps to one reason (DR-L1).",
+      "agenticSearch moves to a new extension file and the log sink is a defaulted stored property to respect the 1000-line limit without an init change.",
+      "Settings fix is two scoped light-theme rules with the background shorthand so the result does not depend on the legacy dark cascade; selected rule follows primary at equal specificity (0,3,1) (W16, accepted divergence DR-L2).",
+      "Waves: P1 and P2 both edit AppCore, so P2 depends on P1 (P1's diagnostics also make P2's baseline live run informative); P3 is web-only and parallel; the Version.swift bump and integration run last in P4."
+    ],
+    "intentionalTradeoffs": [
+      "Duplicate /private/etc and mach-lookup rules in subscription profiles are left as harmless duplicates.",
+      "Light theme applies unconditionally; legacy dark base is untouched, so dark behavior is unchanged (DR-L2).",
+      "The no-reply sandbox-start classification is a prefix check on stderr; the stderr text itself is never surfaced.",
+      "Bounded escalation may block P2 for a user decision rather than widen the sandbox."
+    ],
+    "supportedEdgeCases": [
+      "Gateway configured through a Homebrew bin symlink into the keg.",
+      "Missing gateway binary in served mode -> unavailable -> 'agent runtime is unavailable'.",
+      "sandbox-exec launch failure with leading whitespace before 'sandbox-exec:'.",
+      ".failed messages with suffixes, non-numeric exit codes, trailing spaces, secrets or paths -> 'agent request failed'.",
+      "Empty query keeps invalid_request mapping and writes one log line; nil invoker -> agent-unavailable with no log; success -> no log.",
+      "Selected preset remains distinguishable from unselected primary buttons; hover and disabled states."
+    ],
+    "outOfScopeEdgeCases": [
+      "Linux served sandbox (stays fail-closed).",
+      "Sandbox allowances beyond the three bounded AI13 escalations (user decision).",
+      "Dark-theme switch or legacy dark base styling.",
+      "tauri:check off macOS, live tests without OPENROUTER_API_KEY or network, and search:test-live without Docker/colima (recorded as blocked, never passed)."
+    ],
+    "residualRisks": [
+      "Low: P2 may block if agent-gateway's URLSession needs an allowance outside the AI13 bounded list; the decision goes through design-docs/user-qa/ai-agent-runtime-and-ui.md.",
+      "Low: live gates depend on OPENROUTER_API_KEY, network and a non-nested Seatbelt context; a nested sandbox-exec failure is recorded as blocked.",
+      "Low: the Step 2 design edits are committed in this checkpoint so P2 design-diff.log and P4 guard-design-docs.log start empty.",
+      "Low: search:test-live depends on Docker/colima.",
+      "Low: P4 verification here follows the P4 plan file in full (version.log, key-presence.log, changed-files.log, guard-design-docs.log included); the plan's '2035fda touched the same five files' remark is imprecise, and git grep 0.1.16 is the real scope guarantee."
+    ],
+    "sourcePaths": [
+      "design-docs/specs/ai-agent-integration.md",
+      "design-docs/specs/web-chatbook-ui.md",
+      "design-docs/user-qa/ai-agent-runtime-and-ui.md",
+      "impl-plans/active/release-0-1-17.md",
+      "Sources/AppCore/AgentGatewayCLIInvoker.swift",
+      "Sources/AppCore/AgentGatewayInvocationSanitization.swift",
+      "Sources/AppCore/AgentGatewayExecutionIsolation.swift",
+      "Sources/AppCore/AgentGatewaySubscription.swift",
+      "Sources/AppCore/ClaudeSubscriptionExecution.swift",
+      "Sources/AppCore/AgentInvoking.swift",
+      "Sources/AppCore/AIAgenticSearch.swift",
+      "Sources/AppCore/Version.swift",
+      "Sources/AppGraphQL/NoteGraphQLService.swift",
+      "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
+      "web/src/light-theme.css",
+      "web/src/styles.css",
+      "web/src/workspace.css",
+      "web/src/views/ConfigView.tsx",
+      "web/src/components/UserAgentSettings.tsx",
+      "VERSION",
+      "web/src-tauri/tauri.conf.json",
+      "web/src-tauri/Cargo.toml",
+      "web/src-tauri/Cargo.lock",
+      "README.md"
+    ]
+  },
+  "plans": [
+    {
+      "planId": "P1-agentic-search-diagnostics",
+      "planPath": "impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md",
+      "progressPath": "impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/AgentGatewayInvocationSanitization.swift",
+        "Sources/AppCore/AgentGatewayCLIInvoker.swift",
+        "Sources/AppGraphQL/NoteGraphQLService.swift",
+        "Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift",
+        "Tests/AppCoreTests/AgentGatewayPublicDiagnosticTests.swift",
+        "Tests/AppGraphQLTests/AgenticSearchDiagnosticsGraphQLTests.swift",
+        "impl-plans/active/release-0-1-17-p1-agentic-search-diagnostics.md",
+        "tmp/release-0-1-17/P1"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/AgentInvoking.swift",
+        "Sources/AppCore/AIAgenticSearch.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift",
+        "Tests/AppCoreTests/AgentGatewayCLIInvokerTests.swift",
+        "Tests/AppGraphQLTests/AgentChatGraphQLTests.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/AgentGatewayCLIInvoker.swift", "intendedEdit": "only the served no-reply branch (lines 147-150) becomes a call to Self.servedNoReplyDiagnostic(exitCode:stderr:); net growth 0 lines; stays at most 984 lines"},
+        {"path": "Sources/AppGraphQL/NoteGraphQLService.swift", "intendedEdit": "remove the agenticSearch method (lines 725-758 with doc comment) and add the defaulted @Sendable agenticSearchFailureLog stored property next to agentModel; no init change; file shrinks"},
+        {"path": "Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift", "intendedEdit": "new extension GraphQLNoteGraphQLService holding the moved agenticSearch with the AI13 failure mapping and one log call"},
+        {"path": "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift", "intendedEdit": "read-only; case agenticSearch keeps calling service.agenticSearch unchanged"},
+        {"path": "Tests/AppGraphQLTests/AgentChatGraphQLTests.swift", "intendedEdit": "read-only; copy makeService/graphQLPayload/resultObject helpers (lines 885-910) privately"},
+        {"path": "Tests/AppCoreTests/AgentGatewayCLIInvokerTests.swift", "intendedEdit": "read-only; existing served-diagnostic tests must pass unchanged"},
+        {"path": "tmp/release-0-1-17/P1", "intendedEdit": "evidence logs, hashes.txt and intent.md only"}
+      ],
+      "artifactRoots": [
+        "tmp/release-0-1-17/P1"
+      ],
+      "acceptanceCriteria": [
+        "publicDiagnostic and servedNoReplyDiagnostic exist with the pinned signatures and exact strings; the allowlist is anchored and unknown messages map to 'agent request failed'.",
+        "agenticSearch lives in Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift; grep -n 'agenticSearch(' Sources/AppGraphQL/NoteGraphQLService.swift is empty; diagnostics and the single log line follow AI13.",
+        "AgentGatewayPublicDiagnosticTests and AgenticSearchDiagnosticsGraphQLTests exist and pass with XCTest Executed N > 0; existing served-diagnostic tests pass unchanged.",
+        "build and lint exit 0; every touched Swift file under 1000 lines and AgentGatewayCLIInvoker.swift at most 984 lines.",
+        "Progress Log records commands, exit codes, counts and log paths."
+      ],
+      "verification": [
+        "mkdir -p tmp/release-0-1-17/P1",
+        "bash -c 'mise run build 2>&1 | tee tmp/release-0-1-17/P1/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"AgentGatewayPublicDiagnosticTests|AgenticSearchDiagnosticsGraphQLTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|NoteGraphQLSchemaInventoryTests|GraphQLIntrospectionTests\" 2>&1 | tee tmp/release-0-1-17/P1/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/release-0-1-17/P1/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'grep -n \"agenticSearch(\" Sources/AppGraphQL/NoteGraphQLService.swift | tee tmp/release-0-1-17/P1/guard-moved.log; test ! -s tmp/release-0-1-17/P1/guard-moved.log'",
+        "bash -c 'wc -l Sources/AppCore/AgentGatewayInvocationSanitization.swift Sources/AppCore/AgentGatewayCLIInvoker.swift Sources/AppGraphQL/NoteGraphQLService.swift Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift Tests/AppCoreTests/AgentGatewayPublicDiagnosticTests.swift Tests/AppGraphQLTests/AgenticSearchDiagnosticsGraphQLTests.swift | tee tmp/release-0-1-17/P1/wc.log'"
+      ]
+    },
+    {
+      "planId": "P3-settings-contrast",
+      "planPath": "impl-plans/active/release-0-1-17-p3-settings-contrast.md",
+      "progressPath": "impl-plans/active/release-0-1-17-p3-settings-contrast.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "web/src/light-theme.css",
+        "web/src/settingsButtonContrast.test.ts",
+        "web/dist",
+        "web/src-tauri/target",
+        "impl-plans/active/release-0-1-17-p3-settings-contrast.md",
+        "tmp/release-0-1-17/P3"
+      ],
+      "sharedPaths": [
+        "web/src/views/ConfigView.tsx",
+        "web/src/components/UserAgentSettings.tsx",
+        "web/src/notes/engineBoundary.test.ts",
+        "web/package.json",
+        "web/vitest.config.ts"
+      ],
+      "sharedPathNotes": [
+        {"path": "web/src/light-theme.css", "intendedEdit": "append the primary, primary-hover and selected rules in that order under a one-line W16 comment; change nothing else; no !important"},
+        {"path": "web/src/settingsButtonContrast.test.ts", "intendedEdit": "new bun test (picked up by bun test src): selectors, exact var(--token) bodies, selected-after-primary order, parsed :root tokens and WCAG contrast >= 4.5"},
+        {"path": "web/src/notes/engineBoundary.test.ts", "intendedEdit": "read-only; imitate its node:fs/node:path/import.meta.dir/bun:test pattern"},
+        {"path": "web/dist", "intendedEdit": "generated vite build output from mise run web:check only (gitignored)"},
+        {"path": "web/src-tauri/target", "intendedEdit": "generated cargo output from mise run tauri:check only (gitignored); never edited by hand"},
+        {"path": "tmp/release-0-1-17/P3", "intendedEdit": "evidence logs, hashes.txt and intent.md only"}
+      ],
+      "artifactRoots": [
+        "web/dist",
+        "web/src-tauri/target",
+        "tmp/release-0-1-17/P3"
+      ],
+      "acceptanceCriteria": [
+        "The three rules are appended in order using existing tokens only, with no !important.",
+        "settingsButtonContrast.test.ts passes and would fail if a rule or token were removed or swapped.",
+        "bun test src exit 0 with N pass > 0 and vitest run exit 0 with Tests M passed > 0, recorded separately; web:check exit 0; tauri:check exit 0 or recorded as blocked with the exact error.",
+        "web/src/styles.css, workspace.css, index.tsx, App.tsx and web/index.html are unchanged.",
+        "Progress Log records commands, exit codes, counts and log paths."
+      ],
+      "verification": [
+        "mkdir -p tmp/release-0-1-17/P3",
+        "bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/release-0-1-17/P3/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/release-0-1-17/P3/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run web:check 2>&1 | tee tmp/release-0-1-17/P3/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run tauri:check 2>&1 | tee tmp/release-0-1-17/P3/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'git diff --name-only -- web/src/styles.css web/src/workspace.css web/src/index.tsx web/src/App.tsx web/index.html | tee tmp/release-0-1-17/P3/guard-protected.log; test ! -s tmp/release-0-1-17/P3/guard-protected.log'"
+      ]
+    },
+    {
+      "planId": "P2-served-sandbox",
+      "planPath": "impl-plans/active/release-0-1-17-p2-served-sandbox.md",
+      "progressPath": "impl-plans/active/release-0-1-17-p2-served-sandbox.md",
+      "wave": 2,
+      "dependsOn": ["P1-agentic-search-diagnostics"],
+      "writePaths": [
+        "Sources/AppCore/AgentGatewayExecutionIsolation.swift",
+        "Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift",
+        "Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift",
+        "design-docs/specs/ai-agent-integration.md",
+        "impl-plans/active/release-0-1-17-p2-served-sandbox.md",
+        "tmp/release-0-1-17/P2"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/AgentGatewayCLIInvoker.swift",
+        "Sources/AppCore/AgentGatewayInvocationSanitization.swift",
+        "Sources/AppCore/AgentGatewaySubscription.swift",
+        "Sources/AppCore/ClaudeSubscriptionExecution.swift",
+        "Sources/AppCore/AgentInvoking.swift",
+        "Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift",
+        "Tests/AppCoreTests/AgentGatewayCLIInvokerTests.swift",
+        "Tests/AppCoreTests/AgentGatewaySubscriptionTests.swift",
+        "Tests/AppCoreTests/ClaudeSubscriptionExecutionTests.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/AgentGatewayExecutionIsolation.swift", "intendedEdit": "served executionContext resolves the binary with realpath+free before creating the workspace (failure -> .unavailable('server agent-gateway executable is unavailable')), passes the physical path to servedSandboxProfile and as arguments[2]; servedSandboxProfile gains the /private/etc + resolv.conf read rule and the five mach-lookup global-names after the read rules and before the write rule; nothing else changes"},
+        {"path": "design-docs/specs/ai-agent-integration.md", "intendedEdit": "conditional: only if the diagnosis gate forces one of the three bounded allowances, append that one line with its reason to the AI13 'Profile additions' list; otherwise untouched"},
+        {"path": "Sources/AppCore/AgentGatewaySubscription.swift", "intendedEdit": "read-only; duplicate rules stay"},
+        {"path": "Sources/AppCore/ClaudeSubscriptionExecution.swift", "intendedEdit": "read-only; duplicate rules stay"},
+        {"path": "Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift", "intendedEdit": "read-only (P1); the live test calls agenticSearch through NoteGraphQLDocumentExecutor"},
+        {"path": "Tests/AppCoreTests/AgentGatewayCLIInvokerTests.swift", "intendedEdit": "read-only; testServedInvokerUsesIsolatedWorkspaceAndAllowlistedEnvironment must keep passing unchanged"},
+        {"path": "tmp/release-0-1-17/P2", "intendedEdit": "evidence logs, hashes.txt, intent.md and sandbox log captures only (baseline: live-baseline.log and sandbox-baseline.log, expected non-zero, diagnosis only)"}
+      ],
+      "artifactRoots": [
+        "tmp/release-0-1-17/P2"
+      ],
+      "acceptanceCriteria": [
+        "Baseline live run and Sandbox log captured before the fix; Progress Log records only sanitized diagnostics, denied operation names and path classes.",
+        "Served context launches and allows only the realpath-resolved gateway; profile contains the /private/etc, resolv.conf and five mach-lookup rules; (deny default) first, single file-write* rule limited to the workspace and /dev/null, no subpath read of gateway/symlink/keg directories, environment keys unchanged.",
+        "AgentGatewayServedSandboxProfileTests pass (profile, environment, missing-binary, symlink behavioral) with XCTest N > 0; AgentGatewayCLIInvokerTests, AgentGatewayServedSafetyTests, AgentGatewaySubscriptionTests, ClaudeSubscriptionExecutionTests and DocumentGatewayIsolationTests pass unchanged.",
+        "LiveServedAgenticSearchTests with KAIBA_LIVE_AGENT_GATEWAY=1 exits 0 with XCTest Executed N > 0 and status ok with a non-empty answer, and the final Sandbox log window shows no gateway denial; otherwise explicitly blocked with the exact reason, never reported as passed.",
+        "Any extra allowance is one of the three bounded AI13 ones, documented in AI13 and asserted in a test; design-diff.log is otherwise empty.",
+        "build and lint exit 0; touched Swift files under 1000 lines; Progress Log records commands, exit codes, counts and log paths."
+      ],
+      "verification": [
+        "mkdir -p tmp/release-0-1-17/P2",
+        "bash -c 'test -n \"$OPENROUTER_API_KEY\" && echo present || echo absent' | tee tmp/release-0-1-17/P2/key-presence.log",
+        "bash -c 'mise run build 2>&1 | tee tmp/release-0-1-17/P2/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"AgentGatewayServedSandboxProfileTests|AgentGatewayCLIInvokerTests|AgentGatewayServedSafetyTests|AgentGatewaySubscriptionTests|ClaudeSubscriptionExecutionTests|DocumentGatewayIsolationTests|AgentGatewayPublicDiagnosticTests\" 2>&1 | tee tmp/release-0-1-17/P2/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'KAIBA_LIVE_AGENT_GATEWAY=1 PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter LiveServedAgenticSearchTests 2>&1 | tee tmp/release-0-1-17/P2/live-final.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'log show --last 10m --style compact --predicate \"sender == \\\"Sandbox\\\" AND eventMessage CONTAINS \\\"agent-gateway\\\"\" 2>&1 | tee tmp/release-0-1-17/P2/sandbox-final.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/release-0-1-17/P2/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'wc -l Sources/AppCore/AgentGatewayExecutionIsolation.swift Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift | tee tmp/release-0-1-17/P2/wc.log'",
+        "bash -c 'git diff -- design-docs | tee tmp/release-0-1-17/P2/design-diff.log'"
+      ]
+    },
+    {
+      "planId": "P4-release-integration",
+      "planPath": "impl-plans/active/release-0-1-17-p4-release-integration.md",
+      "progressPath": "impl-plans/active/release-0-1-17-p4-release-integration.md",
+      "wave": 3,
+      "dependsOn": ["P1-agentic-search-diagnostics", "P2-served-sandbox", "P3-settings-contrast"],
+      "writePaths": [
+        "VERSION",
+        "Sources/AppCore/Version.swift",
+        "web/src-tauri/tauri.conf.json",
+        "web/src-tauri/Cargo.toml",
+        "web/src-tauri/Cargo.lock",
+        "README.md",
+        "impl-plans/active/release-0-1-17.md",
+        "impl-plans/active/release-0-1-17-p4-release-integration.md",
+        "Sources/AppCore/AgentGatewayInvocationSanitization.swift",
+        "Sources/AppCore/AgentGatewayCLIInvoker.swift",
+        "Sources/AppCore/AgentGatewayExecutionIsolation.swift",
+        "Sources/AppGraphQL/NoteGraphQLService.swift",
+        "Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift",
+        "Tests/AppCoreTests/AgentGatewayPublicDiagnosticTests.swift",
+        "Tests/AppCoreTests/AgentGatewayServedSandboxProfileTests.swift",
+        "Tests/AppGraphQLTests/AgenticSearchDiagnosticsGraphQLTests.swift",
+        "Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift",
+        "web/src/light-theme.css",
+        "web/src/settingsButtonContrast.test.ts",
+        "web/dist",
+        "web/src-tauri/target",
+        "tmp/release-0-1-17/P4"
+      ],
+      "sharedPaths": [
+        "design-docs/specs/ai-agent-integration.md",
+        "design-docs/specs/web-chatbook-ui.md",
+        "design-docs/specs/search-engine-adapter.md",
+        "Tests/AppCoreTests/MeilisearchLiveTests.swift",
+        "mise.toml"
+      ],
+      "sharedPathNotes": [
+        {"path": "VERSION", "intendedEdit": "0.1.16 -> 0.1.17 only; same for Sources/AppCore/Version.swift, web/src-tauri/tauri.conf.json, web/src-tauri/Cargo.toml and the kaiba-client version line of web/src-tauri/Cargo.lock (hand-edited, no cargo update)"},
+        {"path": "README.md", "intendedEdit": "fact corrections in 'Optional search engine' only if a concrete mismatch is found, with the reason recorded; expected unchanged"},
+        {"path": "impl-plans/active/release-0-1-17.md", "intendedEdit": "fill the 'Final integration evidence' table and update the index Status line"},
+        {"path": "Sources/AppCore/AgentGatewayExecutionIsolation.swift", "intendedEdit": "integration repairs only; every P1-P3 source or test path is edited only to fix cross-plan defects, each recorded with owning plan, file, pre/post hash and reason; no assertion weakened"},
+        {"path": "Tests/AppCoreTests/MeilisearchLiveTests.swift", "intendedEdit": "read-only; the live search suite must pass unmodified"},
+        {"path": "design-docs/specs/search-engine-adapter.md", "intendedEdit": "read-only; source for the README fact check"},
+        {"path": "web/dist", "intendedEdit": "generated vite build output from mise run web:check only"},
+        {"path": "web/src-tauri/target", "intendedEdit": "generated cargo output from mise run tauri:check only"},
+        {"path": "tmp/release-0-1-17/P4", "intendedEdit": "evidence logs, hashes.txt and intent.md only"}
+      ],
+      "artifactRoots": [
+        "tmp/release-0-1-17/P4",
+        "web/dist",
+        "web/src-tauri/target"
+      ],
+      "acceptanceCriteria": [
+        "version.log shows 0.1.17 in all five places; guard-old-version.log is empty; cargo-lock-diff.log shows exactly 1 insertion and 1 deletion.",
+        "README search section confirmed accurate or corrected with the reason recorded.",
+        "Every gate in the index table is filled with exit status, counts and log path: build, full swift test (XCTest N > 0 and swift-testing count), live agent-gateway (XCTest Executed N > 0 of the positive run), lint, bun test src, vitest run, web:check, tauri:check, search:test-live (XCTest count of the positive run).",
+        "Protected, local-path and secret guards are empty; guard-design-docs.log is empty or lists only P2's single bounded-allowance line cross-checked against P2's Progress Log; every changed Swift file under 1000 lines.",
+        "Every integration repair is recorded (owning plan, file, pre/post hash, reason); no assertion weakened; no release, tag or tap action.",
+        "No unresolved high or mid finding; any blocker (missing key, Docker/colima, log show) is reported explicitly, never as passed."
+      ],
+      "verification": [
+        "mkdir -p tmp/release-0-1-17/P4",
+        "bash -c 'cat VERSION; grep -n \"current\" Sources/AppCore/Version.swift; grep -n \"\\\"version\\\"\" web/src-tauri/tauri.conf.json; grep -n \"^version\" web/src-tauri/Cargo.toml; grep -n -A1 \"name = \\\"kaiba-client\\\"\" web/src-tauri/Cargo.lock' | tee tmp/release-0-1-17/P4/version.log",
+        "bash -c 'git grep -n \"0\\.1\\.16\" -- \":!design-docs\" \":!impl-plans\" | tee tmp/release-0-1-17/P4/guard-old-version.log; test ! -s tmp/release-0-1-17/P4/guard-old-version.log'",
+        "bash -c 'mise run build 2>&1 | tee tmp/release-0-1-17/P4/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test 2>&1 | tee tmp/release-0-1-17/P4/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'test -n \"$OPENROUTER_API_KEY\" && echo present || echo absent' | tee tmp/release-0-1-17/P4/key-presence.log",
+        "bash -c 'KAIBA_LIVE_AGENT_GATEWAY=1 PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter LiveServedAgenticSearchTests 2>&1 | tee tmp/release-0-1-17/P4/live-agent-gateway.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/release-0-1-17/P4/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/release-0-1-17/P4/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/release-0-1-17/P4/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run web:check 2>&1 | tee tmp/release-0-1-17/P4/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run tauri:check 2>&1 | tee tmp/release-0-1-17/P4/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'git diff --stat -- web/src-tauri/Cargo.lock | tee tmp/release-0-1-17/P4/cargo-lock-diff.log'",
+        "bash -c 'mise run search:docker 2>&1 | tee tmp/release-0-1-17/P4/search-docker.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:up 2>&1 | tee tmp/release-0-1-17/P4/search-up.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:test-live 2>&1 | tee tmp/release-0-1-17/P4/search-live.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:down 2>&1 | tee tmp/release-0-1-17/P4/search-down.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'git status --porcelain | tee tmp/release-0-1-17/P4/changed-files.log'",
+        "bash -c 'git diff --name-only -- mise.toml docker Sources/AppServer web/src-tauri/capabilities web/src/styles.css web/src/workspace.css web/src/index.tsx web/src/App.tsx Sources/AppCore/AgentGatewaySubscription.swift Sources/AppCore/ClaudeSubscriptionExecution.swift | tee tmp/release-0-1-17/P4/guard-protected.log; test ! -s tmp/release-0-1-17/P4/guard-protected.log'",
+        "bash -c 'git diff --name-only -- design-docs | tee tmp/release-0-1-17/P4/guard-design-docs.log'",
+        "bash -c '{ git diff --name-only; git ls-files --others --exclude-standard; } | grep -v \"^impl-plans/\" | sort -u | xargs grep -nE \"(/Users/|/opt/homebrew/Cellar)\" | tee tmp/release-0-1-17/P4/guard-local-paths.log; test ! -s tmp/release-0-1-17/P4/guard-local-paths.log'",
+        "bash -c '{ git diff --name-only; git ls-files --others --exclude-standard; } | grep -v \"^impl-plans/\" | sort -u | xargs grep -nE \"sk-or-v1-[A-Za-z0-9]{16,}\" | tee tmp/release-0-1-17/P4/guard-secrets.log; test ! -s tmp/release-0-1-17/P4/guard-secrets.log'",
+        "bash -c '{ git diff --name-only -- \"*.swift\"; git ls-files --others --exclude-standard -- \"*.swift\"; } | xargs wc -l | tee tmp/release-0-1-17/P4/wc.log'"
+      ]
+    }
+  ]
+}

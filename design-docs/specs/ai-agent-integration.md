@@ -67,11 +67,14 @@ openrouter.
   vendors require an explicit credential-variable name and execute in a fresh
   temporary working directory with an allowlisted environment. On macOS the
   child also runs under a filesystem sandbox that permits writes only inside
-  that directory, reads the exact configured gateway executable plus approved
-  system runtime paths (never its parent directory), and permits outbound
-  network access for the selected API provider. Gateway diagnostics from served
-  requests are not returned or persisted because provider tools can include
-  credentials or local paths in their errors. Availability preflight applies
+  that directory, reads the gateway executable at its symlink-resolved physical
+  path plus approved system runtime paths (never its parent directory), and
+  permits outbound network access, TLS trust evaluation, and name resolution
+  for the selected API provider (AI13). Raw gateway diagnostics (stderr,
+  JSON-RPC error text, provider bodies) from served requests are never
+  returned, logged, or persisted because provider tools can include
+  credentials or local paths in their errors; only the fixed served
+  diagnostics of AI13 cross that boundary. Availability preflight applies
   these served restrictions before auto-actions are enabled. The credential
   variable must be an ASCII environment-variable identifier and must not be a
   sandbox runtime key (`HOME`, `TMPDIR`, `XDG_CONFIG_HOME`,
@@ -900,6 +903,110 @@ not claimed as coverage.
     DP8 and DP9. AI1's request shape gains the optional `images` list. All other
     purposes send none.
 
+- **AI13 — Served sandbox runtime allowances and diagnosable failures
+  (2026-10-05).** Defect: served `agenticSearch` with an API vendor
+  (`openrouter`, `openai/gpt-5-mini`) returned `status: failed` with the
+  diagnostic `note operation failed`, while the same configuration succeeded
+  through the unsandboxed `kaiba ai search`. The served profile named the
+  configured executable literally and named `/etc`, but Seatbelt matches the
+  physical path of the accessed file. A Homebrew `bin/agent-gateway` is a
+  symlink into the formula keg, and `/etc` is a symlink to `/private/etc`, so
+  neither rule matched. The profile also lacked the mach services needed for
+  TLS trust and DNS. Two layers then hid the cause: the invoker's fixed served
+  diagnostic, and the GraphQL default mapping to `note operation failed`.
+
+  *Executable resolution.* The served context resolves the gateway path with
+  `realpath(3)` before it builds the profile. It launches that physical path as
+  the `sandbox-exec` target, and the profile grants `file-read*` on that one
+  literal only. The configured symlink and both parent directories stay
+  unreadable. If resolution fails, the invocation is `unavailable` and is
+  sanitized to `server agent-gateway is unavailable`.
+
+  *Profile additions.* These are shared by every caller of
+  `servedSandboxProfile`. They are the set already accepted for the server
+  subscription profiles, so subscription profiles gain only duplicate,
+  idempotent rules.
+  - `file-read*` on `(subpath "/private/etc")` and
+    `(literal "/private/var/run/resolv.conf")`. These are the physical forms of
+    the `/etc` access the profile already intended.
+  - `mach-lookup` for `com.apple.trustd`, `com.apple.SecurityServer`,
+    `com.apple.SystemConfiguration.configd`, `com.apple.networkd` and
+    `com.apple.dnssd.service`, for TLS certificate trust and DNS.
+
+  *What does not change.* `(deny default)`, writes only inside the workspace
+  plus `/dev/null`, no read of the binary's directory or keg, the environment
+  allowlist and reserved keys, refusal of tool-capable vendors, and Linux
+  failing closed.
+
+  *Diagnosis gate.* The fix is accepted only after the live test passes and
+  the sandbox violation log shows no remaining denial for the gateway process.
+  Use `log show` or `log stream` with the `Sandbox` sender, filtered to the
+  gateway process name. Record only the operation and path class in evidence,
+  never environment values. If a denial remains, the only further allowances
+  permitted without a user decision are:
+  - a global `file-read-metadata`, which exposes metadata only and is already
+    in the subscription profiles;
+  - `file-lock` inside the workspace;
+  - `file-read*` literals for individual dylibs that `otool -L` reports for
+    the resolved executable outside `/System` and `/usr/lib`.
+
+  Any other allowance stops the work and is recorded under
+  `design-docs/user-qa/ai-agent-runtime-and-ui.md`. Every allowance that is
+  adopted is listed in this decision.
+
+  *Fixed served diagnostics.* These are the closed set of gateway failure
+  strings that may become a public reason. The image-transport strings are not
+  included, because `agenticSearch` sends no images, so they fall back to the
+  generic reason:
+  - `agent-gateway request failed`
+  - `agent-gateway produced no reply (exit N)`
+  - `agent-gateway could not start inside the server sandbox (exit N)`
+  - `agent-gateway exited with status N`
+  - `agent-gateway invocation timed out`
+  - `agent-gateway output exceeds the 256 KiB process limit`
+  - `agent reply exceeds the 256 KiB or 256-chunk output limit`
+  - `server agent-gateway is unavailable`
+
+  `N` is a decimal exit status. The new sandbox-start entry applies when a
+  served child produced no reply and its stderr begins with `sandbox-exec:`,
+  which is the launcher's own prefix for profile or exec failures. The stderr
+  text itself is never copied.
+
+  *Public reason mapping (AppCore).* A pure function next to
+  `sanitizedInvocationError` maps an `AgentInvocationError` to a public reason:
+  - `notConfigured` maps to `agent runtime is not configured`.
+  - `unavailable` maps to `agent runtime is unavailable`.
+  - `failed(message)` returns `message` only when it exactly matches the
+    closed set above (with `N` restricted to digits). Anything else maps to
+    `agent request failed`.
+
+  This is an allowlist rather than redaction, so text from local-mode
+  invokers or other runtimes can never pass through.
+
+  *agenticSearch surface.* When the error is an `AgentInvocationError`, the
+  resolver returns its public reason as the single `result.diagnostics` entry.
+  It keeps `result.status: "error"`, `accepted: false` and top-level
+  `status: "failed"`, so the schema and status values are unchanged. Other
+  errors keep the existing `graphQLNoteResult(for:)` mapping. Every
+  `agenticSearch` failure writes one server log line to standard error:
+  `kaiba: agenticSearch failed: <public reason>`. The line goes through an
+  injectable log sink whose default writes to standard error, following the
+  pattern in `SearchEngineRuntimeController`. It never contains the query,
+  answer, environment values, stderr, provider bodies or paths. Other served
+  AI surfaces (chat, tags, translation) already persist the same fixed
+  diagnostics and are unchanged apart from benefiting from the sandbox fix.
+
+  *Placement (1000-line limit).* `AgentGatewayCLIInvoker.swift` has 984 lines
+  and `NoteGraphQLService.swift` has 974, so neither grows by more than a few
+  lines:
+  - The stderr classifier and the public-reason mapping go in
+    `AgentGatewayInvocationSanitization.swift`.
+  - The `agenticSearch` method moves into a new
+    `Sources/AppGraphQL/NoteGraphQLAgenticSearch.swift` extension, together
+    with its failure mapping.
+  - The new tests go in new test files, not in
+    `AgentGatewayCLIInvokerTests.swift` (925 lines).
+
 ## Chat Composer Security and Validation Boundary
 
 - Authentication, subject/conversation ownership, read-only enforcement,
@@ -975,6 +1082,10 @@ the same change).
   `{name, className, provenance, parentName}` for the Info tab.
 - Turn listing reuses notes-by-notebook queries; turn status/role is
   read from note meta JSON (exposed if not already).
+- Query `agenticSearch(query, notebookId, limit)` — `status` is `ok`,
+  `agent-unavailable` or `failed`. On `failed`, `result.diagnostics` holds
+  exactly one sanitized public reason (AI13), never the generic
+  `note operation failed` for agent runtime errors. The SDL is unchanged.
 
 ## Verification (Phase D checklist)
 
@@ -1039,3 +1150,37 @@ the same change).
     checks the blocker leaves unaffected. Compilation or static review never
     satisfies a checklist item, and a command-wrapper timeout is a tooling
     limitation to report, not a pass.
+13. Served sandbox and agenticSearch diagnostics (AI13). Each of the
+    following is a unit test that runs in `swift test`.
+    - The served context for a gateway reached through a symlink launches the
+      physical path. The profile contains the physical literal, not the
+      symlink, and no `subpath` rule for either parent directory. It contains
+      the `/private/etc`, `resolv.conf` and five `mach-lookup` rules. Its only
+      writes are the workspace subpath and `/dev/null`.
+    - The environment keys are exactly the workspace-scoped `HOME`, `TMPDIR`,
+      `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`, the selected credential, and the
+      inherited non-empty `PATH`, `LANG` and `LC_ALL`.
+    - A served invocation of a symlinked script gateway succeeds. The existing
+      isolation test still denies sibling reads and external writes.
+    - Fixture stderr beginning with `sandbox-exec:` yields the sandbox-start
+      diagnostic and never echoes the stderr path.
+    - The public-reason mapping passes every allowlisted string, and maps
+      credential-, path- or stderr-bearing text to `agent request failed`.
+    - `agenticSearch` with a fake invoker returns the mapped reason, and the
+      captured log line contains it but no secret.
+
+    The live test is
+    `Tests/AppGraphQLTests/LiveServedAgenticSearchTests.swift`.
+    - It runs only with `KAIBA_LIVE_AGENT_GATEWAY=1` and a non-empty
+      `OPENROUTER_API_KEY`, and skips otherwise.
+    - It builds the invoker with `AgentInvokerFactory.makeInvoker(...,
+      executionMode: .served)` as `kaiba serve` does: backend
+      `agent-gateway-cli`, provider `openrouter`, model `openai/gpt-5-mini`
+      (overridable with `KAIBA_LIVE_AGENT_GATEWAY_MODEL`), and
+      `apiKeyEnvironmentVariable` `OPENROUTER_API_KEY`.
+    - It executes the `agenticSearch` GraphQL document against a temporary
+      store through `NoteGraphQLDocumentExecutor`, and asserts `status` `ok`
+      with a non-empty `answerMarkdown`.
+
+    Only a run that reports XCTest `Executed N tests` with N > 0 for this
+    class counts as evidence. A skipped run never does.

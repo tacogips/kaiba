@@ -197,6 +197,50 @@ original per-note reader + separate Memos/Chat tabs described below.)
   arrows. Ordering/stepping logic lives DOM-free in `notes/noteImages.ts`
   with tests.
 
+- **W16 — Settings primary and selected buttons stay legible
+  (2026-10-05).** Defect: in Settings (`#/config`), the selected font-size
+  preset and the primary (non-`secondary`) buttons rendered near-white text on
+  a near-white surface. Those primary buttons include the personal-agent
+  submit and Enable buttons and the other settings sections' submits. Cause:
+  - `index.tsx` imports `styles.css` after `App.tsx` imports
+    `light-theme.css`. The legacy dark `button:not(nav button)` rule
+    (`color: #e5ffff`, gradient) therefore beats the equally specific light
+    rule.
+  - `workspace.css`'s `.chatbook button:not(...)` then removes the gradient,
+    which leaves a transparent fill.
+  - `secondary` buttons were unaffected because `light-theme.css` already has a
+    `.chatbook button.secondary` rule.
+
+  The fix is light-theme-only and scoped to settings sections. It uses
+  existing tokens, without new tokens or new colors:
+  - `.chatbook .config-section button:not(.secondary)`: `color: var(--ink)`,
+    `border-color: var(--green-line)`, `background: var(--green-primary)`,
+    with `var(--green-hover)` on hover when not disabled.
+  - `.chatbook .config-section button[aria-pressed="true"]`:
+    `color: var(--green-ink)`, `border-color: var(--green-focus)`,
+    `background: var(--green-selected)`. This matches the existing
+    `.study-note-button[aria-pressed="true"]` selected treatment.
+    It has the same specificity as the primary rule, so it is declared after
+    it. On hover it keeps `--green-ink` text over `--green-hover`, which is
+    still above 4.5:1.
+
+  The stylesheet import order, `styles.css` and `workspace.css` are not
+  changed, so no other view's button cascade moves. The ratios are about
+  13.2:1 for `--ink` on `--green-primary` and about 5.4:1 for `--green-ink`
+  on `--green-selected`, both at or above WCAG AA 4.5:1.
+
+  Theme scope: `light-theme.css` applies unconditionally on `:root`, and the
+  build has no dark-theme switch. The "dark" appearance exists only as the
+  legacy base rules, which this fix leaves untouched and which already
+  rendered these buttons legibly. W9's "both themes" wording therefore means
+  the shipped light theme plus the unchanged legacy base.
+
+  Guard: a bun test, `web/src/settingsButtonContrast.test.ts`, reads
+  `light-theme.css` as text. It asserts that both rules exist with those
+  tokens, parses the `:root` token values, and asserts that both pairs have a
+  computed contrast of at least 4.5:1. The visual check in a browser stays in
+  the manual browser-runtime list below.
+
 ## Composer Data Flow and Rollout
 
 1. On pane load, fetch the `web` app setting and the current-provider
