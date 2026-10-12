@@ -262,7 +262,7 @@ public struct AppCommand: Sendable {
                  [--filter <regex>] [--output text|json]
                  # retrieve authenticated schema introspection; regex matches
                  # root fields and types and includes forward type dependencies
-      client     issue --name <n> [--user <user-id>] | list [--all]
+      client     issue --name <n> [--user <user-id>] [--expires-at YYYY-MM-DD|--never] | list [--all]
                  | revoke <client-id>
                  # API keys accepted as bearer tokens by kaiba serve;
                  # without --user the key acts as the default user

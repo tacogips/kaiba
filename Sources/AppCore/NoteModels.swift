@@ -509,6 +509,8 @@ public struct NoteAPIClient: Codable, Equatable, Sendable {
   public var createdAt: String
   public var lastSeenAt: String?
   public var revokedAt: String?
+  /// Inclusive expiration date in UTC (YYYY-MM-DD); nil means never.
+  public var expiresAt: String?
 
   public init(
     clientId: APIClientID,
@@ -517,7 +519,8 @@ public struct NoteAPIClient: Codable, Equatable, Sendable {
     userId: UserID,
     createdAt: String,
     lastSeenAt: String? = nil,
-    revokedAt: String? = nil
+    revokedAt: String? = nil,
+    expiresAt: String? = nil
   ) {
     self.clientId = clientId
     self.displayName = displayName
@@ -526,6 +529,7 @@ public struct NoteAPIClient: Codable, Equatable, Sendable {
     self.createdAt = createdAt
     self.lastSeenAt = lastSeenAt
     self.revokedAt = revokedAt
+    self.expiresAt = expiresAt
   }
 }
 

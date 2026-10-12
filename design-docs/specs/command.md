@@ -153,7 +153,8 @@ on stderr; success writes only to stdout.
 ### API keys
 
 ```bash
-kaiba client issue --name <display-name>   # prints the key once
+kaiba client issue --name <display-name> [--user <user-id>]
+                  [--expires-at YYYY-MM-DD | --never] # prints the key once
 kaiba client list [--all]
 kaiba client revoke <client-id>
 ```
@@ -162,6 +163,13 @@ Issued keys are stored hashed in the `api_clients` table and are
 accepted by `kaiba serve` as `Authorization: Bearer <api-key>` —
 the same registry the QR registration flow uses. Revocation takes
 effect immediately.
+
+These are server administration commands, run against the server's store.
+Expiration dates are inclusive UTC calendar dates. `--never` or no expiration
+option preserves permanent access; invalid dates or combining both options
+are rejected. Issue/list output includes `expiresAt` (date or null in JSON,
+`never` in text). Expired keys are refused by server authentication. Replace
+an issued key by issuing a new one and revoking the old credential.
 
 ### Serve (HTTP note API + web viewer)
 

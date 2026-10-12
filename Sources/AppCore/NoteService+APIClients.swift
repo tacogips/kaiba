@@ -13,7 +13,8 @@ public extension NoteService {
   func registerAPIClient(
     displayName: String,
     bearerToken: String,
-    userId: UserID? = nil
+    userId: UserID? = nil,
+    expiresAt: String? = nil
   ) throws -> NoteAPIClient {
     let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     let clientName = trimmedName.isEmpty ? "Unnamed client" : trimmedName
@@ -21,6 +22,9 @@ public extension NoteService {
     return try driver.withDatabase { database in
       try database.transaction { db in
         try requireStoreAdministrator(in: db)
+        if let expiresAt {
+          try APIClientExpirationDate.validate(expiresAt)
+        }
         let owner = try requireUser(ownerUserId, in: db)
         guard owner.isEnabled else {
           throw NoteServiceError.invalidInput("user is disabled: \(ownerUserId)")
@@ -30,15 +34,16 @@ public extension NoteService {
         try db.execute(
           """
           INSERT INTO api_clients (
-            client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at
-          ) VALUES (?, ?, ?, ?, ?, NULL, NULL)
+            client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at, expires_at
+          ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)
           """,
           bindings: [
             .id(clientId),
             .text(clientName),
             .text(Self.apiTokenHash(for: bearerToken)),
             .id(ownerUserId),
-            .text(now)
+            .text(now),
+            expiresAt.map(SQLiteValue.text) ?? .null
           ]
         )
         return try requireAPIClient(clientId, in: db)
@@ -54,7 +59,7 @@ public extension NoteService {
         let predicate = includeRevoked ? "" : "WHERE revoked_at IS NULL"
         return try db.query(
           """
-          SELECT client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at
+          SELECT client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at, expires_at
           FROM api_clients
           \(predicate)
           ORDER BY created_at DESC, client_id
@@ -80,21 +85,28 @@ public extension NoteService {
   }
 
   func authenticateAPIClient(bearerToken: String) throws -> NoteAPIClient? {
+    try authenticateAPIClient(bearerToken: bearerToken, at: nil)
+  }
+
+  /// Internal clock seam; production callers always use the server clock.
+  internal func authenticateAPIClient(bearerToken: String, at now: Date?) throws -> NoteAPIClient? {
     let tokenHash = Self.apiTokenHash(for: bearerToken)
     return try driver.withDatabase { database in
       try database.transaction { db in
+        let timestamp = noteStoreTimestamp(from: now ?? Date())
         let rows = try db.query(
           """
           SELECT c.client_id, c.display_name, c.token_hash, c.user_id,
-            c.created_at, c.last_seen_at, c.revoked_at
+            c.created_at, c.last_seen_at, c.revoked_at, c.expires_at
           FROM api_clients AS c
           INNER JOIN users AS u ON u.user_id = c.user_id
           WHERE c.token_hash = ?
             AND c.revoked_at IS NULL
+            AND (c.expires_at IS NULL OR c.expires_at >= substr(?, 1, 10))
             AND u.disabled_at IS NULL
           LIMIT 1
           """,
-          bindings: [.text(tokenHash)]
+          bindings: [.text(tokenHash), .text(timestamp)]
         )
         guard let row = rows.first else {
           return nil
@@ -102,7 +114,7 @@ public extension NoteService {
         let client = try apiClient(from: row)
         try db.execute(
           "UPDATE api_clients SET last_seen_at = ? WHERE client_id = ?",
-          bindings: [.text(NoteStoreClock.system.now()), .id(client.clientId)]
+          bindings: [.text(timestamp), .id(client.clientId)]
         )
         return try requireAPIClient(client.clientId, in: db)
       }
@@ -118,7 +130,7 @@ public extension NoteService {
 private func requireAPIClient(_ clientId: APIClientID, in database: SQLiteDatabase) throws -> NoteAPIClient {
   let rows = try database.query(
     """
-    SELECT client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at
+    SELECT client_id, display_name, token_hash, user_id, created_at, last_seen_at, revoked_at, expires_at
     FROM api_clients
     WHERE client_id = ?
     LIMIT 1
@@ -146,6 +158,7 @@ private func apiClient(from row: SQLiteRow) throws -> NoteAPIClient {
     userId: userId,
     createdAt: createdAt,
     lastSeenAt: row["last_seen_at"] ?? nil,
-    revokedAt: row["revoked_at"] ?? nil
+    revokedAt: row["revoked_at"] ?? nil,
+    expiresAt: row["expires_at"] ?? nil
   )
 }

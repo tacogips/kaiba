@@ -293,6 +293,27 @@ private func noteId(fromJSON output: String) throws -> NoteID {
   #expect((try run(["client", "list", "--all"], root: root)).contains("[revoked"))
 }
 
+@Test func cliClientIssueSupportsExpirationAndNever() throws {
+  let root = try makeTempRoot()
+  let expiring = try JSONValue(parsing: run([
+    "client", "issue", "--name", "temporary", "--expires-at", "2027-12-31", "--output", "json"
+  ], root: root))
+  #expect(expiring["expiresAt"]?.asString == "2027-12-31")
+
+  let permanent = try JSONValue(parsing: run([
+    "client", "issue", "--name", "permanent", "--never", "--output", "json"
+  ], root: root))
+  #expect(permanent["expiresAt"] == nil || permanent["expiresAt"] == .null)
+  let expired = try JSONValue(parsing: run([
+    "client", "issue", "--name", "expired", "--expires-at", "2000-01-01", "--output", "json"
+  ], root: root))
+  let service = try AppCommand(arguments: [], environment: [:]).makeService(root: root)
+  #expect(try service.authenticateAPIClient(bearerToken: #require(expired["apiKey"]?.asString)) == nil)
+  #expect(throws: AppCommand.Error.invalidUsage("choose either --expires-at YYYY-MM-DD or --never")) {
+    try run(["client", "issue", "--name", "conflict", "--never", "--expires-at", "2027-12-31"], root: root)
+  }
+}
+
 @Test func cliUserAdminGrantRevokeRoundTrip() throws {
   let root = try makeTempRoot()
 

@@ -27,6 +27,12 @@ extension AppCommand {
     // Without --user the key belongs to the default account, which is what a
     // single-user store has always been.
     let userId = try cursor.extractIdentifierOption("--user", as: UserID.self)
+    let expirationOption = try cursor.extractOption("--expires-at")
+    let neverExpires = cursor.extractFlag("--never")
+    guard !(expirationOption != nil && neverExpires) else {
+      throw Error.invalidUsage("choose either --expires-at YYYY-MM-DD or --never")
+    }
+    let expiresAt = try expirationOption.map(parseAPIClientExpirationDate)
     let output = try cursor.extractOutputMode()
     guard let name else {
       throw Error.invalidUsage("client issue requires --name <display-name>")
@@ -38,7 +44,8 @@ extension AppCommand {
     let client = try service.registerAPIClient(
       displayName: name,
       bearerToken: token,
-      userId: userId
+      userId: userId,
+      expiresAt: expiresAt
     )
     switch output {
     case .json:
@@ -47,6 +54,7 @@ extension AppCommand {
         "displayName": .string(client.displayName),
         "userId": .id(client.userId),
         "createdAt": .string(client.createdAt),
+        "expiresAt": client.expiresAt.map(JSONValue.string) ?? .null,
         "apiKey": .string(token)
       ])
     case .text:
@@ -54,6 +62,8 @@ extension AppCommand {
       Issued API key for client \(client.clientId) (\(client.displayName)).
       API key (shown once, store it now):
       \(token)
+
+      Expires: \(client.expiresAt ?? "never")
 
       Use it as a bearer token: Authorization: Bearer <api-key>
       """
@@ -79,6 +89,7 @@ extension AppCommand {
         ]
         object["lastSeenAt"] = client.lastSeenAt.map(JSONValue.string)
         object["revokedAt"] = client.revokedAt.map(JSONValue.string)
+        object["expiresAt"] = client.expiresAt.map(JSONValue.string) ?? .null
         return object
       })
     case .text:
@@ -93,6 +104,7 @@ extension AppCommand {
         if let revoked = client.revokedAt {
           parts.append("[revoked \(revoked)]")
         }
+        parts.append("expires \(client.expiresAt ?? "never")")
         return parts.joined(separator: "  ")
       }.joined(separator: "\n")
     }
@@ -129,4 +141,9 @@ extension AppCommand {
       .replacingOccurrences(of: "/", with: "_")
       .replacingOccurrences(of: "=", with: "")
   }
+}
+
+private func parseAPIClientExpirationDate(_ value: String) throws -> String {
+  try APIClientExpirationDate.validate(value)
+  return value
 }

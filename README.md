@@ -338,9 +338,17 @@ set while clearing results immediately when the selected tag changes.
 
 ## API Access
 
+Run key administration commands on the server host. `--expires-at` chooses an
+inclusive UTC calendar date; the key expires at the following UTC midnight.
+Use `--never` or omit the expiration option for no expiration. Existing keys
+remain permanent. The client app stores and uses the issued key; the server
+enforces expiration and revocation. See [API key expiration design](design-docs/api-key-expiration.md).
+
 ```bash
 # machine access: issue an API key (printed once), use it as a bearer
-kaiba client issue --name my-tool
+kaiba client issue --name my-tool --expires-at 2027-12-31
+# Or create a key that never expires (the default):
+kaiba client issue --name my-tool --never
 curl -X POST http://127.0.0.1:8787/graphql \
   -H "Authorization: Bearer <api-key>" \
   -H 'Content-Type: application/json' \

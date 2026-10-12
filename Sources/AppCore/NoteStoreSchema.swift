@@ -8,7 +8,7 @@ public enum NoteStoreSchemaError: Error, Equatable, Sendable {
 }
 
 public enum NoteStoreSchema {
-  public static let currentVersion = 23
+  public static let currentVersion = 24
   /// The account every unauthenticated request acts as. A stable literal, so
   /// each process agrees on it without a lookup by flag.
   public static let defaultUserId = UserID("user-default")
@@ -213,7 +213,7 @@ public enum NoteStoreSchema {
   }
 
   /// Versions 19 and 20 can each represent one side of the schema changes
-  /// merged into version 21; every supported path continues through v23.
+  /// merged into version 21; every supported path continues through v24.
   private static func requireSupportedVersion(in database: SQLiteDatabase) throws {
     guard let newest = try appliedSchemaVersions(in: database).max() else {
       return
@@ -225,15 +225,22 @@ public enum NoteStoreSchema {
       try upgradeToVersion21(in: database)
       try upgradeToVersion22(in: database)
       try upgradeToVersion23(in: database)
+      try upgradeToVersion24(in: database)
       return
     }
     if newest == 21 {
       try upgradeToVersion22(in: database)
       try upgradeToVersion23(in: database)
+      try upgradeToVersion24(in: database)
       return
     }
     if newest == 22 {
       try upgradeToVersion23(in: database)
+      try upgradeToVersion24(in: database)
+      return
+    }
+    if newest == 23 {
+      try upgradeToVersion24(in: database)
       return
     }
     if newest < 19 {
@@ -295,6 +302,16 @@ public enum NoteStoreSchema {
   private static func upgradeToVersion23(in database: SQLiteDatabase) throws {
     try database.transaction { db in
       try recordSchemaVersion(23, in: db)
+    }
+  }
+
+  private static func upgradeToVersion24(in database: SQLiteDatabase) throws {
+    try database.transaction { db in
+      let columns = try db.query("PRAGMA table_info(api_clients)")
+      if !columns.contains(where: { $0["name"] == "expires_at" }) {
+        try db.execute("ALTER TABLE api_clients ADD COLUMN expires_at TEXT")
+      }
+      try recordSchemaVersion(24, in: db)
     }
   }
 
@@ -738,7 +755,8 @@ private let schemaStatements = [
     user_id TEXT NOT NULL REFERENCES users(user_id),
     created_at TEXT NOT NULL,
     last_seen_at TEXT,
-    revoked_at TEXT
+    revoked_at TEXT,
+    expires_at TEXT
   ) STRICT
   """,
   "CREATE INDEX IF NOT EXISTS idx_api_clients_user ON api_clients(user_id)",
