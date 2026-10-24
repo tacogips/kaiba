@@ -6,7 +6,7 @@ import { PDFDocumentView } from './PDFDocumentView'
 
 const mocks = vi.hoisted(() => {
   const renderPage = vi.fn(() => ({ promise: Promise.resolve(), cancel: vi.fn() }))
-  const getPage = vi.fn(async () => ({ getViewport: () => ({ width: 600, height: 800 }), render: renderPage }))
+  const getPage = vi.fn(async () => ({ getViewport: ({ scale }: { scale: number }) => ({ width: 600 * scale, height: 800 * scale }), render: renderPage }))
   const destroy = vi.fn(async () => {})
   const getDocument = vi.fn(() => ({ promise: Promise.resolve({ getPage }), destroy }))
   const blob = vi.fn(async () => new Blob(['PDF bytes'], { type: 'application/pdf' }))
@@ -50,4 +50,50 @@ test('reports a failed PDF fetch and retries without exposing OCR text', async (
     expect(mocks.blob).toHaveBeenCalledTimes(2)
     expect(host.querySelector('img')).toBeNull()
   } finally { dispose(); host.remove() }
+})
+
+test('fit to page uses both dimensions, tracks resizing and page orientation, and manual zoom exits fit mode', async () => {
+  vi.clearAllMocks()
+  const observers: Array<() => void> = []
+  const disconnect = vi.fn()
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: () => void) { observers.push(callback) }
+    observe() {}
+    disconnect = disconnect
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const [page, setPage] = createSignal(1)
+  const dispose = render(() => <PDFDocumentView fileId={fileId('file-pdf')} pageNumber={page()} />, host)
+  try {
+    const stage = host.querySelector<HTMLDivElement>('.pdf-viewer-stage')!
+    let width = 800, height = 600
+    Object.defineProperties(stage, { clientWidth: { get: () => width }, clientHeight: { get: () => height } })
+    observers[0]!()
+    const canvas = host.querySelector('canvas')!
+    await vi.waitFor(() => expect(parseFloat(canvas.style.height)).toBeGreaterThan(height))
+    const fit = host.querySelector<HTMLButtonElement>('[aria-label="Fit to page"]')!
+    fit.click()
+    await vi.waitFor(() => expect(parseFloat(canvas.style.height)).toBeLessThanOrEqual(height))
+    expect(parseFloat(canvas.style.width)).toBeLessThanOrEqual(width)
+    expect(host.textContent).toContain('56%')
+    expect(fit.getAttribute('aria-pressed')).toBe('true')
+    // Opening a pane or expanding AI changes the available reader viewport.
+    width = 400; height = 300
+    observers[0]!()
+    await vi.waitFor(() => expect(parseFloat(canvas.style.height)).toBeLessThanOrEqual(height))
+    expect(parseFloat(canvas.style.width)).toBeLessThanOrEqual(width)
+    // A landscape page must fit horizontally as well.
+    mocks.getPage.mockResolvedValueOnce({
+      getViewport: ({ scale }: { scale: number }) => ({ width: 1200 * scale, height: 600 * scale }), render: mocks.renderPage,
+    })
+    setPage(2)
+    await vi.waitFor(() => expect(parseFloat(canvas.style.width)).toBeGreaterThan(390))
+    expect(parseFloat(canvas.style.width)).toBeLessThanOrEqual(width)
+    expect(parseFloat(canvas.style.height)).toBeLessThanOrEqual(height)
+    host.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click()
+    await vi.waitFor(() => expect(fit.getAttribute('aria-pressed')).toBe('false'))
+    expect(mocks.blob).toHaveBeenCalledTimes(1)
+  } finally { dispose(); host.remove(); vi.unstubAllGlobals() }
+  expect(disconnect).toHaveBeenCalledOnce()
 })
