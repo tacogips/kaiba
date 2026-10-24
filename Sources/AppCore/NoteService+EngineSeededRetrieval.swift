@@ -152,7 +152,7 @@ public extension NoteService {
       )
       let directFused = NoteRetrievalReranker.fuse([ftsList, engineList], limit: window)
       let notesById = try requireNotes(directFused.map(\.noteId), in: database)
-      let searchTexts = try noteSearchTexts(directFused.map(\.noteId), in: database)
+      let searchTexts = try storedDocumentPageTexts(directFused.map(\.noteId), in: database)
       let terms = indexableSearchTerms(from: trimmedQuery)
       var directResults: [NoteSearchResult] = []
       for candidate in directFused {
@@ -161,7 +161,7 @@ public extension NoteService {
         }
         let retrievalText = noteRetrievalText(
           bodyMarkdown: note.bodyMarkdown,
-          searchText: searchTexts[note.noteId]
+          pageText: searchTexts[note.noteId]
         )
         let ftsResult = fullTextById[note.noteId]
         let hit = hitsById[note.noteId]

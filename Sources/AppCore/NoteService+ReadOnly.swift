@@ -93,10 +93,6 @@ public extension NoteService {
         // Deletion is the one moment content must enter the log: the snapshot
         // is what undo restores (U4).
         let snapshot = try captureNoteSnapshot(noteId: noteId, in: db)
-        // Derived translation outputs are valid only while their source note
-        // exists. Removing them in the same transaction prevents a restarted
-        // translation from completing with an orphaned stale output.
-        try deleteTranslationOutputs(sourceNoteId: noteId, in: db)
         try deleteNoteRows(noteId: noteId, in: db)
         try db.execute(
           "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",

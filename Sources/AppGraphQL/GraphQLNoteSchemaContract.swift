@@ -8,9 +8,21 @@
 // non-integral, or the wrong type) is rejected with an invalidVariable error
 // rather than silently clamped.
 let graphQLNoteSchemaContract = """
-type DocumentPageTranslation { noteId: String!, notebookId: String!, sourceNoteId: String!, targetLanguage: String!, text: String! }
-type DocumentPageTranslationsQueryPayload { result: ControlPlaneResult!, value: [DocumentPageTranslation!] }
-type DocumentPageText { pageNumber: Int!, text: String!, textSource: String, ocrState: String! }
+# A document page reads as one of three versions: Original (the retained
+# file page), OCR (DocumentPageText) and Translated (NoteTranslation).
+type DocumentPageAnalysis { isDocument: Boolean, language: String, writingMode: String!, binding: String!, title: String }
+type DocumentPage {
+  pageNumber: Int!, originFileId: String!, originMediaType: String!, textExtractionMode: String
+  textStatus: String!, textSource: String, analysis: DocumentPageAnalysis!
+}
+type NoteTranslation { noteId: String!, language: String!, body: String!, isCurrent: Boolean!, updatedAt: String! }
+type NoteTranslationsQueryPayload { result: ControlPlaneResult!, value: [NoteTranslation!] }
+type TranslationJob {
+  jobId: String!, notebookId: String!, targetLanguage: String!, pageStart: Int, pageEnd: Int
+  status: String!, errorMessage: String, createdAt: String!, updatedAt: String!
+}
+type TranslationJobsQueryPayload { result: ControlPlaneResult!, value: [TranslationJob!] }
+type DocumentPageText { pageNumber: Int!, text: String!, textSource: String, textStatus: String! }
 type DocumentPageTextQueryPayload { result: ControlPlaneResult!, value: DocumentPageText }
 type NoteTag { tagId: String!, name: String!, classId: String, parentTagId: String, isSystem: Boolean!, createdAt: String! }
 type NoteTagClass { classId: String!, label: String!, description: String, isSystem: Boolean!, createdAt: String! }
@@ -31,6 +43,7 @@ type Note {
   noteId: String!, notebookId: String!, noteNumber: Int!, title: String
   bodyMarkdown: String!, readOnly: Boolean!, createdAt: String!, updatedAt: String!
   metaJSON: String, tags: [NoteTagAssignment!]!, createdBy: String, updatedBy: String
+  documentPage: DocumentPage
 }
 type NoteFile {
   fileId: String!
@@ -242,11 +255,11 @@ input SendAgentChatMessageInput {
 type AgentChatMessagePayload { result: ControlPlaneResult!, conversationNotebookId: String, turnNoteId: String, agentStatus: String! }
 input RequestTagExtractionInput { noteId: String, notebookId: String }
 type TagExtractionRequestPayload { result: ControlPlaneResult!, status: String! }
-# requestNotebookTranslation creates a pending notebook-kind:translation
-# notebook and queues the run; translated notes arrive asynchronously via the
-# note change feed. status "agent-unavailable" means nothing was created.
-input RequestNotebookTranslationInput { notebookId: String!, targetLanguage: String!, title: String, pageStart: Int, pageEnd: Int }
-type NotebookTranslationRequestPayload { result: ControlPlaneResult!, translationNotebookId: String, status: String! }
+# requestNotebookTranslation creates a pending translation job and queues the
+# run; each note's Translated version arrives asynchronously via the note
+# change feed. status "agent-unavailable" means nothing was created.
+input RequestNotebookTranslationInput { notebookId: String!, targetLanguage: String!, pageStart: Int, pageEnd: Int }
+type NotebookTranslationRequestPayload { result: ControlPlaneResult!, translationJobId: String, status: String! }
 input MigrateNoteFileStorageInput {
   fileId: String!
   s3ProfileName: String!

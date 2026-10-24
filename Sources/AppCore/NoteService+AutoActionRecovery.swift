@@ -127,10 +127,9 @@ extension NoteService {
         return false
       }
     case NoteStoreSchema.notebookTranslationWorkflowId:
-      guard let notebookId = event.notebookId else { return false }
+      guard let jobId = event.translationJobId else { return false }
       do {
-        let notebook = try loadNotebook(notebookId, in: database)
-        return Self.translationState(of: notebook)?.status == .completed
+        return try requireTranslationJob(jobId, in: database).status == .completed
       } catch NoteServiceError.notFound {
         return false
       }

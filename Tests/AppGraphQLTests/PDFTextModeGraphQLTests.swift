@@ -24,11 +24,12 @@ final class PDFTextModeGraphQLTests: XCTestCase {
     let page = try XCTUnwrap(store.listNotes(notebookId: notebook.notebookId).first)
     let executor = NoteGraphQLDocumentExecutor(service: api)
     let response = await executor.execute(GraphQLDocumentRequest(query: """
-      query($id:String!){documentPageText(noteId:$id){result{accepted} value{pageNumber text textSource ocrState}}}
+      query($id:String!){documentPageText(noteId:$id){result{accepted} value{pageNumber text textSource textStatus}}}
       """, variables: ["id": .string(page.noteId.rawValue)]))
     let payload = try XCTUnwrap(response.body["data"]?.asObject?["documentPageText"]?.asObject)
     XCTAssertEqual(payload["result"]?.asObject?["accepted"], .bool(true))
     XCTAssertEqual(payload["value"]?.asObject?["textSource"], .string("pdf-text"))
+    XCTAssertEqual(payload["value"]?.asObject?["textStatus"], .string("complete"))
     XCTAssertTrue(try XCTUnwrap(payload["value"]?.asObject?["text"]?.asString).contains("Fixture Document"))
     let invalid = await api.importDocument(.init(filename: "invalid.pdf", contentBase64: encoded, textExtractionMode: "invalid"))
     XCTAssertFalse(invalid.result.accepted)

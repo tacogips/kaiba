@@ -3,7 +3,7 @@ import type { Note } from './types'
 
 export interface DocumentPageMetadata {
   pageNumber: number
-  ocrState: 'pending' | 'complete'
+  textStatus: 'pending' | 'complete'
   originFileId: FileId
   originMediaType?: string
   analysis: {
@@ -15,26 +15,25 @@ export interface DocumentPageMetadata {
   }
 }
 
-export function documentPageMetadata(note?: Note): DocumentPageMetadata | undefined {
-  if (!note?.metaJSON) return undefined
-  try {
-    const page = JSON.parse(note.metaJSON)?.documentPage
-    if (!page || !Number.isSafeInteger(page.pageNumber) || page.pageNumber < 1
-      || !['pending', 'complete'].includes(page.ocrState)
-      || typeof page.originFileId !== 'string' || !/^file-[a-zA-Z0-9-]+$/.test(page.originFileId)) return undefined
-    const analysis = page.analysis ?? {}
-    return {
-      pageNumber: page.pageNumber, ocrState: page.ocrState, originFileId: fileId(page.originFileId),
-      originMediaType: typeof page.originMediaType === 'string' ? page.originMediaType : undefined,
-      analysis: {
-        isDocument: typeof analysis.isDocument === 'boolean' ? analysis.isDocument : undefined,
-        language: typeof analysis.language === 'string' ? analysis.language : undefined,
-        title: typeof analysis.title === 'string' ? analysis.title : undefined,
-        writingMode: ['horizontal', 'vertical'].includes(analysis.writingMode) ? analysis.writingMode : 'unknown',
-        binding: ['left', 'right'].includes(analysis.binding) ? analysis.binding : 'unknown',
-      },
-    }
-  } catch { return undefined }
+/** The page descriptor of an imported document page (`Note.documentPage`),
+ * normalized for the reader; undefined for ordinary notes. */
+export function documentPageMetadata(note?: Pick<Note, 'documentPage'>): DocumentPageMetadata | undefined {
+  const page = note?.documentPage
+  if (!page || !Number.isSafeInteger(page.pageNumber) || page.pageNumber < 1
+    || !['pending', 'complete'].includes(page.textStatus)
+    || typeof page.originFileId !== 'string' || !/^file-[a-zA-Z0-9-]+$/.test(page.originFileId)) return undefined
+  const analysis = page.analysis
+  return {
+    pageNumber: page.pageNumber, textStatus: page.textStatus, originFileId: fileId(page.originFileId),
+    originMediaType: page.originMediaType,
+    analysis: {
+      isDocument: typeof analysis?.isDocument === 'boolean' ? analysis.isDocument : undefined,
+      language: typeof analysis?.language === 'string' ? analysis.language : undefined,
+      title: typeof analysis?.title === 'string' ? analysis.title : undefined,
+      writingMode: analysis?.writingMode === 'horizontal' || analysis?.writingMode === 'vertical' ? analysis.writingMode : 'unknown',
+      binding: analysis?.binding === 'left' || analysis?.binding === 'right' ? analysis.binding : 'unknown',
+    },
+  }
 }
 
 export function storedImageFileId(href: string): FileId | undefined {

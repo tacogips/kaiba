@@ -147,6 +147,7 @@ private func unreferencedFileCount(in database: SQLiteDatabase) throws -> Int {
     FROM files f
     WHERE NOT EXISTS (SELECT 1 FROM note_files nf WHERE nf.file_id = f.file_id)
       AND NOT EXISTS (SELECT 1 FROM notebook_files nbf WHERE nbf.file_id = f.file_id)
+      AND NOT EXISTS (SELECT 1 FROM document_pages dp WHERE dp.origin_file_id = f.file_id)
     """,
     in: database
   )

@@ -24,9 +24,9 @@ final class DocumentImportFormatRegressionTests: NoteTestCase {
       _ = try service.setNotebookReadOnly(notebookId: imported.notebook.notebookId, readOnly: false)
       for note in imported.notes {
         XCTAssertNil(try service.driver.withDatabase {
-          try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(note.noteId)]).first?["search_text"]
+          try storedDocumentPageText(note.noteId, in: $0)
         }, format)
-        XCTAssertFalse((note.metaJSON ?? "").contains("documentPage"), format)
+        XCTAssertNil(note.documentPage, format)
         XCTAssertNoThrow(try service.updateNoteBody(noteId: note.noteId, bodyMarkdown: note.bodyMarkdown + "\n\nEdited"), format)
       }
       let result = try XCTUnwrap(service.searchNotes(query: "Alpha").first { $0.note.noteId == imported.notes[0].noteId })

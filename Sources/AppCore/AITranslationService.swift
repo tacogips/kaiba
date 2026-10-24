@@ -1,11 +1,12 @@
 import Foundation
 
-/// Runs a notebook translation against the agent seam. One invocation per
-/// source note keeps every prompt bounded; already-translated notes are
-/// counted and skipped, so an outbox retry resumes where the failed attempt
-/// stopped instead of re-translating (and re-paying for) finished pages. A
-/// completion transaction checks the current source set, so notes added while
-/// a provider is running are included before the translation becomes final.
+/// Runs a translation job against the agent seam. One invocation per source
+/// note keeps every prompt bounded; notes whose stored translation already
+/// matches the current source text are skipped, so an outbox retry resumes
+/// where the failed attempt stopped instead of re-translating (and re-paying
+/// for) finished pages. A job completes only after a full pass during which
+/// the notebook revision did not move, so notes added or edited while a
+/// provider is running are included before the job becomes final.
 public struct AITranslationService: Sendable {
   public static let assignedBy = "kaiba-ai-translator"
   /// Per-note cap mirrors the other AI features' context cap.
@@ -38,50 +39,39 @@ public struct AITranslationService: Sendable {
     self.sourcePageObserver = sourcePageObserver
   }
 
-  /// One-shot entry point (the CLI): creates the pending notebook and runs it
-  /// to completion.
+  /// One-shot entry point (the CLI): creates the job and runs it to completion.
   public func translateNotebook(
-    sourceNotebookId: NotebookID,
+    notebookId: NotebookID,
     targetLanguage: String,
-    title: String? = nil
-  ) async throws -> Notebook {
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: sourceNotebookId,
-      targetLanguage: targetLanguage,
-      title: title
+    pageStart: Int? = nil,
+    pageEnd: Int? = nil
+  ) async throws -> TranslationJob {
+    let job = try service.startTranslationJob(
+      notebookId: notebookId, targetLanguage: targetLanguage, pageStart: pageStart, pageEnd: pageEnd
     )
-    return try await run(translationNotebookId: pending.notebookId)
+    return try await run(jobId: job.jobId)
   }
 
-  /// Processes at most one bounded, durable translation chunk. Each source
-  /// output is committed before the next provider call; continuation progress
-  /// lives in notebook metadata and can be resumed by a later outbox lease.
-  public func runChunk(
-    translationNotebookId: NotebookID,
-    originatingActionId: AutoActionID? = NoteService.manualTranslationActionId
-  ) async throws -> AITranslationChunkResult {
-    let notebook = try service.getNotebook(translationNotebookId)
-    guard let state = NoteService.translationState(of: notebook) else {
-      throw NoteServiceError.invalidInput(
-        "notebook is not a translation notebook: \(translationNotebookId)"
-      )
+  /// Processes at most one bounded, durable chunk. Each translation is
+  /// committed before the next provider call; the cursor and pass revision
+  /// live on the job and can be resumed by a later outbox lease.
+  public func runChunk(jobId: TranslationJobID) async throws -> AITranslationChunkResult {
+    let job = try service.getTranslationJob(jobId)
+    guard job.status == .pending || job.status == .failed else {
+      return .completed(job)
     }
-    guard state.status != .completed, state.status != .cancelled else {
-      return .completed(notebook)
+    if job.status == .failed {
+      try service.setTranslationJobStatus(jobId, status: .pending)
     }
-    let snapshot = try translationRunSnapshot(
-      sourceNotebookId: state.sourceNotebookId,
-      translationNotebookId: translationNotebookId,
-      continuationSourceNoteId: state.continuationSourceNoteId,
-      sourceNotebookRevision: state.sourceNotebookRevision
-    )
+    let snapshot = try translationRunSnapshot(job: try service.getTranslationJob(jobId))
     if let sourcePageObserver {
       await sourcePageObserver(snapshot.sourceNotes.count)
     }
     let deadline = reconciliationNow() + AITranslationReconciliationLimits.maximumElapsed
     var providerInvocations = 0
-    var continuationSourceNoteId = snapshot.restartRequired ? nil : state.continuationSourceNoteId
-    var sourceSetChangedDuringPage = false
+    var cursor = snapshot.restarted ? nil : job.continuationNoteId
+    var sourceChanged = false
+    var reachedEnd = snapshot.reachedEndOfSources
 
     func requireDeadline() throws {
       guard reconciliationNow() < deadline else {
@@ -90,69 +80,47 @@ public struct AITranslationService: Sendable {
     }
 
     for note in snapshot.sourceNotes {
-      let sourceContentHash = NoteService.translationSourceContentHash(note.bodyMarkdown)
-      guard snapshot.translatedSourceOutputCounts[note.noteId] != 1
-        || snapshot.translatedSourceContentHashes[note.noteId, default: []] != Set([sourceContentHash])
-      else {
-        continuationSourceNoteId = note.noteId
+      let sourceContentHash = NoteService.translationSourceContentHash(note.text)
+      // Blank pages (or pages whose OCR is still pending) have nothing to
+      // translate; a current translation needs no new provider call.
+      guard !note.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            note.existingSourceContentHash != sourceContentHash else {
+        cursor = note.noteId
         continue
       }
       guard providerInvocations < AITranslationReconciliationLimits.maximumProviderInvocations else {
+        reachedEnd = false
         break
       }
       try requireDeadline()
       providerInvocations += 1
-      let translated = try await translate(bodyMarkdown: note.bodyMarkdown, targetLanguage: state.targetLanguage)
+      let translated = try await translate(bodyMarkdown: note.text, targetLanguage: job.targetLanguage)
       try requireDeadline()
-      let outputMatchesCurrentSource = try service.createTranslationOutputIfSourceCurrent(
-        translationNotebookId: translationNotebookId,
-        sourceNotebookId: snapshot.sourceNotebookId,
-        sourceNoteId: note.noteId,
-        expectedLibraryId: snapshot.libraryId,
+      guard try service.storeNoteTranslationIfSourceCurrent(
+        jobId: jobId,
+        noteId: note.noteId,
         expectedSourceContentHash: sourceContentHash,
-        bodyMarkdown: translated,
-        originatingActionId: originatingActionId
-      )
-      guard outputMatchesCurrentSource else {
-        // Source timestamps are intentionally not relied on for this branch:
-        // several edits can share a clock tick. A failed content-hash write
-        // always restarts the next bounded page from the beginning.
-        sourceSetChangedDuringPage = true
-        continuationSourceNoteId = nil
+        body: translated
+      ) else {
+        // Several edits can share a clock tick, so a failed hash comparison
+        // always restarts the pass instead of trusting timestamps.
+        sourceChanged = true
         break
       }
-      continuationSourceNoteId = note.noteId
+      cursor = note.noteId
     }
     try requireDeadline()
-    if !sourceSetChangedDuringPage,
-      snapshot.reachedEndOfSources,
-      let completed = try service.completeNotebookTranslationIfSourceSnapshotCurrent(
-        translationNotebookId,
-        expectedSourceNotebookId: snapshot.sourceNotebookId,
-        expectedLibraryId: snapshot.libraryId,
-        expectedSourceNotebookRevision: snapshot.sourceNotebookRevision,
-        expectedLastSourceNote: snapshot.completionTailSourceNote.map {
-          (noteId: $0.noteId, noteNumber: $0.noteNumber)
-        }
-      ) {
-      return .completed(completed)
+    let advanced = try service.advanceTranslationJob(
+      jobId,
+      passRevision: snapshot.passRevision,
+      cursor: cursor,
+      reachedEnd: reachedEnd,
+      sourceChanged: sourceChanged
+    )
+    if advanced.job.status == .completed {
+      return .completed(advanced.job)
     }
-    let pending = try service.setNotebookTranslationContinuation(
-      translationNotebookId,
-      sourceNoteId: snapshot.reachedEndOfSources ? nil : continuationSourceNoteId,
-      expectedSourceNotebookId: snapshot.sourceNotebookId,
-      expectedLibraryId: snapshot.libraryId,
-      expectedSourceNotebookRevision: snapshot.sourceNotebookRevision
-    )
-    let continuationRevision = NoteService.translationState(of: pending)?.sourceNotebookRevision
-    return .pending(
-      pending,
-      reconciliationRequired: snapshot.restartRequired
-        || sourceSetChangedDuringPage
-        || continuationRevision.map {
-          NoteService.translationSourceRevisionAdvanced($0, beyond: snapshot.sourceNotebookRevision)
-        } == true
-    )
+    return .pending(advanced.job, reconciliationRequired: snapshot.restarted || advanced.restarted)
   }
 
   // MARK: - Prompt
@@ -216,122 +184,58 @@ public struct AITranslationService: Sendable {
     return normalized
   }
 
-  private func translationRunSnapshot(
-    sourceNotebookId: NotebookID,
-    translationNotebookId: NotebookID,
-    continuationSourceNoteId: NoteID?,
-    sourceNotebookRevision: Int64?
-  ) throws -> TranslationRunSnapshot {
+  /// Reads the next chunk of the current pass. A pass begins with the
+  /// notebook revision captured on the job; when that revision has moved the
+  /// pass restarts from the first note.
+  private func translationRunSnapshot(job: TranslationJob) throws -> TranslationRunSnapshot {
     try service.driver.withDatabase { database in
       try database.transaction { db in
-        let source = try service.requireNotebook(sourceNotebookId, in: db)
-        let translation = try service.requireNotebook(translationNotebookId, in: db)
-        guard source.libraryId == translation.libraryId else {
-          throw NoteServiceError.conflict(
-            "translation source and destination libraries no longer match"
-          )
+        _ = try service.requireNotebook(job.notebookId, in: db)
+        let revision = try NoteService.notebookRevision(job.notebookId, in: db)
+        let restarted = job.sourceRevision.map { $0 != revision } ?? false
+        let cursorNoteId = restarted ? nil : job.continuationNoteId
+        var predicate = ""
+        var bindings: [SQLiteValue] = [.text(job.targetLanguage), .id(job.notebookId)]
+        if let start = job.pageStart, let end = job.pageEnd {
+          predicate += " AND n.note_number BETWEEN ? AND ?"
+          bindings += [.int(Int64(start)), .int(Int64(end))]
         }
-        let sourceRevision = try NoteService.translationSourceRevision(
-          notebookId: sourceNotebookId,
-          in: db
-        )
-        let restartRequired = sourceNotebookRevision.map {
-          NoteService.translationSourceRevisionAdvanced(sourceRevision, beyond: $0)
-        } ?? false
-        let pageCursor = restartRequired ? nil : continuationSourceNoteId
-        var cursorNoteNumber: Int?
-        var sourceBindings: [SQLiteValue] = [.id(sourceNotebookId)]
-        var sourcePredicate = ""
-        if let state = NoteService.translationState(of: translation),
-          let start = state.pageStart, let end = state.pageEnd {
-          sourcePredicate = " AND note_number BETWEEN ? AND ?"
-          sourceBindings += [.int(Int64(start)), .int(Int64(end))]
+        if let cursorNoteId,
+           let cursorNumber = try db.query(
+             "SELECT note_number FROM notes WHERE note_id = ? AND notebook_id = ? LIMIT 1",
+             bindings: [.id(cursorNoteId), .id(job.notebookId)]
+           ).first?["note_number"].flatMap(Int64.init) {
+          predicate += " AND (n.note_number > ? OR (n.note_number = ? AND n.note_id > ?))"
+          bindings += [.int(cursorNumber), .int(cursorNumber), .id(cursorNoteId)]
         }
-        if let pageCursor {
-          let cursorRows = try db.query(
-            "SELECT note_number FROM notes WHERE notebook_id = ? AND note_id = ? LIMIT 1",
-            bindings: [.id(sourceNotebookId), .id(pageCursor)]
-          )
-          guard let cursorRow = cursorRows.first,
-            let foundCursorNoteNumber = Int(cursorRow.string("note_number"))
-          else {
-            throw NoteServiceError.conflict("translation source cursor is no longer current")
-          }
-          cursorNoteNumber = foundCursorNoteNumber
-          sourcePredicate += " AND (note_number > ? OR (note_number = ? AND note_id > ?))"
-          sourceBindings.append(.int(Int64(foundCursorNoteNumber)))
-          sourceBindings.append(.int(Int64(foundCursorNoteNumber)))
-          sourceBindings.append(.id(pageCursor))
-        }
-        sourceBindings.append(.int(Int64(AITranslationReconciliationLimits.maximumProviderInvocations)))
+        bindings.append(.int(Int64(AITranslationReconciliationLimits.maximumProviderInvocations)))
         let sourceNotes = try db.query(
           """
-          SELECT note_id, note_number, body_markdown, search_text
-          FROM notes
-          WHERE notebook_id = ?\(sourcePredicate)
-          ORDER BY note_number, note_id
+          SELECT n.note_id, n.body_markdown, page.text AS page_text, t.source_sha256
+          FROM notes n
+          LEFT JOIN document_pages page ON page.note_id = n.note_id
+          LEFT JOIN note_translations t ON t.note_id = n.note_id AND t.language = ?
+          WHERE n.notebook_id = ?\(predicate)
+          ORDER BY n.note_number, n.note_id
           LIMIT ?
           """,
-          bindings: sourceBindings
+          bindings: bindings
         ).map { row -> TranslationSourceNote in
           guard let noteId = row.identifier("note_id", as: NoteID.self),
-            let noteNumber = Int(row.string("note_number")),
-            let bodyMarkdown = row["body_markdown"]
-          else {
+                let bodyMarkdown = row["body_markdown"] else {
             throw NoteServiceError.invalidRow("translation source row is missing required fields")
           }
           return TranslationSourceNote(
             noteId: noteId,
-            noteNumber: noteNumber,
-            bodyMarkdown: noteRetrievalText(bodyMarkdown: bodyMarkdown, searchText: row["search_text"])
+            text: noteRetrievalText(bodyMarkdown: bodyMarkdown, pageText: row["page_text"]),
+            existingSourceContentHash: row["source_sha256"]
           )
-        }
-        var translatedSourceContentHashes: [NoteID: Set<String>] = [:]
-        var translatedSourceOutputCounts: [NoteID: Int] = [:]
-        let placeholders = Array(repeating: "?", count: sourceNotes.count).joined(separator: ", ")
-        var outputBindings: [SQLiteValue] = [.id(translationNotebookId)]
-        outputBindings.append(contentsOf: sourceNotes.map { .id($0.noteId) })
-        let outputRows = sourceNotes.isEmpty ? [] : try db.query(
-          """
-          SELECT json_extract(meta_json, '$.kaibaTranslation.sourceNoteId') AS source_note_id,
-            json_extract(meta_json, '$.kaibaTranslation.sourceContentHash') AS source_content_hash
-          FROM notes
-          WHERE notebook_id = ?
-            AND json_extract(meta_json, '$.kaibaTranslation.sourceNoteId') IN (\(placeholders))
-          """,
-          bindings: outputBindings
-        )
-        for row in outputRows {
-          guard let sourceNoteId = row.identifier("source_note_id", as: NoteID.self) else {
-            continue
-          }
-          translatedSourceOutputCounts[sourceNoteId, default: 0] += 1
-          if let sourceContentHash = row["source_content_hash"] {
-            translatedSourceContentHashes[sourceNoteId, default: []].insert(sourceContentHash)
-          }
-        }
-        let completionTailSourceNote: TranslationSourceNote?
-        if let lastSourceNote = sourceNotes.last {
-          completionTailSourceNote = lastSourceNote
-        } else if let pageCursor, let cursorNoteNumber {
-          completionTailSourceNote = TranslationSourceNote(
-            noteId: pageCursor,
-            noteNumber: cursorNoteNumber,
-            bodyMarkdown: ""
-          )
-        } else {
-          completionTailSourceNote = nil
         }
         return TranslationRunSnapshot(
-          sourceNotebookId: sourceNotebookId,
-          libraryId: source.libraryId,
+          passRevision: revision,
+          restarted: restarted,
           sourceNotes: sourceNotes,
-          sourceNotebookRevision: sourceRevision,
-          restartRequired: restartRequired,
-          reachedEndOfSources: sourceNotes.count < AITranslationReconciliationLimits.maximumProviderInvocations,
-          completionTailSourceNote: completionTailSourceNote,
-          translatedSourceContentHashes: translatedSourceContentHashes,
-          translatedSourceOutputCounts: translatedSourceOutputCounts
+          reachedEndOfSources: sourceNotes.count < AITranslationReconciliationLimits.maximumProviderInvocations
         )
       }
     }

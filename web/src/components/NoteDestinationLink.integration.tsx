@@ -4,6 +4,7 @@ import { noteId, notebookId } from '../notes/ids'
 import type { Note } from '../notes/types'
 import type { AppStore } from '../state/appStore'
 import { NoteDestinationLink } from './NoteDestinationLink'
+import { testDocumentPage } from '../notes/documentPageFixtures'
 
 const destination: Note = { noteId: noteId('target'), notebookId: notebookId('target-book'), noteNumber: 7,
   title: 'Destination heading', bodyMarkdown: 'Preview body', readOnly: false, createdAt: '', updatedAt: '', metaJSON: null }
@@ -47,9 +48,9 @@ describe('Connection destination preview', () => {
   })
 
   test('PDF previews use extracted text rather than the empty note body', async () => {
-    const note = { ...destination, bodyMarkdown: '', metaJSON: JSON.stringify({ documentPage: {
-      pageNumber: 7, ocrState: 'complete', originFileId: 'file-original', originMediaType: 'application/pdf', analysis: {},
-    } }) }
+    const note = { ...destination, bodyMarkdown: '', documentPage: testDocumentPage({
+      pageNumber: 7, textStatus: 'complete', originFileId: 'file-original', originMediaType: 'application/pdf', analysis: {},
+    }) }
     const view = mount(note)
     try {
       view.host.querySelector<HTMLButtonElement>('.note-preview-trigger')!.click()

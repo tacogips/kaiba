@@ -152,9 +152,9 @@ func searchIndexDocument(noteId: NoteID, in database: SQLiteDatabase) throws -> 
     libraryId: libraryId,
     ownerUserId: notebookRow["owner_user_id"].map(UserID.init),
     title: note.title ?? "",
-    body: noteRetrievalText(
-      bodyMarkdown: note.bodyMarkdown,
-      searchText: try noteSearchText(noteId, in: database)
+    body: noteIndexedBody(
+      noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: try storedDocumentPageText(noteId, in: database)),
+      translations: try storedNoteTranslationText(noteId, in: database)
     ),
     tagIds: tags.map(\.tagId).sorted(),
     tagNames: tags.map(\.name),

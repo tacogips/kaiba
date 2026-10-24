@@ -16,11 +16,7 @@ final class DocumentPageChatContextTests: NoteTestCase {
     let pages = try service.createNotebookWithNotes(
       title: "Synthetic pages",
       pages: (1...3).map { page in
-        NotePageDraft(
-          bodyMarkdown: "", readOnly: false,
-          metaJSON: metadata(page: page, origin: "pending-\(page)"),
-          noteNumber: page, searchText: "OCR page \(page)"
-        )
+        try pageDraft(service, page: page, text: "OCR page \(page)")
       }
     )
     let subject = try XCTUnwrap(pages.notes.first { $0.noteNumber == 2 })
@@ -29,12 +25,7 @@ final class DocumentPageChatContextTests: NoteTestCase {
       noteId: subject.noteId, data: originBytes, role: .sourcePageImage,
       mediaType: "image/png", originalFilename: "synthetic.png"
     )
-    try service.driver.withDatabase { db in
-      try db.execute(
-        "UPDATE notes SET meta_json = jsonb(?) WHERE note_id = ?",
-        bindings: [.text(metadata(page: 2, origin: origin.file.fileId.rawValue)), .id(subject.noteId)]
-      )
-    }
+    try repoint(subject.noteId, to: origin.file.fileId, service)
     let related = try service.createNote(bodyMarkdown: "The lighthouse is beside the old harbor.")
     let conversation = try service.startAgentConversation(subjectNoteId: subject.noteId)
     let turn = try service.appendPendingAgentChatTurn(
@@ -99,10 +90,7 @@ final class DocumentPageChatContextTests: NoteTestCase {
 
     let service = try makeService()
     let page = try service.createNotebookWithNotes(
-      title: "Page", pages: [NotePageDraft(
-        bodyMarkdown: "", readOnly: false, metaJSON: metadata(page: 1, origin: "origin"),
-        searchText: "OCR"
-      )]
+      title: "Page", pages: [try pageDraft(service, page: 1, text: "OCR")]
     ).notes[0]
     let conversation = try service.startAgentConversation(subjectNoteId: page.noteId)
     XCTAssertThrowsError(try service.appendPendingAgentChatTurn(
@@ -134,9 +122,7 @@ final class DocumentPageChatContextTests: NoteTestCase {
     XCTAssertTrue(oversizedAddition.contextAppendix.contains("The page image is too large or in an unsupported format and was not sent."))
 
     let missing = try service.createNotebookWithNotes(
-      title: "Missing origin", pages: [NotePageDraft(
-        bodyMarkdown: "", readOnly: false, metaJSON: metadata(page: 1, origin: "missing-file"), searchText: "OCR"
-      )]
+      title: "Missing origin", pages: [try pageDraft(service, page: 1, text: "OCR")]
     ).notes[0]
     let missingAddition = try XCTUnwrap(service.documentPageChatAdditions(
       subjectNoteId: missing.noteId, libraryId: try XCTUnwrap(service.getNotebook(missing.notebookId).libraryId),
@@ -149,9 +135,7 @@ final class DocumentPageChatContextTests: NoteTestCase {
   func testRetrievalCapsResultsAndExcludesAgentConversationNotebooks() throws {
     let service = try makeService()
     let subject = try service.createNotebookWithNotes(
-      title: "Page", pages: [NotePageDraft(
-        bodyMarkdown: "", readOnly: false, metaJSON: metadata(page: 1, origin: "missing"), searchText: "OCR"
-      )]
+      title: "Page", pages: [try pageDraft(service, page: 1, text: "OCR")]
     ).notes[0]
     for index in 1...10 {
       _ = try service.createNote(title: "Related \(index)", bodyMarkdown: "lighthouse reference \(index)")
@@ -180,10 +164,7 @@ final class DocumentPageChatContextTests: NoteTestCase {
     let service = try makeService()
     let notebook = try service.createNotebookWithNotes(
       title: "Notebook pages", pages: (1...3).map { page in
-        NotePageDraft(
-          bodyMarkdown: "", readOnly: false, metaJSON: metadata(page: page, origin: "missing-\(page)"),
-          noteNumber: page, searchText: "notebook page OCR \(page)"
-        )
+        try pageDraft(service, page: page, text: "notebook page OCR \(page)")
       }
     )
     let context = try service.notebookContextMarkdown(notebookId: notebook.notebook.notebookId)
@@ -199,23 +180,32 @@ final class DocumentPageChatContextTests: NoteTestCase {
 
   private func pageWithOrigin(_ service: NoteService, data: Data, mediaType: String) throws -> Note {
     let page = try service.createNotebookWithNotes(
-      title: "Synthetic origin", pages: [NotePageDraft(
-        bodyMarkdown: "", readOnly: false, metaJSON: metadata(page: 1, origin: "pending"), searchText: "OCR"
-      )]
+      title: "Synthetic origin", pages: [try pageDraft(service, page: 1, text: "OCR")]
     ).notes[0]
     let attachment = try service.attachFile(
       noteId: page.noteId, data: data, role: .sourcePageImage, mediaType: mediaType
     )
-    try service.driver.withDatabase { database in
-      try database.execute(
-        "UPDATE notes SET meta_json = jsonb(?) WHERE note_id = ?",
-        bindings: [.text(metadata(page: 1, origin: attachment.file.fileId.rawValue)), .id(page.noteId)]
-      )
-    }
+    try repoint(page.noteId, to: attachment.file.fileId, service)
     return try service.getNote(page.noteId)
   }
 
-  private func metadata(page: Int, origin: String) -> String {
-    #"{"documentPage":{"pageNumber":\#(page),"ocrState":"complete","analysis":{"writingMode":"unknown","binding":"unknown"},"originFileId":"\#(origin)"}}"#
+  /// An image-backed page whose synthetic original has no stored bytes.
+  private func pageDraft(_ service: NoteService, page: Int, text: String) throws -> NotePageDraft {
+    syntheticPageDraft(
+      pageNumber: page,
+      originFileId: try insertSyntheticOriginFile(service, mediaType: "image/png"),
+      originMediaType: "image/png",
+      text: text,
+      readOnly: false
+    )
+  }
+
+  private func repoint(_ noteId: NoteID, to fileId: FileID, _ service: NoteService) throws {
+    try service.driver.withDatabase { database in
+      try database.execute(
+        "UPDATE document_pages SET origin_file_id = ? WHERE note_id = ?",
+        bindings: [.id(fileId), .id(noteId)]
+      )
+    }
   }
 }

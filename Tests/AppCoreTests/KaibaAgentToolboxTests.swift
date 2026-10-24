@@ -234,18 +234,9 @@ final class KaibaAgentToolboxTests: NoteTestCase {
 
   func testDocumentPageToolsExposeHiddenTextOnlyInPageFieldsAndPreviews() async throws {
     let service = try makeService()
-    let metadata = ImportedPageMetadata(
-      pageNumber: 1,
-      ocrState: "complete",
-      analysis: DocumentPageAnalysis(),
-      originFileId: "synthetic-origin",
-      pendingBodySHA256: nil
-    )
-    let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(metadata))
-    let pageMetadata = try JSONValue.object(["documentPage": value]).encodedString()
     let imported = try service.createNotebookWithNotes(
       title: "Page notebook",
-      pages: [NotePageDraft(bodyMarkdown: "", metaJSON: pageMetadata, searchText: "Zephyrine harbor manifest")]
+      pages: [syntheticPageDraft(originFileId: try insertSyntheticOriginFile(service), text: "Zephyrine harbor manifest")]
     )
     let page = try XCTUnwrap(imported.notes.first)
     let normal = try service.createNote(bodyMarkdown: "ordinary markdown")

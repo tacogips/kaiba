@@ -796,14 +796,14 @@ public struct GraphQLNoteGraphQLService: Sendable {
     _ input: GraphQLRequestNotebookTranslationInput
   ) async -> GraphQLNotebookTranslationRequestResult {
     do {
-      let (notebook, queued) = try service.requestNotebookTranslation(
-        sourceNotebookId: input.notebookId,
+      let (job, queued) = try service.requestNotebookTranslation(
+        notebookId: input.notebookId,
         targetLanguage: input.targetLanguage,
-        title: input.title, pageStart: input.pageStart, pageEnd: input.pageEnd
+        pageStart: input.pageStart, pageEnd: input.pageEnd
       )
       return GraphQLNotebookTranslationRequestResult(
         result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
-        translationNotebookId: notebook?.notebookId,
+        translationJobId: job?.jobId,
         status: queued ? "queued" : "agent-unavailable"
       )
     } catch {

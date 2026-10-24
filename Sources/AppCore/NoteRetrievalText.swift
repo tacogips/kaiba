@@ -1,68 +1,23 @@
 import Foundation
 
-func noteRetrievalText(bodyMarkdown: String, searchText: String?) -> String {
-  guard let searchText, !searchText.isEmpty else { return bodyMarkdown }
-  guard !bodyMarkdown.isEmpty else { return searchText }
-  return bodyMarkdown + "\n\n" + searchText
-}
-
-func noteSearchText(_ noteId: NoteID, in database: SQLiteDatabase) throws -> String? {
-  try database.query(
-    "SELECT search_text FROM notes WHERE note_id = ? LIMIT 1",
-    bindings: [.id(noteId)]
-  ).first?["search_text"]
-}
-
-func noteSearchTexts(_ noteIds: [NoteID], in database: SQLiteDatabase) throws -> [NoteID: String] {
-  guard !noteIds.isEmpty else { return [:] }
-  let rows = try database.query(
-    "SELECT note_id, search_text FROM notes WHERE note_id IN (\(placeholders(count: noteIds.count)))",
-    bindings: noteIds.sqliteBindings
-  )
-  return Dictionary(uniqueKeysWithValues: rows.compactMap { row in
-    guard let noteId = row.identifier("note_id", as: NoteID.self),
-          let searchText = row["search_text"] else { return nil }
-    return (noteId, searchText)
-  })
-}
-
-func isDocumentPageMetaJSON(_ metaJSON: String?) -> Bool {
-  guard let metaJSON else { return false }
-  let note = Note(
-    noteId: NoteID("metadata-check"),
-    notebookId: NotebookID("metadata-check"),
-    noteNumber: 0,
-    title: nil,
-    bodyMarkdown: "",
-    readOnly: true,
-    createdAt: "",
-    updatedAt: "",
-    metaJSON: metaJSON
-  )
-  return (try? NoteService.importedPageMetadata(note)) != nil
-}
-
-func documentPageTextMigration(
-  bodyMarkdown: String,
-  searchText: String?,
-  metaJSON: String?
-) -> (bodyMarkdown: String, searchText: String?) {
-  guard isDocumentPageMetaJSON(metaJSON), searchText == nil else {
-    return (bodyMarkdown, searchText)
-  }
-  return ("", bodyMarkdown)
+/// The text a note contributes to search, AI context and content hashes: its
+/// body plus, for a document page, the extracted (OCR version) text.
+func noteRetrievalText(bodyMarkdown: String, pageText: String?) -> String {
+  guard let pageText, !pageText.isEmpty else { return bodyMarkdown }
+  guard !bodyMarkdown.isEmpty else { return pageText }
+  return bodyMarkdown + "\n\n" + pageText
 }
 
 extension NoteService {
   static func isDocumentPageNote(_ note: Note) -> Bool {
-    (try? importedPageMetadata(note)) != nil
+    note.documentPage != nil
   }
 
   func retrievalText(for note: Note) throws -> String {
     try driver.withDatabase { database in
       noteRetrievalText(
         bodyMarkdown: note.bodyMarkdown,
-        searchText: try noteSearchText(note.noteId, in: database)
+        pageText: try storedDocumentPageText(note.noteId, in: database)
       )
     }
   }
@@ -70,12 +25,12 @@ extension NoteService {
   func retrievalTexts(for notes: [Note]) throws -> [NoteID: String] {
     guard !notes.isEmpty else { return [:] }
     return try driver.withDatabase { database in
-      let searchTexts = try noteSearchTexts(notes.map(\.noteId), in: database)
+      let pageTexts = try storedDocumentPageTexts(notes.map(\.noteId), in: database)
       var retrievalTexts: [NoteID: String] = [:]
       for note in notes {
         retrievalTexts[note.noteId] = noteRetrievalText(
           bodyMarkdown: note.bodyMarkdown,
-          searchText: searchTexts[note.noteId]
+          pageText: pageTexts[note.noteId]
         )
       }
       return retrievalTexts

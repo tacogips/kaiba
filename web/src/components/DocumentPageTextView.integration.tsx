@@ -4,7 +4,7 @@ import { noteId } from '../notes/ids'
 import { DocumentPageTextView } from './DocumentPageTextView'
 
 vi.mock('../state/appStore', () => ({ useApp: () => ({ client: { documentPageText: async () => ({
-  pageNumber: 4, text: 'Plain text\n\n# Not a heading\n<img src="x">', textSource: 'ocr', ocrState: 'complete',
+  pageNumber: 4, text: 'Plain text\n\n# Not a heading\n<img src="x">', textSource: 'ocr', textStatus: 'complete',
 }) } }) }))
 
 test('displays exact page text without interpreting Markdown or HTML', async () => {

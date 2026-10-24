@@ -44,6 +44,8 @@ public struct NoteAutoActionEvent: Codable, Equatable, Sendable {
   /// stored row that lacks it fails to decode and is cancelled in place.
   public var originatingUserId: UserID?
   public var originatingIsUnauthenticatedPrincipal: Bool
+  /// The translation job a `notebook-translation` dispatch runs.
+  public var translationJobId: TranslationJobID?
 
   public init(
     trigger: NoteAutoActionTrigger,
@@ -52,9 +54,11 @@ public struct NoteAutoActionEvent: Codable, Equatable, Sendable {
     noteBodyMarkdown: String? = nil,
     originatingActionId: AutoActionID? = nil,
     originatingUserId: UserID?,
-    originatingIsUnauthenticatedPrincipal: Bool
+    originatingIsUnauthenticatedPrincipal: Bool,
+    translationJobId: TranslationJobID? = nil
   ) {
     self.trigger = trigger
+    self.translationJobId = translationJobId
     self.notebookId = notebookId
     self.noteId = noteId
     self.noteBodyMarkdown = noteBodyMarkdown

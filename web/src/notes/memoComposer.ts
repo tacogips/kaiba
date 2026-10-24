@@ -76,10 +76,10 @@ export function memoOnlyToggleResult(
  * notebook's flag are both clear (imported documents lock the notebook). */
 export function canEnableNoteEdit(
   subject: { kind: 'note'; id: NoteId } | { kind: 'notebook'; id: NotebookId } | undefined,
-  note: { noteId: NoteId; readOnly: boolean; metaJSON?: string | null } | undefined,
+  note: { noteId: NoteId; readOnly: boolean; documentPage?: Note['documentPage'] } | undefined,
   notebook: { readOnly: boolean } | undefined,
 ): boolean {
-  return subject?.kind === 'note' && note?.noteId === subject.id && !documentPageMetadata(note as Note)
+  return subject?.kind === 'note' && note?.noteId === subject.id && !documentPageMetadata(note)
     && !note.readOnly && notebook !== undefined && !notebook.readOnly
 }
 

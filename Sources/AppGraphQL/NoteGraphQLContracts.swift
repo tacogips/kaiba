@@ -123,6 +123,7 @@ public struct GraphQLNoteDTO: Codable, Equatable, Sendable {
   public var tags: [GraphQLNoteTagAssignmentDTO]
   public var createdBy: UserID?
   public var updatedBy: UserID?
+  public var documentPage: DocumentPage?
 
   public init(note: Note) {
     noteId = note.noteId
@@ -137,6 +138,7 @@ public struct GraphQLNoteDTO: Codable, Equatable, Sendable {
     tags = note.tags.map(GraphQLNoteTagAssignmentDTO.init)
     createdBy = note.createdBy
     updatedBy = note.updatedBy
+    documentPage = note.documentPage
   }
 }
 
@@ -510,16 +512,16 @@ public struct GraphQLTagExtractionRequestResult: Codable, Equatable, Sendable {
 
 public struct GraphQLNotebookTranslationRequestResult: Codable, Equatable, Sendable {
   public var result: GraphQLControlPlaneResult
-  public var translationNotebookId: NotebookID?
+  public var translationJobId: TranslationJobID?
   public var status: String
 
   public init(
     result: GraphQLControlPlaneResult,
-    translationNotebookId: NotebookID? = nil,
+    translationJobId: TranslationJobID? = nil,
     status: String
   ) {
     self.result = result
-    self.translationNotebookId = translationNotebookId
+    self.translationJobId = translationJobId
     self.status = status
   }
 }

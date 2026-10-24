@@ -210,6 +210,17 @@ public struct AutoActionDispatchID: KaibaIdentifier {
   }
 }
 
+/// Identifies one translation request (`translation_jobs`).
+public struct TranslationJobID: KaibaIdentifier {
+  public static let generatedPrefix = "translation-job"
+
+  public var rawValue: String
+
+  public init(_ rawValue: String) {
+    self.rawValue = rawValue
+  }
+}
+
 /// Identifies the external workflow an auto action dispatches to.
 public struct WorkflowID: KaibaIdentifier {
   public static let generatedPrefix = "workflow"

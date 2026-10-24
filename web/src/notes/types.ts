@@ -54,7 +54,36 @@ export interface Note {
   updatedAt: string
   /** Present on the single-note query and on chat turn notes. */
   metaJSON?: string | null
+  /** Set for an imported document page; its Original and OCR versions. */
+  documentPage?: DocumentPage | null
   tags?: NoteTagAssignment[]
+}
+
+/** An imported physical page (`document_pages`). The extracted text (OCR
+ * version) is loaded separately with `documentPageText`. */
+export interface DocumentPage {
+  pageNumber: number
+  originFileId: FileId
+  originMediaType: string
+  textExtractionMode: 'prefer-pdf-text' | 'ocr-only' | null
+  textStatus: 'pending' | 'complete'
+  textSource: 'pdf-text' | 'ocr' | null
+  analysis: {
+    isDocument: boolean | null
+    language: string | null
+    writingMode: string
+    binding: string
+    title: string | null
+  }
+}
+
+/** The Translated version of a note in one language. */
+export interface NoteTranslation {
+  noteId: NoteId
+  language: string
+  body: string
+  isCurrent: boolean
+  updatedAt: string
 }
 
 /** A file stored for a note attachment. Only the fields the web reader needs

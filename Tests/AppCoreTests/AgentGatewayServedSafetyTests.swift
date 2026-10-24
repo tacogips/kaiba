@@ -98,20 +98,20 @@ final class AgentGatewayServedSafetyTests: NoteTestCase {
       title: "Source",
       pages: [NotePageDraft(bodyMarkdown: "# Source\nBody")]
     )
-    let translation = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let translation = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     do {
       _ = try await AITranslationService(service: service, invoker: invoker).run(
-        translationNotebookId: translation.notebookId
+        jobId: translation.jobId
       )
       XCTFail("expected removed gateway binary to fail")
     } catch AgentInvocationError.unavailable(let message) {
       XCTAssertEqual(message, "server agent-gateway is unavailable")
     }
     let translationError = try XCTUnwrap(
-      NoteService.translationState(of: service.getNotebook(translation.notebookId))?.errorMessage
+      service.getTranslationJob(translation.jobId).errorMessage
     )
     XCTAssertTrue(translationError.contains("server agent-gateway is unavailable"))
     XCTAssertFalse(translationError.contains(binary.path))

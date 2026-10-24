@@ -3,6 +3,7 @@ import { render } from 'solid-js/web'
 import { expect, test, vi } from 'vitest'
 import { noteId, notebookId } from '../notes/ids'
 import { PageTagsEditor } from './PageTagsEditor'
+import { testDocumentPage } from '../notes/documentPageFixtures'
 
 const fixture = vi.hoisted(() => ({ app: {} as Record<string, unknown> }))
 vi.mock('../state/appStore', () => ({ useApp: () => fixture.app }))
@@ -14,7 +15,7 @@ test('header tag controls add, replace, and remove assignments on the selected p
   const refresh = vi.fn(async () => {})
   fixture.app = { state: { get noteId() { return page() }, tags: [], get note() { return {
     noteId: noteId(page()), notebookId: notebookId('pdf'), noteNumber: 4, readOnly: false, bodyMarkdown: '', createdAt: '', updatedAt: '',
-    metaJSON: JSON.stringify({ documentPage: { pageNumber: 4, ocrState: 'complete', originFileId: 'file-pdf', analysis: {} } }),
+    documentPage: testDocumentPage({ pageNumber: 4, textStatus: 'complete', originFileId: 'file-pdf', analysis: {} }),
     tags: [{ tag: { tagId: 'tag-topic', name: 'Original', classId: 'topic' }, deletable: true }],
   } } }, client: { applyNoteTag: apply, removeNoteTag: remove }, refreshCatalog: refresh, openTagPane: vi.fn() }
   fixture.app.notes = () => [(fixture.app.state as { note: unknown }).note]
@@ -53,7 +54,7 @@ test('header tag controls add, replace, and remove assignments on the selected p
 test('tag names open occurrences and navigate through central return-aware navigation; typed tags preserve ontology', async () => {
   const existingTag = { tagId: 'tag-person', name: 'Ada', classId: 'person', parentTagId: null }
   const source = { noteId: noteId('source'), notebookId: notebookId('pdf'), noteNumber: 1, title: 'Source',
-    bodyMarkdown: '', metaJSON: JSON.stringify({ documentPage: { pageNumber: 1, ocrState: 'complete', originFileId: 'file-pdf', analysis: {} } }),
+    bodyMarkdown: '', documentPage: testDocumentPage({ pageNumber: 1, textStatus: 'complete', originFileId: 'file-pdf', analysis: {} }),
     tags: [{ tag: existingTag, deletable: true }] }
   const result = { ...source, noteId: noteId('result'), notebookId: notebookId('other'), title: 'Matching page', noteNumber: 7 }
   const occurrences = vi.fn(async () => [result])
@@ -100,7 +101,7 @@ test.each([
 ])('new %s tags submit their ontology class with the free-input value', async (classId, value) => {
   const apply = vi.fn(async () => {})
   const source = { noteId: noteId('source'), notebookId: notebookId('pdf'), noteNumber: 1, tags: [],
-    metaJSON: JSON.stringify({ documentPage: { pageNumber: 1, ocrState: 'complete', originFileId: 'file-pdf', analysis: {} } }) }
+    documentPage: testDocumentPage({ pageNumber: 1, textStatus: 'complete', originFileId: 'file-pdf', analysis: {} }) }
   fixture.app = { state: { noteId: source.noteId, note: source, tags: [],
     tagClasses: [{ classId: 'date', label: 'Date' }, { classId: 'name', label: 'Name' }, { classId: 'place', label: 'Place' }] },
     notes: () => [source], client: { applyNoteTag: apply }, refreshCatalog: async () => {} }

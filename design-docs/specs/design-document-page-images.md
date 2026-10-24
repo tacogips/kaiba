@@ -2,6 +2,9 @@
 
 For PDF uploads, the storage and reader sections are superseded by
 [Original PDF viewer and plain OCR](pdf-original-viewer.md) (2026-10-24).
+The storage decisions DP2 and DP5 (`notes.search_text`, `meta_json.documentPage`,
+the version-22 migration) are superseded by [note-store-schema-v25.md](note-store-schema-v25.md):
+page state and text live in `document_pages`.
 
 ## Status
 

@@ -3,16 +3,17 @@ import { render } from 'solid-js/web'
 import { expect, test, vi } from 'vitest'
 import { noteId, notebookId } from '../notes/ids'
 import { DocumentPageOCRControl } from './DocumentPageOCRControl'
+import { testDocumentPage } from '../notes/documentPageFixtures'
 
 const fixture = vi.hoisted(() => ({ app: {} as Record<string, unknown> }))
 vi.mock('../state/appStore', () => ({ useApp: () => fixture.app }))
 
 test('right-pane OCR supports retry and recognizes the selected physical page', async () => {
-  const [state, setState] = createSignal('pending')
+  const [state, setState] = createSignal<'pending' | 'complete'>('pending')
   const note = () => ({ noteId: noteId('page-4'), notebookId: notebookId('pdf'), noteNumber: 4, readOnly: false,
-    bodyMarkdown: '', createdAt: '', updatedAt: '', tags: [], metaJSON: JSON.stringify({ documentPage: {
-      pageNumber: 4, ocrState: state(), originFileId: 'file-pdf', originMediaType: 'application/pdf', analysis: {},
-    } }) })
+    bodyMarkdown: '', createdAt: '', updatedAt: '', tags: [], documentPage: testDocumentPage({
+      pageNumber: 4, textStatus: state(), originFileId: 'file-pdf', originMediaType: 'application/pdf', analysis: {},
+    }) })
   const recognize = vi.fn(async () => {}).mockRejectedValueOnce(new Error('Try again'))
   fixture.app = { state: { get note() { return note() }, noteId: noteId('page-4') },
     client: { recognizeDocumentPage: recognize }, loadNotes: vi.fn(async () => {}), refreshNote: async () => { setState('complete') } }

@@ -26,6 +26,7 @@ import type {
   NoteSearchResult,
   NoteTag,
   NoteTagClass,
+  NoteTranslation,
   QueryPayload,
   SetUserAgentCredentialInput,
   UserAgentCredentialState,
@@ -233,7 +234,7 @@ export class NoteGraphQLClient {
         notes(notebookId: $notebookId, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
           value {
-            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON
+            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection}
             tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
           }
         }
@@ -249,7 +250,7 @@ export class NoteGraphQLClient {
         note(noteId: $noteId) {
           result { accepted status diagnostics }
           value {
-            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON
+            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection}
             tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
           }
         }
@@ -286,7 +287,7 @@ export class NoteGraphQLClient {
           result { accepted status diagnostics }
           value {
             seedNoteId edgeKind weight hopCount pathNoteIds
-            note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+            note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
           }
         }
       }
@@ -305,25 +306,25 @@ export class NoteGraphQLClient {
     `, { noteId }, (data) => data.noteComments)
   }
 
-  /** Files attached to a note. Page captures and extracted images of an
-   * imported document arrive here with image/* media types. */
-  async documentPageTranslations(noteId: NoteId): Promise<{ noteId: NoteId; notebookId: NotebookId; sourceNoteId: NoteId; targetLanguage: string; text: string }[]> {
-    type Version = { noteId: NoteId; notebookId: NotebookId; sourceNoteId: NoteId; targetLanguage: string; text: string }
-    return this.queryValue<{ documentPageTranslations: QueryPayload<Version[]> }, Version[]>('DocumentPageTranslations', `
-      query DocumentPageTranslations($noteId: String!) {
-        documentPageTranslations(noteId: $noteId) {
+  /** The Translated versions of a note, one per language. `isCurrent` is
+   * false once the source text changed after the translation was made. */
+  async noteTranslations(noteId: NoteId): Promise<NoteTranslation[]> {
+    return this.queryValue<{ noteTranslations: QueryPayload<NoteTranslation[]> }, NoteTranslation[]>('NoteTranslations', `
+      query NoteTranslations($noteId: String!) {
+        noteTranslations(noteId: $noteId) {
           result { accepted status diagnostics }
-          value { noteId notebookId sourceNoteId targetLanguage text }
+          value { noteId language body isCurrent updatedAt }
         }
       }
-    `, { noteId }, (data) => data.documentPageTranslations)
+    `, { noteId }, (data) => data.noteTranslations)
   }
 
-  async documentPageText(noteId: NoteId): Promise<{ pageNumber: number; text: string; textSource: string | null; ocrState: string }> {
-    type PageText = { pageNumber: number; text: string; textSource: string | null; ocrState: string }
+  /** The OCR version of a document page: its extracted text. */
+  async documentPageText(noteId: NoteId): Promise<{ pageNumber: number; text: string; textSource: string | null; textStatus: string }> {
+    type PageText = { pageNumber: number; text: string; textSource: string | null; textStatus: string }
     return this.queryValue<{ documentPageText: QueryPayload<PageText> }, PageText>('DocumentPageText', `
       query DocumentPageText($noteId: String!) {
-        documentPageText(noteId: $noteId) { result { accepted status diagnostics } value { pageNumber text textSource ocrState } }
+        documentPageText(noteId: $noteId) { result { accepted status diagnostics } value { pageNumber text textSource textStatus } }
       }
     `, { noteId }, (data) => data.documentPageText)
   }
@@ -400,7 +401,7 @@ export class NoteGraphQLClient {
       mutation PromoteTagNote($input: PromoteTagNoteInput!) {
         promoteTagNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
         }
       }
     `, { input: { tagId, noteId } }, 'promoteTagNote')
@@ -413,7 +414,7 @@ export class NoteGraphQLClient {
       mutation UnpromoteTagNote($input: UnpromoteTagNoteInput!) {
         unpromoteTagNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
         }
       }
     `, { input: { tagId } }, 'unpromoteTagNote')
@@ -680,21 +681,21 @@ export class NoteGraphQLClient {
     return payload.status
   }
 
-  /** Queues an AI translation of a whole notebook into `targetLanguage`. The
-   * pending translation notebook is created immediately; translated notes
-   * arrive via the events feed. Status is "queued" or "agent-unavailable". */
+  /** Queues an AI translation of a notebook (or an inclusive page range) into
+   * `targetLanguage`. A pending translation job is created immediately; each
+   * page's Translated version arrives via the events feed. Status is "queued"
+   * or "agent-unavailable". */
   async requestNotebookTranslation(input: {
     notebookId: NotebookId
     targetLanguage: string
-    title?: string
     pageStart?: number
     pageEnd?: number
-  }): Promise<{ translationNotebookId: NotebookId | null; status: string }> {
-    const data = await this.request<{ requestNotebookTranslation: { result: ControlResult; translationNotebookId?: NotebookId | null; status: string } }>('RequestNotebookTranslation', `
+  }): Promise<{ translationJobId: string | null; status: string }> {
+    const data = await this.request<{ requestNotebookTranslation: { result: ControlResult; translationJobId?: string | null; status: string } }>('RequestNotebookTranslation', `
       mutation RequestNotebookTranslation($input: RequestNotebookTranslationInput!) {
         requestNotebookTranslation(input: $input) {
           result { accepted status diagnostics }
-          translationNotebookId
+          translationJobId
           status
         }
       }
@@ -702,7 +703,6 @@ export class NoteGraphQLClient {
       input: {
         notebookId: input.notebookId,
         targetLanguage: input.targetLanguage,
-        ...(input.title ? { title: input.title } : {}),
         ...(input.pageStart !== undefined ? { pageStart: input.pageStart } : {}),
         ...(input.pageEnd !== undefined ? { pageEnd: input.pageEnd } : {}),
       },
@@ -710,7 +710,7 @@ export class NoteGraphQLClient {
     const payload = data.requestNotebookTranslation
     if (!payload) throw new NoteTransportError('GraphQL response omitted requestNotebookTranslation.', 'graphql')
     ensureAccepted(payload.result)
-    return { translationNotebookId: payload.translationNotebookId ?? null, status: payload.status }
+    return { translationJobId: payload.translationJobId ?? null, status: payload.status }
   }
 
   /** The stored JSON document for an app setting key, or null when unset. */
@@ -790,7 +790,7 @@ export class NoteGraphQLClient {
       mutation CreateNote($input: CreateNoteInput!) {
         createNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
         }
       }
     `, { input: { notebookId, bodyMarkdown, provenance: 'human', assignedBy: 'kaiba-web' } }, 'createNote')
@@ -803,7 +803,7 @@ export class NoteGraphQLClient {
       mutation RecognizeDocumentPage($noteId: String!) {
         recognizeDocumentPage(noteId: $noteId) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
         }
       }
     `, { noteId }, 'recognizeDocumentPage')
@@ -816,7 +816,7 @@ export class NoteGraphQLClient {
       mutation UpdateNote($input: UpdateNoteInput!) {
         updateNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
         }
       }
     `, { input: { noteId, bodyMarkdown } }, 'updateNote')
@@ -884,7 +884,7 @@ export class NoteGraphQLClient {
       query SearchNotes($query: String!, $tagFilter: [String!], $classFilter: [String!], $notebookId: String, $sort: NoteListSort, $createdAfter: String, $createdBefore: String, $includeLinked: Boolean, $limit: Int, $offset: Int) {
         searchNotes(query: $query, tagFilter: $tagFilter, classFilter: $classFilter, notebookId: $notebookId, sort: $sort, createdAfter: $createdAfter, createdBefore: $createdBefore, includeLinked: $includeLinked, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
-          value { snippet rank isLinkedNeighbor termCoverage note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON } matchedTags { tagId name classId parentTagId isSystem createdAt } }
+          value { snippet rank isLinkedNeighbor termCoverage note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} } matchedTags { tagId name classId parentTagId isSystem createdAt } }
         }
       }
     `, {
@@ -929,7 +929,7 @@ export class NoteGraphQLClient {
       query EngineSearchNotes($query: String!, $notebookId: String, $tagFilter: [String!], $tagClassFilter: [String!], $expandOntology: Boolean, $facets: Boolean, $limit: Int, $offset: Int) {
         engineSearchNotes(query: $query, notebookId: $notebookId, tagFilter: $tagFilter, tagClassFilter: $tagClassFilter, expandOntology: $expandOntology, facets: $facets, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
-          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON } }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} } }
           facets { tagClasses { value count } tags { tagId name tagClass count } }
         }
       }
@@ -956,7 +956,7 @@ export class NoteGraphQLClient {
       query RelatedNotes($noteId: String!, $limit: Int) {
         relatedNotes(noteId: $noteId, limit: $limit) {
           result { accepted status diagnostics }
-          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON } }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} } }
         }
       }
     `, { noteId, limit }, (data) => data.relatedNotes)
@@ -1187,6 +1187,13 @@ async function parseJSON<T>(response: Response): Promise<T> {
     throw new NoteTransportError('The server returned invalid JSON.', 'http', response.status)
   }
 }
+
+/** The typed page descriptor of an imported document page (Original/OCR
+ * versions); null for ordinary notes. */
+const documentPageSelection = `documentPage {
+  pageNumber originFileId originMediaType textExtractionMode textStatus textSource
+  analysis { isDocument language writingMode binding title }
+}`
 
 const userAgentCredentialSelection = `
           result { accepted status diagnostics }

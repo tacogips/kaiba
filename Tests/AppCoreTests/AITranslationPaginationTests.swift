@@ -49,8 +49,8 @@ final class AITranslationPaginationTests: NoteTestCase {
       title: "Maximum direct pagination guide",
       pages: (0..<sourceCount).map { NotePageDraft(bodyMarkdown: "# Source \($0)\nBody.") }
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let invoker = PaginationTranslationInvoker()
@@ -62,9 +62,9 @@ final class AITranslationPaginationTests: NoteTestCase {
       sourcePageObserver: { pageSize in
         await pageRecorder.record(pageSize)
       }
-    ).run(translationNotebookId: pending.notebookId)
+    ).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requestCount, sourceCount)
     let observedPageSizes = await pageRecorder.values()
     XCTAssertEqual(
@@ -74,10 +74,7 @@ final class AITranslationPaginationTests: NoteTestCase {
         count: AITranslationReconciliationLimits.maximumRounds
       ) + [0]
     )
-    XCTAssertEqual(
-      try service.listNotes(notebookId: completed.notebookId, limit: sourceCount + 1, offset: 0).count,
-      sourceCount
-    )
+    XCTAssertEqual(try translationCount(service), sourceCount)
   }
 
   func testQueuedRunCompletesAtExact128SourceChunkBoundary() async throws {
@@ -100,22 +97,18 @@ final class AITranslationPaginationTests: NoteTestCase {
       title: "Exact page guide",
       pages: (0..<sourceCount).map { NotePageDraft(bodyMarkdown: "# Source \($0)\nBody.") }
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let invoker = PaginationTranslationInvoker()
     let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
+      jobId: pending.jobId
     )
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requestCount, sourceCount)
-    XCTAssertEqual(try service.listNotes(
-      notebookId: completed.notebookId,
-      limit: sourceCount + 1,
-      offset: 0
-    ).count, sourceCount)
+    XCTAssertEqual(try translationCount(service), sourceCount)
   }
 
   private func assertQueuedTranslationCompletesAtExactChunkBoundary(
@@ -133,24 +126,28 @@ final class AITranslationPaginationTests: NoteTestCase {
       pages: (0..<sourceCount).map { NotePageDraft(bodyMarkdown: "# Source \($0)\nBody.") }
     )
     let (translation, queued) = try service.requestNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     XCTAssertTrue(queued)
-    let translationNotebookId = try XCTUnwrap(translation).notebookId
+    let jobId = try XCTUnwrap(translation).jobId
 
     for _ in 0...sourceCount / AITranslationReconciliationLimits.maximumProviderInvocations {
       await service.drainAutoActionDispatches()
-      if NoteService.translationState(of: try service.getNotebook(translationNotebookId))?.status == .completed {
+      if try service.getTranslationJob(jobId).status == .completed {
         break
       }
       XCTAssertEqual(try service.retryPendingAutoActionDispatches(), 1)
     }
 
-    XCTAssertEqual(
-      NoteService.translationState(of: try service.getNotebook(translationNotebookId))?.status,
-      .completed
-    )
+    XCTAssertEqual(try service.getTranslationJob(jobId).status, .completed)
     XCTAssertEqual(invoker.requestCount, sourceCount)
+    XCTAssertEqual(try translationCount(service), sourceCount)
+  }
+
+  private func translationCount(_ service: NoteService) throws -> Int {
+    try service.driver.withDatabase { database in
+      Int(try database.query("SELECT COUNT(*) AS count FROM note_translations").first?["count"] ?? "") ?? -1
+    }
   }
 }

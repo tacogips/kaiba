@@ -3,31 +3,36 @@ import Foundation
 import XCTest
 
 final class DocumentPageUndoTests: NoteTestCase {
-  private let pageMeta = #"{"documentPage":{"pageNumber":1,"ocrState":"complete","analysis":{"writingMode":"unknown","binding":"unknown"},"originFileId":"file-1"}}"#
-  private let pendingPageMeta = #"{"documentPage":{"pageNumber":2,"ocrState":"pending","analysis":{"writingMode":"unknown","binding":"unknown"},"originFileId":"file-2"}}"#
-
-  func testUndoDeleteRestoresPageSearchTextAndSearchability() throws {
+  func testUndoDeleteRestoresPageRowTranslationsAndSearchability() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
+    let origin = try insertSyntheticOriginFile(service)
     let ingest = try service.createNotebookWithNotes(
       title: "Imported pages",
-      pages: [NotePageDraft(bodyMarkdown: "", readOnly: false, metaJSON: pageMeta, searchText: "Orbital chart text")]
+      pages: [syntheticPageDraft(originFileId: origin, text: "Orbital chart text", readOnly: false)]
     )
     let page = try XCTUnwrap(ingest.notes.first)
+    try insertTranslation(noteId: page.noteId, language: "ja", body: "Kidou zu", using: driver)
 
     try service.deleteNote(noteId: page.noteId)
+    XCTAssertEqual(try pageRowCount(page.noteId, using: driver), 0, "the page row cascades with the note")
+    XCTAssertTrue(try service.noteTranslationsIfPresent(page.noteId).isEmpty)
     _ = try XCTUnwrap(try service.undoLastAction())
 
-    XCTAssertEqual(try service.getNote(page.noteId).bodyMarkdown, "")
-    XCTAssertEqual(try storedSearchText(page.noteId, using: driver), "Orbital chart text")
+    let restored = try service.getNote(page.noteId)
+    XCTAssertEqual(restored.bodyMarkdown, "")
+    XCTAssertEqual(restored.documentPage, page.documentPage)
+    XCTAssertEqual(try storedPageText(page.noteId, using: driver), "Orbital chart text")
+    XCTAssertEqual(try service.noteTranslations(noteId: page.noteId).map(\.body), ["Kidou zu"])
     XCTAssertEqual(try service.searchNotes(query: "Orbital").first?.note.noteId, page.noteId)
+    XCTAssertEqual(try service.searchNotes(query: "Kidou").first?.note.noteId, page.noteId)
   }
 
   func testDeleteNotebookContainingPageNoteRemainsNonUndoable() throws {
     let service = try NoteService(driver: makeNoteDriver())
     let ingest = try service.createNotebookWithNotes(
       title: "Imported pages",
-      pages: [NotePageDraft(bodyMarkdown: "", readOnly: false, metaJSON: pageMeta, searchText: "Orbital chart text")]
+      pages: [syntheticPageDraft(originFileId: try insertSyntheticOriginFile(service), text: "Orbital chart text", readOnly: false)]
     )
     let page = try XCTUnwrap(ingest.notes.first)
 
@@ -38,9 +43,10 @@ final class DocumentPageUndoTests: NoteTestCase {
     XCTAssertFalse(deletion.undoable)
     XCTAssertNil(try service.undoState().undoTarget)
     XCTAssertThrowsError(try service.getNote(page.noteId))
+    XCTAssertEqual(try pageRowCount(page.noteId, using: service.driver), 0)
   }
 
-  func testUndoDeleteRestoresNormalNoteWithNullSearchText() throws {
+  func testUndoDeleteRestoresNormalNoteWithoutPageRow() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
     let note = try service.createNote(bodyMarkdown: "ordinary markdown")
@@ -49,13 +55,14 @@ final class DocumentPageUndoTests: NoteTestCase {
     _ = try XCTUnwrap(try service.undoLastAction())
 
     XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "ordinary markdown")
-    XCTAssertNil(try storedSearchText(note.noteId, using: driver))
+    XCTAssertNil(try service.getNote(note.noteId).documentPage)
+    XCTAssertNil(try storedPageText(note.noteId, using: driver))
   }
 
-  func testRestoreLegacyPageSnapshotMigratesBodyIntoSearchText() throws {
+  func testRestoreSnapshotWithoutItsOriginalComesBackAsOrdinaryNote() throws {
     let driver = try makeNoteDriver()
     let service = try NoteService(driver: driver)
-    let notebook = try service.createNotebook(title: "Legacy import")
+    let notebook = try service.createNotebook(title: "Orphaned import")
     let noteId = NoteID.generate()
     let now = NoteStoreClock.system.now()
     let snapshot = JSONValue.object([
@@ -65,19 +72,19 @@ final class DocumentPageUndoTests: NoteTestCase {
         "noteNumber": .integer(1),
         "title": .null,
         "titleSource": .string(NoteTitleSource.derived.rawValue),
-        "bodyMarkdown": .string("Legacy OCR words"),
+        "bodyMarkdown": .string(""),
         "readOnly": .bool(false),
-        "createdBy": .string(NoteStoreSchema.defaultUserId.rawValue),
-        "updatedBy": .string(NoteStoreSchema.defaultUserId.rawValue),
         "createdAt": .string(now),
-        "updatedAt": .string(now),
-        "metaJSON": .string(pageMeta)
+        "updatedAt": .string(now)
       ]),
-      "tags": .array([]),
-      "links": .array([]),
-      "comments": .array([]),
-      "files": .array([]),
-      "canonicalTagIds": .array([])
+      "documentPage": .object([
+        "originFileId": .string("file-gone"),
+        "pageNumber": .integer(1),
+        "text": .string("Lost words"),
+        "textStatus": .string("complete"),
+        "textSource": .string("ocr"),
+        "analysisJSON": .string(#"{"writingMode":"unknown","binding":"unknown"}"#)
+      ])
     ])
 
     try driver.withDatabase { database in
@@ -87,23 +94,24 @@ final class DocumentPageUndoTests: NoteTestCase {
       }
     }
 
-    XCTAssertEqual(try service.getNote(noteId).bodyMarkdown, "")
-    XCTAssertEqual(try storedSearchText(noteId, using: driver), "Legacy OCR words")
-    XCTAssertEqual(try service.searchNotes(query: "Legacy").first?.note.noteId, noteId)
+    XCTAssertNil(try service.getNote(noteId).documentPage)
+    XCTAssertEqual(try pageRowCount(noteId, using: driver), 0)
   }
 
-  func testUndoDeletePreservesPendingPageEmptySearchText() throws {
+  func testUndoDeletePreservesPendingPageEmptyText() throws {
     let service = try NoteService(driver: makeNoteDriver())
     let ingest = try service.createNotebookWithNotes(
       title: "Pending import",
-      pages: [NotePageDraft(bodyMarkdown: "", readOnly: false, metaJSON: pendingPageMeta, searchText: "")]
+      pages: [syntheticPageDraft(pageNumber: 2, originFileId: try insertSyntheticOriginFile(service), text: "", readOnly: false)]
     )
     let page = try XCTUnwrap(ingest.notes.first)
 
     try service.deleteNote(noteId: page.noteId)
     _ = try XCTUnwrap(try service.undoLastAction())
 
-    XCTAssertEqual(try storedSearchText(page.noteId, using: service.driver), "")
+    XCTAssertEqual(try storedPageText(page.noteId, using: service.driver), "")
+    XCTAssertEqual(try service.getNote(page.noteId).documentPage?.textStatus, .pending)
+    XCTAssertEqual(try service.getNote(page.noteId).documentPage?.pageNumber, 2)
   }
 
   func testUndoPageBodyEditConflictsWithoutMovingActionCursor() throws {
@@ -111,15 +119,19 @@ final class DocumentPageUndoTests: NoteTestCase {
     let service = try NoteService(driver: driver)
     let ingest = try service.createNotebookWithNotes(
       title: "Editable import",
-      pages: [NotePageDraft(bodyMarkdown: "", readOnly: false, metaJSON: pageMeta, searchText: "Recognized page text")]
+      pages: [syntheticPageDraft(
+        originFileId: try insertSyntheticOriginFile(service), text: "Recognized page text", readOnly: false
+      )]
     )
     let page = try XCTUnwrap(ingest.notes.first)
+    let pageRow = try XCTUnwrap(page.documentPage)
+    // Edit while the note is temporarily not a page, then make it a page again.
     try driver.withDatabase { database in
-      try database.execute("UPDATE notes SET meta_json = NULL WHERE note_id = ?", bindings: [.id(page.noteId)])
+      try database.execute("DELETE FROM document_pages WHERE note_id = ?", bindings: [.id(page.noteId)])
     }
     _ = try service.updateNoteBody(noteId: page.noteId, bodyMarkdown: "Edited OCR body")
     try driver.withDatabase { database in
-      try database.execute("UPDATE notes SET meta_json = jsonb(?) WHERE note_id = ?", bindings: [.text(pageMeta), .id(page.noteId)])
+      try insertDocumentPage(noteId: page.noteId, page: pageRow, text: "Recognized page text", in: database)
     }
     let cursorBefore = try XCTUnwrap(try service.undoState().undoTarget?.seq)
 
@@ -133,7 +145,7 @@ final class DocumentPageUndoTests: NoteTestCase {
       XCTAssertEqual(try service.undoState().undoTarget?.seq, cursorBefore)
     }
     XCTAssertEqual(try service.getNote(page.noteId).bodyMarkdown, "Edited OCR body")
-    XCTAssertEqual(try storedSearchText(page.noteId, using: driver), "Recognized page text")
+    XCTAssertEqual(try storedPageText(page.noteId, using: driver), "Recognized page text")
   }
 
   func testUndoNormalNoteBodyEditStillWorks() throws {
@@ -146,12 +158,36 @@ final class DocumentPageUndoTests: NoteTestCase {
     XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "before edit")
   }
 
-  private func storedSearchText(_ noteId: NoteID, using driver: NoteDatabaseDriving) throws -> String? {
+  private func storedPageText(_ noteId: NoteID, using driver: NoteDatabaseDriving) throws -> String? {
+    try driver.withDatabase { try storedDocumentPageText(noteId, in: $0) }
+  }
+
+  private func pageRowCount(_ noteId: NoteID, using driver: NoteDatabaseDriving) throws -> Int {
     try driver.withDatabase { database in
-      try database.query(
-        "SELECT search_text FROM notes WHERE note_id = ? LIMIT 1",
-        bindings: [.id(noteId)]
-      ).first?["search_text"]
+      try database.query("SELECT 1 FROM document_pages WHERE note_id = ?", bindings: [.id(noteId)]).count
+    }
+  }
+
+  private func insertTranslation(noteId: NoteID, language: String, body: String, using driver: NoteDatabaseDriving) throws {
+    try driver.withDatabase { database in
+      let previous = try ftsPayload(noteId: noteId, in: database)
+      try database.execute(
+        """
+        INSERT INTO note_translations (note_id, language, body, source_sha256, provenance, created_at, updated_at)
+        VALUES (?, ?, ?, 'hash', 'ai', 'now', 'now')
+        """,
+        bindings: [.id(noteId), .text(language), .text(body)]
+      )
+      try refreshFTS(noteId: noteId, previous: previous, in: database)
+    }
+  }
+}
+
+private extension NoteService {
+  func noteTranslationsIfPresent(_ noteId: NoteID) throws -> [String] {
+    try driver.withDatabase { database in
+      try database.query("SELECT language FROM note_translations WHERE note_id = ?", bindings: [.id(noteId)])
+        .compactMap { $0["language"] }
     }
   }
 }

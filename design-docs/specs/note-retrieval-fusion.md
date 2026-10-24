@@ -220,6 +220,10 @@ guidance; no extra provider round is forced, so simple lookups stay one call
 
 ## Retrieval text for document page notes (2026-10-01)
 
+Since schema v25 the page text is `document_pages.text` rather than
+`notes.search_text`, and the FTS `body` also carries the note's translations
+([note-store-schema-v25.md](note-store-schema-v25.md)).
+
 The FTS `body` column is indexed with the note's retrieval text. Snippets and
 the LIKE fallback use the same text. For a note that is not a page note,
 `search_text` is NULL, so the retrieval text is exactly `body_markdown`.

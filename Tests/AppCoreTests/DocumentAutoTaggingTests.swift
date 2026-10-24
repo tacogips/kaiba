@@ -76,26 +76,19 @@ final class DocumentAutoTaggingTests: NoteTestCase {
     XCTAssertTrue(try service.getNote(note.noteId).tags.contains { $0.tag.name == "registered-topic" })
     XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "")
     XCTAssertEqual(try service.driver.withDatabase {
-      try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(note.noteId)]).first?["search_text"]
+      try storedDocumentPageText(note.noteId, in: $0)
     }, "Recognized graph algorithms")
   }
 
   func testConfiguredPromptAndCatalogTagNotebookAndCompletedPageOnly() async throws {
     let service = try makeService()
     _ = try service.defineTag(name: "registered-topic", classId: TagClassID("topic"))
-    let pending = ImportedPageMetadata(
-      pageNumber: 2, ocrState: "pending", analysis: DocumentPageAnalysis(),
-      originFileId: "file-test", pendingBodySHA256: nil
-    )
-    let metadata = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(pending))
+    let origin = try insertSyntheticOriginFile(service)
     let ingest = try service.createNotebookWithNotes(
       title: "Imported document", kindTagName: NoteStoreSchema.importedMaterialNotebookKindTag,
       pages: [
         NotePageDraft(bodyMarkdown: "Graph algorithms"),
-        NotePageDraft(
-          bodyMarkdown: "", metaJSON: try JSONValue.object(["documentPage": metadata]).encodedString(),
-          searchText: "Graph algorithms"
-        )
+        syntheticPageDraft(pageNumber: 2, originFileId: origin, text: "Graph algorithms", textStatus: .pending)
       ], notebookReadOnly: true
     )
     let invoker = DocumentTagInvoker()

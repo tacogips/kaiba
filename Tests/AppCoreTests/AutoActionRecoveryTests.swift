@@ -53,16 +53,16 @@ final class AutoActionRecoveryTests: NoteTestCase {
       pages: [NotePageDraft(bodyMarkdown: "# Private\nSource")]
     )
     let (pendingTranslation, didQueue) = try aliceService.requestNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+      notebookId: source.notebook.notebookId,
       targetLanguage: "Japanese"
     )
     XCTAssertTrue(didQueue)
     let translation = try XCTUnwrap(pendingTranslation)
     await aliceService.drainAutoActionDispatches()
-    _ = try aliceService.setNotebookTranslationStatus(translation.notebookId, status: .completed)
+    _ = try aliceService.setTranslationJobStatus(translation.jobId, status: .completed)
     let dispatchId = try XCTUnwrap(
       try service.listAutoActionDispatchAttempts().first(where: {
-        $0.record.event.notebookId == translation.notebookId
+        $0.record.event.translationJobId == translation.jobId
           && $0.record.action.workflowId == NoteStoreSchema.notebookTranslationWorkflowId
       })?.dispatchId
     )
@@ -78,7 +78,7 @@ final class AutoActionRecoveryTests: NoteTestCase {
     let request = await invoker.latestRequest()
     XCTAssertNil(request)
     XCTAssertEqual(
-      NoteService.translationState(of: try recovered.getNotebook(translation.notebookId))?.status,
+      try recovered.getTranslationJob(translation.jobId).status,
       .completed
     )
     XCTAssertEqual(

@@ -63,6 +63,7 @@ public struct AppCommand: Sendable {
     case "add": return try runAdd(context)
     case "edit": return try runEdit(context)
     case "show": return try runShow(context)
+    case "translations": return try runTranslations(context)
     case "list": return try runList(context)
     case "search": return try runSearch(context)
     case "tag": return try runTag(context)
@@ -164,6 +165,8 @@ public struct AppCommand: Sendable {
                  [--tag <name>]... [--read-only] [--output json|text]
       edit       <note-id> (--body <md>|--body-file <path>) [--append]
       show       <note-id> [--output json|text]
+      translations <note-id> [--output json|text]
+                 # the note's Translated versions (see ai translate)
       list       [--notebook <id>] [--tag <name>]... [--limit N] [--offset N]
       search     <query> [--notebook <id>] [--tag <name>]... [--class <id>]
                  [--include-linked] [--memos]
@@ -221,10 +224,10 @@ public struct AppCommand: Sendable {
     AI (agent runtime arrives with agent-gateway; see kaiba ai status):
       ai tag     (--note <id> | --notebook <id>) [--dry-run]
                  # extract ontology tags with the configured agent
-      ai translate (--notebook <id> [--to <language>] | --resume <id>)
-                 [--provider <vendor>] [--model <model>] [--title <title>]
-                 # translate a notebook into a new notebook; --provider/--model
-                 # (or ai.translate in config.json) pick the AI vendor
+      ai translate (--notebook <id> [--to <language>] [--pages <start>-<end>] | --resume <job-id>)
+                 [--provider <vendor>] [--model <model>]
+                 # store each note's Translated version (one per language);
+                 # --provider/--model (or ai.translate in config.json) pick the AI vendor
       ai models  [--output text|json]
                  # list models available from the configured agent-gateway vendor
       ai search  <query> [--notebook <id>] [--limit N]

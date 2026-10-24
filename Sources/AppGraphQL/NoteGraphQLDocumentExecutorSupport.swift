@@ -103,7 +103,8 @@ let supportedNoteGraphQLFields: Set<String> = [
   "tagClasses",
   "noteFile",
   "noteFiles",
-  "documentPageTranslations",
+  "noteTranslations",
+  "translationJobs",
   "documentPageText",
   "notebookFiles",
   "noteLinks",
@@ -190,7 +191,8 @@ let noteGraphQLQueryFields: Set<String> = [
   "tagClasses",
   "noteFile",
   "noteFiles",
-  "documentPageTranslations",
+  "noteTranslations",
+  "translationJobs",
   "documentPageText",
   "notebookFiles",
   "noteLinks",
@@ -341,7 +343,8 @@ let noteGraphQLRootSelectionTypes: [String: String] = [
   "tagClasses": "NoteTagClassesQueryPayload",
   "noteFile": "NoteFileQueryPayload",
   "noteFiles": "NoteFilesQueryPayload",
-  "documentPageTranslations": "DocumentPageTranslationsQueryPayload",
+  "noteTranslations": "NoteTranslationsQueryPayload",
+  "translationJobs": "TranslationJobsQueryPayload",
   "documentPageText": "DocumentPageTextQueryPayload",
   "renameNotebook": "NoteMutationPayload",
   "notebookFiles": "NotebookFilesQueryPayload",
@@ -396,10 +399,20 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "status": nil,
     "diagnostics": nil
   ],
-  "DocumentPageTranslationsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "DocumentPageTranslation"),
-  "DocumentPageTranslation": ["noteId": nil, "notebookId": nil, "sourceNoteId": nil, "targetLanguage": nil, "text": nil],
+  "NoteTranslationsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteTranslation"),
+  "NoteTranslation": ["noteId": nil, "language": nil, "body": nil, "isCurrent": nil, "updatedAt": nil],
+  "TranslationJobsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "TranslationJob"),
+  "TranslationJob": [
+    "jobId": nil, "notebookId": nil, "targetLanguage": nil, "pageStart": nil, "pageEnd": nil,
+    "status": nil, "errorMessage": nil, "createdAt": nil, "updatedAt": nil
+  ],
   "DocumentPageTextQueryPayload": noteGraphQLQueryPayloadFields(valueType: "DocumentPageText"),
-  "DocumentPageText": ["pageNumber": nil, "text": nil, "textSource": nil, "ocrState": nil],
+  "DocumentPageText": ["pageNumber": nil, "text": nil, "textSource": nil, "textStatus": nil],
+  "DocumentPage": [
+    "pageNumber": nil, "originFileId": nil, "originMediaType": nil, "textExtractionMode": nil,
+    "textStatus": nil, "textSource": nil, "analysis": "DocumentPageAnalysis"
+  ],
+  "DocumentPageAnalysis": ["isDocument": nil, "language": nil, "writingMode": nil, "binding": nil, "title": nil],
   "NoteQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Note"),
   "NotebookQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Notebook"),
   "NotebooksQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Notebook"),
@@ -594,7 +607,7 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
   ],
   "NotebookTranslationRequestPayload": [
     "result": "ControlPlaneResult",
-    "translationNotebookId": nil,
+    "translationJobId": nil,
     "status": nil
   ],
   "NoteMutationPayload": [
@@ -654,7 +667,8 @@ let noteGraphQLSelectionFields: [String: [String: String?]] = [
     "metaJSON": nil,
     "tags": "NoteTagAssignment",
     "createdBy": nil,
-    "updatedBy": nil
+    "updatedBy": nil,
+    "documentPage": "DocumentPage"
   ],
   "Notebook": [
     "type": nil,

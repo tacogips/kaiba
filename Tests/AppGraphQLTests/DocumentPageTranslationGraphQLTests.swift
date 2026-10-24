@@ -10,32 +10,64 @@ private struct GraphQLPageTranslationInvoker: AgentInvoking {
 }
 
 final class DocumentPageTranslationGraphQLTests: XCTestCase {
-  func testScopedTranslationInputAndLinkedVersionQuery() async throws {
+  func testScopedTranslationRequestJobAndVersionQueries() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let store = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root.path))
+    let driver = try SQLiteNoteDatabaseDriver(noteRoot: root.path)
+    let dispatcher = KaibaAutoActionDispatcher(
+      service: try NoteService(driver: driver),
+      invoker: GraphQLPageTranslationInvoker()
+    )
+    let store = try NoteService(driver: driver, autoActionDispatcher: dispatcher)
     let source = try store.createNotebookWithNotes(title: "Source", pages: [
-      NotePageDraft(bodyMarkdown: "", searchText: "Native PDF page one"),
-      NotePageDraft(bodyMarkdown: "", searchText: "Native PDF page two")
+      NotePageDraft(bodyMarkdown: "Page one"),
+      NotePageDraft(bodyMarkdown: "Page two")
     ])
-    let input = try JSONDecoder().decode(GraphQLRequestNotebookTranslationInput.self, from: Data("""
-      {"notebookId":"\(source.notebook.notebookId)","targetLanguage":"Japanese","pageStart":2,"pageEnd":2}
-      """.utf8))
-    XCTAssertEqual(input.pageStart, 2)
-    XCTAssertEqual(input.pageEnd, 2)
-    let pending = try store.startNotebookTranslation(sourceNotebookId: input.notebookId,
-      targetLanguage: input.targetLanguage, pageStart: input.pageStart, pageEnd: input.pageEnd)
-    _ = try await AITranslationService(service: store, invoker: GraphQLPageTranslationInvoker()).run(
-      translationNotebookId: pending.notebookId)
     let executor = NoteGraphQLDocumentExecutor(service: GraphQLNoteGraphQLService(service: store))
+
+    let request = await executor.execute(GraphQLDocumentRequest(query: """
+      mutation($input: RequestNotebookTranslationInput!) {
+        requestNotebookTranslation(input: $input) { result { accepted } translationJobId status }
+      }
+      """, variables: ["input": .object([
+        "notebookId": .string(source.notebook.notebookId.rawValue),
+        "targetLanguage": .string("Japanese"),
+        "pageStart": .integer(2),
+        "pageEnd": .integer(2)
+      ])]))
+    let requested = try XCTUnwrap(request.body["data"]?.asObject?["requestNotebookTranslation"]?.asObject)
+    XCTAssertEqual(requested["status"], .string("queued"))
+    let jobId = try XCTUnwrap(requested["translationJobId"]?.asString)
+    await store.drainAutoActionDispatches()
+
+    let jobs = await executor.execute(GraphQLDocumentRequest(query: """
+      query($id:String!){translationJobs(notebookId:$id){result{accepted} value{jobId targetLanguage pageStart pageEnd status errorMessage}}}
+      """, variables: ["id": .string(source.notebook.notebookId.rawValue)]))
+    let job = try XCTUnwrap(
+      jobs.body["data"]?.asObject?["translationJobs"]?.asObject?["value"]?.asArray?.first?.asObject
+    )
+    XCTAssertEqual(job["jobId"], .string(jobId))
+    XCTAssertEqual(job["targetLanguage"], .string("Japanese"))
+    XCTAssertEqual(job["pageStart"], .integer(2))
+    XCTAssertEqual(job["pageEnd"], .integer(2))
+    XCTAssertEqual(job["status"], .string("completed"))
+
+    let first = await executor.execute(GraphQLDocumentRequest(query: """
+      query($id:String!){noteTranslations(noteId:$id){result{accepted} value{language}}}
+      """, variables: ["id": .string(source.notes[0].noteId.rawValue)]))
+    XCTAssertEqual(
+      first.body["data"]?.asObject?["noteTranslations"]?.asObject?["value"]?.asArray,
+      []
+    )
     let response = await executor.execute(GraphQLDocumentRequest(query: """
-      query($id:String!){documentPageTranslations(noteId:$id){result{accepted} value{noteId notebookId sourceNoteId targetLanguage text}}}
+      query($id:String!){noteTranslations(noteId:$id){result{accepted} value{noteId language body isCurrent updatedAt}}}
       """, variables: ["id": .string(source.notes[1].noteId.rawValue)]))
-    let payload = try XCTUnwrap(response.body["data"]?.asObject?["documentPageTranslations"]?.asObject)
+    let payload = try XCTUnwrap(response.body["data"]?.asObject?["noteTranslations"]?.asObject)
     XCTAssertEqual(payload["result"]?.asObject?["accepted"], .bool(true))
     let version = try XCTUnwrap(payload["value"]?.asArray?.first?.asObject)
-    XCTAssertEqual(version["sourceNoteId"], .string(source.notes[1].noteId.rawValue))
-    XCTAssertEqual(version["targetLanguage"], .string("Japanese"))
-    XCTAssertTrue(version["text"]?.asString?.contains("Native PDF page two") == true)
+    XCTAssertEqual(version["noteId"], .string(source.notes[1].noteId.rawValue))
+    XCTAssertEqual(version["language"], .string("Japanese"))
+    XCTAssertEqual(version["body"], .string("Translated page: Page two"))
+    XCTAssertEqual(version["isCurrent"], .bool(true))
   }
 }

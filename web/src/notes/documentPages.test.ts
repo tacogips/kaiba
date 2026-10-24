@@ -2,19 +2,20 @@ import { describe, expect, test } from 'bun:test'
 import { documentPageMetadata, pageStepForArrow, storedImageFileId } from './documentPages'
 import { parseInlineSegments, plainInlineText } from './markdown'
 import { fileId, noteId, notebookId } from './ids'
+import { testDocumentPage } from './documentPageFixtures'
 
 const note = { noteId: noteId('note'), notebookId: notebookId('book'), noteNumber: 1, title: null,
   bodyMarkdown: '', readOnly: false, createdAt: '', updatedAt: '' }
 
 describe('document page metadata and navigation', () => {
   test('parses stored physical page metadata and preserves unknown analysis', () => {
-    const page = documentPageMetadata({ ...note, metaJSON: JSON.stringify({ documentPage: {
-      pageNumber: 3, ocrState: 'pending', originFileId: 'file-123', analysis: { binding: 'right', writingMode: 'vertical', language: 'ja' },
-    } }) })
+    const page = documentPageMetadata({ ...note, documentPage: testDocumentPage({
+      pageNumber: 3, textStatus: 'pending', originFileId: 'file-123', analysis: { binding: 'right', writingMode: 'vertical', language: 'ja' },
+    }) })
     expect(page?.pageNumber).toBe(3)
     expect(page?.analysis).toMatchObject({ binding: 'right', writingMode: 'vertical', language: 'ja' })
-    expect(documentPageMetadata({ ...note, metaJSON: '{' })).toBeUndefined()
-    expect(documentPageMetadata(note)).toBeUndefined()
+    expect(documentPageMetadata({ ...note, documentPage: null })).toBeUndefined()
+    expect(documentPageMetadata({ ...note, documentPage: undefined })).toBeUndefined()
   })
   test('arrows follow binding direction', () => {
     expect(pageStepForArrow('ArrowLeft', 'right')).toBe(1)

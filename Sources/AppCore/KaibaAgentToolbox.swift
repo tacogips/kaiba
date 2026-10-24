@@ -160,7 +160,7 @@ public struct KaibaAgentToolbox: AgentToolExecuting {
     var payload = Self.noteJSON(note, includeBody: true)
     if NoteService.isDocumentPageNote(note) {
       let searchText = try service.driver.withDatabase { database in
-        try noteSearchText(noteId, in: database) ?? ""
+        try storedDocumentPageText(noteId, in: database) ?? ""
       }
       payload["page_text"] = .string(AgentToolOutputLimits.bounded(
         searchText,

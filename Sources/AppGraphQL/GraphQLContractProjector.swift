@@ -29,7 +29,8 @@ public enum GraphQLContractProjector {
     tags: NoteTagsQueryPayload!
     tagClasses: NoteTagClassesQueryPayload!
     noteFile(fileId: String!): NoteFileQueryPayload!
-    documentPageTranslations(noteId: String!): DocumentPageTranslationsQueryPayload!
+    noteTranslations(noteId: String!): NoteTranslationsQueryPayload!
+    translationJobs(notebookId: String!): TranslationJobsQueryPayload!
     documentPageText(noteId: String!): DocumentPageTextQueryPayload!
     noteFiles(noteId: String!): NoteFilesQueryPayload!
     notebookFiles(notebookId: String!): NotebookFilesQueryPayload!

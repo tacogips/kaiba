@@ -24,12 +24,19 @@ final class DocumentPageContractGraphQLTests: XCTestCase {
     ))
 
     let projection = await executor.execute(GraphQLDocumentRequest(
-      query: "query($noteId: String!){note(noteId:$noteId){value{bodyMarkdown metaJSON}}}",
+      query: "query($noteId: String!){note(noteId:$noteId){value{bodyMarkdown metaJSON documentPage{pageNumber originFileId originMediaType textStatus textSource analysis{writingMode binding}}}}}",
       variables: ["noteId": .string(note.noteId.rawValue)]
     ))
     let noteValue = try XCTUnwrap(projection.body["data"]?.asObject?["note"]?.asObject?["value"]?.asObject)
     XCTAssertEqual(noteValue["bodyMarkdown"], .string(""))
-    XCTAssertFalse(try XCTUnwrap(noteValue["metaJSON"]?.asString).contains("Lighthouse maintenance log"))
+    XCTAssertEqual(noteValue["metaJSON"], .null)
+    let page = try XCTUnwrap(noteValue["documentPage"]?.asObject)
+    XCTAssertEqual(page["pageNumber"], .integer(1))
+    XCTAssertEqual(page["textStatus"], .string("complete"))
+    XCTAssertNotNil(page["originFileId"]?.asString)
+    XCTAssertNotNil(page["originMediaType"]?.asString)
+    XCTAssertEqual(page["analysis"]?.asObject?["writingMode"], .string("unknown"))
+    XCTAssertFalse("\(noteValue)".contains("Lighthouse maintenance log"))
 
     let search = await executor.execute(GraphQLDocumentRequest(
       query: "{searchNotes(query:\"beacons\"){value{note{noteId} snippet}}}"
@@ -47,13 +54,12 @@ final class DocumentPageContractGraphQLTests: XCTestCase {
     XCTAssertTrue((diagnostics ?? []).contains { $0.asString?.contains("document page text is managed by OCR") == true })
 
     let recognized = await executor.execute(GraphQLDocumentRequest(
-      query: "mutation($noteId:String!){recognizeDocumentPage(noteId:$noteId){note{bodyMarkdown metaJSON}}}",
+      query: "mutation($noteId:String!){recognizeDocumentPage(noteId:$noteId){note{bodyMarkdown documentPage{textStatus}}}}",
       variables: ["noteId": .string(pendingNote.noteId.rawValue)]
     ))
     let payload = try XCTUnwrap(recognized.body["data"]?.asObject?["recognizeDocumentPage"]?.asObject?["note"]?.asObject)
     XCTAssertEqual(payload["bodyMarkdown"], .string(""))
-    let metadata = try JSONValue(parsing: XCTUnwrap(payload["metaJSON"]?.asString))
-    XCTAssertEqual(metadata.asObject?["documentPage"]?.asObject?["ocrState"], .string("complete"))
+    XCTAssertEqual(payload["documentPage"]?.asObject?["textStatus"], .string("complete"))
   }
 }
 

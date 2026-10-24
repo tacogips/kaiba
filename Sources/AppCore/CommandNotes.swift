@@ -58,6 +58,27 @@ extension AppCommand {
     }
   }
 
+  /// Lists a note's Translated versions, one per language.
+  func runTranslations(_ context: CommandContext) throws -> String {
+    var cursor = context.cursor
+    let output = try cursor.extractOutputMode()
+    guard let noteId = cursor.nextIdentifier(as: NoteID.self) else {
+      throw Error.invalidUsage("translations requires <note-id>")
+    }
+    try cursor.finish()
+    let translations = try makeService(context).noteTranslations(noteId: noteId)
+    switch output {
+    case .json:
+      return try renderJSON(["translations": .array(translations.map { .object(jsonObject($0)) })])
+    case .text:
+      guard !translations.isEmpty else { return "no translations for \(noteId)" }
+      return translations.map { translation in
+        let stale = translation.isCurrent ? "" : "  [stale: the source changed]"
+        return "## \(translation.language)\(stale)\n\(translation.body)"
+      }.joined(separator: "\n\n")
+    }
+  }
+
   func runShow(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     let output = try cursor.extractOutputMode()

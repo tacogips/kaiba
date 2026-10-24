@@ -32,6 +32,11 @@ under `~/.kaiba/files/` (override the root with `--note-root` or
 `KAIBA_NOTE_ROOT`). Kaiba configuration lives at
 `~/.config/kaiba/config.json` (override with `--config` or
 `KAIBA_CONFIG_PATH`).
+The store schema (v25) is authored as a nodetto ERD in
+`schema/note-store.erd.jsonl`; the SQLite DDL is generated from it with
+`mise run schema:generate` (see `design-docs/specs/note-store-schema-v25.md`).
+There are no upgrade paths from older stores: a store created by an earlier
+release is rejected and must be recreated.
 See `design-docs/specs/command.md` for the full CLI
 and `design-docs/specs/kaiba-note.md` for the design.
 
@@ -52,9 +57,13 @@ OCR only, and each import can override the default (`--text-mode
 prefer-pdf-text` or `--text-mode ocr-only` in the CLI).
 
 Extracted text is plain text with line and paragraph breaks, used for search and
-AI context. The header switches between Original, OCR text, and per-page
-translations; translation requests support the current page, a range, or the
-whole document. The filename supplies the initial editable document title.
+AI context. The header switches between the three page versions: Original, OCR
+text, and Translated. A translation request (current page, a range, or the
+whole document) creates a translation job that stores one translation per page
+and language; a translation whose page text later changed is marked outdated
+until it is re-translated, and translations are searchable from their source
+page. `kaiba ai translate --notebook <id> --to <language> [--pages 3-7]` runs the
+same job from the CLI and `kaiba translations <note-id>` prints the result. The filename supplies the initial editable document title.
 Page position, navigation, page jumps, and original-PDF zoom are in the footer;
 page edges, arrow keys, and Ctrl+U/Ctrl+D also turn pages. Back restores reader
 jumps with up to 500 prior locations.
@@ -523,6 +532,7 @@ swift run kaiba --help
 ```
 
 `mise run check` runs every verification gate: Swift tests, SwiftLint,
+`schema:check` (the generated DDL matches the nodetto ERD; needs `nodetto-cli`),
 `web:check` (typecheck, test, lint, and build of the shared web/native client)
 and `tauri:check` (`cargo fmt --check`, `check`, and `clippy` on the Tauri Rust
 shell). `web:check` is a thin wrapper around `bun run check` in `web/`, the same

@@ -3,7 +3,9 @@ import Foundation
 /// Bookkeeping for the contentless `note_fts` index. Every note write re-derives
 /// its row from `notes`, `notebooks`, and the tag tree so the index always
 /// mirrors the store; the `context` column carries the contextual breadcrumb
-/// from `design-docs/specs/note-retrieval-fusion.md` (RF1).
+/// from `design-docs/specs/note-retrieval-fusion.md` (RF1). The `body` column
+/// also carries the note's translations, so a search in a target language
+/// finds the source note (`design-docs/specs/note-store-schema-v25.md`).
 func refreshFTS(noteId: NoteID, previous: FTSPayload?, in database: SQLiteDatabase) throws {
   if let previous {
     try deleteFTSEntry(previous, in: database)
@@ -59,7 +61,8 @@ func deleteFTSEntry(_ previous: FTSPayload, in database: SQLiteDatabase) throws 
 func ftsPayload(noteId: NoteID, in database: SQLiteDatabase) throws -> FTSPayload? {
   let rows = try database.query(
     """
-    SELECT m.fts_rowid, m.context, n.title, n.body_markdown, n.search_text, ifnull((
+    SELECT m.fts_rowid, m.context, n.title, n.body_markdown, page.text AS page_text,
+      \(ftsTranslationsColumn) AS translations, ifnull((
         SELECT group_concat(ordered_tags.name, ' ')
         FROM (
           SELECT t.name
@@ -71,6 +74,7 @@ func ftsPayload(noteId: NoteID, in database: SQLiteDatabase) throws -> FTSPayloa
       ), '') AS tags
     FROM note_fts_map m
     INNER JOIN notes n ON n.note_id = m.note_id
+    LEFT JOIN document_pages page ON page.note_id = n.note_id
     WHERE m.note_id = ?
     LIMIT 1
     """,
@@ -82,7 +86,10 @@ func ftsPayload(noteId: NoteID, in database: SQLiteDatabase) throws -> FTSPayloa
   return FTSPayload(
     rowId: rowId,
     title: row["title"] ?? "",
-    body: noteRetrievalText(bodyMarkdown: row["body_markdown"] ?? "", searchText: row["search_text"]),
+    body: noteIndexedBody(
+      noteRetrievalText(bodyMarkdown: row["body_markdown"] ?? "", pageText: row["page_text"]),
+      translations: row["translations"] ?? ""
+    ),
     tags: row["tags"] ?? "",
     context: row["context"] ?? ""
   )
@@ -167,9 +174,9 @@ private func currentFTSPayload(noteId: NoteID, rowId: Int64?, in database: SQLit
   return FTSPayload(
     rowId: ftsRowId,
     title: note.title ?? "",
-    body: noteRetrievalText(
-      bodyMarkdown: note.bodyMarkdown,
-      searchText: try noteSearchText(noteId, in: database)
+    body: noteIndexedBody(
+      noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: try storedDocumentPageText(noteId, in: database)),
+      translations: try storedNoteTranslationText(noteId, in: database)
     ),
     tags: note.tags.map(\.tag.name).joined(separator: " "),
     context: try ftsContextPayload(noteId: noteId, in: database)
@@ -179,4 +186,32 @@ private func currentFTSPayload(noteId: NoteID, rowId: Int64?, in database: SQLit
 private func nextFTSRowId(in database: SQLiteDatabase) throws -> Int64 {
   let rows = try database.query("SELECT ifnull(max(fts_rowid), 0) + 1 AS next_rowid FROM note_fts_map")
   return Int64(rows.first?["next_rowid"] ?? "") ?? 1
+}
+
+/// Every translation of `n.note_id` in a stable order. Shared by the indexing
+/// and the 'delete' payload paths, which must produce identical text.
+private let ftsTranslationsColumn = """
+  ifnull((
+    SELECT group_concat(ordered_translations.body, char(10) || char(10))
+    FROM (
+      SELECT body FROM note_translations
+      WHERE note_id = n.note_id
+      ORDER BY language
+    ) ordered_translations
+  ), '')
+  """
+
+/// Every stored translation of a note, joined in language order.
+func storedNoteTranslationText(_ noteId: NoteID, in database: SQLiteDatabase) throws -> String {
+  try database.query(
+    "SELECT \(ftsTranslationsColumn) AS translations FROM notes n WHERE n.note_id = ?",
+    bindings: [.id(noteId)]
+  ).first?["translations"] ?? ""
+}
+
+/// The searchable body of a note: its retrieval text plus its translations.
+func noteIndexedBody(_ retrievalText: String, translations: String) -> String {
+  guard !translations.isEmpty else { return retrievalText }
+  guard !retrievalText.isEmpty else { return translations }
+  return retrievalText + "\n\n" + translations
 }

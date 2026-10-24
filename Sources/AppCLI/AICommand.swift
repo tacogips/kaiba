@@ -28,10 +28,11 @@ enum AICommand {
       targetLanguage: String?,
       provider: String?,
       model: String?,
-      title: String?
+      pageStart: Int?,
+      pageEnd: Int?
     )
-    /// Resumes a pending/failed translation notebook where it stopped.
-    case resume(translationNotebookId: NotebookID, provider: String?, model: String?)
+    /// Resumes a pending/failed translation job where it stopped.
+    case resume(jobId: TranslationJobID, provider: String?, model: String?)
   }
 
   enum Output: String {
@@ -208,7 +209,7 @@ enum AICommand {
   ) throws -> TranslateRequest {
     var values: [String: String] = [:]
     while let argument = iterator.next() {
-      guard ["--notebook", "--resume", "--to", "--provider", "--model", "--title"]
+      guard ["--notebook", "--resume", "--to", "--provider", "--model", "--pages"]
         .contains(argument)
       else {
         throw AICommandError.invalidArgument(argument)
@@ -220,22 +221,33 @@ enum AICommand {
     }
     switch (values["--notebook"], values["--resume"]) {
     case (let notebookId?, nil):
+      var pageStart: Int?
+      var pageEnd: Int?
+      if let pages = values["--pages"] {
+        let bounds = pages.split(separator: "-", omittingEmptySubsequences: false).map { Int($0) }
+        guard bounds.count == 2, let start = bounds[0], let end = bounds[1] else {
+          throw AICommandError.invalidUsage("ai translate --pages expects <start>-<end>, for example 3-7")
+        }
+        pageStart = start
+        pageEnd = end
+      }
       return .start(
         notebookId: NotebookID(notebookId),
         targetLanguage: values["--to"],
         provider: values["--provider"],
         model: values["--model"],
-        title: values["--title"]
+        pageStart: pageStart,
+        pageEnd: pageEnd
       )
-    case (nil, let resumeNotebookId?):
-      guard values["--to"] == nil, values["--title"] == nil else {
+    case (nil, let jobId?):
+      guard values["--to"] == nil, values["--pages"] == nil else {
         throw AICommandError.invalidUsage(
-          "ai translate --resume does not take --to or --title; the pending "
-            + "notebook already records them"
+          "ai translate --resume does not take --to or --pages; the job "
+            + "already records them"
         )
       }
       return .resume(
-        translationNotebookId: NotebookID(resumeNotebookId),
+        jobId: TranslationJobID(jobId),
         provider: values["--provider"],
         model: values["--model"]
       )
@@ -326,7 +338,7 @@ enum AICommand {
         )
       }
       switch request {
-      case .start(let notebookId, let targetLanguage, let provider, let model, let title):
+      case .start(let notebookId, let targetLanguage, let provider, let model, let pageStart, let pageEnd):
         guard let language = targetLanguage ?? translateConfiguration?.defaultTargetLanguage,
           !language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
@@ -337,34 +349,31 @@ enum AICommand {
           )
         }
         let translation = translationService(provider: provider, model: model)
-        let pending = try service.startNotebookTranslation(
-          sourceNotebookId: notebookId,
+        let pending = try service.startTranslationJob(
+          notebookId: notebookId,
           targetLanguage: language,
-          title: title
+          pageStart: pageStart,
+          pageEnd: pageEnd
         )
         do {
-          let notebook = try await translation.run(
-            translationNotebookId: pending.notebookId
-          )
-          return (Self.describeTranslation(notebook, service: service), 0)
+          let job = try await translation.run(jobId: pending.jobId)
+          return (Self.describeTranslation(job, service: service), 0)
         } catch {
           return (
-            "Error: notebook translation failed: \(error)\n"
-              + "resume with: kaiba ai translate --resume \(pending.notebookId)",
+            "Error: translation failed: \(error)\n"
+              + "resume with: kaiba ai translate --resume \(pending.jobId)",
             1
           )
         }
-      case .resume(let translationNotebookId, let provider, let model):
+      case .resume(let jobId, let provider, let model):
         let translation = translationService(provider: provider, model: model)
         do {
-          let notebook = try await translation.run(
-            translationNotebookId: translationNotebookId
-          )
-          return (Self.describeTranslation(notebook, service: service), 0)
+          let job = try await translation.run(jobId: jobId)
+          return (Self.describeTranslation(job, service: service), 0)
         } catch {
           return (
-            "Error: notebook translation failed: \(error)\n"
-              + "resume with: kaiba ai translate --resume \(translationNotebookId)",
+            "Error: translation failed: \(error)\n"
+              + "resume with: kaiba ai translate --resume \(jobId)",
             1
           )
         }
@@ -441,16 +450,17 @@ enum AICommand {
     }
   }
 
-  private static func describeTranslation(_ notebook: Notebook, service: NoteService) -> String {
-    let noteCount = (try? service.listNotes(notebookId: notebook.notebookId, limit: 200, offset: 0))?
-      .count
+  private static func describeTranslation(_ job: TranslationJob, service: NoteService) -> String {
     var lines = [
-      "translated notebook: \(notebook.notebookId)",
-      "  title: \(notebook.title)"
+      "translation job: \(job.jobId)",
+      "  notebook: \(job.notebookId)",
+      "  language: \(job.targetLanguage)",
+      "  status: \(job.status.rawValue)"
     ]
-    if let noteCount {
-      lines.append("  notes: \(noteCount)\(noteCount == 200 ? "+" : "")")
+    if let start = job.pageStart, let end = job.pageEnd {
+      lines.append("  pages: \(start)-\(end)")
     }
+    lines.append("  read them with: kaiba translations <note-id>")
     return lines.joined(separator: "\n")
   }
 

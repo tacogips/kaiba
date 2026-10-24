@@ -14,23 +14,11 @@ private actor RetrievalTextTagInvoker: AgentInvoking {
 final class DocumentPageRetrievalTextTests: NoteTestCase {
   private let ocrText = "Zephyrine harbor manifest"
 
-  private func pageMetadata() throws -> String {
-    let metadata = ImportedPageMetadata(
-      pageNumber: 1,
-      ocrState: "complete",
-      analysis: DocumentPageAnalysis(),
-      originFileId: "synthetic-origin",
-      pendingBodySHA256: nil
-    )
-    let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(metadata))
-    return try JSONValue.object(["documentPage": value]).encodedString()
-  }
-
   private func fixture(_ service: NoteService) throws -> (page: Note, normal: Note) {
     let imported = try service.createNotebookWithNotes(
       title: "Retrieval fixture",
       pages: [
-        NotePageDraft(bodyMarkdown: "", metaJSON: try pageMetadata(), searchText: ocrText),
+        syntheticPageDraft(originFileId: try insertSyntheticOriginFile(service), text: ocrText, readOnly: false),
         NotePageDraft(bodyMarkdown: "plain note body")
       ]
     )
@@ -55,10 +43,10 @@ final class DocumentPageRetrievalTextTests: NoteTestCase {
     let imported = try service.createNotebookWithNotes(
       title: "Search text only fixture",
       pages: [
-        NotePageDraft(
-          bodyMarkdown: "",
-          metaJSON: try pageMetadata(),
-          searchText: "Cargo ledger\nqx stamp"
+        syntheticPageDraft(
+          originFileId: try insertSyntheticOriginFile(service),
+          text: "Cargo ledger\nqx stamp",
+          readOnly: false
         ),
         NotePageDraft(bodyMarkdown: "plain note body")
       ]

@@ -13,6 +13,9 @@ extension NoteService {
   /// Runs on the caller's open transaction; a failure rolls the mutation back.
   @discardableResult
   func recordAction(_ record: NoteActionRecord, in db: SQLiteDatabase) throws -> Int64 {
+    if let notebookId = record.notebookId {
+      try bumpNotebookRevision(notebookId, in: db)
+    }
     guard !suppressesActionHistory else { return 0 }
     try db.execute(
       """
@@ -41,35 +44,23 @@ extension NoteService {
           let seq = Int64(seqText) else {
       throw NoteServiceError.invalidRow("action log insert produced no seq")
     }
-    if let notebookId = record.notebookId {
-      try persistTranslationSourceRevision(seq, notebookId: notebookId, in: db)
-    }
     try pruneActionLog(in: db)
     return seq
   }
 
-  /// Keeps the translation source token outside the prunable action-history
-  /// retention window. The action and token share the caller's transaction, so
-  /// a committed mutation can never disappear from translation validation.
-  private func persistTranslationSourceRevision(
-    _ revision: Int64,
-    notebookId: NotebookID,
-    in database: SQLiteDatabase
-  ) throws {
-    guard !(try database.query(
-      "SELECT 1 FROM notebooks WHERE notebook_id = ? LIMIT 1",
-      bindings: [.id(notebookId)]
-    )).isEmpty else {
-      // Notebook-deletion actions are recorded after the notebook row is gone.
-      return
-    }
+  /// Advances the notebook's content revision (`notebook_revisions`), the
+  /// token a translation pass compares to detect source changes. It lives
+  /// outside the prunable action log, shares the caller's transaction, and is
+  /// bumped even when action history is suppressed. A deleted notebook (its
+  /// deletion is recorded after the row is gone) has nothing to bump.
+  func bumpNotebookRevision(_ notebookId: NotebookID, in database: SQLiteDatabase) throws {
     try database.execute(
       """
-      INSERT INTO notebook_translation_revisions (notebook_id, revision)
-      VALUES (?, ?)
-      ON CONFLICT(notebook_id) DO UPDATE SET revision = excluded.revision
+      INSERT INTO notebook_revisions (notebook_id, revision)
+      SELECT notebook_id, 1 FROM notebooks WHERE notebook_id = ?
+      ON CONFLICT(notebook_id) DO UPDATE SET revision = notebook_revisions.revision + 1
       """,
-      bindings: [.id(notebookId), .int(revision)]
+      bindings: [.id(notebookId)]
     )
   }
 
@@ -211,7 +202,7 @@ extension NoteService {
     guard let noteRow = try db.query(
       """
       SELECT note_id, notebook_id, note_number, title, title_source, body_markdown,
-        read_only, created_by, updated_by, created_at, updated_at, search_text,
+        read_only, created_by, updated_by, created_at, updated_at,
         CASE WHEN meta_json IS NULL THEN NULL ELSE json(meta_json) END AS meta_json
       FROM notes WHERE note_id = ? LIMIT 1
       """,
@@ -226,7 +217,6 @@ extension NoteService {
       "title": .optionalString(noteRow["title"]),
       "titleSource": .optionalString(noteRow["title_source"]),
       "bodyMarkdown": .optionalString(noteRow["body_markdown"]),
-      "searchText": .optionalString(noteRow["search_text"]),
       "readOnly": .bool(noteRow["read_only"] == "1"),
       "createdBy": .optionalString(noteRow["created_by"]),
       "updatedBy": .optionalString(noteRow["updated_by"]),
@@ -287,13 +277,52 @@ extension NoteService {
       "SELECT tag_id FROM tags WHERE canonical_note_id = ? ORDER BY tag_id",
       bindings: [.id(noteId)]
     ).map { JSONValue.optionalString($0["tag_id"]) }
+    // The page and translation rows cascade with the note, so the snapshot
+    // carries them for undo.
+    let documentPage = try db.query(
+      """
+      SELECT origin_file_id, page_number, text_extraction_mode, text, text_status, text_source,
+        json(analysis_json) AS analysis_json
+      FROM document_pages WHERE note_id = ?
+      """,
+      bindings: [.id(noteId)]
+    ).first.map { row -> JSONValue in
+      .object([
+        "originFileId": .optionalString(row["origin_file_id"]),
+        "pageNumber": .optionalInt(row["page_number"].flatMap(Int.init)),
+        "textExtractionMode": .optionalString(row["text_extraction_mode"]),
+        "text": .optionalString(row["text"]),
+        "textStatus": .optionalString(row["text_status"]),
+        "textSource": .optionalString(row["text_source"]),
+        "analysisJSON": .optionalString(row["analysis_json"])
+      ])
+    } ?? .null
+    let translations = try db.query(
+      """
+      SELECT language, body, source_sha256, provenance, created_by, created_at, updated_at
+      FROM note_translations WHERE note_id = ? ORDER BY language
+      """,
+      bindings: [.id(noteId)]
+    ).map { row -> JSONValue in
+      .object([
+        "language": .optionalString(row["language"]),
+        "body": .optionalString(row["body"]),
+        "sourceSHA256": .optionalString(row["source_sha256"]),
+        "provenance": .optionalString(row["provenance"]),
+        "createdBy": .optionalString(row["created_by"]),
+        "createdAt": .optionalString(row["created_at"]),
+        "updatedAt": .optionalString(row["updated_at"])
+      ])
+    }
     return .object([
       "note": .object(note),
       "tags": .array(tags),
       "links": .array(links),
       "comments": .array(comments),
       "files": .array(files),
-      "canonicalTagIds": .array(canonicalTagIds)
+      "canonicalTagIds": .array(canonicalTagIds),
+      "documentPage": documentPage,
+      "translations": .array(translations)
     ])
   }
 
@@ -310,11 +339,6 @@ extension NoteService {
           let bodyMarkdown = note["bodyMarkdown"]?.asString else {
       throw NoteServiceError.invalidRow("note snapshot is missing required fields")
     }
-    let restored = documentPageTextMigration(
-      bodyMarkdown: bodyMarkdown,
-      searchText: note["searchText"]?.asString,
-      metaJSON: note["metaJSON"]?.asString
-    )
     guard try db.query(
       "SELECT 1 AS present FROM notes WHERE note_id = ? LIMIT 1",
       bindings: [.id(noteId)]
@@ -327,9 +351,8 @@ extension NoteService {
         """
         INSERT INTO notes (
           note_id, notebook_id, note_number, title, title_source, body_markdown,
-          read_only, created_by, updated_by, created_at, updated_at, meta_json,
-          search_text
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, jsonb(?), ?)
+          read_only, created_by, updated_by, created_at, updated_at, meta_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, jsonb(?))
         """,
         bindings: [
           .id(noteId),
@@ -337,14 +360,13 @@ extension NoteService {
           .int(Int64(noteNumber)),
           .optionalText(note["title"]?.asString),
           .text(note["titleSource"]?.asString ?? NoteTitleSource.derived.rawValue),
-          .text(restored.bodyMarkdown),
+          .text(bodyMarkdown),
           .int(note["readOnly"]?.asBool == true ? 1 : 0),
           .optionalText(note["createdBy"]?.asString),
           .optionalText(note["updatedBy"]?.asString),
           .text(note["createdAt"]?.asString ?? NoteStoreClock.system.now()),
           .text(note["updatedAt"]?.asString ?? NoteStoreClock.system.now()),
-          .optionalText(note["metaJSON"]?.asString),
-          .optionalText(restored.searchText)
+          .optionalText(note["metaJSON"]?.asString)
         ]
       )
     } catch let error as SQLiteError where isSQLiteUniqueConstraintViolation(error) {
@@ -433,7 +455,64 @@ extension NoteService {
         bindings: [.id(noteId), .id(tagId)]
       )
     }
+    try restoreDocumentPageSnapshot(snapshot["documentPage"], noteId: noteId, in: db)
+    for translation in snapshot["translations"]?.asArray ?? [] {
+      guard let language = translation["language"]?.asString,
+            let body = translation["body"]?.asString,
+            let sourceSHA256 = translation["sourceSHA256"]?.asString else {
+        continue
+      }
+      let createdBy = translation.identifier("createdBy", as: UserID.self)
+      try db.execute(
+        """
+        INSERT OR IGNORE INTO note_translations (
+          note_id, language, body, source_sha256, provenance, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, (SELECT user_id FROM users WHERE user_id = ?), ?, ?)
+        """,
+        bindings: [
+          .id(noteId), .text(language), .text(body), .text(sourceSHA256),
+          .text(translation["provenance"]?.asString ?? NoteProvenance.ai.rawValue),
+          .optionalID(createdBy),
+          .text(translation["createdAt"]?.asString ?? NoteStoreClock.system.now()),
+          .text(translation["updatedAt"]?.asString ?? NoteStoreClock.system.now())
+        ]
+      )
+    }
     return (noteId, notebookId)
+  }
+
+  /// Restores the page row only while its original still exists; without it
+  /// the note comes back as an ordinary note.
+  private func restoreDocumentPageSnapshot(
+    _ page: JSONValue?,
+    noteId: NoteID,
+    in db: SQLiteDatabase
+  ) throws {
+    guard let page, page != .null,
+          let originFileId = page.identifier("originFileId", as: FileID.self),
+          let pageNumber = page["pageNumber"]?.asInt,
+          let textStatus = page["textStatus"]?.asString,
+          let analysisJSON = page["analysisJSON"]?.asString,
+          try !db.query(
+            "SELECT 1 AS present FROM files WHERE file_id = ? LIMIT 1",
+            bindings: [.id(originFileId)]
+          ).isEmpty else {
+      return
+    }
+    try db.execute(
+      """
+      INSERT OR IGNORE INTO document_pages (
+        note_id, origin_file_id, page_number, text_extraction_mode,
+        text, text_status, text_source, analysis_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, jsonb(?))
+      """,
+      bindings: [
+        .id(noteId), .id(originFileId), .int(Int64(pageNumber)),
+        .optionalText(page["textExtractionMode"]?.asString),
+        .text(page["text"]?.asString ?? ""), .text(textStatus),
+        .optionalText(page["textSource"]?.asString), .text(analysisJSON)
+      ]
+    )
   }
 
   func captureNotebookSnapshot(notebookId: NotebookID, in db: SQLiteDatabase) throws -> JSONValue {

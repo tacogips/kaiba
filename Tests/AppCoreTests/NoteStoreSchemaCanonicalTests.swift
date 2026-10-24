@@ -137,8 +137,8 @@ final class NoteStoreSchemaCanonicalTests: NoteTestCase {
     }
   }
 
-  func testCurrentVersionIsTwentyThreeAndAVersionEighteenStoreIsRefused() throws {
-    XCTAssertEqual(NoteStoreSchema.currentVersion, 24)
+  func testCurrentVersionIsTwentyFiveAndAVersionEighteenStoreIsRefused() throws {
+    XCTAssertEqual(NoteStoreSchema.currentVersion, 25)
 
     let driver = try makeNoteDriver()
     try driver.withDatabase { database in
@@ -158,7 +158,7 @@ final class NoteStoreSchemaCanonicalTests: NoteTestCase {
     XCTAssertThrowsError(try NoteStoreSchema.prepare(on: driver)) { error in
       XCTAssertEqual(
         error as? NoteStoreSchemaError,
-        .unsupportedLegacyVersion(found: 18, required: 24)
+        .unsupportedLegacyVersion(found: 18, required: 25)
       )
     }
   }

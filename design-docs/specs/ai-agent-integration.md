@@ -788,7 +788,12 @@ not claimed as coverage.
   is capacity-evicted. If the invoker is unavailable,
   `sendAgentChatMessage` still persists the user turn and returns
   `agentStatus: "agent-unavailable"`; no stream is opened.
-- **AI9 — Notebook translation.** A translation is a
+- **AI9 — Notebook translation.** Storage superseded on 2026-10-24 by
+  [note-store-schema-v25.md](note-store-schema-v25.md): a request is a `translation_jobs` row and each
+  output is the source note's Translated version in `note_translations`
+  (one per note and language, replaced in place); translation notebooks no
+  longer exist. The description below is historical.
+  A translation is a
   `notebook-kind:translation` notebook created up front in `pending`
   state, with meta JSON `{"kaibaTranslation":{"sourceNotebookId":...,
   "targetLanguage":..., "status":"pending|completed|failed|cancelled",
@@ -1099,11 +1104,12 @@ the same change).
   publish only the stream finish event.
 - Mutation `requestTagExtraction(input)` — manual tag extraction for a
   note or notebook; returns `queued` or `agent-unavailable`.
-- Mutation `requestNotebookTranslation(input)` — creates the pending
-  translation notebook and queues the run; returns
-  `{translationNotebookId, status}` where `status` is `queued` or
-  `agent-unavailable` (nothing is created when unavailable). Translated
-  notes arrive through the change feed as the dispatcher appends them.
+- Mutation `requestNotebookTranslation(input)` — creates a pending
+  translation job (optionally for an inclusive page range) and queues the
+  run; returns `{translationJobId, status}` where `status` is `queued` or
+  `agent-unavailable` (nothing is created when unavailable). Each note's
+  Translated version arrives through the change feed; read them with
+  `noteTranslations(noteId)` and job status with `translationJobs(notebookId)`.
 - Query `noteTagDetails(noteId)` — structured tag assignments
   `{name, className, provenance, parentName}` for the Info tab.
 - Turn listing reuses notes-by-notebook queries; turn status/role is

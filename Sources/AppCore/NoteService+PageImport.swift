@@ -1,17 +1,5 @@
 import Foundation
 
-public struct ImportedPageMetadata: Codable, Equatable, Sendable {
-  public var pageNumber: Int
-  public var ocrState: String
-  public var analysis: DocumentPageAnalysis
-  public var originFileId: String
-  public var pendingBodySHA256: String?
-  /// PDFs point at the notebook's original PDF. Legacy/image pages point at an image attachment.
-  public var originMediaType: String?
-  public var textSource: String?
-  public var textExtractionMode: PDFTextExtractionMode?
-}
-
 private struct StagedImportFile {
   var id: FileID
   var stored: StoredNoteFile
@@ -65,16 +53,18 @@ public extension NoteService {
           role: .sourcePageImage, position: page.pageNumber
         ))
       }
-      let metadata = ImportedPageMetadata(
-        pageNumber: page.pageNumber, ocrState: page.markdown == nil ? "pending" : "complete",
-        analysis: page.analysis, originFileId: originId.rawValue, pendingBodySHA256: nil,
-        originMediaType: isPDF ? "application/pdf" : page.origin.mediaType, textSource: page.textSource, textExtractionMode: isPDF ? processor.textExtractionMode : nil
+      let documentPage = DocumentPage(
+        pageNumber: page.pageNumber,
+        originFileId: originId,
+        originMediaType: isPDF ? DocumentPage.pdfMediaType : page.origin.mediaType,
+        textExtractionMode: isPDF ? processor.textExtractionMode : nil,
+        textStatus: page.markdown == nil ? .pending : .complete,
+        textSource: page.textSource,
+        analysis: page.analysis
       )
-      let pageJSON = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(metadata))
       drafts.append(NotePageDraft(
-        bodyMarkdown: "", readOnly: false,
-        metaJSON: try JSONValue.object(["documentPage": pageJSON]).encodedString(), noteNumber: page.pageNumber,
-        searchText: page.markdown ?? ""
+        bodyMarkdown: "", readOnly: false, noteNumber: page.pageNumber,
+        documentPage: DocumentPageDraft(page: documentPage, text: page.markdown ?? "")
       ))
     }
     let metaJSON = try Self.importMetaJSON(
@@ -84,6 +74,13 @@ public extension NoteService {
     let outcome = try driver.withDatabase { database in
       try database.transaction { db in
         try requireEnabledActingUser(in: db)
+        // Files first: every page row references its original.
+        var records: [FileID: FileRecord] = [:]
+        for file in staged {
+          records[file.id] = try insertFileRecord(
+            fileId: file.id, stored: file.stored, mediaType: file.mediaType, originalFilename: file.filename, in: db
+          )
+        }
         let inserted = try insertNotebookWithNotes(
           title: notebookTitle, kindTagName: kindTagName, metaJSON: metaJSON, pages: drafts,
           notebookReadOnly: true, provenance: .system, assignedBy: "kaiba-page-import",
@@ -92,9 +89,7 @@ public extension NoteService {
         var images: [NoteFileAttachment] = []
         var source: NotebookFileAttachment?
         for file in staged {
-          let record = try insertFileRecord(
-            fileId: file.id, stored: file.stored, mediaType: file.mediaType, originalFilename: file.filename, in: db
-          )
+          guard let record = records[file.id] else { continue }
           if let pageIndex = file.pageIndex {
             let noteId = inserted.ingestResult.notes[pageIndex].noteId
             try db.execute(

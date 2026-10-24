@@ -34,9 +34,15 @@ mise run test
 mise run lint
 mise run web:check
 mise run tauri:check
-mise run check          # test + lint + web:check + tauri:check
+mise run check          # test + lint + schema:check + web:check + tauri:check
+mise run schema:generate  # regenerate the note-store DDL from the nodetto ERD
 swift run kaiba --help
 ```
+
+The note-store schema is authored in `schema/note-store.erd.jsonl` (nodetto ERD,
+edit with the Nodetto app or `nodetto-cli edit`). Never hand-edit
+`schema/note-store.sqlite.sql` or `Sources/AppCore/NoteStoreSchemaDDL.generated.swift`;
+run `mise run schema:generate` after changing the ERD.
 
 `build`, `test` and `lint` cover the Swift package only. The macOS/iPhone client
 lives in `web/` and `web/src-tauri/`, and its tests are the only mechanical

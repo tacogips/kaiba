@@ -293,7 +293,7 @@ func searchNotesInDatabase(
 
   let rows = try database.query(sql, bindings: bindings)
   let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
-  let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
+  let searchTexts = try storedDocumentPageTexts(Array(notesById.keys), in: database)
   var results = try rows.map { row in
     guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("search row is missing note_id")
@@ -305,7 +305,7 @@ func searchNotesInDatabase(
     return NoteSearchResult(
       note: note,
       snippet: snippet(
-        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId]),
+        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: searchTexts[note.noteId]),
         query: query
       ),
       rank: rank,
@@ -446,7 +446,7 @@ private func searchNotesByFilters(
     bindings: bindings
   )
   let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
-  let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
+  let searchTexts = try storedDocumentPageTexts(Array(notesById.keys), in: database)
   return try rows.map { row in
     guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("filtered search row is missing note_id")
@@ -457,7 +457,7 @@ private func searchNotesByFilters(
     return NoteSearchResult(
       note: note,
       snippet: snippet(
-        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId]),
+        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: searchTexts[note.noteId]),
         query: ""
       ),
       rank: 0,
@@ -486,7 +486,10 @@ private func searchNotesByTextLike(
     (
       n.title LIKE ? ESCAPE '\\'
       OR n.body_markdown LIKE ? ESCAPE '\\'
-      OR n.search_text LIKE ? ESCAPE '\\'
+      OR EXISTS (
+        SELECT 1 FROM document_pages page
+        WHERE page.note_id = n.note_id AND page.text LIKE ? ESCAPE '\\'
+      )
       OR EXISTS (
         SELECT 1
         FROM note_tags nt
@@ -574,7 +577,7 @@ private func searchNotesByTextLike(
     bindings: bindings
   )
   let notesById = try requireNotes(rows.compactMap { $0.identifier("note_id", as: NoteID.self) }, in: database)
-  let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
+  let searchTexts = try storedDocumentPageTexts(Array(notesById.keys), in: database)
   return try rows.map { row in
     guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("fallback search row is missing note_id")
@@ -585,7 +588,7 @@ private func searchNotesByTextLike(
     return NoteSearchResult(
       note: note,
       snippet: snippet(
-        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId]),
+        from: noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: searchTexts[note.noteId]),
         query: query
       ),
       rank: 1,
@@ -630,7 +633,7 @@ func appendLinkedNeighborResults(
   guard !candidateIds.isEmpty else {
     return directResults
   }
-  let searchTexts = try noteSearchTexts(graphResults.map { $0.note.noteId }, in: database)
+  let searchTexts = try storedDocumentPageTexts(graphResults.map { $0.note.noteId }, in: database)
   var predicates: [String] = [
     "n.note_id IN (\(placeholders(count: candidateIds.count)))"
   ]
@@ -692,7 +695,7 @@ func appendLinkedNeighborResults(
       snippet: snippet(
         from: noteRetrievalText(
           bodyMarkdown: graphResult.note.bodyMarkdown,
-          searchText: searchTexts[graphResult.note.noteId]
+          pageText: searchTexts[graphResult.note.noteId]
         ),
         query: query
       ),

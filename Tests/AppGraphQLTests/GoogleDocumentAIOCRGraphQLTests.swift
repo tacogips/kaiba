@@ -14,7 +14,7 @@ final class GoogleDocumentAIOCRGraphQLTests: XCTestCase {
     XCTAssertEqual(payload["note"]?.asObject?["bodyMarkdown"], .string(""))
     XCTAssertEqual(
       try fixture.executor.service.service.driver.withDatabase {
-        try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(fixture.note.noteId)]).first?["search_text"]
+        try $0.query("SELECT text FROM document_pages WHERE note_id = ?", bindings: [.id(fixture.note.noteId)]).first?["text"]
       },
       "右列。\n左列。"
     )
@@ -62,7 +62,7 @@ final class GoogleDocumentAIOCRGraphQLTests: XCTestCase {
     mutation OCR($noteId: String!) {
       recognizeDocumentPage(noteId: $noteId) {
         result { accepted status diagnostics }
-        note { noteId bodyMarkdown metaJSON }
+        note { noteId bodyMarkdown documentPage { textStatus textSource } }
       }
     }
     """, variables: ["noteId": .id(noteId)])

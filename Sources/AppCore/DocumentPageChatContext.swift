@@ -30,42 +30,28 @@ extension NoteService {
     query: String
   ) throws -> DocumentPageChatAdditions? {
     let subject = try getNote(subjectNoteId)
-    guard Self.isDocumentPageNote(subject) else { return nil }
-    let metadata = try Self.importedPageMetadata(subject)
+    guard let page = subject.documentPage else { return nil }
     var appendix: [String] = []
     var images: [AgentInvocationImage] = []
 
-    // PDF pages use their hidden plain OCR text for memo context. Their rasters
+    // PDF pages use their plain extracted text for memo context. Their rasters
     // exist only while OCR is running and are never retained as attachments.
-    if metadata.originMediaType == "application/pdf" {
+    if page.isPDFPage {
       return try documentPageChatAdditions(
-        subject: subject, metadata: metadata, libraryId: libraryId, query: query,
+        subject: subject, page: page, libraryId: libraryId, query: query,
         appendix: appendix, images: []
       )
     }
 
     do {
-      let originId = FileID(metadata.originFileId)
-      let linked = try driver.withDatabase { database in
-        try database.query(
-          "SELECT 1 FROM note_files WHERE note_id = ? AND file_id = ? AND role = ? LIMIT 1",
-          bindings: [.id(subjectNoteId), .id(originId), .text(NoteFileRole.sourcePageImage.rawValue)]
-        ).first != nil
-      }
-      guard linked else {
-        appendix.append("The page image is unavailable and was not sent.")
-        return try documentPageChatAdditions(
-          subject: subject, metadata: metadata, libraryId: libraryId, query: query,
-          appendix: appendix, images: images
-        )
-      }
+      let originId = page.originFileId
       let record = try getFileRecord(fileId: originId)
       let mediaType = record.mediaType.lowercased()
       guard record.byteSize <= Int64(AgentInvocationImage.maximumBytes),
             AgentInvocationImage.allowedMediaTypes.contains(mediaType) else {
         appendix.append("The page image is too large or in an unsupported format and was not sent.")
         return try documentPageChatAdditions(
-          subject: subject, metadata: metadata, libraryId: libraryId, query: query,
+          subject: subject, page: page, libraryId: libraryId, query: query,
           appendix: appendix, images: images
         )
       }
@@ -88,14 +74,14 @@ extension NoteService {
       appendix.append("The page image is unavailable and was not sent.")
     }
     return try documentPageChatAdditions(
-      subject: subject, metadata: metadata, libraryId: libraryId, query: query,
+      subject: subject, page: page, libraryId: libraryId, query: query,
       appendix: appendix, images: images
     )
   }
 
   private func documentPageChatAdditions(
     subject: Note,
-    metadata: ImportedPageMetadata,
+    page: DocumentPage,
     libraryId: LibraryID,
     query: String,
     appendix: [String],
@@ -104,16 +90,18 @@ extension NoteService {
     try driver.withDatabase { database in
       var sections = appendix
       let neighbors = try database.query(
-        "SELECT note_id, meta_json, search_text FROM notes WHERE notebook_id = ? AND note_number IN (?, ?) ORDER BY note_number",
-        bindings: [.id(subject.notebookId), .int(Int64(metadata.pageNumber - 1)), .int(Int64(metadata.pageNumber + 1))]
+        """
+        SELECT dp.note_id, dp.page_number, dp.text
+        FROM notes n
+        INNER JOIN document_pages dp ON dp.note_id = n.note_id
+        WHERE n.notebook_id = ? AND dp.page_number IN (?, ?)
+        ORDER BY dp.page_number
+        """,
+        bindings: [.id(subject.notebookId), .int(Int64(page.pageNumber - 1)), .int(Int64(page.pageNumber + 1))]
       )
-      let neighborLines = try neighbors.compactMap { row -> String? in
-        guard let neighborId = row.identifier("note_id", as: NoteID.self),
-              let text = row["search_text"], !text.isEmpty else { return nil }
-        let neighbor = try requireNote(neighborId, in: database)
-        guard Self.isDocumentPageNote(neighbor) else { return nil }
-        let page = try Self.importedPageMetadata(neighbor)
-        return "### Page \(page.pageNumber)\n\(boundedDocumentPageText(text, limit: DocumentPageChatBudget.neighborPageCharacters))"
+      let neighborLines = neighbors.compactMap { row -> String? in
+        guard let pageNumber = row["page_number"], let text = row["text"], !text.isEmpty else { return nil }
+        return "### Page \(pageNumber)\n\(boundedDocumentPageText(text, limit: DocumentPageChatBudget.neighborPageCharacters))"
       }
       if !neighborLines.isEmpty {
         sections.append("## Neighbouring pages (OCR)\n\(neighborLines.joined(separator: "\n\n"))")
@@ -148,10 +136,10 @@ extension NoteService {
           ).isEmpty) ?? false
         }.prefix(DocumentPageChatBudget.retrievedResultCount)
         let ids = candidates.map { $0.note.noteId }
-        let searchTexts = try noteSearchTexts(ids, in: database)
+        let pageTexts = try storedDocumentPageTexts(ids, in: database)
         let windows = try candidates.map { result -> String in
           let note = result.note
-          let text = noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId])
+          let text = noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: pageTexts[note.noteId])
           let notebook = try requireNotebook(note.notebookId, in: database)
           return "## \(note.title ?? "(untitled)") (note \(note.noteId), notebook \"\(notebook.title)\")\n\(retrievalWindow(text, query: boundedQuery))"
         }

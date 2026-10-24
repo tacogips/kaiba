@@ -10,9 +10,12 @@ vi.mock('../state/appStore', () => ({ useApp: () => fixture.app }))
 
 function mount(available: DocumentTranslationVersion[] = []) {
   const [state, setState] = createStore({ catalogRevision: 0 })
-  const versions = vi.fn(async (_id: string) => available)
+  const versions = vi.fn(async (_id: string) => available.map((version) => ({
+    noteId: version.sourceNoteId, language: version.targetLanguage, body: version.text,
+    isCurrent: version.isCurrent, updatedAt: '',
+  })))
   const translate = vi.fn(async (_input: unknown) => ({ status: 'queued' }))
-  fixture.app = { state, client: { documentPageTranslations: versions, requestNotebookTranslation: translate } }
+  fixture.app = { state, client: { noteTranslations: versions, requestNotebookTranslation: translate } }
   const [source, setSource] = createSignal(noteId('page-4'))
   const [mode, setMode] = createSignal<DocumentDisplayMode>('original')
   const [selected, setSelected] = createSignal<DocumentTranslationVersion>()
@@ -20,7 +23,7 @@ function mount(available: DocumentTranslationVersion[] = []) {
   const host = document.createElement('div')
   document.body.append(host)
   const dispose = render(() => <DocumentVersionsControl notebookId={notebookId('pdf')} sourceNoteId={source()} pageNumber={4}
-    totalPages={12} displayMode={mode()} selectedTranslationId={selected()?.noteId} onSelect={onSelect} />, host)
+    totalPages={12} displayMode={mode()} selectedLanguage={selected()?.targetLanguage} onSelect={onSelect} />, host)
   const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')]
     .find((item) => (item.getAttribute('aria-label') ?? item.textContent) === label)!
   const input = (selector: string, value: string, event = 'input') => {
@@ -49,16 +52,17 @@ describe('PDF header versions and translation', () => {
   })
 
   test('selects saved languages and reloads versions when the source or catalog changes', async () => {
-    const english = { noteId: noteId('en'), notebookId: notebookId('translated'), targetLanguage: 'English', text: 'Hello', sourceNoteId: noteId('page-4') }
-    const french = { ...english, noteId: noteId('fr'), targetLanguage: 'French', text: 'Bonjour' }
+    const english = { targetLanguage: 'English', text: 'Hello', sourceNoteId: noteId('page-4'), isCurrent: true }
+    const french = { ...english, targetLanguage: 'French', text: 'Bonjour', isCurrent: false }
     const view = mount([english, french])
     try {
       await vi.waitFor(() => expect(view.button('Translated').disabled).toBe(false))
       view.button('Translated').click()
       expect(view.onSelect).toHaveBeenLastCalledWith('translation', english)
-      view.input('[aria-label="Translation language"]', 'fr', 'change')
+      view.input('[aria-label="Translation language"]', 'French', 'change')
       expect(view.onSelect).toHaveBeenLastCalledWith('translation', french)
       expect(view.button('Translated').title).toContain('French')
+      expect(view.button('Translated').title).toContain('outdated')
       view.setState('catalogRevision', 1)
       await vi.waitFor(() => expect(view.versions).toHaveBeenCalledTimes(2))
       view.setSource(noteId('page-5'))
@@ -67,19 +71,22 @@ describe('PDF header versions and translation', () => {
   })
 
   test('keeps the chosen language across pages, adopts updated text, and clears pages without a version', async () => {
-    const english = { noteId: noteId('en4'), notebookId: notebookId('translated'), targetLanguage: 'English', text: 'Hello', sourceNoteId: noteId('page-4') }
-    const french = { ...english, noteId: noteId('fr4'), targetLanguage: 'French', text: 'Bonjour' }
+    const english = { targetLanguage: 'English', text: 'Hello', sourceNoteId: noteId('page-4'), isCurrent: true }
+    const french = { ...english, targetLanguage: 'French', text: 'Bonjour' }
     const view = mount([english, french])
     try {
       await vi.waitFor(() => expect(view.button('Translated').disabled).toBe(false))
       view.button('Translated').click()
-      view.input('[aria-label="Translation language"]', 'fr4', 'change')
-      const page5 = { ...french, noteId: noteId('fr5'), sourceNoteId: noteId('page-5'), text: 'Page cinq' }
-      view.versions.mockResolvedValueOnce([{ ...english, noteId: noteId('en5'), sourceNoteId: noteId('page-5') }, page5])
+      view.input('[aria-label="Translation language"]', 'French', 'change')
+      const page5 = { ...french, sourceNoteId: noteId('page-5'), text: 'Page cinq' }
+      view.versions.mockResolvedValueOnce([
+        { noteId: noteId('page-5'), language: 'English', body: 'Hello', isCurrent: true, updatedAt: '' },
+        { noteId: noteId('page-5'), language: 'French', body: 'Page cinq', isCurrent: true, updatedAt: '' },
+      ])
       view.setSource(noteId('page-5'))
       await vi.waitFor(() => expect(view.onSelect).toHaveBeenLastCalledWith('translation', page5))
       const updated = { ...page5, text: 'Page cinq, updated' }
-      view.versions.mockResolvedValueOnce([updated])
+      view.versions.mockResolvedValueOnce([{ noteId: noteId('page-5'), language: 'French', body: updated.text, isCurrent: true, updatedAt: '' }])
       view.setState('catalogRevision', 1)
       await vi.waitFor(() => expect(view.onSelect).toHaveBeenLastCalledWith('translation', updated))
       const count = view.onSelect.mock.calls.length

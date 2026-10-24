@@ -107,12 +107,12 @@ func relaxedTermSearchResults(
     return noteSortPrecedes(lhsNote, rhsNote, sort: sort)
   }
   let orderedHits = Array(ordered.prefix(limit))
-  let searchTexts = try noteSearchTexts(orderedHits.map(\.0), in: database)
+  let searchTexts = try storedDocumentPageTexts(orderedHits.map(\.0), in: database)
   return try orderedHits.map { id, hit in
     guard let note = notesById[id] else {
       throw NoteServiceError.notFound("note not found: \(id)")
     }
-    let retrievalText = noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId])
+    let retrievalText = noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: searchTexts[note.noteId])
     return NoteSearchResult(
       note: note,
       snippet: snippet(from: retrievalText, query: relaxedSnippetQuery(terms: terms, body: retrievalText)),

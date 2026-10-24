@@ -29,7 +29,11 @@ public extension GraphQLNoteGraphQLService {
 }
 
 public extension GraphQLNoteGraphQLService {
-  func documentPageTranslations(noteId: NoteID) -> GraphQLNoteQueryResult<[DocumentPageTranslation]> {
-    noteResult { try service.documentPageTranslations(noteId: noteId) }
+  func noteTranslations(noteId: NoteID) -> GraphQLNoteQueryResult<[NoteTranslation]> {
+    noteResult { try service.noteTranslations(noteId: noteId) }
+  }
+
+  func translationJobs(notebookId: NotebookID) -> GraphQLNoteQueryResult<[TranslationJob]> {
+    noteResult { try service.translationJobs(notebookId: notebookId) }
   }
 }

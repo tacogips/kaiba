@@ -227,12 +227,14 @@ kaiba ai status
 (`agent-gateway`, spawned per invocation) and applies them with
 provenance `ai` (never overwriting human tags or redefining existing
 tags); `--dry-run` prints proposals without applying. `ai translate`
-translates a whole notebook into a new `notebook-kind:translation`
-notebook, one agent invocation per note; `--to` falls back to
+creates a translation job for a notebook (or `--pages <start>-<end>`) and
+stores each note's Translated version (one per note and language, see
+[note-store-schema-v25.md](note-store-schema-v25.md)), one agent invocation per note; `--to` falls back to
 `ai.translate.defaultTargetLanguage`, and the AI vendor resolves
 `--provider`/`--model`, then `ai.translate`, then `ai.agent`. On
-failure the pending notebook is kept and `--resume <id>` continues from
-the first untranslated note. `ai models`
+failure the job is kept and `--resume <job-id>` continues from the first
+note whose translation is missing or stale. `translations <note-id>` prints
+a note's translations. `ai models`
 delegates vendor model discovery to `agent-gateway models` using the
 configured provider and credential environment-variable name. It does not
 require `ai.agent.model`, allowing users to discover a model before selecting

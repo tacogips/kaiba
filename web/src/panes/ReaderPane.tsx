@@ -221,10 +221,10 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           <div class="reader-actions">
             <Show when={selectedDocumentPage()}>{(metadata) => <button
               type="button" class="secondary page-status-icon"
-              aria-label={metadata().ocrState === 'pending' ? 'Page text is not searchable. Open Analysis' : 'Page is searchable. Open Analysis'}
-              title={metadata().ocrState === 'pending' ? 'This page has no searchable text yet. Open Analysis to recognize it.' : 'Page text is searchable. Open Analysis for details.'}
+              aria-label={metadata().textStatus === 'pending' ? 'Page text is not searchable. Open Analysis' : 'Page is searchable. Open Analysis'}
+              title={metadata().textStatus === 'pending' ? 'This page has no searchable text yet. Open Analysis to recognize it.' : 'Page text is searchable. Open Analysis for details.'}
               onClick={() => { app.setRightTab('analysis'); props.onStudy?.() }}>
-              <WorkspaceIcon name={metadata().ocrState === 'pending' ? 'warning' : 'check'} />
+              <WorkspaceIcon name={metadata().textStatus === 'pending' ? 'warning' : 'check'} />
             </button>}</Show>
             <JumpBackControl />
             <Show when={!notes().some((note) => documentPageMetadata(note) !== undefined)}>
@@ -283,8 +283,7 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
             <Show when={selectedDocumentPage() && app.state.noteId && app.state.notebookId}>
               <DocumentVersionsControl notebookId={app.state.notebookId!} sourceNoteId={app.state.noteId!}
                 pageNumber={selectedDocumentPage()!.pageNumber} totalPages={app.notebook()?.noteCount ?? notes().length}
-                displayMode={documentDisplay()} selectedTranslationId={selectedTranslation()?.noteId}
-                preferredTranslationLanguage={selectedTranslation()?.targetLanguage}
+                displayMode={documentDisplay()} selectedLanguage={selectedTranslation()?.targetLanguage}
                 onSelect={(mode, version) => { setDocumentDisplay(mode); setSelectedTranslation(version) }} />
             </Show>
           </Show>

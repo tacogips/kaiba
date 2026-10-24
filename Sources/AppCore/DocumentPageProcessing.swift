@@ -54,9 +54,9 @@ public struct PreparedDocumentPage: Equatable, Sendable {
   public var pageNumber: Int
   public var origin: DocumentExtractedImage
   public var analysis: DocumentPageAnalysis
-  /// Recognized OCR text; stored as hidden search text. nil means pending.
+  /// Extracted page text (the OCR version, `document_pages.text`). nil means pending.
   public var markdown: String?
-  public var textSource: String?
+  public var textSource: DocumentPageTextSource?
 }
 
 public struct DocumentPageProcessor: Sendable {
@@ -117,7 +117,7 @@ public struct DocumentPageProcessor: Sendable {
       let native = extraction.pageTexts.indices.contains(index) ? extraction.pageTexts[index] : ""
       if textExtractionMode == .preferPDFText, !native.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         page.markdown = native
-        page.textSource = "pdf-text"
+        page.textSource = .pdfText
       } else if maximumOCRPages.map({ recognizedPages < $0 }) ?? true {
         recognizedPages += 1
         let imageURL = directory.appendingPathComponent("page-\(origin.pageNumber)")
@@ -126,7 +126,7 @@ public struct DocumentPageProcessor: Sendable {
         // The origin is supplied by the extractor or source bytes; providers only receive a temporary copy.
         page.analysis = try analyzer?.analyze(imageURL: imageURL) ?? DocumentPageAnalysis()
         page.markdown = try recognizer.recognize(imageURL: imageURL)
-        page.textSource = "ocr"
+        page.textSource = .ocr
       }
       return page
     }

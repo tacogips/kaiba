@@ -13,29 +13,29 @@ public extension NoteService {
       try requireEnabledActingUser(in: db)
       return try requirePendingDocumentOCRNote(noteId, in: db)
     }
-    let metadata = try Self.importedPageMetadata(snapshot)
-    let originId = FileID(metadata.originFileId)
-    let record = try getFileRecord(fileId: originId)
-    let content = try resolveFileContent(fileId: originId)
+    guard let page = snapshot.documentPage else {
+      throw NoteServiceError.invalidInput("note is not an imported document page")
+    }
+    let content = try resolveFileContent(fileId: page.originFileId)
     let recognized: String
     let analysis: DocumentPageAnalysis
-    let textSource: String
-    if metadata.originMediaType == "application/pdf", metadata.textExtractionMode != .ocrOnly,
-       let native = try PDFDocumentImageExtractor.pageText(pdfData: content, pageNumber: metadata.pageNumber) {
+    let textSource: DocumentPageTextSource
+    if page.isPDFPage, page.textExtractionMode != .ocrOnly,
+       let native = try PDFDocumentImageExtractor.pageText(pdfData: content, pageNumber: page.pageNumber) {
       recognized = native
-      analysis = metadata.analysis
-      textSource = "pdf-text"
+      analysis = page.analysis
+      textSource = .pdfText
     } else {
-      let image = metadata.originMediaType == "application/pdf"
-        ? try PDFDocumentImageExtractor.renderPage(pdfData: content, pageNumber: metadata.pageNumber)
+      let image = page.isPDFPage
+        ? try PDFDocumentImageExtractor.renderPage(pdfData: content, pageNumber: page.pageNumber)
         : DocumentExtractedImage(
-          pageNumber: metadata.pageNumber, kind: .pageCapture, data: content,
-          mediaType: record.mediaType, suggestedFilename: "page"
+          pageNumber: page.pageNumber, kind: .pageCapture, data: content,
+          mediaType: page.originMediaType, suggestedFilename: "page"
         )
-      let result = try recognizeTemporaryPage(image, recognizer: recognizer, analyzer: analyzer, fallback: metadata.analysis)
+      let result = try recognizeTemporaryPage(image, recognizer: recognizer, analyzer: analyzer, fallback: page.analysis)
       recognized = result.text
       analysis = result.analysis
-      textSource = "ocr"
+      textSource = .ocr
     }
     let outcome = try driver.withDatabase { database in
       try database.transaction { db in
@@ -44,35 +44,35 @@ public extension NoteService {
           throw NoteServiceError.conflict("page changed while OCR was running; no content was replaced")
         }
         let previous = try ftsPayload(noteId: noteId, in: db)
-        let existing = try noteSearchText(noteId, in: db) ?? ""
-        let newSearch = existing.isEmpty ? recognized : recognized + "\n\n" + existing
         let source = try noteTitleSource(noteId: noteId, in: db)
         let title = source == .derived ? (noteTitle(from: recognized) ?? current.title) : current.title
         let now = NoteStoreClock.system.now()
-        var completed = metadata
-        completed.ocrState = "complete"
-        completed.pendingBodySHA256 = nil
-        completed.analysis = analysis
-        completed.textSource = textSource
-        var object = try JSONValue(parsing: current.metaJSON ?? "{}").asObject ?? [:]
-        object["documentPage"] = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(completed))
         try db.execute(
           """
-          UPDATE notes
-          SET search_text = ?, title = ?, updated_at = ?,
-            updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id),
-            meta_json = jsonb(?)
+          UPDATE document_pages
+          SET text = ?, text_status = 'complete', text_source = ?, analysis_json = jsonb(?)
           WHERE note_id = ?
           """,
           bindings: [
-            .text(newSearch), .optionalText(title), .text(now),
-            .text(try JSONValue.object(object).encodedString()), .id(noteId)
+            .text(recognized), .text(textSource.rawValue),
+            .text(try documentPageAnalysisJSON(analysis)), .id(noteId)
           ]
+        )
+        try db.execute(
+          """
+          UPDATE notes
+          SET title = ?, updated_at = ?,
+            updated_by = (SELECT owner_user_id FROM notebooks WHERE notebook_id = notes.notebook_id)
+          WHERE note_id = ?
+          """,
+          bindings: [.optionalText(title), .text(now), .id(noteId)]
         )
         try db.execute(
           "UPDATE notebooks SET updated_at = ?, updated_by = owner_user_id WHERE notebook_id = ?",
           bindings: [.text(now), .id(current.notebookId)]
         )
+        // New page text changes what a translation of this notebook is based on.
+        try bumpNotebookRevision(current.notebookId, in: db)
         try refreshFTS(noteId: noteId, previous: previous, in: db)
         let note = try requireNote(noteId, in: db)
         let dispatches = try enqueueAutoActions(
@@ -80,7 +80,7 @@ public extension NoteService {
             trigger: .noteUpdated,
             notebookId: note.notebookId,
             noteId: note.noteId,
-            noteBodyMarkdown: noteRetrievalText(bodyMarkdown: current.bodyMarkdown, searchText: newSearch),
+            noteBodyMarkdown: noteRetrievalText(bodyMarkdown: current.bodyMarkdown, pageText: recognized),
             originatingActionId: nil
           ),
           in: db
@@ -95,37 +95,19 @@ public extension NoteService {
 }
 
 extension NoteService {
-  static func importedPageMetadata(_ note: Note) throws -> ImportedPageMetadata {
-    guard let json = note.metaJSON,
-          let value = try JSONValue(parsing: json).asObject?["documentPage"] else {
-      throw NoteServiceError.invalidInput("note is not an imported document page")
-    }
-    return try JSONDecoder().decode(ImportedPageMetadata.self, from: Data(value.encodedString().utf8))
-  }
-
   /// The notebook import lock allows completing pending OCR; an explicit note
   /// lock still prevents it. Reachability and ownership checks are mandatory.
+  /// The origin file is guaranteed by the `document_pages` foreign key.
   func requirePendingDocumentOCRNote(_ noteId: NoteID, in db: SQLiteDatabase) throws -> Note {
     let note = try requireNote(noteId, in: db)
     try requireNotebookOwnership(note.notebookId, subject: noteId.rawValue, in: db)
     guard !note.readOnly else { throw NoteServiceError.invalidInput("page is read-only") }
-    let metadata = try Self.importedPageMetadata(note)
-    guard metadata.ocrState == "pending" else {
+    guard let page = note.documentPage else {
+      throw NoteServiceError.invalidInput("note is not an imported document page")
+    }
+    guard page.textStatus == .pending else {
       throw NoteServiceError.conflict("page OCR is already complete")
     }
-    let origin: [SQLiteRow]
-    if metadata.originMediaType == "application/pdf" {
-      origin = try db.query(
-        "SELECT file_id FROM notebook_files WHERE notebook_id = ? AND file_id = ? AND role = ?",
-        bindings: [.id(note.notebookId), .text(metadata.originFileId), .text(NotebookFileRole.sourceDocument.rawValue)]
-      )
-    } else {
-      origin = try db.query(
-        "SELECT file_id FROM note_files WHERE note_id = ? AND file_id = ? AND role = ?",
-        bindings: [.id(noteId), .text(metadata.originFileId), .text(NoteFileRole.sourcePageImage.rawValue)]
-      )
-    }
-    guard origin.count == 1 else { throw NoteServiceError.conflict("page original is missing") }
     return note
   }
 }

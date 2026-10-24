@@ -609,8 +609,8 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
       title: "Private source",
       pages: [NotePageDraft(bodyMarkdown: "# Private\nDo not persist translation")]
     )
-    let pending = try aliceService.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try aliceService.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let invoker = DisabledAccountCapturingInvoker()
@@ -628,17 +628,18 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
       ),
       event: NoteAutoActionEvent(
         trigger: .notebookCreated,
-        notebookId: pending.notebookId,
+        notebookId: source.notebook.notebookId,
         originatingUserId: alice.userId,
-        originatingIsUnauthenticatedPrincipal: false
+        originatingIsUnauthenticatedPrincipal: false,
+        translationJobId: pending.jobId
       )
     )
     let dispatchedOutcome = try await dispatcher.dispatch(record)
     XCTAssertEqual(dispatchedOutcome, AutoActionDispatchOutcome.cancelled("auto-action originating account is unavailable"))
     let capturedRequest = await invoker.latestRequest()
     XCTAssertNil(capturedRequest)
-    XCTAssertEqual(NoteService.translationState(of: try bare.getNotebook(pending.notebookId))?.status, .cancelled)
-    XCTAssertTrue(try bare.listNotes(notebookId: pending.notebookId, limit: 10, offset: 0).isEmpty)
+    XCTAssertEqual(try bare.getTranslationJob(pending.jobId).status, .cancelled)
+    XCTAssertTrue(try bare.noteTranslations(noteId: source.notes[0].noteId).isEmpty)
   }
 
   func testPreInvocationDisableCancelsTagExtractionWithoutProviderDisclosure() async throws {
@@ -876,11 +877,11 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
       pages: [NotePageDraft(bodyMarkdown: "# Private\nDo not send")]
     )
     let (pending, didQueue) = try queued.requestNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     XCTAssertTrue(didQueue)
-    let pendingNotebook = try XCTUnwrap(pending)
+    let pendingJob = try XCTUnwrap(pending)
     await queued.drainAutoActionDispatches()
     _ = try bare.setUserDisabled(userId: alice.userId, disabled: true)
 
@@ -893,7 +894,7 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
     let capturedRequest = await invoker.latestRequest()
     XCTAssertNil(capturedRequest)
     XCTAssertEqual(
-      NoteService.translationState(of: try recovered.getNotebook(pendingNotebook.notebookId))?.status,
+      try recovered.getTranslationJob(pendingJob.jobId).status,
       .cancelled
     )
     let attempt = try XCTUnwrap(try recovered.listAutoActionDispatchAttempts().first)
@@ -902,7 +903,7 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
     _ = try recovered.setUserDisabled(userId: alice.userId, disabled: false)
     XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(), 0)
     XCTAssertEqual(
-      NoteService.translationState(of: try recovered.getNotebook(pendingNotebook.notebookId))?.status,
+      try recovered.getTranslationJob(pendingJob.jobId).status,
       .cancelled
     )
   }
@@ -927,11 +928,11 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
       pages: [NotePageDraft(bodyMarkdown: "# Private\nDo not send")]
     )
     let (pending, didQueue) = try queued.requestNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     XCTAssertTrue(didQueue)
-    let pendingNotebook = try XCTUnwrap(pending)
+    let pendingJob = try XCTUnwrap(pending)
     await queued.drainAutoActionDispatches()
     let initialAttempt = try XCTUnwrap(try bare.listAutoActionDispatchAttempts().first)
     let record = initialAttempt.record
@@ -943,7 +944,7 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
     let terminalizationOutcome = try await dispatcher.dispatch(record)
     XCTAssertEqual(terminalizationOutcome, .cancelled("auto-action originating account is unavailable"))
     XCTAssertEqual(
-      NoteService.translationState(of: try bare.getNotebook(pendingNotebook.notebookId))?.status,
+      try bare.getTranslationJob(pendingJob.jobId).status,
       .cancelled
     )
     XCTAssertEqual(try bare.listAutoActionDispatchAttempts().first?.status, .inFlight)
@@ -959,7 +960,7 @@ final class AgentChatDispatchSecurityTests: NoteTestCase {
     XCTAssertEqual(attempt.status, .cancelled)
     XCTAssertEqual(attempt.lastError, "auto-action originating account is unavailable")
     XCTAssertEqual(
-      NoteService.translationState(of: try recovered.getNotebook(pendingNotebook.notebookId))?.status,
+      try recovered.getTranslationJob(pendingJob.jobId).status,
       .cancelled
     )
   }

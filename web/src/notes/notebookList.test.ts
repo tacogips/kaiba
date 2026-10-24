@@ -43,16 +43,16 @@ describe('diary notebook list', () => {
       .toEqual([asNotebookId('middle'), asNotebookId('older')])
   })
 
-  test('omits internal backing notebooks but keeps imported and translated material', () => {
+  test('omits internal backing notebooks but keeps imported and memo material', () => {
     const values = [
       notebook('chat', '2026-08-14T04:00:00Z', [assignment(asTagId('kind-chat'), 'notebook-kind:agent-conversation')]),
       notebook('memory', '2026-08-14T03:00:00Z', [assignment(asTagId('kind-memory'), 'notebook-kind:long-term-memory')]),
       notebook('tag-memo', '2026-08-14T02:00:00Z', [assignment(asTagId('kind-tag'), 'notebook-kind:tag-memo')]),
       notebook('import', '2026-08-14T01:00:00Z', [assignment(asTagId('kind-import'), 'notebook-kind:imported-material')]),
-      notebook('translation', '2026-08-14T00:00:00Z', [assignment(asTagId('kind-translation'), 'notebook-kind:translation')]),
+      notebook('memo', '2026-08-14T00:00:00Z', [assignment(asTagId('kind-memo'), 'notebook-kind:user-memo')]),
     ]
     expect(diaryNotebooks(values).map((value) => value.notebookId))
-      .toEqual([asNotebookId('import'), asNotebookId('translation')])
+      .toEqual([asNotebookId('import'), asNotebookId('memo')])
   })
 
   test('shows useful categories without exposing notebook kind markers', () => {

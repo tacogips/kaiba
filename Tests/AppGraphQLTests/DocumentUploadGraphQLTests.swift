@@ -31,7 +31,7 @@ final class DocumentUploadGraphQLTests: XCTestCase {
     XCTAssertEqual(try service.getNote(note.noteId).bodyMarkdown, "")
     XCTAssertEqual(
       try service.driver.withDatabase {
-        try $0.query("SELECT search_text FROM notes WHERE note_id = ?", bindings: [.id(note.noteId)]).first?["search_text"]
+        try $0.query("SELECT text FROM document_pages WHERE note_id = ?", bindings: [.id(note.noteId)]).first?["text"]
       },
       "Recognized upload"
     )

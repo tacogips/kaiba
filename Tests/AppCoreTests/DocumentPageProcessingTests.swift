@@ -11,7 +11,7 @@ final class DocumentPageProcessingTests: XCTestCase {
       .prepare(fileURL: URL(fileURLWithPath: path), maximumOCRPages: 2)
     XCTAssertGreaterThan(pages.count, 2)
     XCTAssertTrue(pages.allSatisfy { !($0.markdown ?? "").isEmpty })
-    XCTAssertTrue(pages.allSatisfy { $0.textSource == "pdf-text" })
+    XCTAssertTrue(pages.allSatisfy { $0.textSource == .pdfText })
     XCTAssertTrue(pages.allSatisfy { $0.origin.data.isEmpty })
     print("Real PDF verification: \(pages.count) page originals, native text used, no raster rendering")
   }

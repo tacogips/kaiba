@@ -41,7 +41,7 @@ export function NoteDestinationLink(props: { note: Note; relationship?: string; 
     const current = ++generation
     place(); setOpen(true); setLoading(true); setError(''); setText(''); setOriginal(false)
     try {
-      const note = props.note.metaJSON === undefined ? await app.client.note(props.note.noteId) : props.note
+      const note = props.note.documentPage === undefined ? await app.client.note(props.note.noteId) : props.note
       if (current !== generation) return
       setDetail(note)
       const content = documentPageMetadata(note) ? (await app.client.documentPageText(note.noteId)).text : note.bodyMarkdown

@@ -19,6 +19,7 @@ import {
   resetComposerForNewChat,
   validateComposerFiles,
 } from './memoComposer'
+import { testDocumentPage } from './documentPageFixtures'
 
 describe('memo composer state', () => {
   test('Enter submits but Shift+Enter and IME composition do not', () => {
@@ -147,12 +148,12 @@ describe('memo composer state', () => {
     expect(canEnableNoteEdit(subject, note, notebook)).toBe(true)
     const documentPage = {
       ...note,
-      metaJSON: JSON.stringify({ documentPage: {
-        pageNumber: 1, ocrState: 'complete', originFileId: 'file-1', analysis: {},
-      } }),
+      documentPage: testDocumentPage({
+        pageNumber: 1, textStatus: 'complete', originFileId: 'file-1', analysis: {},
+      }),
     }
     expect(canEnableNoteEdit(subject, documentPage, notebook)).toBe(false)
-    expect(canEnableNoteEdit(subject, { ...documentPage, metaJSON: undefined }, notebook)).toBe(true)
+    expect(canEnableNoteEdit(subject, { ...documentPage, documentPage: undefined }, notebook)).toBe(true)
     expect(canEnableNoteEdit(undefined, note, notebook)).toBe(false)
     expect(canEnableNoteEdit({ kind: 'notebook', id: asNotebookId('notebook-1') }, note, notebook)).toBe(false)
     expect(canEnableNoteEdit(subject, { noteId: asNoteId('other'), readOnly: false }, notebook)).toBe(false)

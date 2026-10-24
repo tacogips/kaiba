@@ -123,10 +123,9 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
         return nil
       }
     case NoteStoreSchema.notebookTranslationWorkflowId:
-      guard let notebookId = record.event.notebookId else { return nil }
+      guard let jobId = record.event.translationJobId else { return nil }
       do {
-        let notebook = try reconciliationService.getNotebook(notebookId)
-        return NoteService.translationState(of: notebook)?.status == .completed ? .succeeded : nil
+        return try reconciliationService.getTranslationJob(jobId).status == .completed ? .succeeded : nil
       } catch NoteServiceError.notFound {
         return nil
       }
@@ -245,8 +244,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     )
     do {
       if case .note(let noteId) = subject,
-        let metadata = try? NoteService.importedPageMetadata(service.getNote(noteId)),
-        metadata.ocrState == "pending" {
+        (try? service.getNote(noteId))?.documentPage?.textStatus == .pending {
         return .succeeded
       }
       _ = try await extraction.extractTags(subject: subject)
@@ -263,16 +261,16 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     _ record: AutoActionDispatchRecord,
     service: NoteService
   ) async -> AutoActionDispatchOutcome {
-    guard let notebookId = record.event.notebookId else {
-      return .failed("translation event carries no notebookId")
+    guard let jobId = record.event.translationJobId else {
+      return .failed("translation event carries no translationJobId")
     }
     do {
-      let notebook = try service.getNotebook(notebookId)
-      if let state = NoteService.translationState(of: notebook), state.status == .cancelled {
-        return .cancelled(state.errorMessage ?? "notebook translation was cancelled")
+      let job = try service.getTranslationJob(jobId)
+      if job.status == .cancelled {
+        return .cancelled(job.errorMessage ?? "translation was cancelled")
       }
     } catch {
-      return .failed("notebook translation could not load pending state: \(error)")
+      return .failed("translation could not load its job: \(error)")
     }
     guard let invoker else {
       return .failed("translation needs the server agent runtime (ai.agent is not configured)")
@@ -284,10 +282,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       model: translateModel ?? model
     )
     do {
-      let result = try await translation.runChunk(
-        translationNotebookId: notebookId,
-        originatingActionId: record.action.actionId
-      )
+      let result = try await translation.runChunk(jobId: jobId)
       switch result {
       case .completed:
         return .succeeded
@@ -305,7 +300,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       if let cancellation = cancellationOutcome(for: error) {
         return cancellation
       }
-      return .failed("notebook translation failed: \(error)")
+      return .failed("translation failed: \(error)")
     }
   }
 
@@ -461,14 +456,10 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
         }
       }
     case NoteStoreSchema.notebookTranslationWorkflowId:
-      guard let notebookId = record.event.notebookId else {
-        throw NoteServiceError.invalidRow("cancelled translation carries no notebook id")
+      guard let jobId = record.event.translationJobId else {
+        throw NoteServiceError.invalidRow("cancelled translation carries no job id")
       }
-      _ = try service.setNotebookTranslationStatus(
-        notebookId,
-        status: .cancelled,
-        errorMessage: reason
-      )
+      _ = try service.setTranslationJobStatus(jobId, status: .cancelled, errorMessage: reason)
     case NoteStoreSchema.autoTaggingWorkflowId:
       guard let dispatchId, let leaseToken else { return }
       try service.markAutoActionDispatchCancelled(

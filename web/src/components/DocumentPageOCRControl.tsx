@@ -24,7 +24,7 @@ export function DocumentPageOCRControl(): JSX.Element {
   }
   return <Show when={page()}>{(metadata) => <section class="page-ocr-control" aria-label="Page search text">
     <strong>Page {metadata().pageNumber}</strong>
-    <Show when={metadata().ocrState === 'pending'} fallback={<span>Searchable</span>}>
+    <Show when={metadata().textStatus === 'pending'} fallback={<span>Searchable</span>}>
       <p>Text on this page is not searchable yet.</p>
       <button type="button" class="secondary form-action-button" aria-label="Make page searchable" title="Make page searchable" aria-busy={busy()} disabled={busy() || app.state.note?.readOnly} onClick={() => void recognize()}>
         <WorkspaceIcon name="ai" />{busy() ? 'Recognizing…' : 'Recognize'}

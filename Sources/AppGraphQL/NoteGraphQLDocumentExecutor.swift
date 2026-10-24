@@ -285,8 +285,12 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.tagClasses())
     case "noteFile":
       return try await encodedJSONValue(service.noteFile(fileId: requiredIdentifier("fileId", as: FileID.self, variables: variables)))
-    case "documentPageTranslations":
-      return try encodedJSONValue(service.documentPageTranslations(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
+    case "noteTranslations":
+      return try encodedJSONValue(service.noteTranslations(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
+    case "translationJobs":
+      return try encodedJSONValue(service.translationJobs(
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables)
+      ))
     case "documentPageText":
       return try encodedJSONValue(service.documentPageText(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
     case "noteFiles":

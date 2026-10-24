@@ -24,16 +24,16 @@ final class AITranslationSourceRevisionTests: NoteTestCase {
         NotePageDraft(bodyMarkdown: "# Source \(index)\nBody.", readOnly: false)
       }
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let initialSourceMarkdown = source.notes[0].bodyMarkdown
     let updatedSourceMarkdown = "# Updated after history pruning\nBody."
     let mutationService = service
     service.translationOutputPostCommitHook = { output in
-      guard output.notebookId == pending.notebookId,
-        output.bodyMarkdown == "translated: \(initialSourceMarkdown)"
+      guard output.noteId == source.notes[0].noteId,
+        output.body == "translated: \(initialSourceMarkdown)"
       else {
         return
       }
@@ -41,14 +41,20 @@ final class AITranslationSourceRevisionTests: NoteTestCase {
         noteId: source.notes[0].noteId,
         bodyMarkdown: updatedSourceMarkdown
       )
+      // Translations record no history, so unrelated writes push the source
+      // edit out of the 10-entry retention window before completion.
+      let scratch = try mutationService.createNotebook(title: "Unrelated writes")
+      for index in 0 ..< 12 {
+        _ = try mutationService.createNote(notebookId: scratch.notebookId, bodyMarkdown: "Unrelated \(index)")
+      }
     }
 
     let invoker = SourceRevisionTranslationInvoker()
     let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
+      jobId: pending.jobId
     )
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(
       invoker.requests.filter { $0.turns.last?.markdown == updatedSourceMarkdown }.count,
       1
@@ -60,10 +66,12 @@ final class AITranslationSourceRevisionTests: NoteTestCase {
       },
       "the source mutation must be absent from retained history before completion"
     )
-    let translated = try service.listNotes(notebookId: completed.notebookId, limit: 20, offset: 0)
-    XCTAssertEqual(translated.count, 12)
     XCTAssertEqual(
-      translated.filter { $0.metaJSON?.contains(source.notes[0].noteId.rawValue) == true }.map(\.bodyMarkdown),
+      try source.notes.map { try service.noteTranslations(noteId: $0.noteId).count },
+      Array(repeating: 1, count: 12)
+    )
+    XCTAssertEqual(
+      try service.noteTranslations(noteId: source.notes[0].noteId).map(\.body),
       ["translated: \(updatedSourceMarkdown)"]
     )
   }

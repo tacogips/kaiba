@@ -8,7 +8,7 @@ PDF uploads retain one original PDF attachment. Every physical page has a source
 
 The default extraction policy prefers usable embedded PDF text and falls back to OCR for pages without it. Settings can instead choose OCR only. The import form can override that default per document; the CLI accepts `--text-mode prefer-pdf-text` or `--text-mode ocr-only`. The existing OCR page limit controls recognition work, including importing without OCR with a limit of `0`.
 
-Extracted text is plain search text, stored in `notes.search_text`. OCR preserves wording, reading order, line breaks, and paragraph breaks without adding Markdown syntax or summaries. Page bodies remain separate from searchable text; annotations use page memos. Document titles default to the uploaded filename and can be renamed.
+Extracted text is plain search text, stored in `document_pages.text` (see [note-store-schema-v25.md](note-store-schema-v25.md)). OCR preserves wording, reading order, line breaks, and paragraph breaks without adding Markdown syntax or summaries. Page bodies remain separate from searchable text; annotations use page memos. Document titles default to the uploaded filename and can be renamed.
 
 ## Reader and navigation
 
@@ -24,7 +24,7 @@ Clicking a page-tag name opens a popup listing tagged notes/pages across noteboo
 
 ## Translation and discussion
 
-The header translation action accepts a target language and scope: current page, an inclusive page range, or the whole document. Translation requests create linked translated notes per source page. Original, extracted text, and translated text are selectable versions; available translations can be selected by language. Translation content is rendered as plain text. Moving to a page without a matching selected translation must not leave the previous page's translation visible.
+The header translation action accepts a target language and scope: current page, an inclusive page range, or the whole document. A request creates a translation job; each source page gets one Translated version per language (`note_translations`), replaced when the page text changes and marked outdated until then. Original, extracted text (OCR), and translated text are the three selectable versions; available translations are selected by language. Translation content is rendered as plain text. Moving to a page without a matching selected translation must not leave the previous page's translation visible.
 
 The selected source page remains the context for memos, AI discussion, tags, and navigation even while viewing its translation. AI discussion lives in the bottom composer, scoped to the current page or, with no page selected, the notebook. The right pane contains Tags, Analysis, Links, and AI. AI lists saved conversations; selecting one continues it in the footer without moving away from the document. The footer also offers saved-conversation access, a larger reading panel, and a return to the current page discussion with its draft intact. PDF AI context uses extracted text and neighboring/search results; temporary raster images are not attached to conversations.
 

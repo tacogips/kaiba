@@ -1,26 +1,5 @@
 import Foundation
 
-let searchEngineSyncSchemaStatements = [
-  """
-  CREATE TABLE IF NOT EXISTS search_engine_sync_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    index_identity TEXT NOT NULL,
-    activated_at TEXT NOT NULL
-  )
-  """,
-  """
-  CREATE TABLE IF NOT EXISTS search_index_outbox (
-    note_id TEXT PRIMARY KEY,
-    generation INTEGER NOT NULL DEFAULT 1,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at TEXT,
-    last_error TEXT,
-    claim_token TEXT,
-    claimed_until TEXT
-  )
-  """
-]
-
 public struct SearchIndexOutboxRow: Equatable, Sendable {
   public let noteId: NoteID
   public let generation: Int64

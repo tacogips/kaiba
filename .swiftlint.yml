@@ -6,6 +6,7 @@ included:
 excluded:
   - .build
   - tmp
+  - Sources/AppCore/NoteStoreSchemaDDL.generated.swift
 
 line_length:
   warning: 220

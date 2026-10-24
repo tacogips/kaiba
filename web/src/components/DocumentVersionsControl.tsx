@@ -5,13 +5,15 @@ import { WorkspaceIcon } from './WorkspaceIcon'
 import './form-controls.css'
 import './document-versions.css'
 
+/** The Translated version of one source page in one language. */
 export interface DocumentTranslationVersion {
-  noteId: NoteId
-  notebookId: NotebookId
+  sourceNoteId: NoteId
   targetLanguage: string
   text: string
-  sourceNoteId?: NoteId
+  /** False once the page text changed after this translation was made. */
+  isCurrent: boolean
 }
+/** The page versions: Original, OCR (extracted text) and Translated. */
 export type DocumentDisplayMode = 'original' | 'text' | 'translation'
 
 export function DocumentVersionsControl(props: {
@@ -20,8 +22,8 @@ export function DocumentVersionsControl(props: {
   pageNumber: number
   totalPages: number
   displayMode: DocumentDisplayMode
-  selectedTranslationId?: NoteId
-  preferredTranslationLanguage?: string
+  /** The chosen translation language; it stays selected across pages. */
+  selectedLanguage?: string
   onSelect: (mode: DocumentDisplayMode, translation?: DocumentTranslationVersion) => void
 }): JSX.Element {
   const app = useApp()
@@ -43,8 +45,11 @@ export function DocumentVersionsControl(props: {
     async ({ noteId }): Promise<DocumentTranslationVersion[]> => {
       setLoadFailure('')
       try {
-        const result = await app.client.documentPageTranslations(noteId)
-        return result.map((version) => ({ ...version, sourceNoteId: version.sourceNoteId ?? noteId }))
+        const result = await app.client.noteTranslations(noteId)
+        return result.map((translation) => ({
+          sourceNoteId: translation.noteId, targetLanguage: translation.language,
+          text: translation.body, isCurrent: translation.isCurrent,
+        }))
       }
       catch (error) {
         if (noteId === props.sourceNoteId) setLoadFailure(error instanceof Error ? error.message : String(error))
@@ -53,26 +58,24 @@ export function DocumentVersionsControl(props: {
     },
   )
   const availableVersions = () => versions.loading ? [] : (versions() ?? []).filter((version) => version.sourceNoteId === props.sourceNoteId)
-  const selected = () => availableVersions().find((version) => version.noteId === props.selectedTranslationId) ?? availableVersions()[0]
+  const selected = () => availableVersions().find((version) => version.targetLanguage === props.selectedLanguage) ?? availableVersions()[0]
   const chooseTranslation = (version: DocumentTranslationVersion | undefined) => {
     desiredLanguage = version?.targetLanguage ?? desiredLanguage
     adoptedVersion = version
     props.onSelect('translation', version)
   }
-  createEffect(on(() => [versions(), versions.loading, props.displayMode, props.sourceNoteId, props.selectedTranslationId] as const,
-    ([items, loading, mode, sourceNoteId, selectedId]) => {
+  createEffect(on(() => [versions(), versions.loading, props.displayMode, props.sourceNoteId, props.selectedLanguage] as const,
+    ([items, loading, mode, sourceNoteId, selectedLanguage]) => {
       if (loading || !items || mode !== 'translation') return
       const current = items.filter((version) => version.sourceNoteId === sourceNoteId)
-      const preferredLanguage = props.preferredTranslationLanguage ?? desiredLanguage
-      const next = current.find((version) => version.noteId === selectedId)
-        ?? current.find((version) => version.targetLanguage === preferredLanguage) ?? current[0]
+      const next = current.find((version) => version.targetLanguage === (selectedLanguage ?? desiredLanguage)) ?? current[0]
       if (!next) {
-        if (selectedId) chooseTranslation(undefined)
+        if (adoptedVersion) chooseTranslation(undefined)
         return
       }
       // Refresh changed text after a catalog event, while a controlled parent
-      // updating its selected ID must not cause a second selection loop.
-      if (next.noteId !== selectedId || adoptedVersion?.noteId !== next.noteId
+      // updating its selected language must not cause a second selection loop.
+      if (next.targetLanguage !== selectedLanguage || adoptedVersion?.targetLanguage !== next.targetLanguage
         || adoptedVersion?.sourceNoteId !== sourceNoteId || adoptedVersion?.text !== next.text) chooseTranslation(next)
     }))
   const validRange = () => /^\d+$/.test(start()) && /^\d+$/.test(end())
@@ -120,16 +123,18 @@ export function DocumentVersionsControl(props: {
       <button type="button" class="secondary" aria-pressed={props.displayMode === 'original'} onClick={() => props.onSelect('original')}>Original</button>
       <button type="button" class="secondary" aria-pressed={props.displayMode === 'text'} onClick={() => props.onSelect('text')}>OCR</button>
       <button type="button" class="secondary" aria-pressed={props.displayMode === 'translation'} disabled={!selected() || versions.loading}
-        title={selected() ? `Translated: ${selected()!.targetLanguage}` : 'No translation for this page'}
+        title={selected() ? `Translated: ${selected()!.targetLanguage}${selected()!.isCurrent ? '' : ' (outdated: the page text changed)'}` : 'No translation for this page'}
         onClick={() => chooseTranslation(selected())}>Translated</button>
     </div>
     <Show when={props.displayMode === 'translation' && availableVersions().length > 1}>
       <select class="document-translation-language" aria-label="Translation language" title={selected()?.targetLanguage}
-        value={selected()?.noteId} onChange={(event) => {
-          const version = availableVersions().find((item) => item.noteId === event.currentTarget.value)
+        value={selected()?.targetLanguage} onChange={(event) => {
+          const version = availableVersions().find((item) => item.targetLanguage === event.currentTarget.value)
           if (version) chooseTranslation(version)
         }}>
-        <For each={availableVersions()}>{(version) => <option value={version.noteId}>{version.targetLanguage}</option>}</For>
+        <For each={availableVersions()}>{(version) => <option value={version.targetLanguage}>
+          {version.isCurrent ? version.targetLanguage : `${version.targetLanguage} (outdated)`}
+        </option>}</For>
       </select>
     </Show>
     <button type="button" class="secondary form-icon-button" ref={trigger} aria-label="Translate pages" title="Translate pages"

@@ -134,6 +134,8 @@ public struct Note: Equatable, Sendable {
   public var tags: [TagAssignment]
   public var createdBy: UserID?
   public var updatedBy: UserID?
+  /// Set for an imported document page (`document_pages`).
+  public var documentPage: DocumentPage?
 
   public init(
     noteId: NoteID,
@@ -147,7 +149,8 @@ public struct Note: Equatable, Sendable {
     metaJSON: String? = nil,
     tags: [TagAssignment] = [],
     createdBy: UserID? = nil,
-    updatedBy: UserID? = nil
+    updatedBy: UserID? = nil,
+    documentPage: DocumentPage? = nil
   ) {
     self.noteId = noteId
     self.notebookId = notebookId
@@ -161,6 +164,7 @@ public struct Note: Equatable, Sendable {
     self.tags = tags
     self.createdBy = createdBy
     self.updatedBy = updatedBy
+    self.documentPage = documentPage
   }
 }
 
@@ -170,7 +174,9 @@ public struct NotePageDraft: Equatable, Sendable {
   public var tags: [NoteTagInput]
   public var metaJSON: String?
   public var noteNumber: Int?
-  public var searchText: String?
+  /// Creates the note's `document_pages` row. Its origin file row must
+  /// already exist in the same transaction.
+  public var documentPage: DocumentPageDraft?
 
   public init(
     bodyMarkdown: String,
@@ -178,14 +184,25 @@ public struct NotePageDraft: Equatable, Sendable {
     tags: [NoteTagInput] = [],
     metaJSON: String? = nil,
     noteNumber: Int? = nil,
-    searchText: String? = nil
+    documentPage: DocumentPageDraft? = nil
   ) {
     self.bodyMarkdown = bodyMarkdown
     self.readOnly = readOnly
     self.tags = tags
     self.metaJSON = metaJSON
     self.noteNumber = noteNumber
-    self.searchText = searchText
+    self.documentPage = documentPage
+  }
+}
+
+public struct DocumentPageDraft: Equatable, Sendable {
+  public var page: DocumentPage
+  /// The extracted (OCR version) text; empty while recognition is pending.
+  public var text: String
+
+  public init(page: DocumentPage, text: String) {
+    self.page = page
+    self.text = text
   }
 }
 

@@ -32,7 +32,7 @@ public struct DocumentAutoTagging: Sendable {
           guard note.notebookId == notebookId else {
             throw NoteServiceError.invalidInput("tagging page belongs to another notebook")
           }
-          if let metadata = try? NoteService.importedPageMetadata(note), metadata.ocrState == "pending" {
+          if note.documentPage?.textStatus == .pending {
             continue
           }
         }

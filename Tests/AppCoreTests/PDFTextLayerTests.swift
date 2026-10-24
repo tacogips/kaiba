@@ -14,9 +14,9 @@ final class PDFTextLayerTests: NoteTestCase {
     )
     XCTAssertEqual(result.notes.count, 2)
     for note in result.notes {
-      let metadata = try NoteService.importedPageMetadata(note)
-      XCTAssertEqual(metadata.ocrState, "complete")
-      XCTAssertEqual(metadata.textSource, "pdf-text")
+      let page = try XCTUnwrap(note.documentPage)
+      XCTAssertEqual(page.textStatus, .complete)
+      XCTAssertEqual(page.textSource, .pdfText)
       XCTAssertEqual(note.bodyMarkdown, "")
     }
   }
@@ -27,7 +27,7 @@ final class PDFTextLayerTests: NoteTestCase {
     let recognizer = ScannedPageOCR()
     let pages = try DocumentPageProcessor(recognizer: recognizer).prepare(fileURL: source, maximumOCRPages: 1)
     XCTAssertEqual(pages.count, 2)
-    XCTAssertEqual(pages.map(\.textSource), ["pdf-text", "ocr"])
+    XCTAssertEqual(pages.map(\.textSource), [.pdfText, .ocr])
     XCTAssertTrue(try XCTUnwrap(pages[0].markdown).contains("Fixture Document"))
     XCTAssertEqual(pages[1].markdown, "Scanned page\n\nPlain search text")
     XCTAssertEqual(recognizer.calls, 1)
@@ -78,7 +78,7 @@ extension PDFTextLayerTests {
     XCTAssertEqual(recognizer.calls, 0)
     let recognized = try processor.prepare(fileURL: source, maximumOCRPages: nil)
     XCTAssertEqual(recognizer.calls, 2)
-    XCTAssertTrue(recognized.allSatisfy { $0.textSource == "ocr" && $0.markdown == "Scanned page\n\nPlain search text" })
+    XCTAssertTrue(recognized.allSatisfy { $0.textSource == .ocr && $0.markdown == "Scanned page\n\nPlain search text" })
   }
 
   func testStoreDefaultAndExplicitOverrideHaveDefinedPrecedence() throws {

@@ -194,21 +194,26 @@ func note(from row: SQLiteRow, in database: SQLiteDatabase) throws -> Note {
   guard let noteId = row.identifier("note_id", as: NoteID.self) else {
     throw NoteServiceError.invalidRow("note row is missing note_id")
   }
-  return try note(from: row, tags: noteTags(noteId: noteId, in: database))
+  return try note(
+    from: row,
+    tags: noteTags(noteId: noteId, in: database),
+    documentPage: documentPage(noteId: noteId, in: database)
+  )
 }
 
 func notes(from rows: [SQLiteRow], in database: SQLiteDatabase) throws -> [Note] {
   let noteIds = rows.compactMap { $0.identifier("note_id", as: NoteID.self) }
   let tagsByNoteId = try noteTags(noteIds: noteIds, in: database)
+  let pagesByNoteId = try documentPages(noteIds: noteIds, in: database)
   return try rows.map { row in
     guard let noteId = row.identifier("note_id", as: NoteID.self) else {
       throw NoteServiceError.invalidRow("note row is missing note_id")
     }
-    return try note(from: row, tags: tagsByNoteId[noteId] ?? [])
+    return try note(from: row, tags: tagsByNoteId[noteId] ?? [], documentPage: pagesByNoteId[noteId])
   }
 }
 
-private func note(from row: SQLiteRow, tags: [TagAssignment]) throws -> Note {
+private func note(from row: SQLiteRow, tags: [TagAssignment], documentPage: DocumentPage?) throws -> Note {
   guard let noteId = row.identifier("note_id", as: NoteID.self),
         let notebookId = row.identifier("notebook_id", as: NotebookID.self),
         let noteNumberText = row["note_number"],
@@ -230,7 +235,8 @@ private func note(from row: SQLiteRow, tags: [TagAssignment]) throws -> Note {
     metaJSON: row["meta_json"] ?? nil,
     tags: tags,
     createdBy: row.identifier("created_by", as: UserID.self) ?? nil,
-    updatedBy: row.identifier("updated_by", as: UserID.self) ?? nil
+    updatedBy: row.identifier("updated_by", as: UserID.self) ?? nil,
+    documentPage: documentPage
   )
 }
 

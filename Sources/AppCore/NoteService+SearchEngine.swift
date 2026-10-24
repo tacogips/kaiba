@@ -109,12 +109,12 @@ public extension NoteService {
       }
       let page = Array(orderedHits.dropFirst(requestedOffset).prefix(limit))
       let notesById = try requireNotes(page.map(\.noteId), in: database)
-      let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
+      let searchTexts = try storedDocumentPageTexts(Array(notesById.keys), in: database)
       let noteHits = page.compactMap { hit -> NoteEngineSearchHit? in
         guard let note = notesById[hit.noteId] else { return nil }
         let retrievalText = noteRetrievalText(
           bodyMarkdown: note.bodyMarkdown,
-          searchText: searchTexts[note.noteId]
+          pageText: searchTexts[note.noteId]
         )
         let highlight = hit.highlight?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resultSnippet: String
@@ -141,7 +141,7 @@ public extension NoteService {
       guard scope.reachableLibraryIds != [] else { return nil }
       let sourceText = noteRetrievalText(
         bodyMarkdown: source.bodyMarkdown,
-        searchText: try noteSearchText(source.noteId, in: database)
+        pageText: try storedDocumentPageText(source.noteId, in: database)
       )
       let signals = try relatedSignals(forSourceNoteId: noteId, in: database)
       return PreparedRelatedSearch(
@@ -175,10 +175,10 @@ public extension NoteService {
         in: database
       )
       let notesById = try requireNotes(enriched.map(\.noteId), in: database)
-      let searchTexts = try noteSearchTexts(Array(notesById.keys), in: database)
+      let searchTexts = try storedDocumentPageTexts(Array(notesById.keys), in: database)
       return enriched.compactMap { hit in
         guard let note = notesById[hit.noteId] else { return nil }
-        let text = noteRetrievalText(bodyMarkdown: note.bodyMarkdown, searchText: searchTexts[note.noteId])
+        let text = noteRetrievalText(bodyMarkdown: note.bodyMarkdown, pageText: searchTexts[note.noteId])
         let highlight = hit.highlight?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resultSnippet: String
         if let highlight, !highlight.isEmpty {

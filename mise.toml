@@ -104,8 +104,20 @@ swiftlint
 '''
 
 [tasks."check"]
-description = "Run every verification gate: Swift tests, SwiftLint, the web client, the Tauri shell"
-depends = ["test", "lint", "web:check", "tauri:check"]
+description = "Run every verification gate: Swift tests, SwiftLint, the generated schema, the web client, the Tauri shell"
+depends = ["test", "lint", "schema:check", "web:check", "tauri:check"]
+
+[tasks."schema:generate"]
+description = "Regenerate the note-store SQLite DDL and its Swift embedding from the nodetto ERD"
+run = '''
+scripts/generate-note-store-schema.sh
+'''
+
+[tasks."schema:check"]
+description = "Fail when the generated note-store DDL is out of date with the nodetto ERD (needs nodetto-cli)"
+run = '''
+scripts/generate-note-store-schema.sh --check
+'''
 
 [tasks."web:check"]
 description = "Typecheck, test, lint, and build the shared web/native client"

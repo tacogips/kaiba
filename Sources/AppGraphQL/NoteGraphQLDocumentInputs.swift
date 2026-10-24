@@ -328,14 +328,12 @@ public struct GraphQLUnpromoteTagNoteInput: Codable, Equatable, Sendable {
 public struct GraphQLRequestNotebookTranslationInput: Codable, Equatable, Sendable {
   public var notebookId: NotebookID
   public var targetLanguage: String
-  public var title: String?
   public var pageStart: Int?
   public var pageEnd: Int?
 
-  public init(notebookId: NotebookID, targetLanguage: String, title: String? = nil, pageStart: Int? = nil, pageEnd: Int? = nil) {
+  public init(notebookId: NotebookID, targetLanguage: String, pageStart: Int? = nil, pageEnd: Int? = nil) {
     self.notebookId = notebookId
     self.targetLanguage = targetLanguage
-    self.title = title
     self.pageStart = pageStart
     self.pageEnd = pageEnd
   }

@@ -846,7 +846,7 @@ final class AgentChatGraphQLTests: XCTestCase {
     )
     XCTAssertTrue(unavailable.result.accepted)
     XCTAssertEqual(unavailable.status, "agent-unavailable")
-    XCTAssertNil(unavailable.translationNotebookId)
+    XCTAssertNil(unavailable.translationJobId)
     XCTAssertTrue(try bare.service.listAutoActionDispatchAttempts().isEmpty)
 
     // Unknown source notebook surfaces as a rejected result.
@@ -859,7 +859,7 @@ final class AgentChatGraphQLTests: XCTestCase {
     XCTAssertFalse(missing.result.accepted)
     XCTAssertEqual(missing.status, "error")
 
-    // With a dispatcher: the pending notebook is returned and the run queued.
+    // With a dispatcher: the pending job is returned and the run queued.
     let dispatcher = KaibaAutoActionDispatcher(service: bare.service, invoker: StubInvoker())
     var withDispatcher = bare.service
     withDispatcher.autoActionDispatcher = dispatcher
@@ -871,13 +871,17 @@ final class AgentChatGraphQLTests: XCTestCase {
       )
     )
     XCTAssertEqual(queued.status, "queued")
-    let translationNotebookId = try XCTUnwrap(queued.translationNotebookId)
+    let translationJobId = try XCTUnwrap(queued.translationJobId)
     await withDispatcher.drainAutoActionDispatches()
     let attempts = try withDispatcher.listAutoActionDispatchAttempts()
     XCTAssertEqual(attempts.count, 1)
     XCTAssertEqual(attempts[0].record.action.actionId, NoteService.manualTranslationActionId)
-    let finished = try withDispatcher.getNotebook(translationNotebookId)
-    XCTAssertEqual(NoteService.translationState(of: finished)?.status, .completed)
+    XCTAssertEqual(attempts[0].record.event.translationJobId, translationJobId)
+    XCTAssertEqual(try withDispatcher.getTranslationJob(translationJobId).status, .completed)
+    XCTAssertEqual(
+      try withDispatcher.noteTranslations(noteId: ingest.notes[0].noteId).map(\.language),
+      ["English"]
+    )
   }
 
   // MARK: - Helpers

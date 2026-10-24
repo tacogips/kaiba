@@ -157,6 +157,14 @@ credential environment-variable names, never credential values.
 - Embedded-image recovery for CMYK/indexed color spaces and
   Linux-side extraction (DI7 is Apple-platform only).
 
+## Page storage (October 24, 2026)
+
+Page identity, extraction state and the extracted (OCR version) text live in
+the `document_pages` table, and translations in `note_translations`; see
+[note-store-schema-v25.md](note-store-schema-v25.md). `notes.search_text` and `meta_json.documentPage` no
+longer exist, and the schema-version-22 migration below is gone. Statements
+below about those columns are historical.
+
 ## Page-image reader (October 1, 2026)
 
 PDF and standalone image page notes no longer carry OCR text in `bodyMarkdown`.

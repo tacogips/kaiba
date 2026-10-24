@@ -7,6 +7,7 @@ import { noteId, notebookId, type FileId } from '../notes/ids'
 import type { Note } from '../notes/types'
 import { DocumentNotebookReader } from './DocumentNotebookReader'
 import { MarkdownBody } from './Markdown'
+import { testDocumentPage } from '../notes/documentPageFixtures'
 
 vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {}, getDocument: () => ({
   promise: Promise.resolve({ getPage: vi.fn() }), destroy: async () => {},
@@ -18,8 +19,8 @@ async function settle() {
 function page(number: number, binding = 'right'): Note {
   return { noteId: noteId(`note-${number}`), notebookId: notebookId('book'), noteNumber: number, title: `Page ${number}`,
     bodyMarkdown: number === 1 ? 'First page text' : '', readOnly: false, createdAt: '', updatedAt: '', tags: [],
-    metaJSON: JSON.stringify({ documentPage: { pageNumber: number, ocrState: number === 1 ? 'complete' : 'pending',
-      originFileId: `file-${number}`, analysis: { writingMode: 'vertical', binding, language: 'ja' } } }) }
+    documentPage: testDocumentPage({ pageNumber: number, textStatus: number === 1 ? 'complete' : 'pending',
+      originFileId: `file-${number}`, analysis: { writingMode: 'vertical', binding, language: 'ja' } }) }
 }
 function mount(children: () => JSX.Element, loadBlob: (id: FileId) => Promise<Blob>) {
   const api = { initialize: async () => undefined, streamHeaders: () => ({}), appSetting: async () => undefined,
@@ -120,7 +121,7 @@ test('page notes never render OCR or fetch Markdown figure images', async () => 
   const requests: string[] = []
   const harness = mount(() => <DocumentNotebookReader notes={[{
     ...page(1), bodyMarkdown: 'Hidden OCR words ![Figure 1](/files/f1)',
-    metaJSON: JSON.stringify({ documentPage: { pageNumber: 1, ocrState: 'complete', originFileId: 'file-origin', analysis: {} } }),
+    documentPage: testDocumentPage({ pageNumber: 1, textStatus: 'complete', originFileId: 'file-origin', analysis: {} }),
   }]} selectedNoteId={noteId('note-1')} totalCount={1} onSelect={() => {}} onLoadMore={async () => {}} />,
   async (id) => { requests.push(id); return new Blob(['origin'], { type: 'image/png' }) })
   try {
@@ -186,8 +187,8 @@ test('page position stays in the footer and arrow keys navigate outside editable
 
 test('PDF translations stay plain text and page navigation selects source notes without retaining another page translation', async () => {
   const sourcePages = [page(1, 'left'), page(2, 'left')].map((note) => ({ ...note,
-    metaJSON: JSON.stringify({ documentPage: { pageNumber: note.noteNumber, originFileId: 'file-pdf',
-      originMediaType: 'application/pdf', ocrState: 'complete', analysis: { binding: 'left' } } }),
+    documentPage: testDocumentPage({ pageNumber: note.noteNumber, originFileId: 'file-pdf',
+      originMediaType: 'application/pdf', textStatus: 'complete', analysis: { binding: 'left' } }),
   }))
   const selected: string[] = []
   const requests: string[] = []

@@ -34,15 +34,9 @@ public struct NoteService: Sendable {
   /// boundary of agent-conversation creation. Production leaves this nil;
   /// tests use it to prove the transaction rejects an invalidated snapshot.
   var agentChatCreationPreinsertHook: (@Sendable (SQLiteDatabase) throws -> Void)?
-  /// Internal test seam that simulates a source-library mutation at the
-  /// pre-insert boundary of translation-notebook creation. Production leaves
-  /// this nil; tests use it to prove the transaction rejects a stale source
-  /// snapshot before it can create a less-restricted derived notebook.
-  var translationCreationPreinsertHook: (@Sendable (SQLiteDatabase) throws -> Void)?
-  /// Internal test seam that runs after translation output commits but before
-  /// the run attempts completion. It proves a post-write source edit replaces
-  /// obsolete output rather than leaving two visible translations.
-  var translationOutputPostCommitHook: (@Sendable (Note) throws -> Void)?
+  /// Internal test seam that runs after a translation is stored but before
+  /// the run advances the job, so tests can edit the source mid-pass.
+  var translationOutputPostCommitHook: (@Sendable (NoteTranslation) throws -> Void)?
   /// Internal test seam for the edit reply's final turn write. It executes
   /// inside the same transaction as the replacement body, proving a failed
   /// completion cannot leave a retryable turn with a committed edit.
@@ -136,7 +130,6 @@ public struct NoteService: Sendable {
     self.agentExecutionAdmission = agentExecutionAdmission
     self.chatAttachmentFileStore = nil
     self.agentChatCreationPreinsertHook = nil
-    self.translationCreationPreinsertHook = nil
     self.translationOutputPostCommitHook = nil
     self.agentChatEditPrecompletionHook = nil
     self.apiClientListAfterAuthorizationHook = nil
@@ -622,17 +615,17 @@ public struct NoteService: Sendable {
     for (index, page) in pages.enumerated() {
       let noteNumber = page.noteNumber ?? index + 1
       let noteId = NoteID.generate()
-      let derivedTitle = noteTitle(from: page.bodyMarkdown) ?? page.searchText.flatMap { noteTitle(from: $0) }
+      let derivedTitle = noteTitle(from: page.bodyMarkdown) ?? page.documentPage.flatMap { noteTitle(from: $0.text) }
       try db.execute(
         """
         INSERT INTO notes (
           note_id, notebook_id, note_number, title, title_source, body_markdown,
-          read_only, created_by, updated_by, created_at, updated_at, meta_json, search_text
+          read_only, created_by, updated_by, created_at, updated_at, meta_json
         ) VALUES (
           ?, ?, ?, ?, 'derived', ?, ?,
           (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
           (SELECT owner_user_id FROM notebooks WHERE notebook_id = ?),
-          ?, ?, jsonb(?), ?
+          ?, ?, jsonb(?)
         )
         """,
         bindings: [
@@ -646,10 +639,12 @@ public struct NoteService: Sendable {
           .id(notebookId),
           .text(now),
           .text(now),
-          .optionalText(page.metaJSON),
-          .optionalText(page.searchText)
+          .optionalText(page.metaJSON)
         ]
       )
+      if let documentPage = page.documentPage {
+        try insertDocumentPage(noteId: noteId, page: documentPage.page, text: documentPage.text, in: db)
+      }
       for tag in page.tags {
         try applyTag(
           noteId: noteId,
@@ -935,17 +930,4 @@ func deleteNoteRows(noteId: NoteID, in database: SQLiteDatabase) throws {
   try database.execute("DELETE FROM note_comments WHERE note_id = ?", bindings: [.id(noteId)])
   try enqueueSearchEngineSync(noteIds: [noteId], in: database)
   try database.execute("DELETE FROM notes WHERE note_id = ?", bindings: [.id(noteId)])
-}
-
-func deleteTranslationOutputs(sourceNoteId: NoteID, in database: SQLiteDatabase) throws {
-  let outputIds = try database.query(
-    """
-    SELECT note_id FROM notes
-    WHERE json_extract(meta_json, '$.kaibaTranslation.sourceNoteId') = ?
-    """,
-    bindings: [.id(sourceNoteId)]
-  ).compactMap { $0.identifier("note_id", as: NoteID.self) }
-  for outputId in outputIds {
-    try deleteNoteRows(noteId: outputId, in: database)
-  }
 }

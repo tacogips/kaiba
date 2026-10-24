@@ -379,7 +379,7 @@ public extension NoteService {
   /// Reclaims file storage that no note/notebook references any more.
   ///
   /// Two passes run:
-  /// 1. Every `files` row with no `note_files`/`notebook_files` reference is
+  /// 1. Every `files` row with no `note_files`/`notebook_files`/`document_pages` reference is
   ///    deleted, and its local/S3 blob is best-effort removed. Rows that are
   ///    still referenced keep the existing survive-note-deletion semantics.
   /// 2. The local `files/` tree is swept for stored blobs and leftover
@@ -411,6 +411,7 @@ public extension NoteService {
         FROM files f
         WHERE NOT EXISTS (SELECT 1 FROM note_files nf WHERE nf.file_id = f.file_id)
           AND NOT EXISTS (SELECT 1 FROM notebook_files nbf WHERE nbf.file_id = f.file_id)
+          AND NOT EXISTS (SELECT 1 FROM document_pages dp WHERE dp.origin_file_id = f.file_id)
         ORDER BY f.created_at, f.file_id
         """
       ).map(fileRecord(from:))

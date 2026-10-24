@@ -69,7 +69,7 @@ private actor TranslationSourcePageRecorder {
 }
 
 final class AITranslationTests: NoteTestCase {
-  func testStartNotebookTranslationCreatesPendingTranslationNotebook() throws {
+  func testStartTranslationJobCreatesPendingJob() throws {
     let service = try makeService()
     let ingest = try service.createNotebookWithNotes(
       title: "Guide",
@@ -78,39 +78,42 @@ final class AITranslationTests: NoteTestCase {
         NotePageDraft(bodyMarkdown: "# Two\nText.")
       ]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: ingest.notebook.notebookId,
-      targetLanguage: "English"
+    let notebooksBefore = try service.listNotebooks().count
+    let job = try service.startTranslationJob(
+      notebookId: ingest.notebook.notebookId,
+      targetLanguage: "  English "
     )
-    XCTAssertEqual(pending.title, "Guide [English]")
-    XCTAssertTrue(pending.tags.contains {
-      $0.tag.name == NoteStoreSchema.translationNotebookKindTag
-    })
-    let state = try XCTUnwrap(NoteService.translationState(of: pending))
-    XCTAssertEqual(state.sourceNotebookId, ingest.notebook.notebookId)
-    XCTAssertEqual(state.targetLanguage, "English")
-    XCTAssertEqual(state.status, .pending)
-    XCTAssertNil(state.errorMessage)
+    XCTAssertEqual(job.notebookId, ingest.notebook.notebookId)
+    XCTAssertEqual(job.targetLanguage, "English")
+    XCTAssertEqual(job.status, .pending)
+    XCTAssertNil(job.pageStart)
+    XCTAssertNil(job.pageEnd)
+    XCTAssertNil(job.errorMessage)
+    XCTAssertNil(job.continuationNoteId)
+    XCTAssertEqual(try service.translationJobs(notebookId: ingest.notebook.notebookId), [job])
+    // A translation is a version of the source notes, never a new notebook.
+    XCTAssertEqual(try service.listNotebooks().count, notebooksBefore)
   }
 
-  func testStartNotebookTranslationRejectsEmptySourceOrLanguage() throws {
+  func testStartTranslationJobRejectsEmptySourceOrLanguage() throws {
     let service = try makeService()
     let empty = try service.createNotebook(title: "Empty")
-    XCTAssertThrowsError(try service.startNotebookTranslation(
-      sourceNotebookId: empty.notebookId,
+    XCTAssertThrowsError(try service.startTranslationJob(
+      notebookId: empty.notebookId,
       targetLanguage: "English"
     ))
     let ingest = try service.createNotebookWithNotes(
       title: "Guide",
       pages: [NotePageDraft(bodyMarkdown: "# One\nBody.")]
     )
-    XCTAssertThrowsError(try service.startNotebookTranslation(
-      sourceNotebookId: ingest.notebook.notebookId,
+    XCTAssertThrowsError(try service.startTranslationJob(
+      notebookId: ingest.notebook.notebookId,
       targetLanguage: "   "
     ))
+    XCTAssertTrue(try service.translationJobs(notebookId: ingest.notebook.notebookId).isEmpty)
   }
 
-  func testTranslationNotebookInheritsProtectedSourceLibrary() async throws {
+  func testTranslationsStayInTheProtectedSourceLibrary() async throws {
     let service = try makeService()
     let protectedLibrary = try service.createLibrary(
       name: "protected-translation-source",
@@ -121,148 +124,30 @@ final class AITranslationTests: NoteTestCase {
       title: "Protected guide",
       pages: [NotePageDraft(bodyMarkdown: "# Protected\nDo not publish.")]
     )
-    let translation = AITranslationService(
+    let job = try await AITranslationService(
       service: protectedService,
       invoker: RecordingTranslationInvoker()
-    )
-
-    let translated = try await translation.translateNotebook(
-      sourceNotebookId: source.notebook.notebookId,
-      targetLanguage: "English"
-    )
-    let translatedNote = try XCTUnwrap(
-      protectedService.listNotes(notebookId: translated.notebookId, limit: 1, offset: 0).first
-    )
-    XCTAssertEqual(translated.libraryId, protectedLibrary.libraryId)
-
-    let unauthenticated = service.scoped(to: NoteStoreSchema.defaultUserId).unauthenticated()
-    XCTAssertThrowsError(try unauthenticated.getNotebook(translated.notebookId)) { error in
-      guard case .notFound = error as? NoteServiceError else {
-        return XCTFail("expected protected translation notebook to be notFound, got \(error)")
-      }
-    }
-    XCTAssertThrowsError(try unauthenticated.getNote(translatedNote.noteId)) { error in
-      guard case .notFound = error as? NoteServiceError else {
-        return XCTFail("expected protected translation note to be notFound, got \(error)")
-      }
-    }
-  }
-
-  func testStartTranslationRejectsSourceLibraryMoveAtCreationBoundary() throws {
-    var service = try makeService()
-    let source = try service.createNotebookWithNotes(
-      title: "Open guide",
-      pages: [NotePageDraft(bodyMarkdown: "# Open\nMoves during creation.")]
-    )
-    let protectedLibrary = try service.createLibrary(
-      name: "translation-creation-race",
-      authRequired: true
-    )
-    service.translationCreationPreinsertHook = { database in
-      try database.execute(
-        "UPDATE notebooks SET library_id = ? WHERE notebook_id = ?",
-        bindings: [.id(protectedLibrary.libraryId), .id(source.notebook.notebookId)]
-      )
-    }
-
-    XCTAssertThrowsError(try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
-      targetLanguage: "English"
-    )) { error in
-      guard case .conflict = error as? NoteServiceError else {
-        return XCTFail("expected conflict, got \(error)")
-      }
-    }
-    let translations = try service.driver.withDatabase { database in
-      try database.query(
-        "SELECT notebook_id FROM notebooks WHERE json_extract(meta_json, '$.kaibaTranslation.sourceNotebookId') = ?",
-        bindings: [.id(source.notebook.notebookId)]
-      )
-    }
-    XCTAssertTrue(translations.isEmpty)
-  }
-
-  func testTranslationRunRejectsSourceMoveDuringProviderInvocation() async throws {
-    let service = try makeService()
-    let source = try service.createNotebookWithNotes(
-      title: "Open guide",
-      pages: [NotePageDraft(bodyMarkdown: "# Open\nMoves during execution.")]
-    )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
-      targetLanguage: "English"
-    )
-    let protectedLibrary = try service.createLibrary(
-      name: "translation-execution-race",
-      authRequired: true
-    )
-    let invoker = RecordingTranslationInvoker(onInvoke: { _ in
-      _ = try service.moveNotebook(source.notebook.notebookId, toLibrary: protectedLibrary.name)
-    })
-
-    do {
-      _ = try await AITranslationService(service: service, invoker: invoker).run(
-        translationNotebookId: pending.notebookId
-      )
-      XCTFail("expected source and translation library mismatch")
-    } catch let error as NoteServiceError {
-      guard case .conflict = error else {
-        return XCTFail("expected conflict, got \(error)")
-      }
-    }
-    XCTAssertEqual(invoker.requests.count, 1)
+    ).translateNotebook(notebookId: source.notebook.notebookId, targetLanguage: "English")
+    XCTAssertEqual(job.status, .completed)
     XCTAssertEqual(
-      try service.listNotes(notebookId: pending.notebookId, limit: 10, offset: 0).count,
-      0
+      try protectedService.noteTranslations(noteId: source.notes[0].noteId).map(\.body),
+      ["translated: # Protected\nDo not publish."]
     )
-  }
-
-  func testTranslationFailureDoesNotPersistAfterDestinationMovesOpenDuringProviderInvocation() async throws {
-    let service = try makeService()
-    let protectedLibrary = try service.createLibrary(
-      name: "translation-failure-boundary",
-      authRequired: true
-    )
-    let source = try service.scoped(toLibrary: protectedLibrary.libraryId).createNotebookWithNotes(
-      title: "Protected guide",
-      pages: [NotePageDraft(bodyMarkdown: "# Protected\nDo not expose provider failures.")]
-    )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
-      targetLanguage: "English"
-    )
-    let sentinel = "provider failure contains protected translation context"
-    let invoker = RecordingTranslationInvoker(onInvoke: { _ in
-      _ = try service.moveNotebook(
-        pending.notebookId,
-        toLibrary: NoteStoreSchema.defaultLibraryName
-      )
-      throw AgentInvocationError.failed(sentinel)
-    })
-
-    do {
-      _ = try await AITranslationService(service: service, invoker: invoker).run(
-        translationNotebookId: pending.notebookId
-      )
-      XCTFail("expected provider failure")
-    } catch AgentInvocationError.failed(let message) {
-      XCTAssertEqual(message, sentinel)
-    }
-
-    let ownerTranslation = try service.getNotebook(pending.notebookId)
-    let ownerState = try XCTUnwrap(NoteService.translationState(of: ownerTranslation))
-    XCTAssertEqual(ownerState.status, .pending)
-    XCTAssertNil(ownerState.errorMessage)
 
     let unauthenticated = service.scoped(to: NoteStoreSchema.defaultUserId).unauthenticated()
-    let publicTranslation = try unauthenticated.getNotebook(pending.notebookId)
-    let publicState = try XCTUnwrap(NoteService.translationState(of: publicTranslation))
-    XCTAssertEqual(publicState.status, .pending)
-    XCTAssertNil(publicState.errorMessage)
-    XCTAssertFalse(publicTranslation.metaJSON?.contains(sentinel) == true)
+    XCTAssertThrowsError(try unauthenticated.noteTranslations(noteId: source.notes[0].noteId)) { error in
+      guard case .notFound = error as? NoteServiceError else {
+        return XCTFail("expected protected translations to be notFound, got \(error)")
+      }
+    }
+    XCTAssertThrowsError(try unauthenticated.getTranslationJob(job.jobId)) { error in
+      guard case .notFound = error as? NoteServiceError else {
+        return XCTFail("expected protected translation job to be notFound, got \(error)")
+      }
+    }
   }
 
-  func testTranslateNotebookTranslatesEveryNoteInOrder() async throws {
+  func testTranslateNotebookStoresOneTranslationPerNoteInOrder() async throws {
     let service = try makeService()
     let ingest = try service.createNotebookWithNotes(
       title: "Guide",
@@ -278,22 +163,26 @@ final class AITranslationTests: NoteTestCase {
       provider: "openrouter",
       model: "test-model"
     )
-    let notebook = try await translation.translateNotebook(
-      sourceNotebookId: ingest.notebook.notebookId,
+    let job = try await translation.translateNotebook(
+      notebookId: ingest.notebook.notebookId,
       targetLanguage: "English"
     )
-    let state = try XCTUnwrap(NoteService.translationState(of: notebook))
-    XCTAssertEqual(state.status, .completed)
-    let notes = try service.listNotes(notebookId: notebook.notebookId, limit: 10, offset: 0)
+    XCTAssertEqual(job.status, .completed)
+    XCTAssertNil(job.continuationNoteId)
+    XCTAssertNil(job.sourceRevision)
+    let translations = try ingest.notes.map { try service.noteTranslations(noteId: $0.noteId) }
+    XCTAssertEqual(translations.map { $0.map(\.body) }, [
+      ["translated: # One\nBody."],
+      ["translated: # Two\nText."]
+    ])
+    XCTAssertEqual(translations.flatMap { $0.map(\.language) }, ["English", "English"])
+    XCTAssertTrue(translations.allSatisfy { $0.allSatisfy(\.isCurrent) })
+    // Source notes are never edited and no output notes are created.
     XCTAssertEqual(
-      notes.map(\.bodyMarkdown),
-      ["translated: # One\nBody.", "translated: # Two\nText."]
+      try service.listNotes(notebookId: ingest.notebook.notebookId, limit: 10, offset: 0).map(\.bodyMarkdown),
+      ["# One\nBody.", "# Two\nText."]
     )
-    XCTAssertEqual(
-      notes.map { $0.metaJSON?.contains(ingest.notes[0].noteId.rawValue) == true },
-      [true, false]
-    )
-    XCTAssertEqual(invoker.requests.count, 2)
+    XCTAssertEqual(invoker.requests.map { $0.turns.last?.markdown }, ["# One\nBody.", "# Two\nText."])
     for request in invoker.requests {
       XCTAssertEqual(request.purpose, .translation)
       XCTAssertTrue(request.systemPrompt.contains("English"))
@@ -301,6 +190,70 @@ final class AITranslationTests: NoteTestCase {
       XCTAssertEqual(request.model, "test-model")
       XCTAssertNil(request.contextMarkdown)
     }
+  }
+
+  func testSecondLanguageAddsAVersionAndEditMarksTranslationsStale() async throws {
+    let service = try makeService()
+    let ingest = try service.createNotebookWithNotes(
+      title: "Guide",
+      pages: [NotePageDraft(bodyMarkdown: "# One\nBody.", readOnly: false)]
+    )
+    let translation = AITranslationService(service: service, invoker: RecordingTranslationInvoker())
+    _ = try await translation.translateNotebook(notebookId: ingest.notebook.notebookId, targetLanguage: "English")
+    _ = try await translation.translateNotebook(notebookId: ingest.notebook.notebookId, targetLanguage: "Japanese")
+    let noteId = ingest.notes[0].noteId
+    XCTAssertEqual(try service.noteTranslations(noteId: noteId).map(\.language), ["English", "Japanese"])
+    XCTAssertTrue(try service.noteTranslations(noteId: noteId).allSatisfy(\.isCurrent))
+
+    _ = try service.updateNoteBody(noteId: noteId, bodyMarkdown: "# One\nEdited.")
+    XCTAssertEqual(try service.noteTranslations(noteId: noteId).map(\.isCurrent), [false, false])
+
+    // Re-running one language replaces that version in place; the other stays stale.
+    let invoker = RecordingTranslationInvoker()
+    _ = try await AITranslationService(service: service, invoker: invoker)
+      .translateNotebook(notebookId: ingest.notebook.notebookId, targetLanguage: "Japanese")
+    XCTAssertEqual(invoker.requests.count, 1)
+    let versions = try service.noteTranslations(noteId: noteId)
+    XCTAssertEqual(versions.map(\.language), ["English", "Japanese"])
+    XCTAssertEqual(versions.map(\.isCurrent), [false, true])
+    XCTAssertEqual(versions[1].body, "translated: # One\nEdited.")
+  }
+
+  func testSearchFindsTheSourceNoteByItsTranslation() async throws {
+    let service = try makeService()
+    let ingest = try service.createNotebookWithNotes(
+      title: "Guide",
+      pages: [NotePageDraft(bodyMarkdown: "# Original\nQuelle.")]
+    )
+    _ = try await AITranslationService(
+      service: service,
+      invoker: RecordingTranslationInvoker(reply: { _ in "zebracrossing translated text" })
+    ).translateNotebook(notebookId: ingest.notebook.notebookId, targetLanguage: "English")
+    let hits = try service.searchNotes(query: "zebracrossing")
+    XCTAssertEqual(hits.map(\.note.noteId), [ingest.notes[0].noteId])
+  }
+
+  func testDeletingSourceCascadesTranslationsAndUndoRestoresThem() async throws {
+    let service = try makeService()
+    let ingest = try service.createNotebookWithNotes(
+      title: "Guide",
+      pages: [NotePageDraft(bodyMarkdown: "# One\nBody.", readOnly: false)]
+    )
+    _ = try await AITranslationService(service: service, invoker: RecordingTranslationInvoker())
+      .translateNotebook(notebookId: ingest.notebook.notebookId, targetLanguage: "English")
+    let noteId = ingest.notes[0].noteId
+    let before = try service.noteTranslations(noteId: noteId)
+    XCTAssertEqual(before.count, 1)
+
+    try service.deleteNote(noteId: noteId)
+    let remaining = try service.driver.withDatabase { database in
+      try database.query("SELECT COUNT(*) AS count FROM note_translations").first?["count"]
+    }
+    XCTAssertEqual(remaining, "0")
+
+    _ = try XCTUnwrap(try service.undoLastAction())
+    XCTAssertEqual(try service.noteTranslations(noteId: noteId), before)
+    XCTAssertEqual(try service.searchNotes(query: "translated").map(\.note.noteId), [noteId])
   }
 
   func testRunResumesAfterFailureWithoutRetranslating() async throws {
@@ -312,40 +265,36 @@ final class AITranslationTests: NoteTestCase {
         NotePageDraft(bodyMarkdown: "# Two\nText.")
       ]
     )
-    let failing = RecordingTranslationInvoker(failOnCallIndices: [1])
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: ingest.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: ingest.notebook.notebookId,
       targetLanguage: "English"
     )
-    let firstAttempt = AITranslationService(service: service, invoker: failing)
     do {
-      _ = try await firstAttempt.run(translationNotebookId: pending.notebookId)
+      _ = try await AITranslationService(
+        service: service,
+        invoker: RecordingTranslationInvoker(failOnCallIndices: [1])
+      ).run(jobId: pending.jobId)
       XCTFail("expected the stubbed second translation call to fail")
     } catch {}
-    let failedState = try XCTUnwrap(
-      NoteService.translationState(of: try service.getNotebook(pending.notebookId))
-    )
-    XCTAssertEqual(failedState.status, .failed)
-    XCTAssertTrue(failedState.errorMessage?.contains("stub translation failure") == true)
-    XCTAssertEqual(
-      try service.listNotes(notebookId: pending.notebookId, limit: 10, offset: 0).count,
-      1
-    )
+    let failed = try service.getTranslationJob(pending.jobId)
+    XCTAssertEqual(failed.status, .failed)
+    XCTAssertTrue(failed.errorMessage?.contains("stub translation failure") == true)
+    XCTAssertEqual(try service.noteTranslations(noteId: ingest.notes[0].noteId).count, 1)
+    XCTAssertTrue(try service.noteTranslations(noteId: ingest.notes[1].noteId).isEmpty)
 
     let resuming = RecordingTranslationInvoker()
-    let secondAttempt = AITranslationService(service: service, invoker: resuming)
-    let notebook = try await secondAttempt.run(translationNotebookId: pending.notebookId)
-    XCTAssertEqual(NoteService.translationState(of: notebook)?.status, .completed)
-    // Only the untranslated second note is retranslated on resume.
-    XCTAssertEqual(resuming.requests.count, 1)
+    let job = try await AITranslationService(service: service, invoker: resuming).run(jobId: pending.jobId)
+    XCTAssertEqual(job.status, .completed)
+    XCTAssertNil(job.errorMessage)
+    // Only the untranslated second note is translated on resume.
+    XCTAssertEqual(resuming.requests.map { $0.turns.last?.markdown }, ["# Two\nText."])
     XCTAssertEqual(
-      try service.listNotes(notebookId: pending.notebookId, limit: 10, offset: 0)
-        .map(\.bodyMarkdown),
+      try ingest.notes.flatMap { try service.noteTranslations(noteId: $0.noteId).map(\.body) },
       ["translated: # One\nBody.", "translated: # Two\nText."]
     )
   }
 
-  func testRunResumesBySourceIdentityAfterEarlierSourceIsDeleted() async throws {
+  func testRunResumesAfterEarlierSourceIsDeleted() async throws {
     let service = try makeService()
     let ingest = try service.createNotebookWithNotes(
       title: "Guide",
@@ -354,15 +303,15 @@ final class AITranslationTests: NoteTestCase {
         NotePageDraft(bodyMarkdown: "# Two\nText.")
       ]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: ingest.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: ingest.notebook.notebookId,
       targetLanguage: "English"
     )
     do {
       _ = try await AITranslationService(
         service: service,
         invoker: RecordingTranslationInvoker(failOnCallIndices: [1])
-      ).run(translationNotebookId: pending.notebookId)
+      ).run(jobId: pending.jobId)
       XCTFail("expected the second source translation to fail")
     } catch {}
 
@@ -372,16 +321,12 @@ final class AITranslationTests: NoteTestCase {
       }
     }
     let resuming = RecordingTranslationInvoker()
-    let completed = try await AITranslationService(service: service, invoker: resuming).run(
-      translationNotebookId: pending.notebookId
-    )
+    let completed = try await AITranslationService(service: service, invoker: resuming).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
-    XCTAssertEqual(resuming.requests.count, 1)
-    let translated = try service.listNotes(notebookId: pending.notebookId, limit: 10, offset: 0)
-    XCTAssertEqual(translated.count, 2)
+    XCTAssertEqual(completed.status, .completed)
+    XCTAssertEqual(resuming.requests.map { $0.turns.last?.markdown }, ["# Two\nText."])
     XCTAssertEqual(
-      translated.compactMap { $0.metaJSON?.contains(ingest.notes[1].noteId.rawValue) == true ? $0.bodyMarkdown : nil },
+      try service.noteTranslations(noteId: ingest.notes[1].noteId).map(\.body),
       ["translated: # Two\nText."]
     )
   }
@@ -392,8 +337,8 @@ final class AITranslationTests: NoteTestCase {
       title: "Guide",
       pages: [NotePageDraft(bodyMarkdown: "# Initial\nBody.")]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let addedSourceMarkdown = "# Added during translation\nBody."
@@ -407,27 +352,25 @@ final class AITranslationTests: NoteTestCase {
       )
     })
 
-    let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
-    )
+    let completed = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requests.count, 2)
+    let notes = try service.listNotes(notebookId: source.notebook.notebookId, limit: 10, offset: 0)
     XCTAssertEqual(
-      try service.listNotes(notebookId: completed.notebookId, limit: 10, offset: 0)
-        .map(\.bodyMarkdown),
-      ["translated: # Initial\nBody.", "translated: # Added during translation\nBody."]
+      try notes.flatMap { try service.noteTranslations(noteId: $0.noteId).map(\.body) },
+      ["translated: # Initial\nBody.", "translated: \(addedSourceMarkdown)"]
     )
   }
 
-  func testRunCompletesAfterProviderDeletesSourceBeforeOutputWrite() async throws {
+  func testRunCompletesAfterProviderDeletesSourceBeforeTranslationWrite() async throws {
     let service = try makeService()
     let source = try service.createNotebookWithNotes(
       title: "Guide",
       pages: [NotePageDraft(bodyMarkdown: "# Deleted during translation\nBody.")]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let invoker = RecordingTranslationInvoker(onInvoke: { request in
@@ -441,13 +384,14 @@ final class AITranslationTests: NoteTestCase {
       }
     })
 
-    let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
-    )
+    let completed = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requests.count, 1)
-    XCTAssertTrue(try service.listNotes(notebookId: completed.notebookId, limit: 10, offset: 0).isEmpty)
+    let stored = try service.driver.withDatabase { database in
+      try database.query("SELECT COUNT(*) AS count FROM note_translations").first?["count"]
+    }
+    XCTAssertEqual(stored, "0")
   }
 
   func testRunRetranslatesAChangedSourceBeforeCompletion() async throws {
@@ -456,8 +400,8 @@ final class AITranslationTests: NoteTestCase {
       title: "Guide",
       pages: [NotePageDraft(bodyMarkdown: "# Initial\nBody.", readOnly: false)]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let updatedSourceMarkdown = "# Updated during translation\nBody."
@@ -471,18 +415,16 @@ final class AITranslationTests: NoteTestCase {
       )
     })
 
-    let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
-    )
+    let completed = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requests.map { $0.turns.last?.markdown }, [
       "# Initial\nBody.",
       updatedSourceMarkdown
     ])
-    let translated = try service.listNotes(notebookId: completed.notebookId, limit: 10, offset: 0)
-    XCTAssertEqual(translated.map(\.bodyMarkdown), ["translated: \(updatedSourceMarkdown)"])
-    XCTAssertTrue(translated[0].metaJSON?.contains("sourceContentHash") == true)
+    let versions = try service.noteTranslations(noteId: source.notes[0].noteId)
+    XCTAssertEqual(versions.map(\.body), ["translated: \(updatedSourceMarkdown)"])
+    XCTAssertEqual(versions.map(\.isCurrent), [true])
   }
 
   func testRunFailsWithinReconciliationBudgetWhenSourceNeverConverges() async throws {
@@ -491,8 +433,8 @@ final class AITranslationTests: NoteTestCase {
       title: "Churning guide",
       pages: [NotePageDraft(bodyMarkdown: "# Initial\nBody.", readOnly: false)]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     var version = 0
@@ -505,17 +447,15 @@ final class AITranslationTests: NoteTestCase {
     })
 
     do {
-      _ = try await AITranslationService(service: service, invoker: invoker).run(
-        translationNotebookId: pending.notebookId
-      )
+      _ = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
       XCTFail("expected repeated source churn to consume one bounded dispatch attempt")
     } catch AgentInvocationError.failed(let message) {
       XCTAssertTrue(message.contains("reconciliation budget"))
     }
     XCTAssertEqual(invoker.requests.count, AITranslationReconciliationLimits.maximumRounds)
-    let state = try XCTUnwrap(NoteService.translationState(of: try service.getNotebook(pending.notebookId)))
-    XCTAssertEqual(state.status, .failed)
-    XCTAssertTrue(state.errorMessage?.contains("reconciliation budget") == true)
+    let job = try service.getTranslationJob(pending.jobId)
+    XCTAssertEqual(job.status, .failed)
+    XCTAssertTrue(job.errorMessage?.contains("reconciliation budget") == true)
   }
 
   func testRunStopsWhenElapsedBudgetExpiresDuringChurnReconciliation() async throws {
@@ -524,8 +464,8 @@ final class AITranslationTests: NoteTestCase {
       title: "Slow guide",
       pages: [NotePageDraft(bodyMarkdown: "# Initial\nBody.", readOnly: false)]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let clock = ManualTranslationReconciliationClock()
@@ -549,17 +489,17 @@ final class AITranslationTests: NoteTestCase {
     )
 
     do {
-      _ = try await translation.run(translationNotebookId: pending.notebookId)
+      _ = try await translation.run(jobId: pending.jobId)
       XCTFail("expected elapsed reconciliation budget to stop the current dispatch")
     } catch AgentInvocationError.failed(let message) {
       XCTAssertTrue(message.contains("reconciliation budget"))
     }
 
     XCTAssertEqual(invoker.requests.count, 2)
-    XCTAssertTrue(try service.listNotes(notebookId: pending.notebookId, limit: 10, offset: 0).isEmpty)
-    let state = try XCTUnwrap(NoteService.translationState(of: try service.getNotebook(pending.notebookId)))
-    XCTAssertEqual(state.status, .failed)
-    XCTAssertTrue(state.errorMessage?.contains("reconciliation budget") == true)
+    XCTAssertTrue(try service.noteTranslations(noteId: source.notes[0].noteId).isEmpty)
+    let job = try service.getTranslationJob(pending.jobId)
+    XCTAssertEqual(job.status, .failed)
+    XCTAssertTrue(job.errorMessage?.contains("reconciliation budget") == true)
   }
 
   func testRunTranslatesStableSourceSetBeyondReconciliationProviderLimit() async throws {
@@ -571,8 +511,8 @@ final class AITranslationTests: NoteTestCase {
         NotePageDraft(bodyMarkdown: "# Source \(index)\nBody.")
       }
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let invoker = RecordingTranslationInvoker()
@@ -584,21 +524,16 @@ final class AITranslationTests: NoteTestCase {
       sourcePageObserver: { pageSize in
         await pageRecorder.record(pageSize)
       }
-    ).run(
-      translationNotebookId: pending.notebookId
-    )
+    ).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requests.count, sourceCount)
     let observedPageSizes = await pageRecorder.values()
     XCTAssertEqual(
       observedPageSizes,
       [AITranslationReconciliationLimits.maximumProviderInvocations, 1]
     )
-    XCTAssertEqual(
-      try service.listNotes(notebookId: completed.notebookId, limit: sourceCount + 1, offset: 0).count,
-      sourceCount
-    )
+    XCTAssertEqual(try storedTranslationCount(service), sourceCount)
   }
 
   func testQueuedStableLargeTranslationContinuesInDurableBoundedChunks() async throws {
@@ -617,33 +552,25 @@ final class AITranslationTests: NoteTestCase {
       }
     )
 
-    let (translation, queued) = try service.requestNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let (job, queued) = try service.requestNotebookTranslation(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     XCTAssertTrue(queued)
-    let translationNotebookId = try XCTUnwrap(translation).notebookId
+    let jobId = try XCTUnwrap(job).jobId
     await service.drainAutoActionDispatches()
 
-    XCTAssertEqual(
-      NoteService.translationState(of: try service.getNotebook(translationNotebookId))?.status,
-      .pending
-    )
+    let pendingJob = try service.getTranslationJob(jobId)
+    XCTAssertEqual(pendingJob.status, .pending)
+    XCTAssertNotNil(pendingJob.continuationNoteId)
     XCTAssertEqual(invoker.requests.count, AITranslationReconciliationLimits.maximumProviderInvocations)
-    let pendingState = try XCTUnwrap(
-      NoteService.translationState(of: try service.getNotebook(translationNotebookId))
-    )
-    XCTAssertNotNil(pendingState.continuationSourceNoteId)
     XCTAssertEqual(try service.retryPendingAutoActionDispatches(), 1)
     await service.drainAutoActionDispatches()
 
-    XCTAssertEqual(
-      NoteService.translationState(of: try service.getNotebook(translationNotebookId))?.status,
-      .completed
-    )
+    XCTAssertEqual(try service.getTranslationJob(jobId).status, .completed)
     let dispatch = try XCTUnwrap(
       try service.listAutoActionDispatchAttempts().first(where: {
-        $0.record.event.notebookId == translationNotebookId
+        $0.record.event.translationJobId == jobId
           && $0.record.action.workflowId == NoteStoreSchema.notebookTranslationWorkflowId
       })
     )
@@ -681,12 +608,12 @@ final class AITranslationTests: NoteTestCase {
       title: "Queued churning guide",
       pages: [NotePageDraft(bodyMarkdown: "# Initial\nBody.", readOnly: false)]
     )
-    let (translation, queued) = try service.requestNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let (job, queued) = try service.requestNotebookTranslation(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     XCTAssertTrue(queued)
-    let translationNotebookId = try XCTUnwrap(translation).notebookId
+    let jobId = try XCTUnwrap(job).jobId
 
     for attempt in 1...maximumAutoActionDispatchAttempts {
       if attempt > 1 {
@@ -695,7 +622,7 @@ final class AITranslationTests: NoteTestCase {
       await service.drainAutoActionDispatches()
       let dispatch = try XCTUnwrap(
         try service.listAutoActionDispatchAttempts().first(where: {
-          $0.record.event.notebookId == translationNotebookId
+          $0.record.event.translationJobId == jobId
             && $0.record.action.workflowId == NoteStoreSchema.notebookTranslationWorkflowId
         })
       )
@@ -728,14 +655,14 @@ final class AITranslationTests: NoteTestCase {
     XCTAssertNotNil(admission.acquire(principalId: "user:alice"))
   }
 
-  func testRunReplacesStaleOutputAfterPostWriteSourceEdit() async throws {
+  func testRunReplacesTranslationInPlaceAfterPostWriteSourceEdit() async throws {
     var service = try makeService()
     let source = try service.createNotebookWithNotes(
       title: "Guide",
       pages: [NotePageDraft(bodyMarkdown: "# Initial\nBody.", readOnly: false)]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
     let initialOutput = "translated: # Initial\nBody."
@@ -743,15 +670,15 @@ final class AITranslationTests: NoteTestCase {
     let originalSourceUpdatedAt = source.notebook.updatedAt
     let mutationService = service
     service.translationOutputPostCommitHook = { output in
-      guard output.notebookId == pending.notebookId,
-        output.bodyMarkdown == initialOutput
-      else {
+      guard output.noteId == source.notes[0].noteId, output.body == initialOutput else {
         return
       }
       _ = try mutationService.updateNoteBody(
         noteId: source.notes[0].noteId,
         bodyMarkdown: updatedSourceMarkdown
       )
+      // Preserve the prior timestamp to prove completion relies on the durable
+      // notebook revision rather than a wall-clock change.
       try mutationService.driver.withDatabase { database in
         try database.transaction { db in
           try db.execute(
@@ -763,21 +690,17 @@ final class AITranslationTests: NoteTestCase {
     }
 
     let invoker = RecordingTranslationInvoker()
-    let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
-    )
+    let completed = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requests.map { $0.turns.last?.markdown }, [
       "# Initial\nBody.",
       updatedSourceMarkdown
     ])
-    let translated = try service.listNotes(notebookId: completed.notebookId, limit: 10, offset: 0)
-    XCTAssertEqual(translated.count, 1)
-    XCTAssertEqual(translated.map(\.bodyMarkdown), ["translated: \(updatedSourceMarkdown)"])
-    XCTAssertTrue(translated[0].metaJSON?.contains(
-      NoteService.translationSourceContentHash(updatedSourceMarkdown)
-    ) == true)
+    let versions = try service.noteTranslations(noteId: source.notes[0].noteId)
+    XCTAssertEqual(versions.map(\.body), ["translated: \(updatedSourceMarkdown)"])
+    XCTAssertEqual(versions.map(\.isCurrent), [true])
+    XCTAssertEqual(try storedTranslationCount(service), 1)
   }
 
   func testRunRetranslatesAgentChatReplyCommittedAfterOutput() async throws {
@@ -790,15 +713,14 @@ final class AITranslationTests: NoteTestCase {
       agentAvailable: true
     )
     let initialTurn = try service.getNote(turn.noteId)
-    let sourceBeforeTranslation = try service.getNotebook(conversation.notebookId)
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: conversation.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: conversation.notebookId,
       targetLanguage: "English"
     )
     let mutationService = service
     service.translationOutputPostCommitHook = { output in
-      guard output.notebookId == pending.notebookId,
-        output.bodyMarkdown == "translated: \(initialTurn.bodyMarkdown)"
+      guard output.noteId == turn.noteId,
+        output.body == "translated: \(initialTurn.bodyMarkdown)"
       else {
         return
       }
@@ -806,31 +728,19 @@ final class AITranslationTests: NoteTestCase {
         turnNoteId: turn.noteId,
         assistantMarkdown: "The reply committed after translation output."
       )
-      // Preserve the prior timestamp to prove completion relies on the durable
-      // content revision rather than a wall-clock change.
-      try mutationService.driver.withDatabase { database in
-        try database.transaction { db in
-          try db.execute(
-            "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-            bindings: [.text(sourceBeforeTranslation.updatedAt), .id(conversation.notebookId)]
-          )
-        }
-      }
     }
 
     let invoker = RecordingTranslationInvoker()
-    let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
-    )
+    let completed = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
 
     let answeredTurn = try service.getNote(turn.noteId)
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requests.map { $0.turns.last?.markdown }, [
       initialTurn.bodyMarkdown,
       answeredTurn.bodyMarkdown
     ])
     XCTAssertEqual(
-      try service.listNotes(notebookId: completed.notebookId, limit: 10, offset: 0).map(\.bodyMarkdown),
+      try service.noteTranslations(noteId: turn.noteId).map(\.body),
       ["translated: \(answeredTurn.bodyMarkdown)"]
     )
   }
@@ -841,33 +751,22 @@ final class AITranslationTests: NoteTestCase {
       title: "Guide",
       pages: [NotePageDraft(bodyMarkdown: "# Deleted after output\nBody.", readOnly: false)]
     )
-    let pending = try service.startNotebookTranslation(
-      sourceNotebookId: source.notebook.notebookId,
+    let pending = try service.startTranslationJob(
+      notebookId: source.notebook.notebookId,
       targetLanguage: "English"
     )
-    let originalSourceUpdatedAt = source.notebook.updatedAt
     let mutationService = service
     service.translationOutputPostCommitHook = { output in
-      guard output.notebookId == pending.notebookId else { return }
+      guard output.noteId == source.notes[0].noteId else { return }
       try mutationService.deleteNote(noteId: source.notes[0].noteId)
-      try mutationService.driver.withDatabase { database in
-        try database.transaction { db in
-          try db.execute(
-            "UPDATE notebooks SET updated_at = ? WHERE notebook_id = ?",
-            bindings: [.text(originalSourceUpdatedAt), .id(source.notebook.notebookId)]
-          )
-        }
-      }
     }
 
     let invoker = RecordingTranslationInvoker()
-    let completed = try await AITranslationService(service: service, invoker: invoker).run(
-      translationNotebookId: pending.notebookId
-    )
+    let completed = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
 
-    XCTAssertEqual(NoteService.translationState(of: completed)?.status, .completed)
+    XCTAssertEqual(completed.status, .completed)
     XCTAssertEqual(invoker.requests.count, 1)
-    XCTAssertTrue(try service.listNotes(notebookId: completed.notebookId, limit: 10, offset: 0).isEmpty)
+    XCTAssertEqual(try storedTranslationCount(service), 0)
   }
 
   func testCompletedTranslationRunIsIdempotent() async throws {
@@ -878,12 +777,42 @@ final class AITranslationTests: NoteTestCase {
     )
     let invoker = RecordingTranslationInvoker()
     let translation = AITranslationService(service: service, invoker: invoker)
-    let notebook = try await translation.translateNotebook(
-      sourceNotebookId: ingest.notebook.notebookId,
+    let job = try await translation.translateNotebook(
+      notebookId: ingest.notebook.notebookId,
       targetLanguage: "English"
     )
-    _ = try await translation.run(translationNotebookId: notebook.notebookId)
+    let rerun = try await translation.run(jobId: job.jobId)
+    XCTAssertEqual(rerun.status, .completed)
     XCTAssertEqual(invoker.requests.count, 1)
+
+    // A new job over unchanged sources completes without provider calls.
+    let again = try await translation.translateNotebook(
+      notebookId: ingest.notebook.notebookId,
+      targetLanguage: "English"
+    )
+    XCTAssertEqual(again.status, .completed)
+    XCTAssertEqual(invoker.requests.count, 1)
+  }
+
+  func testCancelledJobIsNeverRun() async throws {
+    let service = try makeService()
+    let ingest = try service.createNotebookWithNotes(
+      title: "Guide",
+      pages: [NotePageDraft(bodyMarkdown: "# One\nBody.")]
+    )
+    let pending = try service.startTranslationJob(
+      notebookId: ingest.notebook.notebookId,
+      targetLanguage: "English"
+    )
+    let cancelled = try service.setTranslationJobStatus(pending.jobId, status: .cancelled, errorMessage: "stop")
+    XCTAssertEqual(cancelled.status, .cancelled)
+    XCTAssertEqual(cancelled.errorMessage, "stop")
+
+    let invoker = RecordingTranslationInvoker()
+    let result = try await AITranslationService(service: service, invoker: invoker).run(jobId: pending.jobId)
+    XCTAssertEqual(result.status, .cancelled)
+    XCTAssertTrue(invoker.requests.isEmpty)
+    XCTAssertTrue(try service.noteTranslations(noteId: ingest.notes[0].noteId).isEmpty)
   }
 
   func testRequestWithoutDispatcherCreatesNothing() throws {
@@ -892,12 +821,13 @@ final class AITranslationTests: NoteTestCase {
       title: "Guide",
       pages: [NotePageDraft(bodyMarkdown: "# One\nBody.")]
     )
-    let (notebook, queued) = try service.requestNotebookTranslation(
-      sourceNotebookId: ingest.notebook.notebookId,
+    let (job, queued) = try service.requestNotebookTranslation(
+      notebookId: ingest.notebook.notebookId,
       targetLanguage: "English"
     )
-    XCTAssertNil(notebook)
+    XCTAssertNil(job)
     XCTAssertFalse(queued)
+    XCTAssertTrue(try service.translationJobs(notebookId: ingest.notebook.notebookId).isEmpty)
   }
 
   func testRequestWithDispatcherRunsTranslationToCompletion() async throws {
@@ -916,17 +846,16 @@ final class AITranslationTests: NoteTestCase {
       ]
     )
     let (pending, queued) = try service.requestNotebookTranslation(
-      sourceNotebookId: ingest.notebook.notebookId,
+      notebookId: ingest.notebook.notebookId,
       targetLanguage: "Japanese"
     )
     XCTAssertTrue(queued)
-    let pendingNotebookId = try XCTUnwrap(pending).notebookId
+    let jobId = try XCTUnwrap(pending).jobId
     await service.drainAutoActionDispatches()
-    let finished = try service.getNotebook(pendingNotebookId)
-    XCTAssertEqual(NoteService.translationState(of: finished)?.status, .completed)
+    XCTAssertEqual(try service.getTranslationJob(jobId).status, .completed)
     XCTAssertEqual(
-      try service.listNotes(notebookId: pendingNotebookId, limit: 10, offset: 0).count,
-      2
+      try ingest.notes.flatMap { try service.noteTranslations(noteId: $0.noteId).map(\.language) },
+      ["Japanese", "Japanese"]
     )
   }
 
@@ -966,4 +895,9 @@ final class AITranslationTests: NoteTestCase {
     XCTAssertEqual(configuration.ai?.translate?.defaultTargetLanguage, "Japanese")
   }
 
+  private func storedTranslationCount(_ service: NoteService) throws -> Int {
+    try service.driver.withDatabase { database in
+      Int(try database.query("SELECT COUNT(*) AS count FROM note_translations").first?["count"] ?? "") ?? -1
+    }
+  }
 }

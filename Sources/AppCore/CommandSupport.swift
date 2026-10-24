@@ -321,7 +321,30 @@ func jsonObject(_ note: Note) -> JSONObject {
   ]
   object["title"] = note.title.map(JSONValue.string)
   object["metaJSON"] = note.metaJSON.map(JSONValue.string)
+  object["documentPage"] = note.documentPage.map { .object(jsonObject($0)) }
   return object
+}
+
+func jsonObject(_ page: DocumentPage) -> JSONObject {
+  var object: JSONObject = [
+    "pageNumber": .integer(Int64(page.pageNumber)),
+    "originFileId": .id(page.originFileId),
+    "originMediaType": .string(page.originMediaType),
+    "textStatus": .string(page.textStatus.rawValue)
+  ]
+  object["textSource"] = page.textSource.map { .string($0.rawValue) }
+  object["textExtractionMode"] = page.textExtractionMode.map { .string($0.rawValue) }
+  return object
+}
+
+func jsonObject(_ translation: NoteTranslation) -> JSONObject {
+  [
+    "noteId": .id(translation.noteId),
+    "language": .string(translation.language),
+    "body": .string(translation.body),
+    "isCurrent": .bool(translation.isCurrent),
+    "updatedAt": .string(translation.updatedAt)
+  ]
 }
 
 func jsonObject(_ notebook: Notebook) -> JSONObject {

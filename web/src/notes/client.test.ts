@@ -215,10 +215,10 @@ describe('Note GraphQL transport', () => {
     expect(removeBody.query).toContain('firstNotePreview noteCount')
   })
 
-  test('queues notebook translation and surfaces the pending notebook id', async () => {
+  test('queues notebook translation and surfaces the pending job id', async () => {
     const harness = environment([{ data: { requestNotebookTranslation: {
       result: { accepted: true, status: 'ok', diagnostics: [] },
-      translationNotebookId: asNotebookId('notebook-translated'),
+      translationJobId: 'translation-job-1',
       status: 'queued',
     } } }])
     const client = new NoteGraphQLClient(harness.value)
@@ -226,7 +226,7 @@ describe('Note GraphQL transport', () => {
     expect(await client.requestNotebookTranslation({
       notebookId: asNotebookId('notebook-source'),
       targetLanguage: 'English',
-    })).toEqual({ translationNotebookId: asNotebookId('notebook-translated'), status: 'queued' })
+    })).toEqual({ translationJobId: 'translation-job-1', status: 'queued' })
     const body = requestBody(harness.requests[0])
     expect(body.variables).toEqual({
       input: { notebookId: asNotebookId('notebook-source'), targetLanguage: 'English' },
@@ -356,7 +356,7 @@ async function expectErrorKind(
 
 test('manual document OCR sends only the note ID and retains returned page metadata', async () => {
   const note = { noteId: asNoteId('page-1'), notebookId: asNotebookId('book'), noteNumber: 1, title: null,
-    bodyMarkdown: 'Recognized text', readOnly: false, createdAt: '', updatedAt: '', metaJSON: '{"documentPage":{"ocrState":"complete"}}' }
+    bodyMarkdown: 'Recognized text', readOnly: false, createdAt: '', updatedAt: '', metaJSON: '{"documentPage":{"textStatus":"complete"}}' }
   const harness = environment([{ data: { recognizeDocumentPage: { result: { accepted: true, status: 'ok', diagnostics: [] }, note } } }])
   const result = await new NoteGraphQLClient(harness.value).recognizeDocumentPage(note.noteId)
   expect(result).toEqual(note)
