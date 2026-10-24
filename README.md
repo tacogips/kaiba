@@ -45,23 +45,31 @@ kaiba import scan.jpg --max-ocr-pages all
 kaiba page-ocr <note-id>
 ```
 
-Each physical page becomes a note whose page image is rendered by deterministic
-PDFKit/CoreGraphics code (standalone images keep their own bytes); no AI provider
-produces page images. The reader shows only the page images, with vertical text
-and binding-aware page navigation, and offers OCR for pending pages. There is no
-Text/Original toggle. OCR text is hidden: it is used only for search and for
-agent context, and page bodies cannot be edited (annotate pages with comments).
-Use `0` to import originals without OCR. The New Notebook screen also accepts
-PDF/image uploads up to 1 MiB. Stores from earlier versions are migrated on first
-open (schema version 22): existing page text moves to the hidden search text, so
-those pages stay searchable.
+PDF notebooks retain the original PDF and one source note per physical page.
+Page images are temporary OCR input and are not saved as attachments. Text
+extraction prefers embedded PDF text and falls back to OCR; Settings can choose
+OCR only, and each import can override the default (`--text-mode
+prefer-pdf-text` or `--text-mode ocr-only` in the CLI).
 
-Asking the agent while viewing a page sends that page's image plus the page's
-OCR text, the neighbouring pages' OCR text and related text found by search.
-Anthropic Messages, OpenAI chat completions and agent-gateway (including the
-Claude Code subscription) receive the image. Providers that cannot accept
-images (for example `openai-compatible` and cursor) get only the text and a
-notice that the image was not sent.
+Extracted text is plain text with line and paragraph breaks, used for search and
+AI context. The header switches between Original, OCR text, and per-page
+translations; translation requests support the current page, a range, or the
+whole document. The filename supplies the initial editable document title.
+Page position, navigation, page jumps, and original-PDF zoom are in the footer;
+page edges, arrow keys, and Ctrl+U/Ctrl+D also turn pages. Back restores reader
+jumps with up to 500 prior locations.
+
+Current-page tags open a popup of matching notes/pages. Tags support free input
+and ontology types such as Date, Name, and Place, with separate edit/remove
+controls. Memos and bottom AI discussion stay scoped to the selected source
+page, including when viewing a translation. Analysis in the right pane includes
+file information and the action to make a page searchable.
+
+Use an OCR limit of `0` to import without recognition, or recognize pending
+pages later. The New Notebook screen accepts PDF/image uploads up to 1 MiB;
+larger documents can be imported through the CLI. Standalone images and
+previously imported page images remain viewable. See the
+[PDF reader specification](design-docs/specs/pdf-original-viewer.md).
 
 Native Vision handles local OCR. Configure `import.analysis` and optionally
 `import.ocr` for independent agent-gateway providers, including Codex and

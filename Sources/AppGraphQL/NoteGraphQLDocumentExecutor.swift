@@ -285,6 +285,10 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       return try await encodedJSONValue(service.tagClasses())
     case "noteFile":
       return try await encodedJSONValue(service.noteFile(fileId: requiredIdentifier("fileId", as: FileID.self, variables: variables)))
+    case "documentPageTranslations":
+      return try encodedJSONValue(service.documentPageTranslations(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
+    case "documentPageText":
+      return try encodedJSONValue(service.documentPageText(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
     case "noteFiles":
       return try await encodedJSONValue(service.noteFiles(noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)))
     case "notebookFiles":
@@ -435,6 +439,11 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     case "importDocument":
       let input: GraphQLDocumentImportInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.importDocument(input))
+    case "renameNotebook":
+      return try await encodedJSONValue(service.renameNotebook(
+        notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),
+        title: requiredString("title", variables: variables)
+      ))
     case "recognizeDocumentPage":
       return try await encodedJSONValue(service.recognizeDocumentPage(
         noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)

@@ -1,4 +1,6 @@
 import { For, Show, createSignal, onCleanup, type JSX } from 'solid-js'
+import { WorkspaceIcon } from './WorkspaceIcon'
+import './form-controls.css'
 import { notebookPageLimit } from '../notes/client'
 import { analysisPrompt, analysisTemplates } from '../notes/analysisTemplates'
 import { newIdempotencyKey } from '../notes/chatState'
@@ -147,24 +149,24 @@ export function SourceAnalyses(props: { app: AppStore; notebookId: NotebookId })
           <label>Analysis instructions<textarea aria-label="Analysis instructions" maxLength={10000} rows={4}
             value={prompt()} disabled={busy()} onInput={(event) => setPrompt(event.currentTarget.value)} /></label>
           <p>Saved templates are shared by clients using this store.</p>
-          <button type="button" class="secondary" disabled={busy() || !name().trim() || !prompt().trim()}
-            onClick={saveTemplate}>Save template</button>
+          <button type="button" class="secondary form-icon-button" aria-label="Save template" title="Save template" disabled={busy() || !name().trim() || !prompt().trim()}
+            onClick={saveTemplate}><WorkspaceIcon name="check" /></button>
         </Show>
         <Show when={props.app.state.settings.analysisTemplates?.some((item) => item.id === templateId())}>
-          <button type="button" class="secondary" disabled={busy()} onClick={() => {
+          <button type="button" class="secondary form-icon-button" aria-label="Remove template" title="Remove template" disabled={busy()} onClick={() => {
             props.app.updateSettings({ analysisTemplates: props.app.state.settings.analysisTemplates?.filter((item) => item.id !== templateId()) })
             setTemplateId('summary')
-          }}>Remove template</button>
+          }}><WorkspaceIcon name="close" /></button>
         </Show>
         <p>Provider: {props.app.state.settings.agentProvider ?? 'Server default'} · Model: {props.app.state.settings.agentModel ?? 'Server default'}. Change these in the AI composer.</p>
         <Show when={loading()}><p role="status">Loading source notes…</p></Show>
         <Show when={error()}><p role="alert">{error()}</p></Show>
-        <Show when={!loaded() && !loading()}><button type="button" onClick={() => void load()}>Reload sources</button></Show>
+        <Show when={!loaded() && !loading()}><button type="button" class="form-icon-button" aria-label="Reload sources" title="Reload sources" onClick={() => void load()}><WorkspaceIcon name="refresh" /></button></Show>
         <Show when={loaded()}>
           <fieldset disabled={busy()}>
             <legend>Source notes ({selected().length} selected)</legend>
-            <button type="button" class="secondary" onClick={() => setSelected(sources().map((note) => note.noteId))}>Select all</button>
-            <button type="button" class="secondary" onClick={() => setSelected([])}>Clear selection</button>
+            <button type="button" class="secondary form-icon-button" aria-label="Select all" title="Select all" onClick={() => setSelected(sources().map((note) => note.noteId))}><WorkspaceIcon name="check" /></button>
+            <button type="button" class="secondary form-icon-button" aria-label="Clear selection" title="Clear selection" onClick={() => setSelected([])}><WorkspaceIcon name="close" /></button>
             <div class="analysis-sources">
               <For each={sources()} fallback={<p>No source notes.</p>}>{(note) => <label>
                 <input type="checkbox" checked={selected().includes(note.noteId)} onChange={(event) => {
@@ -175,14 +177,14 @@ export function SourceAnalyses(props: { app: AppStore; notebookId: NotebookId })
             </div>
           </fieldset>
         </Show>
-        <button type="button" class="secondary" disabled={busy() || !loaded() || !selected().length || !template()?.prompt}
-          onClick={() => void apply()}>{busy() ? 'Submitting analyses…' : 'Apply to selected notes'}</button>
+        <button type="button" class="secondary form-action-button" aria-label="Apply to selected notes" title="Apply to selected notes" aria-busy={busy()} disabled={busy() || !loaded() || !selected().length || !template()?.prompt}
+          onClick={() => void apply()}><WorkspaceIcon name="ai" />{busy() ? 'Submitting…' : 'Run'}</button>
         <Show when={submissions().length}>
           <ul aria-label="Analysis submissions" aria-live="polite">
             <For each={submissions()}>{(row) => <li>
               <span>{row.source.noteNumber}. {noteDisplayTitle(row.source)}: {row.status} </span>
-              <Show when={row.conversationId}>{(id) => <button type="button" class="secondary"
-                onClick={() => props.app.openNotebook(id())}>Open result</button>}</Show>
+              <Show when={row.conversationId}>{(id) => <button type="button" class="secondary form-icon-button" aria-label="Open result" title="Open result"
+                onClick={() => props.app.openNotebook(id())}><WorkspaceIcon name="links" /></button>}</Show>
             </li>}</For>
           </ul>
         </Show>

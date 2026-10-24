@@ -3,7 +3,32 @@ import Foundation
 import XCTest
 
 final class DocumentPageImportTests: NoteTestCase {
-  func testPersistsPageOriginsPendingSearchTextAndTitle() throws {
+  func testDeferredPDFOCRRendersTemporaryImageAndKeepsPageMemosSeparate() throws {
+    let service = try makeService()
+    let source = try makeMixedPDFTextFixture()
+    defer { try? FileManager.default.removeItem(at: source.deletingLastPathComponent()) }
+    let result = try service.importDocumentPages(
+      at: source.path, processor: DocumentPageProcessor(recognizer: ImportRecognizer()), maximumOCRPages: 0
+    )
+    XCTAssertEqual(result.notes.count, 2)
+    let page = result.notes[1]
+    let recognizer = TemporaryPDFRecognizer()
+    let complete = try service.recognizeDocumentPage(noteId: page.noteId, recognizer: recognizer)
+    XCTAssertEqual(try NoteService.importedPageMetadata(complete).ocrState, "complete")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(page.noteId, in: $0) }, "Second page\n\nSearchable text")
+    XCTAssertNotNil(recognizer.imageURL)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: try XCTUnwrap(recognizer.imageURL).path))
+    XCTAssertTrue(try service.listFiles(noteId: page.noteId).isEmpty)
+    XCTAssertEqual(try service.resolveFileContent(fileId: result.sourceFile.file.fileId), try Data(contentsOf: source))
+    XCTAssertEqual(try service.driver.withDatabase { try $0.query("SELECT file_id FROM files").count }, 1)
+    let firstChat = try service.startAgentConversation(subjectNoteId: result.notes[0].noteId)
+    let secondChat = try service.startAgentConversation(subjectNoteId: page.noteId)
+    XCTAssertNotEqual(firstChat.notebookId, secondChat.notebookId)
+    let context = try service.documentPageChatAdditions(subjectNoteId: page.noteId, libraryId: XCTUnwrap(result.notebook.libraryId), query: "Second")
+    XCTAssertTrue(try XCTUnwrap(context).images.isEmpty)
+  }
+
+  func testPDFStoresOnlyOriginalAndPlainSearchText() throws {
     let service = try makeService()
     let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).pdf")
     try Data("source".utf8).write(to: source)
@@ -13,7 +38,7 @@ final class DocumentPageImportTests: NoteTestCase {
       processor: DocumentPageProcessor(recognizer: ImportRecognizer(), analyzer: ImportAnalyzer(), extractor: ImportExtractor()),
       maximumOCRPages: 2
     )
-    XCTAssertEqual(result.notebook.title, "Analyzed book title")
+    XCTAssertEqual(result.notebook.title, source.lastPathComponent)
     XCTAssertEqual(result.notes.map(\.noteNumber), [1, 2, 3])
     XCTAssertEqual(result.notes.map(\.bodyMarkdown), ["", "", ""])
     for (index, note) in result.notes.enumerated() {
@@ -25,13 +50,11 @@ final class DocumentPageImportTests: NoteTestCase {
       XCTAssertNil(page["pendingBodySHA256"])
       XCTAssertEqual(
         try service.driver.withDatabase { try noteSearchText(note.noteId, in: $0) },
-        index < 2 ? "# Recognized page\nBody" : ""
+        index < 2 ? "Recognized page\n\nBody" : ""
       )
-      XCTAssertEqual(try service.listFiles(noteId: note.noteId).count, 1)
-      let origin = try XCTUnwrap(service.listFiles(noteId: note.noteId).first { $0.role == .sourcePageImage })
-      XCTAssertEqual(page["originFileId"]?.asString, origin.file.fileId.rawValue)
-      XCTAssertEqual(origin.position, index + 1)
-      XCTAssertEqual(try service.resolveFileContent(fileId: origin.file.fileId), Data("origin \(index + 1)".utf8))
+      XCTAssertTrue(try service.listFiles(noteId: note.noteId).isEmpty)
+      XCTAssertEqual(page["originFileId"]?.asString, result.sourceFile.file.fileId.rawValue)
+      XCTAssertEqual(page["originMediaType"]?.asString, "application/pdf")
     }
     XCTAssertEqual(try service.resolveFileContent(fileId: result.sourceFile.file.fileId), Data("source".utf8))
     let analysis = try JSONValue(parsing: XCTUnwrap(result.notes[0].metaJSON)).asObject?["documentPage"]?.asObject?["analysis"]?.asObject
@@ -41,7 +64,7 @@ final class DocumentPageImportTests: NoteTestCase {
 
   func testDeferredOCRCompletesSearchTextAndDoesNotRecordBodyHistory() throws {
     let service = try makeService()
-    let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).pdf")
+    let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
     try Data("source".utf8).write(to: source)
     defer { try? FileManager.default.removeItem(at: source) }
     let result = try service.importDocumentPages(
@@ -50,7 +73,7 @@ final class DocumentPageImportTests: NoteTestCase {
     let pending = try XCTUnwrap(result.notes.last)
     let completed = try service.recognizeDocumentPage(noteId: pending.noteId, recognizer: ImportRecognizer(), analyzer: ImportAnalyzer())
     XCTAssertEqual(completed.bodyMarkdown, "")
-    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(completed.noteId, in: $0) }, "# Recognized page\nBody")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(completed.noteId, in: $0) }, "Recognized page\n\nBody")
     XCTAssertTrue(try service.searchNotes(query: "Recognized").contains { $0.note.noteId == pending.noteId })
     XCTAssertFalse(try service.actionHistory().contains { $0.kind == .noteBodyUpdated && $0.entityId == pending.noteId.rawValue })
     XCTAssertEqual(try NoteService.importedPageMetadata(completed).ocrState, "complete")
@@ -71,13 +94,13 @@ final class DocumentPageImportTests: NoteTestCase {
       try refreshFTS(noteId: note.noteId, previous: previous, in: db)
     }
     let completed = try service.recognizeDocumentPage(noteId: note.noteId, recognizer: ImportRecognizer())
-    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(completed.noteId, in: $0) }, "# Recognized page\nBody\n\nlegacy text ![Figure 1](/files/f1)")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(completed.noteId, in: $0) }, "Recognized page\n\nBody\n\nlegacy text ![Figure 1](/files/f1)")
     XCTAssertEqual(completed.bodyMarkdown, "")
   }
 
   func testDeferredOCRRejectsEditedPage() throws {
     let service = try makeService()
-    let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).pdf")
+    let source = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).png")
     try Data("source".utf8).write(to: source)
     defer { try? FileManager.default.removeItem(at: source) }
     let result = try service.importDocumentPages(
@@ -91,7 +114,7 @@ final class DocumentPageImportTests: NoteTestCase {
     XCTAssertNoThrow(try service.recognizeDocumentPage(noteId: noteId, recognizer: ImportRecognizer()))
   }
 
-  func testRealDownloadedPDFPersistsEveryPageWithOnlyTwoOCRCalls() throws {
+  func testRealDownloadedTextPDFPersistsEveryPageWithoutRasterAttachments() throws {
     guard let path = ProcessInfo.processInfo.environment["KAIBA_TEST_IMPORT_PDF"] else {
       throw XCTSkip("Set KAIBA_TEST_IMPORT_PDF for the real PDF import test")
     }
@@ -100,14 +123,17 @@ final class DocumentPageImportTests: NoteTestCase {
       at: path, processor: DocumentPageProcessor(recognizer: VisionDocumentPageRecognizer()), maximumOCRPages: 2
     )
     XCTAssertGreaterThan(result.notes.count, 2)
-    for (index, note) in result.notes.enumerated() {
+    for note in result.notes {
       let metadata = try JSONValue(parsing: XCTUnwrap(note.metaJSON))
-      XCTAssertEqual(metadata.asObject?["documentPage"]?.asObject?["ocrState"]?.asString, index < 2 ? "complete" : "pending")
+      XCTAssertEqual(metadata.asObject?["documentPage"]?.asObject?["ocrState"]?.asString, "complete")
+      XCTAssertEqual(try NoteService.importedPageMetadata(note).textSource, "pdf-text")
       let originals = try service.listFiles(noteId: note.noteId).filter { $0.role == .sourcePageImage }
-      XCTAssertEqual(originals.count, 1)
-      XCTAssertFalse(try service.resolveFileContent(fileId: XCTUnwrap(originals.first).file.fileId).isEmpty)
+      XCTAssertTrue(originals.isEmpty)
+      let page = try NoteService.importedPageMetadata(note)
+      XCTAssertEqual(page.originFileId, result.sourceFile.file.fileId.rawValue)
+      XCTAssertEqual(page.originMediaType, "application/pdf")
     }
-    print("Persisted real PDF: \(result.notes.count) notes, 2 OCR complete, one origin per note")
+    print("Persisted real PDF: \(result.notes.count) notes, native text extracted, one original PDF, no page image attachments")
   }
 
   func testFileLinkFailureRollsBackNotebookNotesAndStagedFiles() throws {
@@ -158,7 +184,7 @@ final class DocumentPageImportTests: NoteTestCase {
     let note = try XCTUnwrap(complete.notes.first)
     XCTAssertEqual(complete.notes.count, 1)
     XCTAssertEqual(note.bodyMarkdown, "")
-    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(note.noteId, in: $0) }, "# Recognized page\nBody")
+    XCTAssertEqual(try service.driver.withDatabase { try noteSearchText(note.noteId, in: $0) }, "Recognized page\n\nBody")
     let files = try service.listFiles(noteId: note.noteId)
     XCTAssertEqual(files.count, 1)
     XCTAssertEqual(files.first?.role, .sourcePageImage)
@@ -193,7 +219,17 @@ final class DocumentPageImportTests: NoteTestCase {
 }
 
 private struct ImportRecognizer: DocumentPageRecognizing {
-  func recognize(imageURL: URL) throws -> String { "# Recognized page\nBody" }
+  func recognize(imageURL: URL) throws -> String { "Recognized page\n\nBody" }
+}
+
+private final class TemporaryPDFRecognizer: DocumentPageRecognizing, @unchecked Sendable {
+  var imageURL: URL?
+  func recognize(imageURL: URL) throws -> String {
+    self.imageURL = imageURL
+    let data = try Data(contentsOf: imageURL)
+    XCTAssertEqual(Array(data.prefix(2)), [0xff, 0xd8])
+    return "Second page\n\nSearchable text"
+  }
 }
 
 private struct ImportAnalyzer: DocumentPageAnalyzing {

@@ -211,7 +211,7 @@ public struct AppCommand: Sendable {
 
     Import:
       page-ocr   <note-id>
-      import     <file-path> [--title <t>] [--kind-tag <tag>] [--max-ocr-pages <N|all>] [--ocr-engine <vision|agent-gateway|google-document-ai>]
+      import     <file-path> [--title <t>] [--kind-tag <tag>] [--max-ocr-pages <N|all>] [--text-mode <prefer-pdf-text|ocr-only>] [--ocr-engine <vision|agent-gateway|google-document-ai>]
                  [--output json|text]
                  # convert a document (pdf, docx, pptx, epub, ...) with
                  # AnydocKit, or OCR an image (png, jpeg, gif, webp) with

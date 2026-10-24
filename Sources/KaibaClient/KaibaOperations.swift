@@ -257,6 +257,20 @@ extension KaibaClient {
     )
   }
 
+  public func renameNotebook(_ notebookId: KaibaNotebookID, title: String) async throws -> KaibaOperationPayload {
+    try await operation(
+      """
+      mutation KaibaRenameNotebook($notebookId: String!, $title: String!) {
+        root: renameNotebook(notebookId: $notebookId, title: $title) {
+          result { accepted status diagnostics } notebook { \(Self.notebookFields) }
+        }
+      }
+      """,
+      variables: ["notebookId": .string(notebookId.rawValue), "title": .string(title)],
+      as: KaibaOperationPayload.self
+    )
+  }
+
   public func setNotebookReadOnly(
     _ notebookId: KaibaNotebookID,
     readOnly: Bool

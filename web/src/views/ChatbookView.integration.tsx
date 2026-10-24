@@ -53,7 +53,33 @@ afterEach(() => {
 })
 
 describe('ChatbookView authentication surface', () => {
-  test('reveals a footer conversation from Settings with asynchronous hash navigation', async () => {
+  test('Settings returns to the previously selected notebook through its visible back button', async () => {
+    window.location.hash = '#/notebook/reading'
+    const notebook = { notebookId: notebookId('reading'), title: 'Reading PDF', type: 'DOCUMENT', tags: [], readOnly: false }
+    const api = client({
+      tags: async () => [], tagClasses: async () => [], notebooks: async () => [notebook],
+      notebook: async () => notebook, notebookComments: async () => [], notebookConversations: async () => [],
+      userAgentCredential: async () => ({ featureEnabled: false, credential: null, providers: [] }),
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => <AppStoreProvider options={{ client: api }}><ChatbookView /></AppStoreProvider>, host)
+    try {
+      await settle()
+      host.querySelector<HTMLButtonElement>('button[aria-label="Settings"]')!.click()
+      await settle()
+      expect(host.querySelector('.config-view')).not.toBeNull()
+      const back = Array.from(host.querySelectorAll('button')).find((button) => button.getAttribute('aria-label') === 'Back to reader')
+      expect(back).toBeDefined()
+      back!.click()
+      await settle()
+      expect(window.location.hash).toBe('#/notebook/reading')
+      expect(host.querySelector('.config-view')).toBeNull()
+      expect(host.textContent).toContain('Reading PDF')
+    } finally { dispose(); host.remove() }
+  })
+
+  test('keeps Settings visible while opening a sent conversation in the footer', async () => {
     let hash = '#/config'
     const listeners = new Set<() => void>()
     const router = {
@@ -86,8 +112,8 @@ describe('ChatbookView authentication surface', () => {
       textarea.dispatchEvent(new Event('input', { bubbles: true }))
       host.querySelector('footer form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await settle()
-      expect(hash).toBe('#/')
-      expect(host.querySelector('.pane-right .chat')).not.toBeNull()
+      expect(hash).toBe('#/config')
+      expect(host.querySelector('.agent-footer .chat')).not.toBeNull()
     } finally { dispose(); host.remove() }
   })
 
@@ -126,7 +152,7 @@ describe('ChatbookView authentication surface', () => {
       await settle()
       key('2', true)
       await settle()
-      expect(host.querySelector('#right-tab-info')?.getAttribute('aria-selected')).toBe('true')
+      expect(host.querySelector('#right-tab-tags')?.getAttribute('aria-selected')).toBe('true')
       expect(host.querySelector<HTMLElement>('.chatbook-grid')?.dataset.mobilePane).toBe('details')
     } finally { dispose(); host.remove() }
   })
@@ -161,7 +187,7 @@ describe('ChatbookView authentication surface', () => {
       await settle()
       expect(document.activeElement).toBe(host.querySelector('.agent-footer textarea'))
       key('@', { code: 'Digit2', shiftKey: true, metaKey: false, ctrlKey: true })
-      expect(host.querySelector('#right-tab-info')?.getAttribute('aria-selected')).toBe('true')
+      expect(host.querySelector('#right-tab-tags')?.getAttribute('aria-selected')).toBe('true')
       key('p')
       expect(host.querySelector('[role="dialog"]')).not.toBeNull()
       expect(key('n').defaultPrevented).toBe(false)
@@ -244,6 +270,8 @@ describe('ChatbookView authentication surface', () => {
       await settle()
       expect(hash).toBe('#/note/first-note')
       expect(host.querySelector('.reader-note')?.textContent).toContain(note.bodyMarkdown)
+      button('Ask AI').click()
+      await settle()
       button('Quiz me').click()
       expect(host.querySelector<HTMLTextAreaElement>('.chat textarea')?.value).toContain('Ask one question at a time')
       expect(sent).toBe(0)
@@ -257,7 +285,8 @@ describe('ChatbookView authentication surface', () => {
       await settle()
       expect(hash).toBe('#/notebook/learning')
       host.querySelector<HTMLButtonElement>('.study-note-button')!.click()
-      expect(host.querySelector<HTMLElement>('.chatbook-grid')?.dataset.mobilePane).toBe('details')
+      expect(host.querySelector<HTMLElement>('.chatbook-grid')?.dataset.mobilePane).toBe('reader')
+      expect(host.querySelector('.agent-footer textarea')).not.toBeNull()
       expect(hash).toBe('#/note/first-note')
       router.setHash('#/search?q=neuron&scope=all&method=grep')
       await settle()
@@ -302,8 +331,8 @@ describe('ChatbookView authentication surface', () => {
     const sent: Array<Record<string, unknown>> = []
     const api = client({
       tags: async () => [], tagClasses: async () => [],
-      notebooks: async () => [{ ...memo, type: 'DOCUMENT', notebookId: source.notebookId, title: 'Source notebook', tags: [] }],
-      notebook: async () => memo,
+      notebooks: async () => [{ ...memo, type: 'DOCUMENT', notebookId: source.notebookId, title: 'Source notebook', tags: [] }, memo],
+      notebook: async (id: string) => id === 'memo' ? memo : { ...memo, type: 'DOCUMENT', notebookId: source.notebookId, title: 'Source notebook', tags: [] },
       note: async () => source,
       noteFiles: async () => [],
       notes: async (id: string) => id === 'memo' ? [memoTurn] : [source],
@@ -323,6 +352,15 @@ describe('ChatbookView authentication surface', () => {
     </AppStoreProvider>, host)
     try {
       await settle()
+      host.querySelector<HTMLButtonElement>('#right-tab-history')!.click()
+      host.querySelector<HTMLButtonElement>('.agent-history button')!.click()
+      await settle()
+      expect(hash).toBe('#/note/source-note')
+      expect(host.querySelector('.footer-context-label')?.textContent).toContain('Saved conversation: Saved thought')
+      expect(host.querySelector('main')?.textContent).toContain('Source text')
+      host.querySelector<HTMLButtonElement>('[aria-label="AI"]')!.click()
+      await settle()
+      expect(host.querySelector('.footer-context-label')?.textContent).toContain('Source notebook · Page 1')
       const open = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Open as notebook')
       expect(open).toBeDefined()
       open!.click()
@@ -387,7 +425,8 @@ describe('ChatbookView authentication surface', () => {
       host.querySelector<HTMLButtonElement>('[aria-label="Links"]')!.click()
       expect(host.querySelector('#right-tab-links')?.getAttribute('aria-selected')).toBe('true')
       host.querySelector<HTMLButtonElement>('[aria-label="AI"]')!.click()
-      expect(host.querySelector('#right-tab-memo')?.getAttribute('aria-selected')).toBe('true')
+      expect(host.querySelector('#right-tab-memo')).toBeNull()
+      expect(host.querySelector('.agent-footer textarea')).not.toBeNull()
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', metaKey: true, cancelable: true }))
       expect(host.querySelector('[role="dialog"]')).not.toBeNull()
     } finally {
@@ -455,13 +494,16 @@ describe('ChatbookView authentication surface', () => {
 
       ai.click()
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+      expect(grid?.dataset.mobilePane).toBe('reader')
+      expect(host.querySelector('.agent-footer textarea')).not.toBeNull()
+      host.querySelector<HTMLButtonElement>('[aria-label="Tags"]')!.click()
       expect(grid?.dataset.mobilePane).toBe('details')
       host.querySelector<HTMLButtonElement>('[aria-label="Collapse the details pane"]')!.click()
       expect(host.querySelector('.chatbook')?.getAttribute('data-right')).toBe('closed')
       expect(grid?.dataset.mobilePane).toBe('reader')
       host.querySelector<HTMLButtonElement>('[aria-label="Tags"]')!.click()
       expect(host.querySelector('.chatbook')?.getAttribute('data-right')).toBe('open')
-      expect(host.querySelector('#right-tab-info')?.getAttribute('aria-selected')).toBe('true')
+      expect(host.querySelector('#right-tab-tags')?.getAttribute('aria-selected')).toBe('true')
     } finally {
       dispose()
       host.remove()

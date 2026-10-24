@@ -1,0 +1,66 @@
+/* Keep compact actions stable while allowing document and search text to wrap. */
+.chatbook .chat-actions > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.chatbook .chat-actions button.memo-toolbar-action {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  text-align: center;
+}
+
+.chatbook .note-editor button.draft-reload-action,
+.chatbook button.search-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: auto;
+  min-height: 30px;
+  padding: 4px 8px !important;
+  white-space: nowrap;
+}
+
+.chatbook .search-head h1,
+.chatbook .search-result,
+.chatbook .note-search-results button,
+.chatbook .note-search-snippet,
+.chatbook .note-search-meta,
+.chatbook .learning-context strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chatbook .note-search-field > label {
+  min-width: 0;
+}
+
+.chatbook .note-search-field > button {
+  flex: none;
+}
+
+.chatbook .search-view .folder-chip > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 2px;
+}
+
+.chatbook .tree-count[role="img"] {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+}
+
+.chatbook .tree-count[role="img"] svg {
+  width: 13px;
+  height: 13px;
+}

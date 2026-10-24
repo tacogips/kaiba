@@ -167,6 +167,19 @@ extension NoteService {
       return try applyNoteReadOnlyDelta(base, direction: direction, in: db)
     case .notebookReadOnlySet:
       return try applyNotebookReadOnlyDelta(base, direction: direction, in: db)
+    case .notebookTitleUpdated:
+      let notebookId = NotebookID(base.entityId)
+      let notebook = try requireNotebook(notebookId, in: db)
+      let delta = base.delta?.asObject?["title"]?.asObject
+      let expected = delta?[direction == .undo ? "after" : "before"]?.asString
+      let desired = delta?[direction == .undo ? "before" : "after"]?.asString
+      guard notebook.title == expected, let desired else {
+        throw NoteServiceError.conflict("notebook title changed since it was recorded")
+      }
+      _ = try writeNotebookTitle(notebookId: notebookId, title: desired, in: db)
+      return NoteActionApplication(changeEvents: [
+        NoteChangeEvent(kind: NoteChangeEventKind.notebookUpdated, notebookId: notebookId)
+      ])
     case .noteCreated:
       switch direction {
       case .undo:

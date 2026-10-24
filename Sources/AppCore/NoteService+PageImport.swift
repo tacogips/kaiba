@@ -6,6 +6,10 @@ public struct ImportedPageMetadata: Codable, Equatable, Sendable {
   public var analysis: DocumentPageAnalysis
   public var originFileId: String
   public var pendingBodySHA256: String?
+  /// PDFs point at the notebook's original PDF. Legacy/image pages point at an image attachment.
+  public var originMediaType: String?
+  public var textSource: String?
+  public var textExtractionMode: PDFTextExtractionMode?
 }
 
 private struct StagedImportFile {
@@ -35,9 +39,7 @@ public extension NoteService {
   ) throws -> DocumentImportResult {
     let sourceURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     let pages = try processor.prepare(fileURL: sourceURL, maximumOCRPages: maximumOCRPages)
-    let notebookTitle = title ?? pages.compactMap(\.analysis.title).first
-      ?? pages.first?.markdown.flatMap { NoteTitleDerivation.title(from: $0) }
-      ?? sourceURL.deletingPathExtension().lastPathComponent
+    let notebookTitle = title ?? sourceURL.lastPathComponent
     let store = LocalNoteFileStore(noteRoot: noteRootPath())
     var staged: [StagedImportFile] = []
     var committed = false
@@ -53,16 +55,20 @@ public extension NoteService {
       filename: sourceURL.lastPathComponent, pageIndex: nil, role: .related, position: 0
     ))
     var drafts: [NotePageDraft] = []
+    let isPDF = sourceURL.pathExtension.lowercased() == "pdf"
     for (index, page) in pages.enumerated() {
-      let originId = FileID.generate()
-      staged.append(StagedImportFile(
-        id: originId, stored: try store.store(data: page.origin.data, fileId: originId),
-        mediaType: page.origin.mediaType, filename: page.origin.suggestedFilename, pageIndex: index,
-        role: .sourcePageImage, position: page.pageNumber
-      ))
+      let originId = isPDF ? sourceId : FileID.generate()
+      if !isPDF {
+        staged.append(StagedImportFile(
+          id: originId, stored: try store.store(data: page.origin.data, fileId: originId),
+          mediaType: page.origin.mediaType, filename: page.origin.suggestedFilename, pageIndex: index,
+          role: .sourcePageImage, position: page.pageNumber
+        ))
+      }
       let metadata = ImportedPageMetadata(
         pageNumber: page.pageNumber, ocrState: page.markdown == nil ? "pending" : "complete",
-        analysis: page.analysis, originFileId: originId.rawValue, pendingBodySHA256: nil
+        analysis: page.analysis, originFileId: originId.rawValue, pendingBodySHA256: nil,
+        originMediaType: isPDF ? "application/pdf" : page.origin.mediaType, textSource: page.textSource, textExtractionMode: isPDF ? processor.textExtractionMode : nil
       )
       let pageJSON = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(metadata))
       drafts.append(NotePageDraft(

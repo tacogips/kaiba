@@ -1,4 +1,6 @@
 import { For, Show, createMemo, createResource, createSignal, type JSX } from 'solid-js'
+import { WorkspaceIcon } from './WorkspaceIcon'
+import './form-controls.css'
 import { useApp, type AppStore } from '../state/appStore'
 import type { NoteGraphQLClient } from '../notes/client'
 import type { SearchEngineSettings as Settings } from '../notes/types'
@@ -174,8 +176,8 @@ export function SearchEngineSettings(props: SearchEngineSettingsProps = {}): JSX
                 </Show>
                 <For each={errors()}>{(error) => <p class="login-failure" role="alert">{error.message}</p>}</For>
                 <div class="user-agent-actions">
-                  <button type="button" class="secondary" disabled={busy() || errors().length > 0} onClick={() => void runTest()}>Test connection</button>
-                  <button type="submit" disabled={busy() || errors().length > 0}>Save</button>
+                  <button type="button" class="secondary form-action-button" aria-label="Test connection" title="Test connection" aria-busy={busy()} disabled={busy() || errors().length > 0} onClick={() => void runTest()}><WorkspaceIcon name="refresh" />Test</button>
+                  <button type="submit" class="form-icon-button" aria-label="Save" title="Save" aria-busy={busy()} disabled={busy() || errors().length > 0}><WorkspaceIcon name="check" /></button>
                 </div>
               </form>
             </Show>

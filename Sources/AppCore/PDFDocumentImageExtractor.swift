@@ -33,6 +33,67 @@ public struct PDFDocumentImageExtractor: DocumentImageExtracting {
 
   public init() {}
 
+  /// PDF imports retain the source PDF, not page rasters. Only OCR pages need temporary pixels.
+  public func extractPageOrigins(fileURL: URL, maximumRenderedPages: Int?, textMode: PDFTextExtractionMode) throws -> DocumentImageExtractionResult {
+    #if canImport(PDFKit)
+    guard let document = PDFDocument(url: fileURL), !document.isLocked, document.pageCount > 0 else {
+      throw DocumentConversionError.failed("PDF is not readable")
+    }
+    var pageTexts: [String] = []
+    var rendered = 0
+    let images = try (0..<document.pageCount).map { index -> DocumentExtractedImage in
+      let number = index + 1
+      guard let page = document.page(at: index) else { throw DocumentConversionError.failed("PDF page is unreadable") }
+      let native = textMode == .preferPDFText ? Self.usablePageText(page.string) : nil
+      pageTexts.append(native ?? "")
+      if native == nil, maximumRenderedPages.map({ rendered < $0 }) ?? true {
+        rendered += 1
+        guard let capture = Self.pageCapture(page: page, pageNumber: number) else {
+          throw DocumentConversionError.failed("PDF page \(number) could not be rendered for OCR")
+        }
+        return capture
+      }
+      return DocumentExtractedImage(
+        pageNumber: number, kind: .pageCapture, data: Data(), mediaType: "image/jpeg",
+        suggestedFilename: DocumentImageNaming.pageCaptureFilename(pageNumber: number, fileExtension: "jpg")
+      )
+    }
+    return DocumentImageExtractionResult(images: images, pageTexts: pageTexts)
+    #else
+    throw DocumentConversionError.failed("PDF page OCR is unavailable on this platform")
+    #endif
+  }
+
+  public static func pageText(pdfData: Data, pageNumber: Int) throws -> String? {
+    #if canImport(PDFKit)
+    guard pageNumber > 0, let document = PDFDocument(data: pdfData), !document.isLocked,
+          pageNumber <= document.pageCount, let page = document.page(at: pageNumber - 1) else {
+      throw DocumentConversionError.failed("PDF page is unreadable")
+    }
+    return usablePageText(page.string)
+    #else
+    throw DocumentConversionError.failed("PDF text extraction is unavailable on this platform")
+    #endif
+  }
+
+  private static func usablePageText(_ text: String?) -> String? {
+    guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    return text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+  }
+
+  public static func renderPage(pdfData: Data, pageNumber: Int) throws -> DocumentExtractedImage {
+    #if canImport(PDFKit)
+    guard pageNumber > 0, let document = PDFDocument(data: pdfData), !document.isLocked,
+          pageNumber <= document.pageCount, let page = document.page(at: pageNumber - 1),
+          let image = pageCapture(page: page, pageNumber: pageNumber) else {
+      throw DocumentConversionError.failed("PDF page could not be rendered for OCR")
+    }
+    return image
+    #else
+    throw DocumentConversionError.failed("PDF page OCR is unavailable on this platform")
+    #endif
+  }
+
   public func extractImages(
     fileURL: URL,
     sourceFormat: String

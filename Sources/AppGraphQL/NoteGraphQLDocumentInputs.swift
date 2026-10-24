@@ -329,11 +329,15 @@ public struct GraphQLRequestNotebookTranslationInput: Codable, Equatable, Sendab
   public var notebookId: NotebookID
   public var targetLanguage: String
   public var title: String?
+  public var pageStart: Int?
+  public var pageEnd: Int?
 
-  public init(notebookId: NotebookID, targetLanguage: String, title: String? = nil) {
+  public init(notebookId: NotebookID, targetLanguage: String, title: String? = nil, pageStart: Int? = nil, pageEnd: Int? = nil) {
     self.notebookId = notebookId
     self.targetLanguage = targetLanguage
     self.title = title
+    self.pageStart = pageStart
+    self.pageEnd = pageEnd
   }
 }
 

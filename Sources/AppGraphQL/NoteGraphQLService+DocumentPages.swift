@@ -21,3 +21,15 @@ public extension GraphQLNoteGraphQLService {
     }
   }
 }
+
+public extension GraphQLNoteGraphQLService {
+  func documentPageText(noteId: NoteID) -> GraphQLNoteQueryResult<DocumentPageText> {
+    noteResult { try service.documentPageText(noteId: noteId) }
+  }
+}
+
+public extension GraphQLNoteGraphQLService {
+  func documentPageTranslations(noteId: NoteID) -> GraphQLNoteQueryResult<[DocumentPageTranslation]> {
+    noteResult { try service.documentPageTranslations(noteId: noteId) }
+  }
+}

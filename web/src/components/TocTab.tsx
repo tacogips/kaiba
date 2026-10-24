@@ -60,6 +60,8 @@ export function TocTab(props: { app?: AppStore; onNavigate?: () => void } = {}):
                         class="toc-disclosure"
                         aria-label={isExpanded(note)
                           ? `Collapse the contents of ${noteDisplayTitle(note)}`
+                          : `Expand the contents of ${noteDisplayTitle(note)}`} title={isExpanded(note)
+                          ? `Collapse the contents of ${noteDisplayTitle(note)}`
                           : `Expand the contents of ${noteDisplayTitle(note)}`}
                         aria-expanded={isExpanded(note)}
                         onClick={() => toggle(note)}

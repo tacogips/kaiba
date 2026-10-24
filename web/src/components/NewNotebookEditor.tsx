@@ -30,9 +30,9 @@ export function NewNotebookEditor(): JSX.Element {
     }
   }
 
-  const importDocument = async (file: File, title?: string, maximumOCRPages?: string) => {
+  const importDocument = async (file: File, title?: string, maximumOCRPages?: string, textExtractionMode?: string) => {
     const startedRoute = routeHref(app.state.route)
-    const notebook = await app.client.importDocument(file, title, maximumOCRPages)
+    const notebook = await app.client.importDocument(file, title, maximumOCRPages, textExtractionMode ?? app.state.settings.pdfTextMode)
     await app.refreshCatalog()
     if (routeHref(app.state.route) === startedRoute) app.openNotebook(notebook.notebookId)
   }
@@ -45,7 +45,7 @@ export function NewNotebookEditor(): JSX.Element {
         onInput={(event) => draft.setText(event.currentTarget.value)} />
       <div class="learning-actions">
         <button type="submit" aria-label="Save notebook" title="Save notebook"
-          disabled={draft.busy() || !draft.text().trim()}><WorkspaceIcon name="save" /></button>
+          disabled={draft.busy() || !draft.text().trim()}><WorkspaceIcon name="check" /></button>
       </div>
       <Show when={draft.error()}><p class="note-inline-error" role="alert">{draft.error()}</p></Show>
     </form>

@@ -1,4 +1,5 @@
 import { Show, createSignal, type JSX } from 'solid-js'
+import './form-controls.css'
 import { WorkspaceIcon } from './WorkspaceIcon'
 import {
   isTauriRuntime,
@@ -58,7 +59,7 @@ export function ServerConnectionSettings(props: { compact?: boolean }): JSX.Elem
         />
       </div>
       </Show>
-      <button type="submit" disabled={busy()} aria-label={mode() === 'local' ? 'Use local storage' : 'Reconnect'} title={mode() === 'local' ? 'Use local storage' : 'Reconnect'}><WorkspaceIcon name="refresh" /></button>
+      <button type="submit" class="form-icon-button" aria-busy={busy()} disabled={busy()} aria-label={mode() === 'local' ? 'Use local storage' : 'Reconnect'} title={mode() === 'local' ? 'Use local storage' : 'Reconnect'}><WorkspaceIcon name="refresh" /></button>
       <Show when={failure()}><p class="login-failure" role="alert">{failure()}</p></Show>
     </form>
   )

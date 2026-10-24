@@ -7,6 +7,7 @@ extension AppCommand {
     let kindTag = try cursor.extractOption("--kind-tag")
       ?? NoteStoreSchema.importedMaterialNotebookKindTag
     let limitOption = try cursor.extractOption("--max-ocr-pages")
+    let textModeOption = try cursor.extractOption("--text-mode")
     let engineOption = try cursor.extractOption("--ocr-engine")
     let output = try cursor.extractOutputMode()
     guard let path = cursor.next() else {
@@ -46,7 +47,8 @@ extension AppCommand {
         result = try service.importDocumentPages(
           at: path, title: title, kindTagName: kindTag,
           processor: DocumentPageProcessor(
-            recognizer: recognizer, analyzer: importSettings?.makePageAnalyzer(environment: environment)
+            recognizer: recognizer, analyzer: importSettings?.makePageAnalyzer(environment: environment),
+            textExtractionMode: service.resolvePDFTextMode(override: textModeOption, configuration: importSettings?.textExtractionMode)
           ), maximumOCRPages: limit.maximum
         )
       } else {

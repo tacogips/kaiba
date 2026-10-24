@@ -1,7 +1,8 @@
 import { For, Show, createEffect, createSignal, type JSX } from 'solid-js'
 import { errorMessage, useApp } from '../state/appStore'
-import type { NoteGraphNeighbor } from '../notes/types'
-import { noteDisplayTitle } from '../notes/noteText'
+import type { NoteGraphNeighbor, NoteLink } from '../notes/types'
+import { NoteDestinationLink } from './NoteDestinationLink'
+import { connectionGroup, savedLinkDescription, suggestedConnectionDescription } from '../notes/linkDescriptions'
 import type { NoteId } from '../notes/ids'
 
 // Links tab: the open note's linked documents, grouped by link kind. The graph
@@ -11,6 +12,7 @@ import type { NoteId } from '../notes/ids'
 export function LinkedDocsTab(): JSX.Element {
   const app = useApp()
   const [groups, setGroups] = createSignal<Array<{ kind: string; neighbors: NoteGraphNeighbor[] }>>([])
+  const [links, setLinks] = createSignal<NoteLink[]>([])
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
   let generation = 0
@@ -21,7 +23,8 @@ export function LinkedDocsTab(): JSX.Element {
     // elsewhere shows up without a manual refresh.
     if (app.state.notebookId) void app.state.notebookRevisions[app.state.notebookId]
     if (!noteId) {
-      setGroups([])
+      generation += 1
+      setGroups([]); setLinks([])
       return
     }
     void load(noteId)
@@ -30,10 +33,12 @@ export function LinkedDocsTab(): JSX.Element {
   const load = async (noteId: NoteId) => {
     const current = ++generation
     setLoading(true)
+    setGroups([]); setLinks([])
     setError('')
     try {
-      const neighbors = await app.client.noteGraphNeighbors(noteId)
+      const [neighbors, savedLinks] = await Promise.all([app.client.noteGraphNeighbors(noteId), app.client.noteLinks(noteId)])
       if (current !== generation) return
+      setLinks(savedLinks)
       setGroups(groupByKind(neighbors.filter((neighbor) => neighbor.note.noteId !== noteId)))
     } catch (loadError) {
       if (current !== generation) return
@@ -50,18 +55,17 @@ export function LinkedDocsTab(): JSX.Element {
         <Show when={loading()}><div class="loading-state"><span class="loader" />Loading links…</div></Show>
         <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
         <Show when={!loading() && !error() && groups().length === 0}>
-          <p class="pane-empty">No linked documents.</p>
+          <p class="pane-empty">No saved links or suggested connections.</p>
         </Show>
         <For each={groups()}>{(group) =>
           <section class="link-group">
-            <h3>{group.kind}</h3>
+            <h3>{connectionGroup(group.kind).title}</h3>
+            <p class="connection-explanation">{connectionGroup(group.kind).explanation}</p>
             <ul class="link-list">
               <For each={group.neighbors}>{(neighbor) =>
                 <li>
-                  <button type="button" onClick={() => app.openNote(neighbor.note.noteId, neighbor.note.notebookId)}>
-                    <strong>{noteDisplayTitle(neighbor.note)}</strong>
-                    <span class="link-meta">#{neighbor.note.noteNumber} · {neighbor.hopCount} hop</span>
-                  </button>
+                  <NoteDestinationLink note={neighbor.note} relationship={group.kind === 'explicit-link'
+                    ? savedLinkDescription(neighbor, links()) : suggestedConnectionDescription(neighbor, app.state.note)} />
                 </li>}
               </For>
             </ul>

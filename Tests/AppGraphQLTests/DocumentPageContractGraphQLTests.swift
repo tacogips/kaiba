@@ -8,8 +8,8 @@ final class DocumentPageContractGraphQLTests: XCTestCase {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    let source = root.appendingPathComponent("synthetic.pdf")
-    try Data("synthetic image".utf8).write(to: source)
+    let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+      .appendingPathComponent("AppCoreTests/Fixtures/sample.pdf")
     let service = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root.path))
     let recognizer = ContractRecognizer()
     let imported = try service.importDocumentPages(

@@ -35,6 +35,15 @@ extension NoteService {
     var appendix: [String] = []
     var images: [AgentInvocationImage] = []
 
+    // PDF pages use their hidden plain OCR text for memo context. Their rasters
+    // exist only while OCR is running and are never retained as attachments.
+    if metadata.originMediaType == "application/pdf" {
+      return try documentPageChatAdditions(
+        subject: subject, metadata: metadata, libraryId: libraryId, query: query,
+        appendix: appendix, images: []
+      )
+    }
+
     do {
       let originId = FileID(metadata.originFileId)
       let linked = try driver.withDatabase { database in

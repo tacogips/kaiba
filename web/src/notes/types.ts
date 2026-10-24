@@ -79,6 +79,12 @@ export interface NoteFileAttachment {
   position: number
 }
 
+export interface NotebookFileAttachment {
+  notebookId: NotebookId
+  file: NoteFileRecord
+  role: string
+}
+
 /** A memo: anchored to a note (`noteId` set) or to a whole notebook
  * (`noteId` null); `notebookId` names the containing notebook either way. */
 export interface NoteComment {
@@ -308,4 +314,12 @@ export interface GraphQLEnvelope<T> {
   data?: T
   errors?: Array<{ message: string }>
   error?: string
+}
+
+export interface NoteLink {
+  fromNoteId: NoteId
+  toNoteId: NoteId
+  linkKind: string
+  provenance: string
+  createdAt: string
 }

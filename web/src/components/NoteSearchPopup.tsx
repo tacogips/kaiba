@@ -5,6 +5,7 @@ import { qualifiedTagLabel } from '../notes/tree'
 import { noteDisplayTitle, searchPageSize } from '../notes/noteText'
 import { errorMessage } from '../state/appStore'
 import type { NoteId, NotebookId } from '../notes/ids'
+import { WorkspaceIcon } from './WorkspaceIcon'
 
 /** Full-text note search presented as a popup, mirroring
  * RielaNoteSearchPopupSheet: picking a result opens that note and dismisses. */
@@ -95,7 +96,7 @@ export function NoteSearchPopup(props: {
       }}>
       <header>
         <div><span class="eyebrow">SEARCH</span><h2>Search notes</h2></div>
-        <button class="secondary" aria-label="Close search" onClick={props.onClose}>×</button>
+        <button class="workspace-icon" aria-label="Close search" title="Close search" onClick={props.onClose}><WorkspaceIcon name="close" /></button>
       </header>
       <div class="note-search-field">
         <label>
@@ -112,7 +113,7 @@ export function NoteSearchPopup(props: {
             }}
           />
         </label>
-        <button disabled={searching() || !query().trim()} onClick={() => void search(false)}>Search</button>
+        <button class="workspace-icon" aria-label="Search" title="Search" disabled={searching() || !query().trim()} onClick={() => void search(false)}><WorkspaceIcon name="search" /><span class="sr-only">Search</span></button>
       </div>
       <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
       <Show when={searching() && results().length === 0}>

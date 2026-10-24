@@ -29,6 +29,8 @@ public enum GraphQLContractProjector {
     tags: NoteTagsQueryPayload!
     tagClasses: NoteTagClassesQueryPayload!
     noteFile(fileId: String!): NoteFileQueryPayload!
+    documentPageTranslations(noteId: String!): DocumentPageTranslationsQueryPayload!
+    documentPageText(noteId: String!): DocumentPageTextQueryPayload!
     noteFiles(noteId: String!): NoteFilesQueryPayload!
     notebookFiles(notebookId: String!): NotebookFilesQueryPayload!
     noteLinks(noteId: String!): NoteLinksQueryPayload!
@@ -64,6 +66,7 @@ public enum GraphQLContractProjector {
     removeNotebookTag(notebookId: String!, tagName: String!, provenance: String): NoteMutationPayload!
     removeNotebookTagById(notebookId: String!, tagId: String!, provenance: String): NoteMutationPayload!
     setNotebookReadOnly(notebookId: String!, readOnly: Boolean!): NoteMutationPayload!
+    renameNotebook(notebookId: String!, title: String!): NoteMutationPayload!
     importDocument(input: ImportDocumentInput!): NoteMutationPayload!
     recognizeDocumentPage(noteId: String!): NoteMutationPayload!
     setNoteReadOnly(noteId: String!, readOnly: Boolean!): NoteMutationPayload!

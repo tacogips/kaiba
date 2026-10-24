@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 final class DocumentPageAgentChatProviderTests: NoteTestCase {
-  func testAnthropicAndOpenAIRequestsCarryImportedPageImageAndRetrievedText() async throws {
+  func testPDFMemoRequestsCarryPlainOCRAndRetrievedTextWithoutImages() async throws {
     for transport in ["anthropic", "openai"] {
       let fixture = try makeFixture()
       let client = CapturingPageModelClient(transport: transport)
@@ -19,7 +19,7 @@ final class DocumentPageAgentChatProviderTests: NoteTestCase {
       let capturedBody = await client.capturedBody()
       let body = try XCTUnwrap(capturedBody)
       let serialized = try XCTUnwrap(String(bytes: body, encoding: .utf8))
-      XCTAssertTrue(serialized.contains(fixture.pageTwo.base64EncodedString()), transport)
+      XCTAssertFalse(serialized.contains(fixture.pageTwo.base64EncodedString()), transport)
       XCTAssertTrue(serialized.contains("Lighthouse maintenance log"), transport)
       XCTAssertTrue(serialized.contains("Page 2 text"), transport)
       XCTAssertEqual(NoteService.chatTurnState(of: try fixture.service.getNote(turn.noteId))?.status, .answered)
@@ -46,19 +46,9 @@ final class DocumentPageAgentChatProviderTests: NoteTestCase {
       let input = try String(contentsOf: gateway.stdin, encoding: .utf8)
       XCTAssertTrue(input.contains("Lighthouse maintenance log"), vendor)
       XCTAssertTrue(input.contains("Page 2 text"), vendor)
-      if vendor == "cursor" {
-        XCTAssertFalse(args.contains("--image"))
-        XCTAssertTrue(input.contains(AgentInvocationRequest.imageFallbackNotice))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: gateway.image.path))
-      } else if vendor == "claude-code" {
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(input.utf8)) as? [String: Any])
-        let message = try XCTUnwrap(json["message"] as? [String: Any])
-        let content = try XCTUnwrap(message["content"] as? [[String: Any]])
-        let source = try XCTUnwrap(content[0]["source"] as? [String: String])
-        XCTAssertEqual(Data(base64Encoded: try XCTUnwrap(source["data"])), fixture.pageTwo)
-      } else {
-        XCTAssertEqual(try Data(contentsOf: gateway.image), fixture.pageTwo)
-      }
+      XCTAssertFalse(args.contains("--image"), vendor)
+      XCTAssertFalse(input.contains(AgentInvocationRequest.imageFallbackNotice), vendor)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: gateway.image.path), vendor)
       XCTAssertEqual(NoteService.chatTurnState(of: try fixture.service.getNote(turn.noteId))?.status, .answered)
     }
   }
@@ -79,7 +69,7 @@ final class DocumentPageAgentChatProviderTests: NoteTestCase {
     let bodyData = try XCTUnwrap(capturedBody)
     let body = try XCTUnwrap(String(bytes: bodyData, encoding: .utf8))
     XCTAssertFalse(body.contains(fixture.pageTwo.base64EncodedString()))
-    XCTAssertTrue(body.contains(AgentInvocationRequest.imageFallbackNotice))
+    XCTAssertFalse(body.contains(AgentInvocationRequest.imageFallbackNotice))
     XCTAssertTrue(body.contains("Lighthouse maintenance log"))
     XCTAssertEqual(NoteService.chatTurnState(of: try fixture.service.getNote(turn.noteId))?.status, .answered)
   }

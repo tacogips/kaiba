@@ -1,9 +1,9 @@
 // In-app return stack (design-docs/specs/tag-detail-pane.md, T7): navigation
-// initiated from the right pane pushes the current route hash; a visible Back
-// control pops entries one by one. Pure list operations so the store stays
+// across reader selections and from the right pane remembers route hashes;
+// a visible Back control pops entries one by one. Pure list operations so the store stays
 // testable without a DOM.
 
-export const returnStackLimit = 50
+export const returnStackLimit = 500
 
 export function pushReturn(stack: readonly string[], hash: string): string[] {
   // A no-move jump must not require two Back presses.

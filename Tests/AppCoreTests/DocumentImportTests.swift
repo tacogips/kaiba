@@ -113,8 +113,12 @@ final class DocumentConverterRoutingTests: NoteTestCase {
       echo 'unexpected OCR arguments' >&2
       exit 9
     fi
-    /bin/cat >/dev/null
-    printf '%s\n' '{"id":3,"jsonrpc":"2.0","result":{"stopReason":"end_turn","_meta":{"agentGateway":{"resultText":"# Scanned title\\nOCR body"}}}}'
+    prompt=$(/bin/cat)
+    case "$prompt" in
+      *"plain OCR text for search indexing"*"line breaks and blank lines"*"Do not add Markdown"*) ;;
+      *) echo 'expected plain-text OCR instructions' >&2; exit 10 ;;
+    esac
+    printf '%s\n' '{"id":3,"jsonrpc":"2.0","result":{"stopReason":"end_turn","_meta":{"agentGateway":{"resultText":"Scanned title\\n\\nFirst line\\nSecond line"}}}}'
     """)
     defer { try? FileManager.default.removeItem(at: scriptURL) }
     let imageURL = try writeFixture(
@@ -135,7 +139,7 @@ final class DocumentConverterRoutingTests: NoteTestCase {
     let result = try converter.convert(inputPath: imageURL.path)
 
     XCTAssertEqual(result.sourceFormat, "png")
-    XCTAssertEqual(result.markdown, "# Scanned title\nOCR body")
+    XCTAssertEqual(result.markdown, "Scanned title\n\nFirst line\nSecond line")
     XCTAssertEqual(result.toolName, "agent-gateway")
   }
 

@@ -159,6 +159,7 @@ public struct KaibaImportConfiguration: Codable, Equatable, Sendable {
   public var googleDocumentAI: GoogleDocumentAIConfiguration?
   public var ocrEngine: DocumentOCREngine?
   public var maximumOCRPages: DocumentOCRPageLimit?
+  public var textExtractionMode: PDFTextExtractionMode?
   public var analysis: KaibaOCRConfiguration?
   public var allowClaudeSubscription: Bool?
 
@@ -168,12 +169,14 @@ public struct KaibaImportConfiguration: Codable, Equatable, Sendable {
     maximumOCRPages: DocumentOCRPageLimit? = nil,
     analysis: KaibaOCRConfiguration? = nil,
     allowClaudeSubscription: Bool? = nil,
-    googleDocumentAI: GoogleDocumentAIConfiguration? = nil
+    googleDocumentAI: GoogleDocumentAIConfiguration? = nil,
+    textExtractionMode: PDFTextExtractionMode? = nil
   ) {
     self.ocr = ocr
     self.googleDocumentAI = googleDocumentAI
     self.ocrEngine = ocrEngine
     self.maximumOCRPages = maximumOCRPages
+    self.textExtractionMode = textExtractionMode
     self.analysis = analysis
     self.allowClaudeSubscription = allowClaudeSubscription
   }

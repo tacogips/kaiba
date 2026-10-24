@@ -17,7 +17,7 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
             <button
               type="button"
               class="rail-button"
-              aria-label="Open the library pane"
+              aria-label="Open the library pane" title="Open the library pane"
               aria-expanded={false}
               onClick={app.toggleLeftPane}
             >›</button>
@@ -36,7 +36,7 @@ export function LeftPane(props: { onClose?: () => void; onNavigate?: () => void 
           <button
             type="button"
             class="pane-fold"
-            aria-label="Collapse the library pane"
+            aria-label="Collapse the library pane" title="Collapse the library pane"
             aria-expanded={true}
             onClick={() => {
               app.toggleLeftPane()

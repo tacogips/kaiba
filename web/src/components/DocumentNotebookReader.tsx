@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, onCleanup, type JSX } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { documentPageMetadata, pageStepForArrow } from '../notes/documentPages'
 import { noteHeadingPrefix } from '../notes/toc'
 import { tagTermsFromAssignments } from '../notes/tagMatch'
@@ -8,26 +8,35 @@ import type { Note } from '../notes/types'
 import { NoteEditor } from './NoteEditor'
 import { MarkdownBody } from './Markdown'
 import { NoteFileImage } from './NoteFileImage'
+import { DocumentPageTextView } from './DocumentPageTextView'
+import { PDFDocumentView } from './PDFDocumentView'
+import { WorkspaceIcon } from './WorkspaceIcon'
+import '../reader-controls.css'
 
 export function DocumentNotebookReader(props: {
   notes: Note[]
+  displayMode?: 'original' | 'text' | 'translation'
+  translatedVersion?: { noteId: string; text: string; targetLanguage: string }
+  onOpenTranslation?: () => void
+  onOpenAnalysis?: () => void
   selectedNoteId?: NoteId
   totalCount?: number | null
   notebookTags?: NoteTagAssignment[]
   onTagClick?: (tagId: TagId) => void
   onSelect: (note: Note) => void
   onLoadMore: () => Promise<void>
-  onRecognize?: (note: Note) => Promise<void>
 }): JSX.Element {
   const [loading, setLoading] = createSignal(false)
   const [message, setMessage] = createSignal('')
   const [jump, setJump] = createSignal('')
-  const [ocrBusy, setOCRBusy] = createSignal(false)
-  const [ocrError, setOCRError] = createSignal<{ noteId: NoteId; message: string }>()
   const ordered = createMemo(() => [...props.notes].sort((a, b) => a.noteNumber - b.noteNumber))
-  const index = () => Math.max(0, ordered().findIndex((note) => note.noteId === props.selectedNoteId))
+  const index = () => props.selectedNoteId ? ordered().findIndex((note) => note.noteId === props.selectedNoteId) : 0
   const current = () => ordered()[index()]
   const metadata = () => documentPageMetadata(current())
+  createEffect(() => {
+    const first = ordered()[0]
+    if (!props.selectedNoteId && first) props.onSelect(first)
+  })
   const binding = () => {
     const value = metadata()?.analysis.binding
     return value && value !== 'unknown' ? value : ordered().map(documentPageMetadata)
@@ -59,20 +68,14 @@ export function DocumentNotebookReader(props: {
       if (!disposed) setMessage('Could not load that page. Try again.')
     } finally { if (!disposed) setLoading(false) }
   }
-  const recognize = async () => {
-    const note = current()
-    if (!note || !props.onRecognize || ocrBusy()) return
-    setOCRBusy(true)
-    setOCRError(undefined)
-    try { await props.onRecognize(note) }
-    catch (error) {
-      if (!disposed) setOCRError({ noteId: note.noteId, message: error instanceof Error ? error.message : 'OCR failed. Try again.' })
-    } finally { if (!disposed) setOCRBusy(false) }
-  }
   const step = (delta: number) => void selectIndex(index() + delta)
   const keydown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.isComposing || event.metaKey || event.altKey
+      || document.querySelector('dialog[open], [role="dialog"]')) return
     if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
-    const delta = pageStepForArrow(event.key, binding())
+    const delta = event.ctrlKey
+      ? event.key.toLowerCase() === 'u' ? -1 : event.key.toLowerCase() === 'd' ? 1 : 0
+      : pageStepForArrow(event.key, binding())
     if (delta) { event.preventDefault(); step(delta) }
   }
   const pointerUp = (event: PointerEvent) => {
@@ -84,35 +87,53 @@ export function DocumentNotebookReader(props: {
     step(pageStepForArrow(key, binding()))
   }
 
-  return <section class="document-reader" aria-label="Document pages" tabindex="0" onKeyDown={keydown}>
-    <div class="document-reader-toolbar">
-      <nav classList={{ 'document-page-navigation': true, 'right-binding': binding() === 'right' }} aria-label="Page navigation">
-        <button type="button" class="secondary" aria-label="Previous page" disabled={loading() || index() === 0}
-          onClick={() => step(-1)}>{binding() === 'right' ? 'Previous →' : '← Previous'}</button>
-        <span aria-live="polite">Page {metadata()?.pageNumber ?? current()?.noteNumber ?? 0} / {total()}</span>
-        <button type="button" class="secondary" aria-label="Next page" disabled={loading() || index() + 1 >= total()}
-          onClick={() => step(1)}>{binding() === 'right' ? '← Next' : 'Next →'}</button>
+  onMount(() => {
+    window.addEventListener('keydown', keydown)
+    onCleanup(() => window.removeEventListener('keydown', keydown))
+  })
+  const navigation = () => <nav classList={{ 'document-page-navigation': true, 'right-binding': binding() === 'right' }} aria-label="Page navigation">
+        <button type="button" class="secondary reader-control" aria-label="Previous page" title="Previous page (Ctrl+U)" disabled={loading() || index() === 0}
+          onClick={() => step(-1)}>{binding() === 'right' ? '→' : '←'}</button>
+        <button type="button" class="secondary reader-control" aria-label="Next page" title="Next page (Ctrl+D)" disabled={loading() || index() + 1 >= total()}
+          onClick={() => step(1)}>{binding() === 'right' ? '←' : '→'}</button>
       </nav>
+
+  const position = () => <div class="pdf-footer-position">
+      <span aria-live="polite" aria-atomic="true">Page {metadata()?.pageNumber ?? current()?.noteNumber ?? 0} / {total()}</span>
       <form onSubmit={(event) => {
         event.preventDefault()
         const page = Number(jump())
         if (Number.isSafeInteger(page) && page > 0) void selectIndex(page - 1)
       }}>
-        <label>Page <input type="number" min="1" max={total()} value={jump()} onInput={(event) => setJump(event.currentTarget.value)} /></label>
-        <button type="submit" class="secondary" disabled={loading()}>Go to page</button>
+        <label><span class="sr-only">Page number</span><input aria-label="Page number" placeholder="#" type="number" min="1" max={total()} value={jump()} onInput={(event) => setJump(event.currentTarget.value)} /></label>
+        <button type="submit" class="secondary reader-control reader-page-go" aria-label="Go to page" title="Go to page" disabled={loading()}><WorkspaceIcon name="back" /></button>
       </form>
-    </div>
-    <Show when={metadata()?.ocrState === 'pending'}>
-      <Show when={props.onRecognize}>
-        <button type="button" class="secondary" disabled={ocrBusy() || current()?.readOnly} onClick={() => void recognize()}>
-          {ocrBusy() ? 'Making page searchable...' : 'Make page searchable'}
-        </button>
-      </Show>
-      <p class="document-ocr-pending">Text on this page is not searchable yet.</p>
+  </div>
+
+  // A translation is tied to the source page, including while new page data is loading.
+  const translation = () => props.translatedVersion?.noteId === current()?.noteId ? props.translatedVersion : undefined
+  const translatedView = () => <section class="pdf-text-stage" aria-label="Translated page">
+    <Show when={translation()} fallback={<div class="document-page-text-empty">
+      <p>No translation for this page yet</p>
+      <Show when={props.onOpenTranslation}><button type="button" class="secondary reader-control" aria-label="Translate page" title="Translate page"
+        onClick={props.onOpenTranslation}><WorkspaceIcon name="ai" /></button></Show>
+    </div>}>{(version) => <pre lang={version().targetLanguage}>{version().text}</pre>}</Show>
+  </section>
+
+  return <section class="document-reader" aria-label="Document pages" tabindex="0">
+    <Show when={metadata()?.originMediaType !== 'application/pdf'}>
+      <header class="document-reader-toolbar">{navigation()}</header>
     </Show>
-    <Show when={ocrError()?.noteId === current()?.noteId}><p role="alert">{ocrError()?.message}</p></Show>
-    <Show when={loading()}><p role="status">Loading pages…</p></Show>
+    <Show when={loading() || (props.selectedNoteId && index() < 0)}><p role="status">Loading pages…</p></Show>
     <Show when={message()}><p role="alert">{message()}</p></Show>
+    <Show when={metadata()?.originMediaType === 'application/pdf'}>
+      <PDFDocumentView fileId={metadata()!.originFileId} pageNumber={metadata()!.pageNumber} navigation={navigation()} footer={position()}
+        textView={props.displayMode === 'translation' ? translatedView() : props.displayMode === 'text' && current() ? <DocumentPageTextView noteId={current()!.noteId} onOpenAnalysis={props.onOpenAnalysis} /> : undefined}
+        onTurnLeft={() => step(pageStepForArrow('ArrowLeft', binding()))}
+        onTurnRight={() => step(pageStepForArrow('ArrowRight', binding()))}
+        canTurnLeft={binding() === 'right' ? index() + 1 < total() : index() > 0}
+        canTurnRight={binding() === 'right' ? index() > 0 : index() + 1 < total()} />
+    </Show>
     <Show when={current()} keyed>{(note) => <div data-note-id={note.noteId}>
       <Show when={documentPageMetadata(note)} fallback={
         <div class="document-page-text">
@@ -121,7 +142,8 @@ export function DocumentNotebookReader(props: {
           <Show when={props.selectedNoteId === note.noteId}><NoteEditor note={note} /></Show>
         </div>
       }>{(page) =>
-        <div class="document-origin-stage"
+        <Show when={page().originMediaType !== 'application/pdf'}>
+        <Show when={props.displayMode === 'translation'} fallback={<Show when={props.displayMode === 'text'} fallback={<div class="document-origin-stage"
           onPointerDown={(event) => {
             if (event.pointerType === 'mouse') return
             swipeStart = event.clientX
@@ -129,8 +151,21 @@ export function DocumentNotebookReader(props: {
           }}
           onPointerUp={pointerUp} onPointerCancel={() => { swipeStart = undefined }}>
           <NoteFileImage fileId={page().originFileId} alt={`Original page ${page().pageNumber}`} />
-        </div>
+        </div>}><DocumentPageTextView noteId={note.noteId} onOpenAnalysis={props.onOpenAnalysis} /></Show>}>{translatedView()}</Show></Show>
       }</Show>
     </div>}</Show>
+    <Show when={metadata()?.originMediaType !== 'application/pdf' && current()}>
+    <footer class="document-reader-footer" aria-label="Page position">
+      <span aria-live="polite" aria-atomic="true">Page {metadata()?.pageNumber ?? current()?.noteNumber ?? 0} / {total()}</span>
+      <form onSubmit={(event) => {
+        event.preventDefault()
+        const page = Number(jump())
+        if (Number.isSafeInteger(page) && page > 0) void selectIndex(page - 1)
+      }}>
+        <label><span class="sr-only">Page number</span><input aria-label="Page number" placeholder="#" type="number" min="1" max={total()} value={jump()} onInput={(event) => setJump(event.currentTarget.value)} /></label>
+        <button type="submit" class="secondary reader-control reader-page-go" aria-label="Go to page" title="Go to page" disabled={loading()}><WorkspaceIcon name="back" /></button>
+      </form>
+    </footer>
+    </Show>
   </section>
 }

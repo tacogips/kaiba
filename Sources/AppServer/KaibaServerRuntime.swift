@@ -233,7 +233,8 @@ public actor KaibaServerRuntime {
         userAgentConfiguration: userAgentConfiguration,
         documentPageRecognizer: try importSettings.makePageRecognizer(environment: config.environment, executionMode: importExecutionMode),
         documentPageAnalyzer: importSettings.makePageAnalyzer(environment: config.environment, executionMode: importExecutionMode),
-        documentMaximumOCRPages: importSettings.maximumOCRPages ?? .first(3)
+        documentMaximumOCRPages: importSettings.maximumOCRPages ?? .first(3),
+        documentTextExtractionMode: importSettings.textExtractionMode ?? .preferPDFText
       ),
       s3Profiles: s3Profiles
     )

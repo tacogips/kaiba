@@ -104,7 +104,7 @@ function mount(api: NoteGraphQLClient, routes = router('#/note/open-note')): {
 }
 
 function button(host: HTMLElement, label: string): HTMLButtonElement | undefined {
-  return Array.from(host.querySelectorAll('button')).find((item) => item.textContent?.trim() === label)
+  return Array.from(host.querySelectorAll('button')).find((item) => (item.getAttribute('aria-label') ?? item.textContent?.trim()) === label)
 }
 
 describe('tag entity header', () => {

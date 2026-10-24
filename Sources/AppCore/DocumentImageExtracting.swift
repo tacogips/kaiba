@@ -48,6 +48,13 @@ public struct DocumentImageExtractionResult: Equatable, Sendable {
 
 public protocol DocumentImageExtracting: Sendable {
   func extractImages(fileURL: URL, sourceFormat: String) throws -> DocumentImageExtractionResult
+  func extractPageOrigins(fileURL: URL, maximumRenderedPages: Int?, textMode: PDFTextExtractionMode) throws -> DocumentImageExtractionResult
+}
+
+public extension DocumentImageExtracting {
+  func extractPageOrigins(fileURL: URL, maximumRenderedPages: Int?, textMode: PDFTextExtractionMode) throws -> DocumentImageExtractionResult {
+    try extractImages(fileURL: fileURL, sourceFormat: "pdf")
+  }
 }
 
 /// Routes an import source to the extractor that understands its container.
@@ -56,6 +63,10 @@ public protocol DocumentImageExtracting: Sendable {
 public struct DocumentImageExtractor: DocumentImageExtracting {
   public var pdf: any DocumentImageExtracting
   public var epub: any DocumentImageExtracting
+
+  public func extractPageOrigins(fileURL: URL, maximumRenderedPages: Int?, textMode: PDFTextExtractionMode) throws -> DocumentImageExtractionResult {
+    try pdf.extractPageOrigins(fileURL: fileURL, maximumRenderedPages: maximumRenderedPages, textMode: textMode)
+  }
 
   public init(
     pdf: any DocumentImageExtracting = PDFDocumentImageExtractor(),

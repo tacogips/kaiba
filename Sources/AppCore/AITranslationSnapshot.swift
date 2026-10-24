@@ -8,6 +8,8 @@ public enum AITranslationStatus: String, Codable, Equatable, Sendable {
 public struct AITranslationState: Equatable, Sendable {
   public var sourceNotebookId: NotebookID
   public var targetLanguage: String
+  public var pageStart: Int?
+  public var pageEnd: Int?
   public var status: AITranslationStatus
   public var errorMessage: String?
   public var continuationSourceNoteId: NoteID?
@@ -22,8 +24,12 @@ public struct AITranslationState: Equatable, Sendable {
     status: AITranslationStatus,
     errorMessage: String? = nil,
     continuationSourceNoteId: NoteID? = nil,
-    sourceNotebookRevision: Int64? = nil
+    sourceNotebookRevision: Int64? = nil,
+    pageStart: Int? = nil,
+    pageEnd: Int? = nil
   ) {
+    self.pageStart = pageStart
+    self.pageEnd = pageEnd
     self.sourceNotebookId = sourceNotebookId
     self.targetLanguage = targetLanguage
     self.status = status

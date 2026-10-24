@@ -94,7 +94,7 @@ describe('tab selection', () => {
 
   test('the other pane is untouched', () => {
     expect(withLeftTab(folded, 'files').rightTab).toBe('links')
-    expect(withRightTab(folded, 'info').leftOpen).toBe(false)
+    expect(withRightTab(folded, 'analysis').leftOpen).toBe(false)
     expect(withCenterTab(folded, 'list').leftTab).toBe('contents')
   })
 })

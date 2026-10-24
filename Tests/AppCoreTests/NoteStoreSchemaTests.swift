@@ -45,7 +45,7 @@ final class NoteStoreSchemaTests: NoteTestCase {
       XCTAssertEqual(
         try NoteStoreSchema.seededTagClassIds(in: database),
         [
-        .contentKind, .documentKind, .event, .folder, .person, .source, .topic, .workflow, .year
+        .contentKind, .date, .documentKind, .event, .folder, .name, .person, .place, .source, .topic, .workflow, .year
       ]
       )
 

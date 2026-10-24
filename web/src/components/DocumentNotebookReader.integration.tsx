@@ -8,6 +8,10 @@ import type { Note } from '../notes/types'
 import { DocumentNotebookReader } from './DocumentNotebookReader'
 import { MarkdownBody } from './Markdown'
 
+vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {}, getDocument: () => ({
+  promise: Promise.resolve({ getPage: vi.fn() }), destroy: async () => {},
+}) }))
+
 async function settle() {
   for (let index = 0; index < 4; index += 1) await new Promise((resolve) => setTimeout(resolve, 0))
 }
@@ -30,6 +34,17 @@ function mount(children: () => JSX.Element, loadBlob: (id: FileId) => Promise<Bl
   return { host, close: () => { dispose(); host.remove(); globalThis.fetch = originalFetch },
     button: (name: string) => [...host.querySelectorAll('button')].find((button) => (button.getAttribute('aria-label') ?? button.textContent) === name)! }
 }
+
+test('opening a document selects its first physical page for page-specific memos', async () => {
+  const selected: string[] = []
+  const harness = mount(() => <DocumentNotebookReader notes={[page(1), page(2)]} totalCount={2}
+    onSelect={(note) => selected.push(note.noteId)} onLoadMore={async () => {}} />,
+  async () => new Blob(['image'], { type: 'image/png' }))
+  try {
+    await settle()
+    expect(selected).toEqual(['note-1'])
+  } finally { harness.close() }
+})
 
 test('flips physical pages showing only original images and rejects stale image responses', async () => {
   const requests: string[] = []
@@ -59,7 +74,6 @@ test('flips physical pages showing only original images and rejects stale image 
     expect(harness.host.querySelector('img')?.alt).toBe('Original page 2')
     expect(harness.button('Next page').disabled).toBe(true)
     expect(harness.host.textContent).toContain('Page 2 / 2')
-    expect(harness.host.textContent).toContain('Text on this page is not searchable yet.')
     harness.host.querySelector('[aria-label="Document pages"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
     await settle()
     expect(revokeURL).toHaveBeenCalledWith('blob:current-page')
@@ -118,38 +132,6 @@ test('page notes never render OCR or fetch Markdown figure images', async () => 
   } finally { harness.close() }
 })
 
-test('manual page OCR reports failure, allows retry, and keeps OCR text hidden', async () => {
-  let calls = 0
-  const harness = mount(() => {
-    const [notes, setNotes] = createSignal([page(2)])
-    return <DocumentNotebookReader notes={notes()} selectedNoteId={noteId('note-2')} totalCount={1}
-      onSelect={() => {}} onLoadMore={async () => {}} onRecognize={async (note) => {
-        calls += 1
-        expect(note.noteId).toBe('note-2')
-        if (calls === 1) throw new Error('OCR temporarily unavailable')
-        const metadata = JSON.parse(note.metaJSON!)
-        metadata.documentPage.ocrState = 'complete'
-        setNotes([{ ...note, bodyMarkdown: 'Recognized page text', metaJSON: JSON.stringify(metadata) }])
-      }} />
-  }, async () => new Blob(['image'], { type: 'image/png' }))
-  try {
-    await settle()
-    expect(harness.host.textContent).toContain('Text on this page is not searchable yet.')
-    expect(harness.host.querySelector('img')?.alt).toBe('Original page 2')
-    harness.button('Make page searchable').click()
-    expect(harness.host.textContent).toContain('Making page searchable...')
-    await settle()
-    expect(harness.host.textContent).toContain('OCR temporarily unavailable')
-    harness.button('Make page searchable').click()
-    await settle()
-    expect(calls).toBe(2)
-    expect(harness.host.textContent).not.toContain('Recognized page text')
-    expect(harness.host.textContent).not.toContain('Text on this page is not searchable yet.')
-    expect(harness.button('Make page searchable')).toBeUndefined()
-    expect(harness.host.querySelector('img')?.alt).toBe('Original page 2')
-  } finally { harness.close() }
-})
-
 test('non-page notes keep rendering Markdown while page notes stay image-only', async () => {
   const userNote: Note = { noteId: noteId('note-2'), notebookId: notebookId('book'), noteNumber: 2, title: 'Mine',
     bodyMarkdown: 'User authored words', readOnly: false, createdAt: '', updatedAt: '', tags: [] }
@@ -168,5 +150,78 @@ test('non-page notes keep rendering Markdown while page notes stay image-only', 
     await settle()
     expect(harness.host.textContent).toContain('User authored words')
     expect(harness.host.textContent).not.toContain('First page text')
+  } finally { harness.close() }
+})
+
+
+test('page position stays in the footer and arrow keys navigate outside editable fields', async () => {
+  const harness = mount(() => {
+    const [selected, setSelected] = createSignal(noteId('note-1'))
+    return <><input aria-label="Memo draft" /><DocumentNotebookReader notes={[page(1, 'left'), page(2, 'left')]}
+      selectedNoteId={selected()} totalCount={2} onSelect={(note) => setSelected(note.noteId)} onLoadMore={async () => {}} /></>
+  }, async () => new Blob(['image'], { type: 'image/png' }))
+  try {
+    await settle()
+    expect(harness.host.querySelector('.document-reader-footer')?.textContent).toContain('Page 1 / 2')
+    expect(harness.host.querySelector('.document-reader-toolbar')?.textContent).not.toContain('Page 1 / 2')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', cancelable: true }))
+    await settle()
+    expect(harness.host.querySelector('.document-reader-footer')?.textContent).toContain('Page 2 / 2')
+    const input = harness.host.querySelector('input')!
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+    await settle()
+    expect(harness.host.textContent).toContain('Page 2 / 2')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', cancelable: true }))
+    await settle()
+    expect(harness.host.textContent).toContain('Page 1 / 2')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, cancelable: true }))
+    await settle()
+    expect(harness.host.textContent).toContain('Page 2 / 2')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'u', ctrlKey: true, cancelable: true }))
+    await settle()
+    expect(harness.host.textContent).toContain('Page 1 / 2')
+  } finally { harness.close() }
+})
+
+
+test('PDF translations stay plain text and page navigation selects source notes without retaining another page translation', async () => {
+  const sourcePages = [page(1, 'left'), page(2, 'left')].map((note) => ({ ...note,
+    metaJSON: JSON.stringify({ documentPage: { pageNumber: note.noteNumber, originFileId: 'file-pdf',
+      originMediaType: 'application/pdf', ocrState: 'complete', analysis: { binding: 'left' } } }),
+  }))
+  const selected: string[] = []
+  const requests: string[] = []
+  const openTranslation = vi.fn()
+  const translatedText = '# Plain heading\n\n![not an image](/files/translation-image) <b>plain</b>'
+  const harness = mount(() => {
+    const [selectedId, setSelectedId] = createSignal(noteId('note-1'))
+    return <DocumentNotebookReader notes={sourcePages} selectedNoteId={selectedId()} displayMode="translation"
+      translatedVersion={{ noteId: 'note-1', targetLanguage: 'en', text: translatedText }}
+      onOpenTranslation={openTranslation} totalCount={2} onSelect={(note) => {
+        selected.push(note.noteId); setSelectedId(note.noteId)
+      }} onLoadMore={async () => {}} />
+  }, async (id) => { requests.push(id); return new Blob(['pdf'], { type: 'application/pdf' }) })
+  try {
+    await settle()
+    const translation = harness.host.querySelector('[aria-label="Translated page"]')!
+    expect(translation.querySelector('pre')?.textContent).toBe(translatedText)
+    expect(translation.querySelector('pre')?.getAttribute('lang')).toBe('en')
+    expect(translation.querySelector('img, h1, b')).toBeNull()
+    expect(requests).toEqual(['file-pdf'])
+    harness.button('Next page').click()
+    await settle()
+    expect(selected).toEqual(['note-2'])
+    expect(harness.host.querySelector('[data-note-id]')?.getAttribute('data-note-id')).toBe('note-2')
+    expect(harness.host.textContent).toContain('Page 2 / 2')
+    expect(harness.host.textContent).toContain('No translation for this page yet')
+    expect(harness.host.textContent).not.toContain(translatedText)
+    expect(harness.host.querySelector('[aria-label="Translated page"] pre')).toBeNull()
+    harness.button('Translate page').click()
+    expect(openTranslation).toHaveBeenCalledTimes(1)
+    expect(requests).toEqual(['file-pdf'])
+    harness.button('Previous page').click()
+    await settle()
+    expect(selected).toEqual(['note-2', 'note-1'])
+    expect(harness.host.querySelector('[aria-label="Translated page"] pre')?.textContent).toBe(translatedText)
   } finally { harness.close() }
 })

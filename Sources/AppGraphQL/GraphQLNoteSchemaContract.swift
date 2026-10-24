@@ -8,6 +8,10 @@
 // non-integral, or the wrong type) is rejected with an invalidVariable error
 // rather than silently clamped.
 let graphQLNoteSchemaContract = """
+type DocumentPageTranslation { noteId: String!, notebookId: String!, sourceNoteId: String!, targetLanguage: String!, text: String! }
+type DocumentPageTranslationsQueryPayload { result: ControlPlaneResult!, value: [DocumentPageTranslation!] }
+type DocumentPageText { pageNumber: Int!, text: String!, textSource: String, ocrState: String! }
+type DocumentPageTextQueryPayload { result: ControlPlaneResult!, value: DocumentPageText }
 type NoteTag { tagId: String!, name: String!, classId: String, parentTagId: String, isSystem: Boolean!, createdAt: String! }
 type NoteTagClass { classId: String!, label: String!, description: String, isSystem: Boolean!, createdAt: String! }
 type NoteTagAssignment { tag: NoteTag!, provenance: String!, assignedBy: String, deletable: Boolean!, createdAt: String! }
@@ -162,7 +166,7 @@ input IngestNotebookPageInput {
   noteNumber: Int
   pageImage: IngestAttachmentInput
 }
-input ImportDocumentInput { filename: String!, contentBase64: String!, title: String, maximumOCRPages: String }
+input ImportDocumentInput { filename: String!, contentBase64: String!, title: String, maximumOCRPages: String, textExtractionMode: String }
 input IngestNotebookPagesInput {
   idempotencyKey: String!
   title: String!
@@ -241,7 +245,7 @@ type TagExtractionRequestPayload { result: ControlPlaneResult!, status: String! 
 # requestNotebookTranslation creates a pending notebook-kind:translation
 # notebook and queues the run; translated notes arrive asynchronously via the
 # note change feed. status "agent-unavailable" means nothing was created.
-input RequestNotebookTranslationInput { notebookId: String!, targetLanguage: String!, title: String }
+input RequestNotebookTranslationInput { notebookId: String!, targetLanguage: String!, title: String, pageStart: Int, pageEnd: Int }
 type NotebookTranslationRequestPayload { result: ControlPlaneResult!, translationNotebookId: String, status: String! }
 input MigrateNoteFileStorageInput {
   fileId: String!

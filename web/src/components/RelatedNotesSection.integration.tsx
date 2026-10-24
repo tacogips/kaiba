@@ -68,13 +68,14 @@ describe('RelatedNotesSection', () => {
     const dispose = render(() => <RelatedNotesSection app={testStore(true, async () => hits, openNote)} />, host)
     try {
       await settle()
-      const buttons = host.querySelectorAll<HTMLButtonElement>('[aria-label="Related notes"] button')
+      const buttons = host.querySelectorAll<HTMLButtonElement>('[aria-label="Related notes"] .note-destination-open')
       expect(buttons).toHaveLength(2)
       expect(buttons[0]?.textContent).toContain('Related one')
       expect(buttons[1]?.textContent).toContain('Related two')
       expect(host.querySelectorAll('.link-meta')[0]?.textContent)
-        .toBe('Linked · Shared tags: A, B · Same person/event: C · Related tags · Similar text')
-      expect(host.querySelectorAll('.link-meta')).toHaveLength(1)
+        .toBe('Saved link · Shared tags: A, B · Shared entities: C · Related tags · Similar text')
+      expect(host.querySelectorAll('.link-meta')).toHaveLength(2)
+      expect(host.querySelectorAll('.link-meta')[1]?.textContent).toBe('Suggested by search relevance')
       buttons[0]?.click()
       expect(openNote).toHaveBeenCalledWith(hits[0]?.note.noteId, hits[0]?.note.notebookId)
     } finally { dispose(); host.remove() }

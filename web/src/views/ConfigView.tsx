@@ -1,9 +1,10 @@
 import { For, type JSX } from 'solid-js'
 import { useApp } from '../state/appStore'
-import { clampFontScale, fontScaleBounds } from '../notes/settings'
+import { clampFontScale, fontScaleBounds, type PDFTextMode } from '../notes/settings'
 import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
 import { UserAgentSettings } from '../components/UserAgentSettings'
 import { SearchEngineSettings } from '../components/SearchEngineSettings'
+import '../components/form-controls.css'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
 
 // The config screen. Settings live in the kaiba store's sqlite
@@ -25,6 +26,7 @@ export function ConfigView(): JSX.Element {
     <main class="config-view" id="main-content" tabindex="-1">
       <header class="search-head">
         <h1>Settings</h1>
+        <button type="button" class="secondary form-icon-button" aria-label="Back to reader" title="Back to reader" onClick={app.openReader}><WorkspaceIcon name="back" /></button>
       </header>
 
       <section class="config-section">
@@ -58,6 +60,18 @@ export function ConfigView(): JSX.Element {
         </p>
       </section>
 
+      <section class="config-section">
+        <h2>PDF import</h2>
+        <label>Default text extraction
+          <select value={app.state.settings.pdfTextMode ?? ''}
+            onChange={(event) => app.updateSettings({ pdfTextMode: event.currentTarget.value ? event.currentTarget.value as PDFTextMode : undefined })}>
+            <option value="">Use server default</option>
+            <option value="prefer-pdf-text">Use PDF text, fall back to OCR</option>
+            <option value="ocr-only">OCR only</option>
+          </select>
+        </label>
+        <p>You can override this choice for each import.</p>
+      </section>
       <ServerConnectionSettings />
 
       <UserAgentSettings />
@@ -66,7 +80,7 @@ export function ConfigView(): JSX.Element {
 
       <section class="config-section">
         <h2>Layout</h2>
-        <button type="button" class="secondary" aria-label="Reset pane widths" title="Reset pane widths" onClick={app.resetPaneWidths}>
+        <button type="button" class="secondary form-icon-button" aria-label="Reset pane widths" title="Reset pane widths" onClick={app.resetPaneWidths}>
           <WorkspaceIcon name="refresh" />
         </button>
       </section>

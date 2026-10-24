@@ -544,6 +544,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
                 <button
                   type="button"
                   class="memo-note-ref"
+                  title={attribution()}
                   disabled={!entry.memo.noteId}
                   onClick={() => {
                     if (entry.memo.noteId) app.openNote(entry.memo.noteId)
@@ -554,14 +555,14 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
             </span>
           </header>
           <MarkdownBody markdown={entry.memo.bodyMarkdown} anchorIds={false} />
-          <button type="button" class="secondary" disabled={busy()} onClick={() => {
+          <button type="button" class="workspace-icon" aria-label="Open as notebook" title="Open as notebook" disabled={busy()} onClick={() => {
             const openingDraft = draftRecord()
             openingDraft.setBusy(true)
             void app.client.openMemoNotebook(entry.memo.commentId).then((notebook) => {
               setExpanded(false)
               app.openNotebookWithReturn(notebook.notebookId)
             }).catch((failure) => setError(errorMessage(failure))).finally(() => openingDraft.setBusy(false))
-          }}>Open as notebook</button>
+          }}><WorkspaceIcon name="expand" /><span class="sr-only">Open as notebook</span></button>
         </article>
       )
     }
@@ -654,13 +655,13 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           <strong>{props.subject !== undefined ? 'Selected topic' : app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</strong>
         </div></Show>
         <details class="chat-actions">
-        <summary aria-label="Chat actions">···</summary>
-        <button type="button" class="secondary" aria-expanded={expanded()}
+        <summary aria-label="Chat actions" title="Chat actions"><WorkspaceIcon name="more" /></summary>
+        <button type="button" class="workspace-icon memo-toolbar-action" aria-label={expanded() ? 'Close chat view' : 'Expand chat view'} title={expanded() ? 'Close chat view' : 'Expand chat view'} aria-expanded={expanded()}
           onClick={() => setExpanded(!expanded())}>
-          {expanded() ? 'Close chat view' : 'Expand chat view'}
+          <WorkspaceIcon name={expanded() ? 'close' : 'expand'} /><span class="sr-only">{expanded() ? 'Close chat view' : 'Expand chat view'}</span>
         </button>
         <Show when={!props.conversationNotebookId}>
-          <button type="button" class="secondary" aria-label="New chat" title="Start a separate discussion about the same material" disabled={busy()} onClick={startNewChat}>New discussion</button>
+          <button type="button" class="workspace-icon memo-toolbar-action" aria-label="New chat" title="Start a separate discussion about the same material" disabled={busy()} onClick={startNewChat}><WorkspaceIcon name="add" /><span class="sr-only">New chat</span></button>
         </Show>
         </details>
         <Show when={loading() && entries().length === 0}>

@@ -1,0 +1,12 @@
+.document-versions-control { position: relative; display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
+.document-version-switch { display: flex; align-items: center; gap: 0.15rem; }
+.document-version-switch button { white-space: nowrap; padding: 0.3rem 0.45rem; }
+.document-version-switch button[aria-pressed="true"] { background: var(--green-selected, #34303f); color: var(--green-ink, #e0d7f8); border-color: var(--green-ink, #e0d7f8); }
+.document-translation-language { min-width: 0; max-width: 8rem; }
+.document-translation-popover { position: absolute; top: calc(100% + 0.5rem); right: 0; width: min(20rem, calc(100vw - 2rem)); padding: 1rem; border: 1px solid var(--line, #414148); border-radius: 0.5rem; background: var(--surface, #202022); color: var(--ink, #dedee5); box-shadow: 0 0.5rem 1.5rem #0002; z-index: 50; white-space: normal; }
+.document-translation-popover form, .document-translation-popover label { display: grid; gap: 0.5rem; min-width: 0; }
+.document-translation-popover form { gap: 0.8rem; }
+.document-translation-popover input, .document-translation-popover select { min-width: 0; width: 100%; box-sizing: border-box; }
+.document-translation-popover button { justify-self: start; }
+.document-translation-popover p { margin: 0; overflow-wrap: anywhere; }
+.document-translation-range { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }

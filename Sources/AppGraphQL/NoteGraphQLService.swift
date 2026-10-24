@@ -39,6 +39,7 @@ public struct GraphQLNoteQueryResult<Value: Codable & Equatable & Sendable>: Cod
 public struct GraphQLNoteGraphQLService: Sendable {
   public var service: NoteService
   public var documentMaximumOCRPages: DocumentOCRPageLimit
+  public var documentTextExtractionMode: PDFTextExtractionMode
   public var documentPageRecognizer: any DocumentPageRecognizing
   public var documentPageAnalyzer: (any DocumentPageAnalyzing)?
   /// When set, `agenticSearch` runs synchronously against this agent runtime;
@@ -100,10 +101,12 @@ public struct GraphQLNoteGraphQLService: Sendable {
     userAgentConfiguration: KaibaUserAgentConfiguration = KaibaUserAgentConfiguration(),
     documentPageRecognizer: any DocumentPageRecognizing = VisionDocumentPageRecognizer(),
     documentPageAnalyzer: (any DocumentPageAnalyzing)? = nil,
-    documentMaximumOCRPages: DocumentOCRPageLimit = .first(3)
+    documentMaximumOCRPages: DocumentOCRPageLimit = .first(3),
+    documentTextExtractionMode: PDFTextExtractionMode = .preferPDFText
   ) {
     self.service = service
     self.documentMaximumOCRPages = documentMaximumOCRPages
+    self.documentTextExtractionMode = documentTextExtractionMode
     self.documentPageRecognizer = documentPageRecognizer
     self.documentPageAnalyzer = documentPageAnalyzer
     self.agentInvoker = agentInvoker
@@ -796,7 +799,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
       let (notebook, queued) = try service.requestNotebookTranslation(
         sourceNotebookId: input.notebookId,
         targetLanguage: input.targetLanguage,
-        title: input.title
+        title: input.title, pageStart: input.pageStart, pageEnd: input.pageEnd
       )
       return GraphQLNotebookTranslationRequestResult(
         result: GraphQLControlPlaneResult(accepted: true, status: "ok"),

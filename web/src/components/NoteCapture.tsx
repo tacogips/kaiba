@@ -44,7 +44,7 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
             onInput={(event) => setDraft(event.currentTarget.value)} />
         </label>
         <div class="learning-actions">
-          <button type="submit" aria-label="Save note" title="Save note" disabled={busy() || !draft().trim()}><WorkspaceIcon name="save" /></button>
+          <button type="submit" aria-label="Save note" title="Save note" disabled={busy() || !draft().trim()}><WorkspaceIcon name="check" /></button>
           <Show when={!props.empty}><button type="button" class="secondary" aria-label="Close draft" title="Close draft" disabled={busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button></Show>
         </div>
         <Show when={error()}><p role="alert" class="note-inline-error">{error()}</p></Show>

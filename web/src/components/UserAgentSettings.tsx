@@ -1,4 +1,6 @@
 import { For, Show, createResource, createSignal, type JSX } from 'solid-js'
+import { WorkspaceIcon } from './WorkspaceIcon'
+import './form-controls.css'
 import { useApp } from '../state/appStore'
 import type { NoteGraphQLClient } from '../notes/client'
 import type { UserAgentCredentialState } from '../notes/types'
@@ -172,7 +174,7 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
                 </label>
               </Show>
               <div class="user-agent-actions">
-                <button type="submit" disabled={busy()}>{provider() === 'codex' ? 'Save subscription settings' : 'Save key'}</button>
+                <button type="submit" class="form-icon-button" aria-label={provider() === 'codex' ? 'Save subscription settings' : 'Save key'} title="Save" aria-busy={busy()} disabled={busy()}><WorkspaceIcon name="check" /></button>
                 <Show when={value().credential}>{(credential) => <>
                   <button
                     type="button"
@@ -180,7 +182,7 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
                     disabled={busy()}
                     onClick={() => toggle(!credential().enabled)}
                   >{credential().enabled ? 'Disable' : 'Enable'}</button>
-                  <button type="button" class="secondary" disabled={busy()} onClick={clear}>Remove key</button>
+                  <button type="button" class="secondary form-icon-button" aria-label="Remove key" title="Remove key" disabled={busy()} onClick={clear}><WorkspaceIcon name="close" /></button>
                 </>}</Show>
               </div>
             </form>

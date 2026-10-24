@@ -45,7 +45,7 @@ export function WorkspaceShortcuts(props: {
         <dt>Close dialog</dt><dd><kbd>Escape</kbd></dd>
       </dl>
       <p>Use Command on macOS or Control on other platforms. Tab and Shift Tab reach individual controls; Enter or Space activates them.</p>
-      <button type="button" onClick={() => dialog.close()}>Close</button>
+      <button type="button" class="workspace-icon" aria-label="Close keyboard shortcuts" title="Close keyboard shortcuts" onClick={() => dialog.close()}><WorkspaceIcon name="close" /></button>
     </dialog>
   </>
 }

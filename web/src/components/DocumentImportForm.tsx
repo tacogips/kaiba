@@ -1,10 +1,13 @@
 import { Show, createSignal, type JSX } from 'solid-js'
+import { WorkspaceIcon } from './WorkspaceIcon'
+import './form-controls.css'
 
 export function DocumentImportForm(props: {
-  onImport: (file: File, title?: string, maximumOCRPages?: string) => Promise<void>
+  onImport: (file: File, title?: string, maximumOCRPages?: string, textExtractionMode?: string) => Promise<void>
 }): JSX.Element {
   const [file, setFile] = createSignal<File>()
   const [title, setTitle] = createSignal('')
+  const [textMode, setTextMode] = createSignal('')
   const [limit, setLimit] = createSignal('')
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal('')
@@ -23,7 +26,7 @@ export function DocumentImportForm(props: {
     setBusy(true)
     setError('')
     try {
-      await props.onImport(selected, title().trim() || undefined, limit() || undefined)
+      await props.onImport(selected, title().trim() || undefined, limit() || undefined, textMode() || undefined)
       setFile(undefined)
     } catch (cause) {
       setError(`Import could not be confirmed. Check your notebooks before retrying. ${cause instanceof Error ? cause.message : String(cause)}`)
@@ -34,17 +37,27 @@ export function DocumentImportForm(props: {
   return <form class="note-capture document-import-form" aria-label="Import document" onSubmit={(event) => void submit(event)}>
     <label>PDF or image (up to 1 MiB)
       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp" disabled={busy()}
-        onChange={(event) => { setFile(event.currentTarget.files?.[0]); setError('') }} />
+        onChange={(event) => {
+          const selected = event.currentTarget.files?.[0]
+          setFile(selected); setTitle(selected?.name ?? ''); setError('')
+        }} />
     </label>
-    <label>Document title (optional)
+    <label>Document title
       <input value={title()} disabled={busy()} onInput={(event) => setTitle(event.currentTarget.value)} />
+    </label>
+    <label>Text extraction
+      <select value={textMode()} disabled={busy()} onChange={(event) => setTextMode(event.currentTarget.value)}>
+        <option value="">Use default from Settings</option>
+        <option value="prefer-pdf-text">Use PDF text, fall back to OCR</option>
+        <option value="ocr-only">OCR only</option>
+      </select>
     </label>
     <label>Pages to OCR
       <input value={limit()} placeholder="Server default" disabled={busy()}
         onInput={(event) => setLimit(event.currentTarget.value.trim())} />
     </label>
-    <p>Enter 0, a page count, or all. Remaining pages keep their originals and can be OCRed individually later.</p>
-    <button type="submit" disabled={!file() || busy()}>{busy() ? 'Importing…' : 'Import document'}</button>
+    <p>Enter 0, a page count, or all. You can recognize more pages later.</p>
+    <button type="submit" class="form-action-button" aria-label="Import document" title="Import document" aria-busy={busy()} disabled={!file() || busy()}><WorkspaceIcon name="file" />{busy() ? 'Importing…' : 'Import'}</button>
     <Show when={error()}><p role="alert" class="note-inline-error">{error()}</p></Show>
   </form>
 }

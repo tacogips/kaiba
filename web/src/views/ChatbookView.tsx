@@ -13,6 +13,7 @@ import { formatRoute } from '../router'
 import type { RightTab } from '../state/paneState'
 import type { NotebookId } from '../notes/ids'
 import { AgentFooter } from '../components/AgentFooter'
+import '../workspace-actions.css'
 
 // The chatbook shell: a three-column grid whose fold state is expressed as data
 // attributes so the layout never depends on selector tricks, plus the shared
@@ -22,7 +23,7 @@ import { AgentFooter } from '../components/AgentFooter'
 export function ChatbookView(): JSX.Element {
   const app = useApp()
   const [mobilePane, setMobilePane] = createSignal<MobilePane>('reader')
-  const [agentConversation, setAgentConversation] = createSignal<NotebookId>()
+  const [footerConversation, setFooterConversation] = createSignal<{ notebookId?: NotebookId }>()
   const [pendingNavigation, setPendingNavigation] = createSignal<{ ready: () => boolean; run: () => void }>()
   // Hash navigation completes asynchronously in the browser and native web view.
   // Defer destination actions until the route has mounted its controls.
@@ -43,8 +44,8 @@ export function ChatbookView(): JSX.Element {
   })
   onCleanup(() => setPendingNavigation(undefined))
   const openAgentConversation = (id: NotebookId) => {
-    setAgentConversation(id)
-    showDetails('memo')
+    setFooterConversation({ notebookId: id })
+    setMobilePane('reader')
   }
   createEffect(() => {
     // Navigation reveals its destination even when Learn was the last mobile pane.
@@ -72,7 +73,11 @@ export function ChatbookView(): JSX.Element {
     setMobilePane('reader'); focus('.new-notebook-editor textarea')
   })
   const browseNotebooks = () => inReader(() => showMobilePane('files'))
-  const agentChat = () => showDetails('memo', () => focus('.pane-right .chat textarea'))
+  const agentChat = () => {
+    setMobilePane('reader')
+    setFooterConversation({})
+    focus('.agent-footer textarea')
+  }
   const commands: WorkspaceCommand[] = [
     { label: 'New notebook', key: 'n', run: newNotebook },
     { label: 'Notebooks', key: '1', shift: true, run: browseNotebooks },
@@ -82,17 +87,15 @@ export function ChatbookView(): JSX.Element {
     } },
     { label: 'Quick switcher', key: 'p', run: () => app.setSearchOpen(true) },
     { label: 'AI', key: 'a', shift: true, run: agentChat },
-    { label: 'Ask AI', key: 'j', run: () => {
-      document.querySelector<HTMLButtonElement>('.agent-footer [aria-label="Ask AI"][aria-expanded="false"]')?.click()
-      focus('.agent-footer textarea')
-    } },
+    { label: 'Ask AI', key: 'j', run: agentChat },
     { label: 'New chat', key: 'j', shift: true, run: () => {
-      showDetails('memo', () => queueMicrotask(() => {
-        document.querySelector<HTMLButtonElement>('.pane-right [aria-label="New chat"]:not(:disabled)')?.click()
-        focus('.pane-right .chat textarea')
-      }))
+      agentChat()
+      queueMicrotask(() => {
+        document.querySelector<HTMLButtonElement>('.agent-footer [aria-label="New chat"]:not(:disabled)')?.click()
+        focus('.agent-footer textarea')
+      })
     } },
-    { label: 'Tags', key: '2', shift: true, run: () => showDetails('info') },
+    { label: 'Tags', key: '2', shift: true, run: () => showDetails('tags') },
     { label: 'Links', key: '3', shift: true, run: () => showDetails('links') },
     { label: 'History', key: '4', shift: true, run: () => showDetails('history') },
     { label: 'Settings', key: ',', run: app.openConfig },
@@ -180,8 +183,8 @@ export function ChatbookView(): JSX.Element {
           <button type="button" class="workspace-icon" aria-label="New notebook" title={hint('New notebook')} onClick={newNotebook}><WorkspaceIcon name="edit" /></button>
           <button type="button" class="workspace-icon" aria-label="Notebooks" title={hint('Notebooks')} onClick={browseNotebooks}><WorkspaceIcon name="files" /></button>
           <button type="button" class="workspace-icon" aria-label="Quick switcher" title="Quick switcher (⌘/Ctrl P)" onClick={() => app.setSearchOpen(true)}><WorkspaceIcon name="search" /></button>
-          <button type="button" class="workspace-icon" aria-label="AI" title={hint('AI')} onClick={agentChat}><WorkspaceIcon name="ai" /></button>
-          <button type="button" class="workspace-icon" aria-label="Tags" title={hint('Tags')} onClick={() => showDetails('info')}><WorkspaceIcon name="tags" /></button>
+          <button type="button" class="workspace-icon" aria-label="AI" title={`${hint('AI')}: Discussion for the selected page or notebook`} onClick={agentChat}><WorkspaceIcon name="ai" /></button>
+          <button type="button" class="workspace-icon" aria-label="Tags" title={hint('Tags')} onClick={() => showDetails('tags')}><WorkspaceIcon name="tags" /></button>
           <button type="button" class="workspace-icon" aria-label="Links" title={hint('Links')} onClick={() => showDetails('links')}><WorkspaceIcon name="links" /></button>
         </nav>
         <div class="chatbook-head-actions">
@@ -192,12 +195,12 @@ export function ChatbookView(): JSX.Element {
 
       <Show when={app.state.error}>
         <div class="error-banner" role="alert">{app.state.error}
-          <button type="button" class="secondary" onClick={() => void app.refreshCatalog()}>Retry</button>
+          <button type="button" class="workspace-icon" aria-label="Retry" title="Retry" onClick={() => void app.refreshCatalog()}><WorkspaceIcon name="refresh" /><span class="sr-only">Retry</span></button>
         </div>
       </Show>
       <Show when={app.state.message}>
         <div class="notes-message" role="status" aria-live="polite">{app.state.message}
-          <button type="button" aria-label="Dismiss message" onClick={() => app.setMessage('')}>×</button>
+          <button type="button" class="workspace-icon" aria-label="Dismiss message" title="Dismiss message" onClick={() => app.setMessage('')}><WorkspaceIcon name="close" /></button>
         </div>
       </Show>
 
@@ -209,11 +212,11 @@ export function ChatbookView(): JSX.Element {
           />
           <PaneSplitter side="left" />
           <ReaderPane
-            onStudy={() => showMobilePane('details')}
+            onStudy={() => app.state.pane.rightTab === 'memo' ? agentChat() : showMobilePane('details')}
             onBrowseNotebooks={() => showMobilePane('files')}
           />
           <PaneSplitter side="right" />
-          <RightPane onClose={() => setMobilePane('reader')} conversationId={agentConversation()} onConversation={openAgentConversation} />
+          <RightPane onClose={() => setMobilePane('reader')} onConversation={openAgentConversation} />
         </div>
       </Show>
       <Show when={view() === 'search'}>
@@ -223,7 +226,7 @@ export function ChatbookView(): JSX.Element {
         <ConfigView />
       </Show>
 
-      <AgentFooter onConversation={openAgentConversation} />
+      <AgentFooter onConversation={openAgentConversation} conversationRequest={footerConversation()} />
       <Show when={app.state.searchOpen}>
         <NoteSearchPopup
           client={app.client}

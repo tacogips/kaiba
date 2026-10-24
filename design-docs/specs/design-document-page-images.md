@@ -1,5 +1,8 @@
 # Document Page Images: Image-Only Reader, Hidden OCR Text, Page-Aware Agent Chat
 
+For PDF uploads, the storage and reader sections are superseded by
+[Original PDF viewer and plain OCR](pdf-original-viewer.md) (2026-10-24).
+
 ## Status
 
 Accepted (2026-10-01). Supersedes these parts of

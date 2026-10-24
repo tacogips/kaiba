@@ -40,8 +40,10 @@ public struct ImportDocumentConverter: DocumentConverting {
 /// the gateway's ACP reply parser with the normal AI invoker.
 public struct AgentGatewayImageOCRConverter: DocumentConverting {
   public static let defaultPrompt = """
-  Transcribe all visible text in this image into GitHub-Flavored Markdown.
-  Preserve headings, paragraphs, lists, tables, and reading order. Return only Markdown.
+  Transcribe all visible text in this image as plain OCR text for search indexing.
+  Preserve the original wording and reading order. Use line breaks and blank lines to separate lines and paragraphs.
+  Keep headings, list items, and table cells as plain text. Do not add Markdown formatting, heading markers,
+  emphasis, table syntax, code fences, commentary, summaries, or inferred content. Return only the transcribed text.
   """
 
   public var commandPath: String?
@@ -151,7 +153,7 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
       ?? (parsed.streamedText.isEmpty ? nil : parsed.streamedText),
       !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else {
-      throw DocumentConversionError.failed("agent-gateway OCR produced no Markdown")
+      throw DocumentConversionError.failed("agent-gateway OCR produced no text")
     }
     return DocumentConversionResult(
       markdown: markdown,

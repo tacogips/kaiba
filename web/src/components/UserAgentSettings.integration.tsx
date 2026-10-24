@@ -149,7 +149,7 @@ describe('UserAgentSettings', () => {
     expect(client.enabledCalls).toEqual([false])
     expect(container.querySelector('[data-testid="user-agent-status"]')?.textContent).toContain('disabled')
 
-    const remove = buttons().find((button) => button.textContent === 'Remove key')
+    const remove = buttons().find((button) => button.getAttribute('aria-label') === 'Remove key')
     remove?.click()
     await settle()
     expect(client.clearCalls).toBe(1)

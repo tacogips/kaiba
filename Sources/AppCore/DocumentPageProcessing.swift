@@ -56,21 +56,25 @@ public struct PreparedDocumentPage: Equatable, Sendable {
   public var analysis: DocumentPageAnalysis
   /// Recognized OCR text; stored as hidden search text. nil means pending.
   public var markdown: String?
+  public var textSource: String?
 }
 
 public struct DocumentPageProcessor: Sendable {
   public let recognizer: any DocumentPageRecognizing
   public let analyzer: (any DocumentPageAnalyzing)?
   public let extractor: any DocumentImageExtracting
+  public let textExtractionMode: PDFTextExtractionMode
 
   public init(
     recognizer: any DocumentPageRecognizing,
     analyzer: (any DocumentPageAnalyzing)? = nil,
-    extractor: any DocumentImageExtracting = DocumentImageExtractor()
+    extractor: any DocumentImageExtracting = DocumentImageExtractor(),
+    textExtractionMode: PDFTextExtractionMode = .preferPDFText
   ) {
     self.recognizer = recognizer
     self.analyzer = analyzer
     self.extractor = extractor
+    self.textExtractionMode = textExtractionMode
   }
 
   /// nil processes all pages; zero imports originals only. Pages beyond the
@@ -88,7 +92,7 @@ public struct DocumentPageProcessor: Sendable {
         suggestedFilename: fileURL.lastPathComponent
       )])
     } else if format == "pdf" {
-      extraction = try extractor.extractImages(fileURL: fileURL, sourceFormat: format)
+      extraction = try extractor.extractPageOrigins(fileURL: fileURL, maximumRenderedPages: maximumOCRPages, textMode: textExtractionMode)
     } else {
       throw DocumentConversionError.unsupported(kind: format, message: "page import requires a PDF or image")
     }
@@ -104,18 +108,25 @@ public struct DocumentPageProcessor: Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
+    var recognizedPages = 0
     return try origins.enumerated().map { index, origin in
       var page = PreparedDocumentPage(
         pageNumber: origin.pageNumber, origin: origin,
         analysis: DocumentPageAnalysis(), markdown: nil
       )
-      if maximumOCRPages.map({ index < $0 }) ?? true {
+      let native = extraction.pageTexts.indices.contains(index) ? extraction.pageTexts[index] : ""
+      if textExtractionMode == .preferPDFText, !native.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        page.markdown = native
+        page.textSource = "pdf-text"
+      } else if maximumOCRPages.map({ recognizedPages < $0 }) ?? true {
+        recognizedPages += 1
         let imageURL = directory.appendingPathComponent("page-\(origin.pageNumber)")
           .appendingPathExtension(DocumentImageNaming.fileExtension(forMediaType: origin.mediaType))
         try origin.data.write(to: imageURL)
         // The origin is supplied by the extractor or source bytes; providers only receive a temporary copy.
         page.analysis = try analyzer?.analyze(imageURL: imageURL) ?? DocumentPageAnalysis()
         page.markdown = try recognizer.recognize(imageURL: imageURL)
+        page.textSource = "ocr"
       }
       return page
     }

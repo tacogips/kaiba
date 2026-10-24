@@ -3,17 +3,17 @@ import Foundation
 import XCTest
 
 final class DocumentPageProcessingTests: XCTestCase {
-  func testDownloadedPDFWithLocalOCR() throws {
+  func testDownloadedPDFUsesNativeTextWithoutRendering() throws {
     guard let path = ProcessInfo.processInfo.environment["KAIBA_TEST_IMPORT_PDF"] else {
       throw XCTSkip("Set KAIBA_TEST_IMPORT_PDF to run local OCR on a real PDF")
     }
     let pages = try DocumentPageProcessor(recognizer: VisionDocumentPageRecognizer())
       .prepare(fileURL: URL(fileURLWithPath: path), maximumOCRPages: 2)
     XCTAssertGreaterThan(pages.count, 2)
-    XCTAssertTrue(pages.prefix(2).allSatisfy { !($0.markdown ?? "").isEmpty })
-    XCTAssertTrue(pages.dropFirst(2).allSatisfy { $0.markdown == nil })
-    XCTAssertTrue(pages.allSatisfy { !$0.origin.data.isEmpty })
-    print("Real PDF verification: \(pages.count) page originals, 2 OCR pages, \(pages.count - 2) pending")
+    XCTAssertTrue(pages.allSatisfy { !($0.markdown ?? "").isEmpty })
+    XCTAssertTrue(pages.allSatisfy { $0.textSource == "pdf-text" })
+    XCTAssertTrue(pages.allSatisfy { $0.origin.data.isEmpty })
+    print("Real PDF verification: \(pages.count) page originals, native text used, no raster rendering")
   }
 
   func testLimitPreservesEveryOriginAndLeavesLaterPagesPending() throws {

@@ -90,8 +90,8 @@ export interface AppState {
   searchEngineEnabled: boolean
   /** App settings from the store's sqlite (`app_settings`, key "web"). */
   settings: WebAppSettings
-  /** Route hashes to restore via the Back control, pushed by right-pane
-   * navigation (tag occurrences, linked docs). */
+  /** Up to 500 prior reader selections and explicit tag/link return routes.
+   * Restoring an entry does not add the route being left. */
   returnStack: string[]
 }
 
@@ -363,6 +363,12 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
         if (generation !== noteGeneration) return
         setState({ note, notebookId: note.notebookId })
         if (!state.notesByNotebook[note.notebookId]) await loadNotes(note.notebookId)
+        while (generation === noteGeneration && !state.notesByNotebook[note.notebookId]?.some((row) => row.noteId === note.noteId)) {
+          const before = state.notesByNotebook[note.notebookId]?.length ?? 0
+          await loadMoreNotes(note.notebookId)
+          if ((state.notesByNotebook[note.notebookId]?.length ?? 0) <= before) break
+        }
+        if (generation !== noteGeneration) return
         setState('expandedNotebooks', (current) =>
           current.includes(note.notebookId) ? current : [...current, note.notebookId])
       } catch (error) {
@@ -458,8 +464,21 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   }
 
   let appliedSelection = ''
+  let previousSourceRoute: Route | undefined = state.route.kind === 'note' || state.route.kind === 'notebook'
+    ? { ...state.route } : undefined
+  let restoringHash: string | undefined
   let readerRoute = rememberReaderRoute(state.route)
   const unsubscribeRoute = subscribeRoute(router, (route) => {
+    // Observe the central route boundary so tree clicks, PDF paging, search
+    // results, linked notes, and direct hash changes all share one history.
+    const restoring = restoringHash === formatRoute(route)
+    restoringHash = undefined
+    if (route.kind === 'note' || route.kind === 'notebook' || route.kind === 'home') {
+      if (previousSourceRoute && selectionKey(previousSourceRoute) !== selectionKey(route) && !restoring) {
+        setState('returnStack', (stack) => pushReturn(stack, formatRoute(previousSourceRoute!)))
+      }
+      previousSourceRoute = route.kind === 'home' ? undefined : { ...route }
+    }
     readerRoute = rememberReaderRoute(route, readerRoute)
     // Routes are a union: fields from the previous variant must be removed.
     setState('route', reconcile({ ...route }))
@@ -551,9 +570,15 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       goWithReturn({ kind: 'notebook', notebookId })
     },
     goBack: () => {
-      const popped = popReturn(state.returnStack)
+      let popped = popReturn(state.returnStack)
+      // Explicit no-move jumps may leave the current route on top. Skip them
+      // so one press always moves to a different location when one exists.
+      while (popped.hash === formatRoute(state.route)) popped = popReturn(popped.stack)
       setState('returnStack', popped.stack)
-      if (popped.hash) navigate(router, parseRoute(popped.hash))
+      if (popped.hash) {
+        restoringHash = popped.hash
+        navigate(router, parseRoute(popped.hash))
+      }
     },
     openReader: () => go(readerRoute),
     openHome: () => {

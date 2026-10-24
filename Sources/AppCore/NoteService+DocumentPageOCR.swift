@@ -17,14 +17,26 @@ public extension NoteService {
     let originId = FileID(metadata.originFileId)
     let record = try getFileRecord(fileId: originId)
     let content = try resolveFileContent(fileId: originId)
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let imageURL = directory.appendingPathComponent("page")
-      .appendingPathExtension(DocumentImageNaming.fileExtension(forMediaType: record.mediaType))
-    try content.write(to: imageURL)
-    let analysis = try analyzer?.analyze(imageURL: imageURL) ?? metadata.analysis
-    let recognized = try recognizer.recognize(imageURL: imageURL)
+    let recognized: String
+    let analysis: DocumentPageAnalysis
+    let textSource: String
+    if metadata.originMediaType == "application/pdf", metadata.textExtractionMode != .ocrOnly,
+       let native = try PDFDocumentImageExtractor.pageText(pdfData: content, pageNumber: metadata.pageNumber) {
+      recognized = native
+      analysis = metadata.analysis
+      textSource = "pdf-text"
+    } else {
+      let image = metadata.originMediaType == "application/pdf"
+        ? try PDFDocumentImageExtractor.renderPage(pdfData: content, pageNumber: metadata.pageNumber)
+        : DocumentExtractedImage(
+          pageNumber: metadata.pageNumber, kind: .pageCapture, data: content,
+          mediaType: record.mediaType, suggestedFilename: "page"
+        )
+      let result = try recognizeTemporaryPage(image, recognizer: recognizer, analyzer: analyzer, fallback: metadata.analysis)
+      recognized = result.text
+      analysis = result.analysis
+      textSource = "ocr"
+    }
     let outcome = try driver.withDatabase { database in
       try database.transaction { db in
         let current = try requirePendingDocumentOCRNote(noteId, in: db)
@@ -41,6 +53,7 @@ public extension NoteService {
         completed.ocrState = "complete"
         completed.pendingBodySHA256 = nil
         completed.analysis = analysis
+        completed.textSource = textSource
         var object = try JSONValue(parsing: current.metaJSON ?? "{}").asObject ?? [:]
         object["documentPage"] = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(completed))
         try db.execute(
@@ -100,11 +113,33 @@ extension NoteService {
     guard metadata.ocrState == "pending" else {
       throw NoteServiceError.conflict("page OCR is already complete")
     }
-    let origin = try db.query(
-      "SELECT file_id FROM note_files WHERE note_id = ? AND file_id = ? AND role = ?",
-      bindings: [.id(noteId), .text(metadata.originFileId), .text(NoteFileRole.sourcePageImage.rawValue)]
-    )
+    let origin: [SQLiteRow]
+    if metadata.originMediaType == "application/pdf" {
+      origin = try db.query(
+        "SELECT file_id FROM notebook_files WHERE notebook_id = ? AND file_id = ? AND role = ?",
+        bindings: [.id(note.notebookId), .text(metadata.originFileId), .text(NotebookFileRole.sourceDocument.rawValue)]
+      )
+    } else {
+      origin = try db.query(
+        "SELECT file_id FROM note_files WHERE note_id = ? AND file_id = ? AND role = ?",
+        bindings: [.id(noteId), .text(metadata.originFileId), .text(NoteFileRole.sourcePageImage.rawValue)]
+      )
+    }
     guard origin.count == 1 else { throw NoteServiceError.conflict("page original is missing") }
     return note
   }
+}
+
+private func recognizeTemporaryPage(
+  _ image: DocumentExtractedImage, recognizer: any DocumentPageRecognizing,
+  analyzer: (any DocumentPageAnalyzing)?, fallback: DocumentPageAnalysis
+) throws -> (text: String, analysis: DocumentPageAnalysis) {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let imageURL = directory.appendingPathComponent("page")
+    .appendingPathExtension(DocumentImageNaming.fileExtension(forMediaType: image.mediaType))
+  try image.data.write(to: imageURL)
+  let analysis = try analyzer?.analyze(imageURL: imageURL) ?? fallback
+  return (try recognizer.recognize(imageURL: imageURL), analysis)
 }

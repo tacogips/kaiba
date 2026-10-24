@@ -3,12 +3,15 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, 
 import { MarkdownBody } from '../components/Markdown'
 import { MemoTab } from '../components/MemoTab'
 import { DocumentNotebookReader } from '../components/DocumentNotebookReader'
+import { NotebookTitleEditor } from '../components/NotebookTitleEditor'
+import { DocumentVersionsControl, type DocumentDisplayMode, type DocumentTranslationVersion } from '../components/DocumentVersionsControl'
+import { JumpBackControl } from '../components/JumpBackControl'
+import { PageTagsEditor } from '../components/PageTagsEditor'
 import { documentPageMetadata } from '../notes/documentPages'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
 import { NoteCapture } from '../components/NoteCapture'
 import { NoteEditor } from '../components/NoteEditor'
 import { NewNotebookEditor } from '../components/NewNotebookEditor'
-import { SourceAnalyses } from '../components/SourceAnalyses'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
 import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
@@ -31,6 +34,8 @@ const eagerNoteCount = 6
 export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: () => void } = {}): JSX.Element {
   const app = useApp()
   const chatNotebook = () => app.notebook()?.type === 'AGENT_CHAT'
+  const [documentDisplay, setDocumentDisplay] = createSignal<DocumentDisplayMode>('original')
+  const [selectedTranslation, setSelectedTranslation] = createSignal<DocumentTranslationVersion>()
   const [copied, setCopied] = createSignal(false)
   const [gotoDraft, setGotoDraft] = createSignal('')
   const [accessBusy, setAccessBusy] = createSignal(false)
@@ -41,6 +46,8 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
   let selectionFromClick = false
 
   const notes = createMemo(() => app.notes())
+  const selectedDocumentPage = createMemo(() => documentPageMetadata(notes().find((note) => note.noteId === app.state.noteId)
+    ?? (app.state.note?.noteId === app.state.noteId ? app.state.note : undefined)))
   const index = createMemo(() => notes().findIndex((note) => note.noteId === app.state.noteId))
   const [selectionTag, setSelectionTag] =
     createSignal<{ noteId: NoteId; name: string; x: number; y: number }>()
@@ -202,21 +209,32 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           </Show>
         }
       >
-        <header class="reader-head">
+        <header class="reader-head" classList={{ 'document-reader-head': notes().some((note) => documentPageMetadata(note) !== undefined) }}>
           <div class="reader-title">
+            <Show when={notes().some((note) => documentPageMetadata(note) !== undefined)} fallback={<>
             <span class="eyebrow">{app.notebook()?.title ?? 'NOTEBOOK'}</span>
             <h1>{app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</h1>
+            </>}>
+              <Show when={app.notebook()}>{(notebook) => <NotebookTitleEditor notebook={notebook()} />}</Show>
+            </Show>
           </div>
           <div class="reader-actions">
-            <Show when={app.state.returnStack.length > 0}>
-              <button type="button" class="secondary reader-back" aria-label="Back" title="Back" onClick={app.goBack}><WorkspaceIcon name="back" /></button>
+            <Show when={selectedDocumentPage()}>{(metadata) => <button
+              type="button" class="secondary page-status-icon"
+              aria-label={metadata().ocrState === 'pending' ? 'Page text is not searchable. Open Analysis' : 'Page is searchable. Open Analysis'}
+              title={metadata().ocrState === 'pending' ? 'This page has no searchable text yet. Open Analysis to recognize it.' : 'Page text is searchable. Open Analysis for details.'}
+              onClick={() => { app.setRightTab('analysis'); props.onStudy?.() }}>
+              <WorkspaceIcon name={metadata().ocrState === 'pending' ? 'warning' : 'check'} />
+            </button>}</Show>
+            <JumpBackControl />
+            <Show when={!notes().some((note) => documentPageMetadata(note) !== undefined)}>
+              <span class="reader-position">{pageLabel(index(), notes().length)}</span>
             </Show>
-            <span class="reader-position">{pageLabel(index(), notes().length)}</span>
             <Show when={app.state.note}>
               <button type="button" class="secondary" aria-label="Notebook context" title="Notebook context" onClick={app.deselectNote}><WorkspaceIcon name="files" /></button>
             </Show>
             <details class="reader-tools">
-              <summary aria-label="Notebook tools">•••</summary>
+              <summary aria-label="Notebook tools" title="Notebook tools: access, copy, and download"><WorkspaceIcon name="more" /></summary>
               <div class="reader-tools-body">
             <Show when={app.notebook()}>{(notebook) => <>
               <span class="note-readonly-badge">
@@ -260,12 +278,20 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
               </div>
             </details>
           </div>
+          <PageTagsEditor />
+          <Show when={notes().some((note) => documentPageMetadata(note) !== undefined)}>
+            <Show when={selectedDocumentPage() && app.state.noteId && app.state.notebookId}>
+              <DocumentVersionsControl notebookId={app.state.notebookId!} sourceNoteId={app.state.noteId!}
+                pageNumber={selectedDocumentPage()!.pageNumber} totalPages={app.notebook()?.noteCount ?? notes().length}
+                displayMode={documentDisplay()} selectedTranslationId={selectedTranslation()?.noteId}
+                preferredTranslationLanguage={selectedTranslation()?.targetLanguage}
+                onSelect={(mode, version) => { setDocumentDisplay(mode); setSelectedTranslation(version) }} />
+            </Show>
+          </Show>
         </header>
-        <Show keyed when={!chatNotebook() && app.state.notebookId}>
-          {(notebookId) => <SourceAnalyses app={app} notebookId={notebookId} />}
-        </Show>
         <Show when={chatNotebook() && !app.state.noteId} fallback={<article
           class="reader-body"
+          classList={{ 'document-notebook-body': notes().some((note) => documentPageMetadata(note) !== undefined) }}
           ref={setBody}
           onMouseDown={() => setSelectionTag(undefined)}
           onMouseUp={offerSelectionTag}
@@ -292,14 +318,13 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           <LoadMoreSentinel />
           </>}>
             <Show when={app.state.notebookId} keyed>{(notebookId) => <DocumentNotebookReader
-              notes={notes()} selectedNoteId={app.state.noteId} totalCount={app.notebook()?.noteCount}
+              notes={notes()} selectedNoteId={app.state.noteId} displayMode={documentDisplay()}
+              translatedVersion={selectedTranslation()?.sourceNoteId === app.state.noteId && selectedTranslation()
+                ? { noteId: app.state.noteId!, text: selectedTranslation()!.text, targetLanguage: selectedTranslation()!.targetLanguage } : undefined}
+              onOpenAnalysis={() => { app.setRightTab('analysis'); props.onStudy?.() }} totalCount={app.notebook()?.noteCount}
               notebookTags={app.notebook()?.tags} onTagClick={(tagId) => app.openTagPane(tagId)}
               onSelect={(note) => app.openNote(note.noteId, notebookId)} onLoadMore={() => app.loadMoreNotes(notebookId)}
-              onRecognize={async (note) => {
-                await app.client.recognizeDocumentPage(note.noteId)
-                await app.loadNotes(notebookId)
-                await app.refreshNote()
-              }}
+
             />}</Show>
           </Show>
         </article>}>

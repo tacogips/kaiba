@@ -440,6 +440,9 @@ private struct SystemTagClass {
 
 private let systemTagClasses: [SystemTagClass] = [
   SystemTagClass(classId: .contentKind, label: "Content Kind", description: "Content-level note kinds"),
+  SystemTagClass(classId: .date, label: "Date", description: "Calendar dates"),
+  SystemTagClass(classId: .name, label: "Name", description: "Names of entities and named things"),
+  SystemTagClass(classId: .place, label: "Place", description: "Places and geographic locations"),
   SystemTagClass(classId: .person, label: "Person", description: "People and named actors"),
   SystemTagClass(classId: .year, label: "Year", description: "Years and historical periods"),
   SystemTagClass(classId: .event, label: "Event", description: "Events and milestones"),

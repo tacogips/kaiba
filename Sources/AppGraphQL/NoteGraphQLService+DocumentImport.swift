@@ -9,6 +9,7 @@ public struct GraphQLDocumentImportInput: Codable, Sendable {
   public var contentBase64: String
   public var title: String?
   public var maximumOCRPages: String?
+  public var textExtractionMode: String?
 }
 
 public extension GraphQLNoteGraphQLService {
@@ -23,6 +24,7 @@ public extension GraphQLNoteGraphQLService {
       DispatchQueue.global(qos: .userInitiated).async {
         continuation.resume(returning: noteMutation {
           let limit = try input.maximumOCRPages.map(DocumentOCRPageLimit.parse) ?? documentMaximumOCRPages
+          let textMode = try service.resolvePDFTextMode(override: input.textExtractionMode, configuration: documentTextExtractionMode)
           let filename = (input.filename as NSString).lastPathComponent
           let format = (filename as NSString).pathExtension.lowercased()
           guard filename == input.filename, filename.utf8.count <= 255,
@@ -49,7 +51,7 @@ public extension GraphQLNoteGraphQLService {
           let imported = try service.importDocumentPages(
             at: source.path, title: input.title?.isEmpty == false ? input.title : nil,
             processor: DocumentPageProcessor(
-              recognizer: documentPageRecognizer, analyzer: documentPageAnalyzer
+              recognizer: documentPageRecognizer, analyzer: documentPageAnalyzer, textExtractionMode: textMode
             ), maximumOCRPages: limit.maximum
           )
           return .init(

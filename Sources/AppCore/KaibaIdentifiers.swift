@@ -142,6 +142,9 @@ extension TagClassID {
   /// singles one out — folder tags shape the notebook tree, document-kind tags
   /// mark notebook kinds — names it here instead of repeating the literal.
   public static let contentKind = TagClassID("content-kind")
+  public static let date = TagClassID("date")
+  public static let name = TagClassID("name")
+  public static let place = TagClassID("place")
   public static let person = TagClassID("person")
   public static let year = TagClassID("year")
   public static let event = TagClassID("event")

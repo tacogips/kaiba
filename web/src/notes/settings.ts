@@ -5,6 +5,8 @@
 
 import { parseAnalysisTemplates, type AnalysisTemplate } from './analysisTemplates'
 
+export type PDFTextMode = 'prefer-pdf-text' | 'ocr-only'
+
 export interface WebAppSettings {
   /** Multiplier applied to every font size (the `--fs` CSS variable). */
   fontScale: number
@@ -12,6 +14,7 @@ export interface WebAppSettings {
   agentModel?: string
   agentProvider?: string
   analysisTemplates?: AnalysisTemplate[]
+  pdfTextMode?: PDFTextMode
 }
 
 export const webSettingsKey = 'web'
@@ -45,6 +48,7 @@ export function parseWebSettings(json: string | null | undefined): WebAppSetting
       ? clampFontScale(record.fontScale)
       : defaultWebSettings.fontScale,
     ...(agentModel ? { agentModel } : {}),
+    ...(['prefer-pdf-text', 'ocr-only'].includes(String(record.pdfTextMode)) ? { pdfTextMode: record.pdfTextMode as PDFTextMode } : {}),
     ...(parseAnalysisTemplates(record.analysisTemplates).length ? { analysisTemplates: parseAnalysisTemplates(record.analysisTemplates) } : {}),
     ...(typeof record.agentProvider === 'string' && record.agentProvider.trim() ? { agentProvider: record.agentProvider.trim() } : {}),
   }
@@ -53,6 +57,7 @@ export function parseWebSettings(json: string | null | undefined): WebAppSetting
 export function serializeWebSettings(settings: WebAppSettings): string {
   return JSON.stringify({
     fontScale: clampFontScale(settings.fontScale),
+    ...(settings.pdfTextMode ? { pdfTextMode: settings.pdfTextMode } : {}),
     ...(settings.analysisTemplates?.length ? { analysisTemplates: parseAnalysisTemplates(settings.analysisTemplates) } : {}),
     ...(settings.agentProvider?.trim() ? { agentProvider: settings.agentProvider.trim() } : {}),
     ...(settings.agentModel?.trim() ? { agentModel: settings.agentModel.trim() } : {}),

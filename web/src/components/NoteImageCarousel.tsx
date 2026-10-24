@@ -80,7 +80,7 @@ export function NoteImageCarousel(props: { entries: NoteImageEntry[]; onClose: (
       <button
         type="button"
         class="note-carousel-arrow prev"
-        aria-label="Next image"
+        aria-label="Next image" title="Next image"
         disabled={index() >= props.entries.length - 1}
         onClick={() => step(1)}
       >‹</button>
@@ -104,7 +104,7 @@ export function NoteImageCarousel(props: { entries: NoteImageEntry[]; onClose: (
       <button
         type="button"
         class="note-carousel-arrow next"
-        aria-label="Back toward the note text"
+        aria-label="Back toward the note text" title="Back toward the note text"
         onClick={() => step(-1)}
       >›</button>
       <footer class="note-carousel-bar">

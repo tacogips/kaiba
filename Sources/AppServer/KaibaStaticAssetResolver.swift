@@ -82,7 +82,7 @@ public struct KaibaStaticAssetResolver: Sendable {
       headers: [
         "Content-Type": Self.contentType(for: candidate.pathExtension),
         "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
-        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+        "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; font-src 'self' data: blob:"
       ],
       body: data
     )
@@ -92,6 +92,7 @@ public struct KaibaStaticAssetResolver: Sendable {
     switch pathExtension.lowercased() {
     case "html": "text/html; charset=utf-8"
     case "js", "mjs": "text/javascript; charset=utf-8"
+    case "wasm": "application/wasm"
     case "css": "text/css; charset=utf-8"
     case "json", "map": "application/json; charset=utf-8"
     case "svg": "image/svg+xml"

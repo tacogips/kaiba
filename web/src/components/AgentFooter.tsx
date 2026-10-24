@@ -1,14 +1,31 @@
-import { Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import { errorMessage, useApp } from '../state/appStore'
 import type { NotebookId } from '../notes/ids'
 import { WorkspaceIcon } from './WorkspaceIcon'
 import { MemoComposerControls } from './ChatComposer'
 import { fileToChatAttachment, normalizeSelectedAgentModel, validateComposerFiles } from '../notes/memoComposer'
 import type { AgentModel } from '../notes/types'
+import '../agent-footer.css'
+import { MemoTab } from './MemoTab'
 
-export function AgentFooter(props: { onConversation: (id: NotebookId) => void }): JSX.Element {
+export function AgentFooter(props: {
+  onConversation: (id: NotebookId) => void
+  conversationRequest?: { notebookId?: NotebookId }
+}): JSX.Element {
   const app = useApp()
   const [expanded, setExpanded] = createSignal(false)
+  const [showHistory, setShowHistory] = createSignal(false)
+  const [selectedConversation, setSelectedConversation] = createSignal<NotebookId>()
+  const [largePanel, setLargePanel] = createSignal(false)
+  createEffect(() => {
+    const request = props.conversationRequest
+    if (!request) return
+    setSelectedConversation(request.notebookId)
+    setShowHistory(false)
+    setExpanded(true)
+  })
+  const contextLabel = () => `${app.notebook()?.title ?? 'Current notebook'}${app.state.noteId ? ` · Page ${app.state.note?.noteNumber ?? '…'}` : ''}`
+  const conversationTitle = () => app.state.notebooks.find((notebook) => notebook.notebookId === selectedConversation())?.title ?? 'Saved conversation'
   const draft = app.writingDrafts.get('footer-agent')
   const [providers, setProviders] = createSignal<string[]>([])
   const [configuredProvider, setConfiguredProvider] = createSignal<string>()
@@ -17,7 +34,7 @@ export function AgentFooter(props: { onConversation: (id: NotebookId) => void })
   let generation = 0
   onCleanup(() => { generation += 1 })
   createEffect(() => {
-    if (!expanded()) return
+    if (!expanded() || showHistory() || selectedConversation() || app.state.noteId || app.state.notebookId) return
     void app.state.catalogRevision
     const request = ++generation
     void app.client.agentModels(app.state.settings.agentProvider).then((catalog) => {
@@ -76,25 +93,51 @@ export function AgentFooter(props: { onConversation: (id: NotebookId) => void })
       draft.setError(errorMessage(error))
     } finally { draft.setBusy(false) }
   }
-  return <footer class="agent-footer">
+  return <footer class="agent-footer" data-large={largePanel()}>
     <Show when={expanded()}>
-      <form class="footer-agent-composer" onSubmit={(event) => void send(event)}>
-        <MemoComposerControls memoOnly={false} noteEdit={false} canNoteEdit={false} hideModes autofocus
-          busy={draft.busy()} readOnly={Boolean(draft.submission())}
-          draft={draft.text()} attachments={draft.files()} models={models()} selectedModel={app.state.settings.agentModel}
-          providers={providers()} selectedProvider={app.state.settings.agentProvider ?? configuredProvider()}
-          onProviderChange={(agentProvider) => app.updateSettings({ agentProvider, agentModel: undefined })}
-          extensionsEnabled={!draft.busy() && !draft.submission()} inputLabel="Ask AI anything" sendLabel="Send to AI"
-          onStageFiles={stageFiles} onDraftChange={(value) => { if (!draft.submission()) draft.setText(value) }}
-          onRemoveAttachment={(index) => { if (!draft.submission()) draft.setFiles(draft.files().filter((_, i) => i !== index)) }}
-          onModelChange={(model) => app.updateSettings({ agentModel: model || undefined })}
-          onToggleMemoOnly={() => {}} onToggleNoteEdit={() => {}}
-          onSubmit={() => void send(new Event('submit', { cancelable: true }))} />
-        <Show when={catalogError()}><p role="alert" class="note-inline-error">{catalogError()}</p></Show>
-        <Show when={draft.error()}><p role="alert" class="note-inline-error">{draft.error()}</p></Show>
-      </form>
+      <div class="footer-chat-tools" role="group" aria-label="AI conversation controls">
+        <Show when={showHistory() || selectedConversation()}>
+          <button type="button" class="workspace-icon" aria-label="Return to current page discussion" title={`Return to ${contextLabel()}`} onClick={() => { setSelectedConversation(undefined); setShowHistory(false) }}><WorkspaceIcon name="back" /></button>
+        </Show>
+        <button type="button" class="workspace-icon" aria-label="AI conversations" title="Saved AI conversations" aria-pressed={showHistory()} onClick={() => setShowHistory(!showHistory())}><WorkspaceIcon name="timeline" /></button>
+        <button type="button" class="workspace-icon" aria-label={largePanel() ? 'Reduce conversation panel' : 'Enlarge conversation panel'} title={largePanel() ? 'Reduce conversation panel' : 'Enlarge conversation panel'} aria-pressed={largePanel()} onClick={() => setLargePanel(!largePanel())}><WorkspaceIcon name="expand" /></button>
+      </div>
+      <Show when={!showHistory()} fallback={
+        <section class="footer-conversation-history" aria-label="Saved AI conversations">
+          <p class="footer-context-label">AI conversations</p>
+          <For each={app.state.notebooks.filter((notebook) => notebook.type === 'AGENT_CHAT')} fallback={<p class="pane-empty">No conversations yet.</p>}>
+            {(notebook) => <button type="button" class="footer-history-entry" onClick={() => { setSelectedConversation(notebook.notebookId); setShowHistory(false) }}>{notebook.title}</button>}
+          </For>
+        </section>
+      }>
+      <Show when={selectedConversation() || app.state.noteId || app.state.notebookId} fallback={
+        <form class="footer-agent-composer" onSubmit={(event) => void send(event)}>
+          <MemoComposerControls memoOnly={false} noteEdit={false} canNoteEdit={false} hideModes autofocus
+            busy={draft.busy()} readOnly={Boolean(draft.submission())}
+            draft={draft.text()} attachments={draft.files()} models={models()} selectedModel={app.state.settings.agentModel}
+            providers={providers()} selectedProvider={app.state.settings.agentProvider ?? configuredProvider()}
+            onProviderChange={(agentProvider) => app.updateSettings({ agentProvider, agentModel: undefined })}
+            extensionsEnabled={!draft.busy() && !draft.submission()} inputLabel="Ask AI anything" sendLabel="Send to AI"
+            onStageFiles={stageFiles} onDraftChange={(value) => { if (!draft.submission()) draft.setText(value) }}
+            onRemoveAttachment={(index) => { if (!draft.submission()) draft.setFiles(draft.files().filter((_, i) => i !== index)) }}
+            onModelChange={(model) => app.updateSettings({ agentModel: model || undefined })}
+            onToggleMemoOnly={() => {}} onToggleNoteEdit={() => {}}
+            onSubmit={() => void send(new Event('submit', { cancelable: true }))} />
+          <Show when={catalogError()}><p role="alert" class="note-inline-error">{catalogError()}</p></Show>
+          <Show when={draft.error()}><p role="alert" class="note-inline-error">{draft.error()}</p></Show>
+        </form>
+      }>
+        <section class="footer-contextual-chat" aria-label={selectedConversation() ? 'Saved conversation' : 'Discussion for the current selection'}>
+          <p class="footer-context-label" title={selectedConversation() ? conversationTitle() : contextLabel()}>
+            {selectedConversation() ? `Saved conversation: ${conversationTitle()}` : contextLabel()}
+          </p>
+          <MemoTab conversationNotebookId={selectedConversation() ?? (app.notebook()?.type === 'AGENT_CHAT' ? app.state.notebookId : undefined)} />
+        </section>
+      </Show>
+      </Show>
     </Show>
-    <button type="button" class="workspace-icon" aria-label="Ask AI" title="Ask AI (⌘/Ctrl J)"
+    <button type="button" class="workspace-icon agent-footer-launcher" aria-label={expanded() ? 'Close AI composer' : 'Ask AI'}
+      title={expanded() ? 'Close AI composer' : 'Discuss the current notebook or page (⌘/Ctrl J). Saved conversations are available in AI conversations.'}
       aria-expanded={expanded()} onClick={() => {
         setExpanded(!expanded())
       }}><WorkspaceIcon name={expanded() ? 'close' : 'ai'} /></button>

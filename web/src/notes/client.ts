@@ -20,6 +20,7 @@ import type {
   NoteCaptureResult,
   NoteComment,
   NoteFileAttachment,
+  NotebookFileAttachment,
   NoteGraphNeighbor,
   NoteListSort,
   NoteSearchResult,
@@ -256,6 +257,18 @@ export class NoteGraphQLClient {
     `, { noteId }, (data) => data.note)
   }
 
+  async noteLinks(noteId: NoteId): Promise<import('./types').NoteLink[]> {
+    type Link = import('./types').NoteLink
+    return this.queryValue<{ noteLinks: QueryPayload<Link[]> }, Link[]>('NoteLinks', `
+      query NoteLinks($noteId: String!) {
+        noteLinks(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value { fromNoteId toNoteId linkKind provenance createdAt }
+        }
+      }
+    `, { noteId }, (data) => data.noteLinks)
+  }
+
   /** Linked documents for the Links tab; `edgeKind` is the link kind the tab
    * groups by. Depth stays at one hop so the list is the note's own links. */
   async noteGraphNeighbors(noteId: NoteId, limit = 20): Promise<NoteGraphNeighbor[]> {
@@ -273,7 +286,7 @@ export class NoteGraphQLClient {
           result { accepted status diagnostics }
           value {
             seedNoteId edgeKind weight hopCount pathNoteIds
-            note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+            note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
           }
         }
       }
@@ -294,6 +307,38 @@ export class NoteGraphQLClient {
 
   /** Files attached to a note. Page captures and extracted images of an
    * imported document arrive here with image/* media types. */
+  async documentPageTranslations(noteId: NoteId): Promise<{ noteId: NoteId; notebookId: NotebookId; sourceNoteId: NoteId; targetLanguage: string; text: string }[]> {
+    type Version = { noteId: NoteId; notebookId: NotebookId; sourceNoteId: NoteId; targetLanguage: string; text: string }
+    return this.queryValue<{ documentPageTranslations: QueryPayload<Version[]> }, Version[]>('DocumentPageTranslations', `
+      query DocumentPageTranslations($noteId: String!) {
+        documentPageTranslations(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value { noteId notebookId sourceNoteId targetLanguage text }
+        }
+      }
+    `, { noteId }, (data) => data.documentPageTranslations)
+  }
+
+  async documentPageText(noteId: NoteId): Promise<{ pageNumber: number; text: string; textSource: string | null; ocrState: string }> {
+    type PageText = { pageNumber: number; text: string; textSource: string | null; ocrState: string }
+    return this.queryValue<{ documentPageText: QueryPayload<PageText> }, PageText>('DocumentPageText', `
+      query DocumentPageText($noteId: String!) {
+        documentPageText(noteId: $noteId) { result { accepted status diagnostics } value { pageNumber text textSource ocrState } }
+      }
+    `, { noteId }, (data) => data.documentPageText)
+  }
+
+  async notebookFiles(notebookId: NotebookId): Promise<NotebookFileAttachment[]> {
+    return this.queryValue<{ notebookFiles: QueryPayload<NotebookFileAttachment[]> }, NotebookFileAttachment[]>('NotebookFiles', `
+      query NotebookFiles($notebookId: String!) {
+        notebookFiles(notebookId: $notebookId) {
+          result { accepted status diagnostics }
+          value { notebookId role file { fileId storageKind mediaType byteSize sha256 originalFilename createdAt } }
+        }
+      }
+    `, { notebookId }, (data) => data.notebookFiles)
+  }
+
   async noteFiles(noteId: NoteId): Promise<NoteFileAttachment[]> {
     return this.queryValue<{ noteFiles: QueryPayload<NoteFileAttachment[]> }, NoteFileAttachment[]>('NoteFiles', `
       query NoteFiles($noteId: String!) {
@@ -355,7 +400,7 @@ export class NoteGraphQLClient {
       mutation PromoteTagNote($input: PromoteTagNoteInput!) {
         promoteTagNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
         }
       }
     `, { input: { tagId, noteId } }, 'promoteTagNote')
@@ -368,7 +413,7 @@ export class NoteGraphQLClient {
       mutation UnpromoteTagNote($input: UnpromoteTagNoteInput!) {
         unpromoteTagNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
         }
       }
     `, { input: { tagId } }, 'unpromoteTagNote')
@@ -642,6 +687,8 @@ export class NoteGraphQLClient {
     notebookId: NotebookId
     targetLanguage: string
     title?: string
+    pageStart?: number
+    pageEnd?: number
   }): Promise<{ translationNotebookId: NotebookId | null; status: string }> {
     const data = await this.request<{ requestNotebookTranslation: { result: ControlResult; translationNotebookId?: NotebookId | null; status: string } }>('RequestNotebookTranslation', `
       mutation RequestNotebookTranslation($input: RequestNotebookTranslationInput!) {
@@ -656,6 +703,8 @@ export class NoteGraphQLClient {
         notebookId: input.notebookId,
         targetLanguage: input.targetLanguage,
         ...(input.title ? { title: input.title } : {}),
+        ...(input.pageStart !== undefined ? { pageStart: input.pageStart } : {}),
+        ...(input.pageEnd !== undefined ? { pageEnd: input.pageEnd } : {}),
       },
     })
     const payload = data.requestNotebookTranslation
@@ -701,7 +750,7 @@ export class NoteGraphQLClient {
     `, { input: { title: title.trim() } }, 'createNotebook')
   }
 
-  async importDocument(file: File, title?: string, maximumOCRPages?: string): Promise<Notebook> {
+  async importDocument(file: File, title?: string, maximumOCRPages?: string, textExtractionMode?: string): Promise<Notebook> {
     if (file.size > 1_048_576) throw new Error('Uploads are limited to 1 MiB. Use the local import command for larger files.')
     const bytes = new Uint8Array(await file.arrayBuffer())
     let binary = ''
@@ -716,7 +765,7 @@ export class NoteGraphQLClient {
           } }
         }
       }
-    `, { input: { filename: file.name, contentBase64: btoa(binary), title, maximumOCRPages } }, 'importDocument')
+    `, { input: { filename: file.name, contentBase64: btoa(binary), title, maximumOCRPages, textExtractionMode } }, 'importDocument')
   }
 
   async saveNewNotebook(bodyMarkdown: string, idempotencyKey: string): Promise<Notebook> {
@@ -741,7 +790,7 @@ export class NoteGraphQLClient {
       mutation CreateNote($input: CreateNoteInput!) {
         createNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
         }
       }
     `, { input: { notebookId, bodyMarkdown, provenance: 'human', assignedBy: 'kaiba-web' } }, 'createNote')
@@ -767,7 +816,7 @@ export class NoteGraphQLClient {
       mutation UpdateNote($input: UpdateNoteInput!) {
         updateNote(input: $input) {
           result { accepted status diagnostics }
-          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON }
         }
       }
     `, { input: { noteId, bodyMarkdown } }, 'updateNote')
@@ -797,6 +846,17 @@ export class NoteGraphQLClient {
     `, { notebookId, tagId, provenance: 'human' }, 'removeNotebookTagById')
   }
 
+  async renameNotebook(notebookId: NotebookId, title: string): Promise<Notebook> {
+    return this.notebookMutation('RenameNotebook', `
+      mutation RenameNotebook($notebookId: String!, $title: String!) {
+        renameNotebook(notebookId: $notebookId, title: $title) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, { notebookId, title }, 'renameNotebook')
+  }
+
   async setNotebookReadOnly(notebookId: NotebookId, readOnly: boolean): Promise<Notebook> {
     return this.notebookMutation('SetNotebookReadOnly', `
       mutation SetNotebookReadOnly($notebookId: String!, $readOnly: Boolean!) {
@@ -824,7 +884,7 @@ export class NoteGraphQLClient {
       query SearchNotes($query: String!, $tagFilter: [String!], $classFilter: [String!], $notebookId: String, $sort: NoteListSort, $createdAfter: String, $createdBefore: String, $includeLinked: Boolean, $limit: Int, $offset: Int) {
         searchNotes(query: $query, tagFilter: $tagFilter, classFilter: $classFilter, notebookId: $notebookId, sort: $sort, createdAfter: $createdAfter, createdBefore: $createdBefore, includeLinked: $includeLinked, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
-          value { snippet rank isLinkedNeighbor termCoverage note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } matchedTags { tagId name classId parentTagId isSystem createdAt } }
+          value { snippet rank isLinkedNeighbor termCoverage note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON } matchedTags { tagId name classId parentTagId isSystem createdAt } }
         }
       }
     `, {
@@ -869,7 +929,7 @@ export class NoteGraphQLClient {
       query EngineSearchNotes($query: String!, $notebookId: String, $tagFilter: [String!], $tagClassFilter: [String!], $expandOntology: Boolean, $facets: Boolean, $limit: Int, $offset: Int) {
         engineSearchNotes(query: $query, notebookId: $notebookId, tagFilter: $tagFilter, tagClassFilter: $tagClassFilter, expandOntology: $expandOntology, facets: $facets, limit: $limit, offset: $offset) {
           result { accepted status diagnostics }
-          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON } }
           facets { tagClasses { value count } tags { tagId name tagClass count } }
         }
       }
@@ -896,7 +956,7 @@ export class NoteGraphQLClient {
       query RelatedNotes($noteId: String!, $limit: Int) {
         relatedNotes(noteId: $noteId, limit: $limit) {
           result { accepted status diagnostics }
-          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt } }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON } }
         }
       }
     `, { noteId, limit }, (data) => data.relatedNotes)
@@ -998,6 +1058,15 @@ export class NoteGraphQLClient {
       message: typeof value.message === 'string' ? value.message : null,
       resync: value.resync === true,
     }
+  }
+
+  async removeNoteTag(noteId: NoteId, tagName: string): Promise<void> {
+    const data = await this.request<{ removeNoteTag: { result: { accepted: boolean; status: string; diagnostics: string[] } } }>('RemoveNoteTag', `
+      mutation RemoveNoteTag($noteId: String!, $tagName: String!) {
+        removeNoteTag(noteId: $noteId, tagName: $tagName, provenance: "human") { result { accepted status diagnostics } }
+      }
+    `, { noteId, tagName })
+    ensureAccepted(data.removeNoteTag.result)
   }
 
   async applyNoteTag(noteId: NoteId, tagName: string, classId?: TagClassId): Promise<void> {

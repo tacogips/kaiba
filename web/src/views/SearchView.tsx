@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createSignal, type JSX } from 'solid-js'
 import { MarkdownBody } from '../components/Markdown'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { errorMessage, useApp } from '../state/appStore'
 import { NoteTransportError } from '../notes/client'
 import { noteDisplayTitle } from '../notes/noteText'
@@ -143,15 +144,15 @@ export function SearchView(): JSX.Element {
         </div>
       </Show>
       <Show when={error()}><div role="alert"><p class="note-inline-error">{error()}</p>
-        <button type="button" class="secondary" onClick={() => { const current = route(); if (current) void run(current) }}>Try again</button>
+        <button type="button" class="workspace-icon" aria-label="Try again" title="Try again" onClick={() => { const current = route(); if (current) void run(current) }}><WorkspaceIcon name="refresh" /><span class="sr-only">Try again</span></button>
       </div></Show>
       <Show when={status() === 'agent-unavailable'}>
         <p class="chat-banner" role="status">
           AI search is not available. You can still find text in your notes.
-          <button type="button" class="secondary" onClick={() => {
+          <button type="button" class="secondary search-text-action" aria-label="Find text instead" title="Find text instead" onClick={() => {
             const current = route()
             if (current) app.openSearch(current.query, current.scope, 'grep')
-          }}>Find text instead</button>
+          }}><WorkspaceIcon name="search" />Find text</button>
         </p>
       </Show>
 
@@ -178,12 +179,12 @@ export function SearchView(): JSX.Element {
       </Show>
       <Show when={tagFilter().length > 0 || tagClassFilter().length > 0}>
         <div class="detail-chips" aria-label="Active search filters">
-          <For each={tagClassFilter()}>{(value) => <span class="folder-chip">{value}<button type="button" aria-label={`Remove filter ${value}`} onClick={() => {
+          <For each={tagClassFilter()}>{(value) => <span class="folder-chip">{value}<button type="button" aria-label={`Remove filter ${value}`} title={`Remove filter ${value}`} onClick={() => {
             setTagClassFilter(tagClassFilter().filter((item) => item !== value))
-          }}>x</button></span>}</For>
-          <For each={tagFilter()}>{(value) => <span class="folder-chip">{value}<button type="button" aria-label={`Remove filter ${value}`} onClick={() => {
+          }}><WorkspaceIcon name="close" /></button></span>}</For>
+          <For each={tagFilter()}>{(value) => <span class="folder-chip">{value}<button type="button" aria-label={`Remove filter ${value}`} title={`Remove filter ${value}`} onClick={() => {
             setTagFilter(tagFilter().filter((item) => item !== value))
-          }}>x</button></span>}</For>
+          }}><WorkspaceIcon name="close" /></button></span>}</For>
         </div>
       </Show>
 

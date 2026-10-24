@@ -1,4 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type JSX } from 'solid-js'
+import { WorkspaceIcon } from './WorkspaceIcon'
+import './form-controls.css'
 import { formatTimestamp } from '../notes/format'
 import { MarkdownBody } from './Markdown'
 import { MemoTab, type MemoSubject } from './MemoTab'
@@ -156,7 +158,7 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
         <button
           type="button"
           class="pane-fold"
-          aria-label="Collapse the details pane"
+          aria-label="Collapse the details pane" title="Collapse the details pane"
           aria-expanded={true}
           onClick={app.toggleRightPane}
         >›</button>
@@ -176,7 +178,7 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
           aria-label="Close tag details"
           title="Close tag details"
           onClick={app.closeTagPane}
-        >×</button>
+        ><WorkspaceIcon name="close" /></button>
       </div>
       <div class="tag-pane-tabs">
         <Tabs label="Tag details" tabs={tabs} active={tab()} idPrefix="tag" onSelect={setTab} />
@@ -231,10 +233,8 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
                           value={draft()}
                           onInput={(event) => setDraft(event.currentTarget.value)}
                         />
-                        <button type="submit" disabled={entityBusy() || !draft().trim()}>
-                          {entityBusy()
-                            ? 'Saving…'
-                            : pendingDescriptionNoteId() ? 'Retry promoting it' : 'Save as description'}
+                        <button type="submit" class="form-icon-button" aria-label={pendingDescriptionNoteId() ? 'Retry promoting it' : 'Save as description'} title={pendingDescriptionNoteId() ? 'Retry promoting it' : 'Save as description'} aria-busy={entityBusy()} disabled={entityBusy() || !draft().trim()}>
+                          <WorkspaceIcon name={pendingDescriptionNoteId() ? 'refresh' : 'check'} />
                         </button>
                       </form>
                     </Show>
@@ -247,9 +247,10 @@ export function TagPane(props: { tagId: TagId }): JSX.Element {
                 <div class="detail-chips">
                   <button
                     type="button"
-                    class="secondary"
+                    class="secondary form-icon-button"
+                    aria-label={`Open ${noteDisplayTitle(note())}`} title={`Open ${noteDisplayTitle(note())}`}
                     onClick={() => app.openNoteWithReturn(note().noteId, note().notebookId)}
-                  >Open {noteDisplayTitle(note())}</button>
+                  ><WorkspaceIcon name="links" /></button>
                   <button
                     type="button"
                     class="secondary"

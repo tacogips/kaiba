@@ -24,6 +24,7 @@ public enum NoteActionKind: String, Sendable {
   case noteDeleted = "note-deleted"
   case notebookCreated = "notebook-created"
   case notebookReadOnlySet = "notebook-read-only-set"
+  case notebookTitleUpdated = "notebook-title-updated"
   case notebookDeleted = "notebook-deleted"
   case notebookIngested = "notebook-ingested"
   case commentAdded = "comment-added"
@@ -37,7 +38,7 @@ public enum NoteActionKind: String, Sendable {
     case .noteCreated, .notebookCreated, .commentAdded:
       return true
     case .noteBodyUpdated, .noteTagsApplied, .noteTagRemoved, .noteReadOnlySet,
-         .noteDeleted, .notebookReadOnlySet, .notebookDeleted, .notebookIngested,
+         .noteDeleted, .notebookReadOnlySet, .notebookTitleUpdated, .notebookDeleted, .notebookIngested,
          .undone, .redone:
       return false
     }

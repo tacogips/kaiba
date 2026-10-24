@@ -48,12 +48,12 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
               onInput={(event) => record.setText(event.currentTarget.value)} />
           </label>
           <div class="learning-actions">
-            <button type="submit" aria-label="Save changes" title="Save changes" disabled={!writable() || record.busy() || !record.text().trim()}><WorkspaceIcon name="save" /></button>
+            <button type="submit" aria-label="Save changes" title="Save changes" disabled={!writable() || record.busy() || !record.text().trim()}><WorkspaceIcon name="check" /></button>
             <button type="button" class="secondary" aria-label="Close draft" title="Close draft" disabled={record.busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button>
           </div>
           <Show when={!writable()}><p role="status">This note is now read-only. Your draft is kept for this session.</p></Show>
           <Show when={record.error()}><p role="alert" class="note-inline-error">{record.error()}</p></Show>
-          <Show when={conflict()}><button type="button" class="secondary" disabled={record.busy()} onClick={async () => {
+          <Show when={conflict()}><button type="button" class="secondary draft-reload-action" aria-label="Discard draft and load latest text" title="Discard draft and load latest text" disabled={record.busy()} onClick={async () => {
             record.setBusy(true)
             try {
               const latest = await app.client.note(props.note.noteId)
@@ -63,7 +63,7 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
               setConflict(false)
             } catch (error) { record.setError(errorMessage(error)) }
             finally { record.setBusy(false) }
-          }}>Discard draft and load latest text</button></Show>
+          }}><WorkspaceIcon name="refresh" />Load latest</button></Show>
         </form>
       </Show>
     </div>

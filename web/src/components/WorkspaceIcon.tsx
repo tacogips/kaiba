@@ -1,6 +1,13 @@
 import { type JSX } from 'solid-js'
 
 const paths = {
+  preview: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  return: 'M9 4L4 9l5 5 M4 9h9a7 7 0 0 1 0 14',
+  lock: 'M6 11V7a6 6 0 0 1 12 0v4 M4 11h16v11H4z M12 15v3',
+  translate: 'M3 5h12 M9 3v2 M5 5c0 7 8 10 8 10 M13 5c0 7-8 10-8 10 M14 21l4-10 4 10 M16 17h4',
+  warning: 'M12 3L2 21h20L12 3z M12 9v5 M12 17h.01',
+  check: 'M5 12l4 4L20 5',
+
   tree: 'M5 3v14h5 M5 7h5 M10 5h10v4H10z M10 15h10v4H10z',
   timeline: 'M5 3v18 M3 6h4 M3 12h4 M3 18h4 M11 6h10 M11 12h10 M11 18h10',
   keyboard: 'M2 5h20v14H2z M6 9h.01 M10 9h.01 M14 9h.01 M18 9h.01 M6 13h.01 M10 13h8',

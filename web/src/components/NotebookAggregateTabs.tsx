@@ -2,8 +2,11 @@ import { noteId as asNoteId } from '../notes/ids'
 import type { NoteId, TagClassId, TagId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
 import { errorMessage, useApp } from '../state/appStore'
-import type { NoteGraphNeighbor, NoteTag } from '../notes/types'
+import type { NoteGraphNeighbor, NoteTag, NoteLink } from '../notes/types'
+import { documentPageMetadata } from '../notes/documentPages'
 import { noteDisplayTitle } from '../notes/noteText'
+import { NoteDestinationLink } from './NoteDestinationLink'
+import { savedLinkDescription, suggestedConnectionDescription } from '../notes/linkDescriptions'
 
 // Right-pane content while no note is selected: notebook-wide aggregates.
 // Tags: every tag across the notebook's notes (deduped) plus the notebook's
@@ -79,6 +82,7 @@ const maximumLinkChunks = 8
 
 export function NotebookLinksTab(): JSX.Element {
   const app = useApp()
+  const [savedLinks, setSavedLinks] = createSignal<NoteLink[]>([])
   const [neighbors, setNeighbors] = createSignal<NoteGraphNeighbor[]>([])
   const [loading, setLoading] = createSignal(false)
   const [truncated, setTruncated] = createSignal(false)
@@ -102,6 +106,7 @@ export function NotebookLinksTab(): JSX.Element {
   const load = async (ids: NoteId[]) => {
     const requested = ++generation
     setLoading(true)
+    setNeighbors([]); setSavedLinks([])
     setError('')
     try {
       const chunks: NoteId[][] = []
@@ -112,7 +117,17 @@ export function NotebookLinksTab(): JSX.Element {
       const results = await Promise.all(chunks.slice(0, maximumLinkChunks).map((chunk) =>
         app.client.noteGraphNeighborsMany(chunk)))
       if (requested !== generation) return
-      setNeighbors(dedupeNeighbors(results.flat()))
+      const all = dedupeNeighbors(results.flat())
+      const explicitSeeds = [...new Set(all.filter((neighbor) => neighbor.edgeKind === 'explicit-link').map((neighbor) => neighbor.seedNoteId))]
+      // Sequential batches bound simultaneous reads for large notebooks.
+      const details: NoteLink[] = []
+      for (let index = 0; index < explicitSeeds.length; index += linkSeedChunkSize) {
+        if (requested !== generation) return
+        details.push(...(await Promise.all(explicitSeeds.slice(index, index + linkSeedChunkSize).map((id) => app.client.noteLinks(id)))).flat())
+      }
+      if (requested !== generation) return
+      setSavedLinks(details)
+      setNeighbors(all)
     } catch (loadError) {
       if (requested !== generation) return
       setNeighbors([])
@@ -123,7 +138,7 @@ export function NotebookLinksTab(): JSX.Element {
   }
 
   const groups = createMemo(() => {
-    const titles = new Map(app.notes().map((note) => [note.noteId, noteDisplayTitle(note)]))
+    const titles = new Map(app.notes().map((note) => [note.noteId, `From ${documentPageMetadata(note) ? 'page' : 'note'} ${note.noteNumber}: ${noteDisplayTitle(note)}`]))
     const bySeed = new Map<NoteId, NoteGraphNeighbor[]>()
     for (const neighbor of neighbors()) {
       bySeed.set(neighbor.seedNoteId, [...(bySeed.get(neighbor.seedNoteId) ?? []), neighbor])
@@ -141,6 +156,7 @@ export function NotebookLinksTab(): JSX.Element {
         when={app.state.notebookId}
         fallback={<p class="pane-empty">Open a notebook to see its links.</p>}
       >
+        <p class="connection-explanation">Connections from pages in this notebook. Saved links show their direction and type; shared-tag and similar-text entries are suggestions.</p>
         <Show when={loading() && neighbors().length === 0}>
           <div class="loading-state"><span class="loader" />Loading links…</div>
         </Show>
@@ -157,10 +173,8 @@ export function NotebookLinksTab(): JSX.Element {
             <ul class="link-list">
               <For each={group.neighbors}>{(neighbor) =>
                 <li>
-                  <button type="button" onClick={() => app.openNote(neighbor.note.noteId, neighbor.note.notebookId)}>
-                    <strong>{noteDisplayTitle(neighbor.note)}</strong>
-                    <span class="link-meta">{neighbor.edgeKind} · #{neighbor.note.noteNumber}</span>
-                  </button>
+                  <NoteDestinationLink note={neighbor.note} relationship={neighbor.edgeKind === 'explicit-link'
+                    ? savedLinkDescription(neighbor, savedLinks()) : suggestedConnectionDescription(neighbor, app.notes().find((note) => note.noteId === neighbor.seedNoteId))} />
                 </li>}
               </For>
             </ul>

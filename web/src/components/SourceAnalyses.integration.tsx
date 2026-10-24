@@ -28,7 +28,7 @@ function fixture(pages: Note[][] = [[source(1), source(2)]]) {
   document.body.append(container)
   const unmount = render(() => createComponent(SourceAnalyses, { app, notebookId: notebookId('book') }), container)
   const dispose = () => { unmount(); container.remove() }
-  const button = (text: string) => [...container.querySelectorAll('button')].find((item) => item.textContent === text)!
+  const button = (text: string) => [...container.querySelectorAll('button')].find((item) => (item.getAttribute('aria-label') ?? item.textContent) === text)!
   button('Analyses').click()
   return { container, dispose, button, notes, send, openNotebook, state, setState }
 }

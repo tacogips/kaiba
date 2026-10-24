@@ -5,6 +5,7 @@ export interface DocumentPageMetadata {
   pageNumber: number
   ocrState: 'pending' | 'complete'
   originFileId: FileId
+  originMediaType?: string
   analysis: {
     isDocument?: boolean
     language?: string
@@ -24,6 +25,7 @@ export function documentPageMetadata(note?: Note): DocumentPageMetadata | undefi
     const analysis = page.analysis ?? {}
     return {
       pageNumber: page.pageNumber, ocrState: page.ocrState, originFileId: fileId(page.originFileId),
+      originMediaType: typeof page.originMediaType === 'string' ? page.originMediaType : undefined,
       analysis: {
         isDocument: typeof analysis.isDocument === 'boolean' ? analysis.isDocument : undefined,
         language: typeof analysis.language === 'string' ? analysis.language : undefined,

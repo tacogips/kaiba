@@ -1,7 +1,9 @@
 import { For, Show, type JSX } from 'solid-js'
 import { useApp } from '../state/appStore'
 import type { Note, Notebook } from '../notes/types'
+import { documentPageMetadata } from '../notes/documentPages'
 import { noteDisplayTitle } from '../notes/noteText'
+import { WorkspaceIcon } from './WorkspaceIcon'
 
 // Show notebooks directly; expanding a notebook lazily loads its notes.
 
@@ -38,7 +40,7 @@ function NotebookBranch(props: { notebook: Notebook; level: number; onNavigate?:
         <button
           type="button"
           class="tree-twisty"
-          aria-label={`${expanded() ? 'Collapse' : 'Expand'} ${props.notebook.title}`}
+          aria-label={`${expanded() ? 'Collapse' : 'Expand'} ${props.notebook.title}`} title={`${expanded() ? 'Collapse' : 'Expand'} ${props.notebook.title}`}
           onClick={() => app.toggleNotebook(props.notebook.notebookId)}
         >{expanded() ? '⌄' : '›'}</button>
         <button
@@ -50,7 +52,7 @@ function NotebookBranch(props: { notebook: Notebook; level: number; onNavigate?:
             props.onNavigate?.()
           }}
         ><span class="tree-icon" aria-hidden="true">▤</span><span class="tree-label-text">{props.notebook.title}</span></button>
-        <Show when={props.notebook.readOnly}><span class="tree-count" title="Read-only">L</span></Show>
+        <Show when={props.notebook.readOnly}><span class="tree-count" role="img" aria-label="Read-only notebook" title="Read-only notebook"><WorkspaceIcon name="lock" /></span></Show>
       </div>
       <Show when={expanded()}>
         <div role="group">
@@ -66,12 +68,13 @@ function NotebookBranch(props: { notebook: Notebook; level: number; onNavigate?:
               <button
                 type="button"
                 class="tree-label"
-                title={noteDisplayTitle(note)}
+                aria-current={app.state.noteId === note.noteId ? 'page' : undefined}
+                title={documentPageMetadata(note) ? `Page ${note.noteNumber}: ${noteDisplayTitle(note)}` : noteDisplayTitle(note)}
                 onClick={() => {
                   app.openNote(note.noteId, note.notebookId)
                   props.onNavigate?.()
                 }}
-              ><span class="tree-icon" aria-hidden="true">·</span><span class="tree-label-text">{noteDisplayTitle(note)}</span></button>
+              ><span class="tree-icon" aria-hidden="true">·</span><span class="tree-label-text">{documentPageMetadata(note) ? `Page ${note.noteNumber}` : noteDisplayTitle(note)}</span></button>
             </div>}
           </For>
           <Show when={notes().length === 0}>

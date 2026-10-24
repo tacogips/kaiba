@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, test } from 'vitest'
 import { NoteTransportError } from '../notes/client'
 import { isUnauthorized } from './appStore'
 

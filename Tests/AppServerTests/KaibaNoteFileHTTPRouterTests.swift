@@ -173,6 +173,18 @@ final class KaibaNoteFileHTTPRouterTests: XCTestCase {
     XCTAssertEqual(resolver.response(for: KaibaHTTPRequest(method: "GET", path: "/"))?.status, 200)
   }
 
+  func testReaderPolicyAllowsAuthenticatedImageBlobsWithoutAllowingBlobScripts() throws {
+    let webRoot = try makeDirectory()
+    try Data("<html></html>".utf8).write(to: webRoot.appendingPathComponent("index.html"))
+    let resolver = KaibaStaticAssetResolver(rootURL: webRoot)
+    let response = try XCTUnwrap(resolver.response(for: KaibaHTTPRequest(method: "GET", path: "/")))
+    let policy = try XCTUnwrap(response.headers["Content-Security-Policy"])
+    let directives = policy.split(separator: ";").map { $0.split(separator: " ").map(String.init) }
+    XCTAssertEqual(directives.first { $0.first == "img-src" }, ["img-src", "'self'", "data:", "blob:"])
+    XCTAssertEqual(directives.first { $0.first == "script-src" }, ["script-src", "'self'"])
+    XCTAssertEqual(directives.first { $0.first == "connect-src" }, ["connect-src", "'self'"])
+  }
+
   func testControlCharactersInStoredMediaTypeCannotInjectHeaders() async throws {
     let service = try makeService()
     let attachment = try service.attachFile(
