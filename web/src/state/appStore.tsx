@@ -2,6 +2,7 @@ import { notebookId as asNotebookId } from '../notes/ids'
 import { createContext, onCleanup, useContext, type JSX } from 'solid-js'
 import { createStore, reconcile } from 'solid-js/store'
 import { createWritingDrafts } from './writingDrafts'
+import { createNotebookAutosave } from './notebookAutosave'
 import { NoteGraphQLClient, NoteTransportError, notebookPageLimit } from '../notes/client'
 import { subscribeNoteEvents } from '../notes/events'
 import { loadNotebookPages } from '../notes/paging'
@@ -63,6 +64,7 @@ export interface AppState {
   auth: AuthState
   error: string
   message: string
+  messageSeverity: 'info' | 'error'
   /** False only once the events feed has reported itself unavailable; the first
    * long poll on a quiet store can stay open for its whole timeout, which is
    * not an outage. */
@@ -97,6 +99,7 @@ export interface AppState {
 
 export interface AppStore {
   writingDrafts: ReturnType<typeof createWritingDrafts>
+  notebookAutosave: ReturnType<typeof createNotebookAutosave>
   state: AppState
   client: NoteGraphQLClient
   notes(): Note[]
@@ -120,6 +123,8 @@ export interface AppStore {
   goBack(): void
   openReader(): void
   openHome(): void
+  openFastNotes(query?: string, layout?: 'list' | 'cards'): void
+  openFastNote(noteId: NoteId): void
   /** Navigates to the search results screen. Scope "notebook" pins the query
    * to the currently open notebook. */
   openSearch(query: string, scope: SearchScope, method: SearchMethod): void
@@ -141,7 +146,8 @@ export interface AppStore {
   setSearchOpen(open: boolean): void
   setSearchEngineEnabled(enabled: boolean): void
   reloadSearchEngineCapability(): Promise<void>
-  setMessage(message: string): void
+  setMessage(message: string, severity?: 'info' | 'error'): void
+  dismissError(): void
   refreshCatalog(): Promise<void>
   /** Adopts an API key pasted into the login view and reloads the catalog.
    * Rejects when the key is refused, so the login view can stay put and say
@@ -187,6 +193,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     auth: 'unknown',
     error: '',
     message: '',
+    messageSeverity: 'info',
     live: true,
     tags: [],
     tagClasses: [],
@@ -205,6 +212,8 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     returnStack: [],
   })
 
+  const setMessage = (message: string, severity: 'info' | 'error' = 'info') => setState({ message, messageSeverity: severity })
+
   let catalogGeneration = 0
   let noteGeneration = 0
   let catalogTimer: ReturnType<typeof setTimeout> | undefined
@@ -214,7 +223,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   }, (updated, error) => {
     setState('notebooks', (notebooks) => notebooks.map((notebook) =>
       notebook.notebookId === updated.notebookId ? updated : notebook))
-    if (error) setState('message', `Could not change notebook access: ${error}`)
+    if (error) setMessage(`Could not change notebook access: ${error}`, 'error')
   })
 
   /** A 401 is not a failure to report in the error banner: it is a state the
@@ -222,6 +231,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
    * rejected credential by the time this runs. */
   const adoptUnauthenticated = (error: unknown): boolean => {
     if (!isUnauthorized(error)) return false
+    notebookAutosave.clear()
     writingDrafts.clear()
     setState({ auth: 'unauthenticated', error: '', message: '', loading: false })
     return true
@@ -257,7 +267,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       settingsTimer = undefined
       void client.setAppSetting(webSettingsKey, serializeWebSettings(state.settings))
         .catch((error: unknown) => {
-          setState('message', `Could not save the settings: ${errorMessage(error)}`)
+          setMessage(`Could not save the settings: ${errorMessage(error)}`, 'error')
         })
     }, 500)
   }
@@ -298,7 +308,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       setState('notesByNotebook', notebookId, all)
     } catch (error) {
       if (adoptUnauthenticated(error)) return
-      setState('message', `Could not load notes: ${errorMessage(error)}`)
+      setMessage(`Could not load notes: ${errorMessage(error)}`, 'error')
     }
   }
 
@@ -314,7 +324,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       if (chunk.length > 0) setState('notesByNotebook', notebookId, [...current, ...chunk])
     } catch (error) {
       if (adoptUnauthenticated(error)) return
-      setState('message', `Could not load more notes: ${errorMessage(error)}`)
+      setMessage(`Could not load more notes: ${errorMessage(error)}`, 'error')
     }
   }
 
@@ -356,17 +366,26 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
    * its notebook), a notebook route opens its first note. */
   const applySelection = async (route: Route): Promise<void> => {
     const generation = ++noteGeneration
-    if (route.kind === 'note') {
-      setState({ noteId: route.noteId, noteLoading: true, activeHeadingId: '' })
+    if (route.kind === 'note' || (route.kind === 'fast' && route.noteId)) {
+      const noteId = route.noteId!
+      setState({ noteId, noteLoading: true, activeHeadingId: '' })
       try {
-        const note = await client.note(route.noteId)
+        const note = await client.note(noteId)
         if (generation !== noteGeneration) return
         setState({ note, notebookId: note.notebookId })
-        if (!state.notesByNotebook[note.notebookId]) await loadNotes(note.notebookId)
-        while (generation === noteGeneration && !state.notesByNotebook[note.notebookId]?.some((row) => row.noteId === note.noteId)) {
-          const before = state.notesByNotebook[note.notebookId]?.length ?? 0
-          await loadMoreNotes(note.notebookId)
-          if ((state.notesByNotebook[note.notebookId]?.length ?? 0) <= before) break
+        if (route.kind === 'fast') {
+          if (!state.notebooks.some((book) => book.notebookId === note.notebookId)) {
+            const notebook = await client.notebook(note.notebookId)
+            if (generation !== noteGeneration) return
+            setState('notebooks', (books) => [...books.filter((book) => book.notebookId !== notebook.notebookId), notebook])
+          }
+        } else {
+          if (!state.notesByNotebook[note.notebookId]) await loadNotes(note.notebookId)
+          while (generation === noteGeneration && !state.notesByNotebook[note.notebookId]?.some((row) => row.noteId === note.noteId)) {
+            const before = state.notesByNotebook[note.notebookId]?.length ?? 0
+            await loadMoreNotes(note.notebookId)
+            if ((state.notesByNotebook[note.notebookId]?.length ?? 0) <= before) break
+          }
         }
         if (generation !== noteGeneration) return
         setState('expandedNotebooks', (current) =>
@@ -374,7 +393,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       } catch (error) {
         if (generation !== noteGeneration) return
         if (adoptUnauthenticated(error)) return
-        setState({ note: undefined, message: `Could not open that note: ${errorMessage(error)}` })
+        setState({ note: undefined, message: `Could not open that note: ${errorMessage(error)}`, messageSeverity: 'error' })
       } finally {
         if (generation === noteGeneration) setState('noteLoading', false)
       }
@@ -395,7 +414,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
         } catch (error) {
           if (generation !== noteGeneration) return
           if (adoptUnauthenticated(error)) return
-          setState('message', `Could not load notebook details: ${errorMessage(error)}`)
+          setMessage(`Could not load notebook details: ${errorMessage(error)}`, 'error')
         }
       }
       await loadNotes(route.notebookId)
@@ -418,7 +437,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     } catch (error) {
       if (generation !== noteGeneration) return
       if (adoptUnauthenticated(error)) return
-      setState('message', `Could not refresh the note: ${errorMessage(error)}`)
+      setMessage(`Could not refresh the note: ${errorMessage(error)}`, 'error')
     }
   }
 
@@ -432,13 +451,13 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     go({ kind: 'note', noteId, ...(conversationId() ? { conversationId: conversationId() } : {}) })
   }
   const conversationId = () =>
-    state.route.kind === 'note' || state.route.kind === 'notebook' ? state.route.conversationId : undefined
+    state.route.kind === 'note' || state.route.kind === 'notebook' || state.route.kind === 'fast' ? state.route.conversationId : undefined
   const tagPaneTagId = () => routeTagId(state.route)
 
   const openTagPaneRoute = (tagId: TagId) => {
     // The pane must be visible for the selection to mean anything.
     if (!state.pane.rightOpen) setPane({ ...state.pane, rightOpen: true })
-    if (state.route.kind === 'note' || state.route.kind === 'notebook') {
+    if (state.route.kind === 'note' || state.route.kind === 'notebook' || state.route.kind === 'fast') {
       go(withTag(state.route, tagId))
       return
     }
@@ -464,7 +483,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   }
 
   let appliedSelection = ''
-  let previousSourceRoute: Route | undefined = state.route.kind === 'note' || state.route.kind === 'notebook'
+  let previousSourceRoute: Route | undefined = state.route.kind === 'note' || state.route.kind === 'notebook' || (state.route.kind === 'fast' && Boolean(state.route.noteId))
     ? { ...state.route } : undefined
   let restoringHash: string | undefined
   let readerRoute = rememberReaderRoute(state.route)
@@ -473,11 +492,11 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     // results, linked notes, and direct hash changes all share one history.
     const restoring = restoringHash === formatRoute(route)
     restoringHash = undefined
-    if (route.kind === 'note' || route.kind === 'notebook' || route.kind === 'home') {
+    if (route.kind === 'note' || route.kind === 'notebook' || route.kind === 'home' || route.kind === 'fast') {
       if (previousSourceRoute && selectionKey(previousSourceRoute) !== selectionKey(route) && !restoring) {
         setState('returnStack', (stack) => pushReturn(stack, formatRoute(previousSourceRoute!)))
       }
-      previousSourceRoute = route.kind === 'home' ? undefined : { ...route }
+      previousSourceRoute = route.kind === 'home' || (route.kind === 'fast' && !route.noteId) ? undefined : { ...route }
     }
     readerRoute = rememberReaderRoute(route, readerRoute)
     // Routes are a union: fields from the previous variant must be removed.
@@ -485,6 +504,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     const key = selectionKey(route)
     if (key === appliedSelection) return
     appliedSelection = key
+    if (route.kind === 'fast' && route.noteId && !state.pane.rightOpen) setPane({ ...state.pane, rightOpen: true })
     if (route.kind === 'note' || route.kind === 'notebook') {
       setPane(withCenterTab(state.pane, 'notebook'))
     } else if (route.kind === 'home') {
@@ -499,7 +519,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     } catch (error) {
       // Registration failure is reported but never blocks a host that serves
       // notes without authentication.
-      setState('message', `Client registration failed: ${errorMessage(error)}`)
+      setMessage(`Client registration failed: ${errorMessage(error)}`, 'error')
     }
     void loadSettings()
     void loadSearchEngineCapability()
@@ -520,7 +540,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       }
       // Note events carry their own targeted refetch above; anything else can
       // move a notebook between folders or columns, so the catalog reloads.
-      if (event.kind !== 'note-created' && event.kind !== 'note-updated') scheduleCatalogRefresh()
+      if (state.route.kind === 'fast' || (event.kind !== 'note-created' && event.kind !== 'note-updated')) scheduleCatalogRefresh()
     },
     onConnect: () => {
       setState('live', true)
@@ -538,8 +558,15 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     if (settingsTimer) clearTimeout(settingsTimer)
   })
 
+  const notebookAutosave = createNotebookAutosave(client, writingDrafts.get('new-notebook-body'), async () => {
+    await refreshCatalog()
+    const saved = notebookAutosave.notebook()
+    if (saved && state.route.kind === 'home') store.openNotebook(saved.notebookId)
+  }, () => store.openHome())
+
   const store: AppStore = {
     writingDrafts,
+    notebookAutosave,
     state,
     client,
     notes: () => (state.notebookId ? state.notesByNotebook[state.notebookId] ?? [] : []),
@@ -585,6 +612,15 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       setPane(withCenterTab(state.pane, 'list'))
       go({ kind: 'home' })
     },
+    openFastNotes: (query, layout) => {
+      const previous = state.route.kind === 'fast' ? state.route : undefined
+      go({ kind: 'fast', query: query ?? previous?.query ?? '', layout: layout ?? previous?.layout ?? 'list' })
+    },
+    openFastNote: (noteId) => {
+      const previous = state.route.kind === 'fast' ? state.route : undefined
+      if (!state.pane.rightOpen) setPane({ ...state.pane, rightOpen: true })
+      go({ kind: 'fast', query: previous?.query ?? '', layout: previous?.layout ?? 'list', noteId })
+    },
     openSearch: (query, scope, method) => {
       const notebookId = scope === 'notebook' ? state.notebookId : undefined
       go({
@@ -625,7 +661,8 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     setSearchOpen: (open) => setState('searchOpen', open),
     setSearchEngineEnabled: (enabled) => setState('searchEngineEnabled', enabled),
     reloadSearchEngineCapability: loadSearchEngineCapability,
-    setMessage: (message) => setState('message', message),
+    setMessage,
+    dismissError: () => setState('error', ''),
     refreshCatalog: async () => {
       await refreshCatalog()
       // Reload every notebook whose notes are already on screen — the open
@@ -656,12 +693,13 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     setNotebookReadOnly: async (notebookId, readOnly) => {
       const notebook = state.notebooks.find((candidate) => candidate.notebookId === notebookId)
       if (!notebook) {
-        setState('message', 'Could not change notebook access: notebook is not loaded.')
+        setMessage('Could not change notebook access: notebook is not loaded.', 'error')
         return
       }
       await readOnlyController.set(notebook, readOnly)
     },
     deselectNote: () => {
+      if (state.route.kind === 'fast') { store.openFastNotes(); return }
       const notebookId = state.notebookId
       if (notebookId) go({ kind: 'notebook', notebookId })
       else go({ kind: 'home' })
@@ -676,6 +714,7 @@ export function routeHref(route: Route): string {
 
 function selectionKey(route: Route): string {
   switch (route.kind) {
+    case 'fast': return `fast:${route.noteId ?? 'feed'}`
     case 'note': return `note:${route.noteId}`
     case 'notebook': return `notebook:${route.notebookId}`
     case 'search': return `search:${route.method}:${route.scope}:${route.query}`

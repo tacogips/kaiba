@@ -50,6 +50,10 @@ extension NoteService {
   /// Read attachments under the caller's authorized database snapshot. Persist
   /// their text in branches so future file removal cannot change inherited context.
   func chatFileContext(noteId: NoteID, in database: SQLiteDatabase) throws -> String {
+    try chatFilePromptContents(noteId: noteId, in: database).markdown
+  }
+
+  func chatFilePromptContents(noteId: NoteID, in database: SQLiteDatabase) throws -> ChatFilePromptContents {
     _ = try requireNote(noteId, in: database)
     let rows = try database.query(
       """
@@ -60,16 +64,29 @@ extension NoteService {
       bindings: [.id(noteId)]
     )
     var context = ""
+    var images: [AgentInvocationImage] = []
     for row in rows {
       let file = try fileRecord(from: row)
       let data = try LocalNoteFileStore(noteRoot: noteRootPath()).read(record: file)
-      guard let text = String(data: data, encoding: .utf8) else {
-        throw NoteServiceError.invalidInput("chat attachment must be UTF-8 text")
+      let text: String
+      if AgentInvocationImage.allowedMediaTypes.contains(file.mediaType) {
+        guard validChatImage(data, mediaType: file.mediaType) else {
+          throw NoteServiceError.invalidInput("invalid chat image attachment")
+        }
+        images.append(AgentInvocationImage(data: data, mediaType: file.mediaType))
+        text = "User-provided image; supplied as visual input with this conversation."
+      } else {
+        guard let decoded = String(data: data, encoding: .utf8) else {
+          throw NoteServiceError.invalidInput("chat attachment must be UTF-8 text")
+        }
+        text = decoded
       }
       let filename = promptMetadata(file.originalFilename ?? file.fileId.rawValue)
       let mediaType = promptMetadata(file.mediaType)
       context += "<attachment filename=\"\(filename)\" media-type=\"\(mediaType)\">\n\(text)\n</attachment>\n"
     }
-    return context.isEmpty ? "" : "\n<untrusted-attachments>\n\(context)</untrusted-attachments>"
+    return ChatFilePromptContents(
+      markdown: context.isEmpty ? "" : "\n<untrusted-attachments>\n\(context)</untrusted-attachments>", images: images
+    )
   }
 }

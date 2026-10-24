@@ -1,16 +1,11 @@
-import { noteId as asNoteId } from '../notes/ids'
-import type { NoteId, TagClassId, TagId } from '../notes/ids'
-import { For, Show, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
-import { errorMessage, useApp } from '../state/appStore'
-import type { NoteGraphNeighbor, NoteTag, NoteLink } from '../notes/types'
-import { documentPageMetadata } from '../notes/documentPages'
-import { noteDisplayTitle } from '../notes/noteText'
-import { NoteDestinationLink } from './NoteDestinationLink'
-import { savedLinkDescription, suggestedConnectionDescription } from '../notes/linkDescriptions'
+import type { TagClassId, TagId } from '../notes/ids'
+import { For, Show, createMemo, type JSX } from 'solid-js'
+import { useApp } from '../state/appStore'
+import type { NoteTag } from '../notes/types'
 
 // Right-pane content while no note is selected: notebook-wide aggregates.
 // Tags: every tag across the notebook's notes (deduped) plus the notebook's
-// own tags. Links: one-hop links of every note, grouped by source note.
+// own tags. Backlinks require selecting an individual note or page.
 
 export function NotebookTagsTab(): JSX.Element {
   const app = useApp()
@@ -73,126 +68,4 @@ export function NotebookTagsTab(): JSX.Element {
       </Show>
     </div>
   )
-}
-
-/** Seeds per graph request; the traversal accepts a bounded seed set and caps
- * its result limit at 20, so notebook-wide links are gathered chunk by chunk. */
-const linkSeedChunkSize = 10
-const maximumLinkChunks = 8
-
-export function NotebookLinksTab(): JSX.Element {
-  const app = useApp()
-  const [savedLinks, setSavedLinks] = createSignal<NoteLink[]>([])
-  const [neighbors, setNeighbors] = createSignal<NoteGraphNeighbor[]>([])
-  const [loading, setLoading] = createSignal(false)
-  const [truncated, setTruncated] = createSignal(false)
-  const [error, setError] = createSignal('')
-  let generation = 0
-
-  const noteIds = createMemo(() => app.notes().map((note) => note.noteId).join('\n'))
-
-  createEffect(() => {
-    const notebookId = app.state.notebookId
-    const ids = noteIds().split('\n').filter((id) => id.length > 0).map(asNoteId)
-    if (notebookId) void app.state.notebookRevisions[notebookId]
-    if (!notebookId || ids.length === 0) {
-      generation += 1
-      setNeighbors([])
-      return
-    }
-    void load(ids)
-  })
-
-  const load = async (ids: NoteId[]) => {
-    const requested = ++generation
-    setLoading(true)
-    setNeighbors([]); setSavedLinks([])
-    setError('')
-    try {
-      const chunks: NoteId[][] = []
-      for (let index = 0; index < ids.length; index += linkSeedChunkSize) {
-        chunks.push(ids.slice(index, index + linkSeedChunkSize))
-      }
-      setTruncated(chunks.length > maximumLinkChunks)
-      const results = await Promise.all(chunks.slice(0, maximumLinkChunks).map((chunk) =>
-        app.client.noteGraphNeighborsMany(chunk)))
-      if (requested !== generation) return
-      const all = dedupeNeighbors(results.flat())
-      const explicitSeeds = [...new Set(all.filter((neighbor) => neighbor.edgeKind === 'explicit-link').map((neighbor) => neighbor.seedNoteId))]
-      // Sequential batches bound simultaneous reads for large notebooks.
-      const details: NoteLink[] = []
-      for (let index = 0; index < explicitSeeds.length; index += linkSeedChunkSize) {
-        if (requested !== generation) return
-        details.push(...(await Promise.all(explicitSeeds.slice(index, index + linkSeedChunkSize).map((id) => app.client.noteLinks(id)))).flat())
-      }
-      if (requested !== generation) return
-      setSavedLinks(details)
-      setNeighbors(all)
-    } catch (loadError) {
-      if (requested !== generation) return
-      setNeighbors([])
-      setError(errorMessage(loadError))
-    } finally {
-      if (requested === generation) setLoading(false)
-    }
-  }
-
-  const groups = createMemo(() => {
-    const titles = new Map(app.notes().map((note) => [note.noteId, `From ${documentPageMetadata(note) ? 'page' : 'note'} ${note.noteNumber}: ${noteDisplayTitle(note)}`]))
-    const bySeed = new Map<NoteId, NoteGraphNeighbor[]>()
-    for (const neighbor of neighbors()) {
-      bySeed.set(neighbor.seedNoteId, [...(bySeed.get(neighbor.seedNoteId) ?? []), neighbor])
-    }
-    return [...bySeed.entries()].map(([seedNoteId, values]) => ({
-      seedNoteId,
-      seedTitle: titles.get(seedNoteId) ?? seedNoteId,
-      neighbors: values.sort((left, right) => right.weight - left.weight),
-    }))
-  })
-
-  return (
-    <div class="pane-section">
-      <Show
-        when={app.state.notebookId}
-        fallback={<p class="pane-empty">Open a notebook to see its links.</p>}
-      >
-        <p class="connection-explanation">Connections from pages in this notebook. Saved links show their direction and type; shared-tag and similar-text entries are suggestions.</p>
-        <Show when={loading() && neighbors().length === 0}>
-          <div class="loading-state"><span class="loader" />Loading links…</div>
-        </Show>
-        <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
-        <Show when={!loading() && !error() && groups().length === 0}>
-          <p class="pane-empty">No links between this notebook's notes and other documents.</p>
-        </Show>
-        <Show when={truncated()}>
-          <p class="pane-note">Showing links for the first {linkSeedChunkSize * maximumLinkChunks} notes.</p>
-        </Show>
-        <For each={groups()}>{(group) =>
-          <section class="link-group">
-            <h3>{group.seedTitle}</h3>
-            <ul class="link-list">
-              <For each={group.neighbors}>{(neighbor) =>
-                <li>
-                  <NoteDestinationLink note={neighbor.note} relationship={neighbor.edgeKind === 'explicit-link'
-                    ? savedLinkDescription(neighbor, savedLinks()) : suggestedConnectionDescription(neighbor, app.notes().find((note) => note.noteId === neighbor.seedNoteId))} />
-                </li>}
-              </For>
-            </ul>
-          </section>}
-        </For>
-      </Show>
-    </div>
-  )
-}
-
-function dedupeNeighbors(values: NoteGraphNeighbor[]): NoteGraphNeighbor[] {
-  const seen = new Set<string>()
-  const unique: NoteGraphNeighbor[] = []
-  for (const neighbor of values) {
-    const key = `${neighbor.seedNoteId}\u0000${neighbor.note.noteId}\u0000${neighbor.edgeKind}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    unique.push(neighbor)
-  }
-  return unique
 }

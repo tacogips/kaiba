@@ -156,3 +156,12 @@ describe('route subscription', () => {
     expect(seen).toHaveLength(1)
   })
 })
+
+test('Fast Note routes retain list layout, search, selected note, and right-pane context', () => {
+  const route: Route = { kind: 'fast', query: '日本語 & notes', layout: 'cards', noteId: asNoteId('note-1') }
+  expect(parseRoute(formatRoute(route))).toEqual(route)
+  expect(parseRoute('#/fast')).toEqual({ kind: 'fast', query: '', layout: 'list' })
+  const tagged = withTag(route, asTagId('tag-1'))
+  expect(routeTagId(parseRoute(formatRoute(tagged)))).toBe(asTagId('tag-1'))
+  expect(parseRoute(formatRoute(withConversation(tagged, asNotebookId('chat-1'))))).toEqual({ kind: 'fast', query: '日本語 & notes', layout: 'cards', noteId: asNoteId('note-1'), tagId: asTagId('tag-1'), conversationId: asNotebookId('chat-1') })
+})

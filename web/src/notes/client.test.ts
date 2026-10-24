@@ -37,6 +37,32 @@ function environment(
 }
 
 describe('Note GraphQL transport', () => {
+  test('Fast Note omits an empty search variable and sends bounded pagination for searches', async () => {
+    const reply = { data: { fastNotes: { result: { accepted: true, status: 'ok', diagnostics: [] }, value: [] } } }
+    const harness = environment([reply, reply])
+    const client = new NoteGraphQLClient(harness.value)
+    await client.fastNotes('', 0, 50)
+    expect(requestBody(harness.requests[0]).variables).toEqual({ offset: 0, limit: 50 })
+    await client.fastNotes('日本語 text', 50, 50)
+    expect(requestBody(harness.requests[1]).variables).toEqual({ query: '日本語 text', offset: 50, limit: 50 })
+  })
+
+  test('saves a notebook draft as ordered separate notes with its first-line title', async () => {
+    const result = { accepted: true, status: 'ok', diagnostics: [] }
+    const notebook = { notebookId: 'book', type: 'DOCUMENT', title: 'Field notes', readOnly: false, tags: [] }
+    const harness = environment([{ data: { ingestNotebookPages: { result, notebook } } }])
+    const client = new NoteGraphQLClient(harness.value)
+    await client.saveNewNotebook('Field notes\n\n# A later heading\nFirst body\n<----->\n# Second note\n```text\n<--->\n```', 'stable-key')
+    expect(requestBody(harness.requests[0]).variables).toEqual({ input: {
+      idempotencyKey: 'stable-key', title: 'Field notes', allowEmptyPages: true, pages: [
+        { bodyMarkdown: 'Field notes\n\n# A later heading\nFirst body', readOnly: false },
+        { bodyMarkdown: '# Second note\n```text\n<--->\n```', readOnly: false },
+      ],
+    } })
+    await expect(client.saveNewNotebook('   ', 'empty')).rejects.toThrow('Write something')
+    expect(harness.requests).toHaveLength(1)
+  })
+
   test('transmits the selected subscription provider and model for chat dispatch', async () => {
     const harness = environment([{ data: { sendAgentChatMessage: {
       result: { accepted: true, status: 'ok', diagnostics: [] },

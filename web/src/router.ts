@@ -9,6 +9,7 @@ export type SearchMethod = 'agentic' | 'grep'
 
 export type Route =
   | { kind: 'home' }
+  | { kind: 'fast'; query: string; layout: 'list' | 'cards'; noteId?: NoteId; conversationId?: NotebookId; tagId?: TagId }
   | { kind: 'notebook'; notebookId: NotebookId; conversationId?: NotebookId; tagId?: TagId }
   | { kind: 'note'; noteId: NoteId; conversationId?: NotebookId; tagId?: TagId }
   | { kind: 'search'; query: string; scope: SearchScope; method: SearchMethod; notebookId?: NotebookId }
@@ -37,6 +38,12 @@ export function parseRoute(hash: string): Route {
   const conversationId = rawConversationId ? asNotebookId(rawConversationId) : undefined
   const tagId = rawTagId ? asTagId(rawTagId) : undefined
   const [head, tail] = segments
+  if (head === 'fast') {
+    const parameters = readQueryParameters(queryPart)
+    return { kind: 'fast', query: parameters.q ?? '', layout: parameters.layout === 'cards' ? 'cards' : 'list',
+      ...(parameters.note ? { noteId: asNoteId(parameters.note) } : {}),
+      ...(conversationId ? { conversationId } : {}), ...(tagId ? { tagId } : {}) }
+  }
   if (head === 'config') return { kind: 'config' }
   if (head === 'search') {
     const parameters = readQueryParameters(queryPart)
@@ -73,6 +80,15 @@ export function parseRoute(hash: string): Route {
 
 export function formatRoute(route: Route): string {
   switch (route.kind) {
+    case 'fast': {
+      const parameters = new URLSearchParams()
+      if (route.query) parameters.set('q', route.query)
+      if (route.layout === 'cards') parameters.set('layout', 'cards')
+      if (route.noteId) parameters.set('note', route.noteId)
+      if (route.conversationId) parameters.set('conv', route.conversationId)
+      if (route.tagId) parameters.set('tag', route.tagId)
+      return `#/fast${parameters.size ? `?${parameters}` : ''}`
+    }
     case 'config':
       return '#/config'
     case 'search': {
@@ -94,6 +110,7 @@ export function formatRoute(route: Route): string {
 /** Same route with a different open conversation; routes without a reader
  * selection carry no conversation and are returned unchanged. */
 export function withConversation(route: Route, conversationId?: NotebookId): Route {
+  if (route.kind === 'fast') return { ...route, conversationId }
   if (route.kind === 'note') {
     return {
       kind: 'note',
@@ -115,12 +132,13 @@ export function withConversation(route: Route, conversationId?: NotebookId): Rou
 
 /** The tag whose detail pane the route opens (`?tag=<id>`). */
 export function routeTagId(route: Route): TagId | undefined {
-  return route.kind === 'note' || route.kind === 'notebook' ? route.tagId : undefined
+  return route.kind === 'note' || route.kind === 'notebook' || route.kind === 'fast' ? route.tagId : undefined
 }
 
 /** Same route with the tag detail pane opened (or closed with undefined);
  * routes without a reader selection are returned unchanged. */
 export function withTag(route: Route, tagId?: TagId): Route {
+  if (route.kind === 'fast') return { ...route, tagId }
   if (route.kind === 'note') {
     return {
       kind: 'note',

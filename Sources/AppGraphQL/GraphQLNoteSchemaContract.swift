@@ -180,7 +180,14 @@ input IngestNotebookPageInput {
   pageImage: IngestAttachmentInput
 }
 input ImportDocumentInput { filename: String!, contentBase64: String!, title: String, maximumOCRPages: String, textExtractionMode: String }
+input SaveNotebookDraftInput {
+  notebookId: String!
+  title: String!
+  bodies: [String!]!
+}
+
 input IngestNotebookPagesInput {
+  allowEmptyPages: Boolean
   idempotencyKey: String!
   title: String!
   kindTagName: String

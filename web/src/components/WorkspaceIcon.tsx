@@ -1,6 +1,10 @@
 import { type JSX } from 'solid-js'
 
 const paths = {
+  list: 'M4 6h16 M4 12h16 M4 18h16',
+  cards: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+  panelRight: 'M3 3h18v18H3z M15 3v18',
+  crop: 'M4 3v14a3 3 0 0 0 3 3h14 M1 6h14a3 3 0 0 1 3 3v14 M8 2h3 M22 13v-3',
   preview: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
   return: 'M9 4L4 9l5 5 M4 9h9a7 7 0 0 1 0 14',
   lock: 'M6 11V7a6 6 0 0 1 12 0v4 M4 11h16v11H4z M12 15v3',

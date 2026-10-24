@@ -10,8 +10,13 @@ import { WorkspaceShortcuts, shortcutLabel, type WorkspaceCommand } from '../com
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { useApp } from '../state/appStore'
 import { formatRoute } from '../router'
+import { stagePageRegion } from '../notes/stagePageRegion'
+import type { Note } from '../notes/types'
 import type { RightTab } from '../state/paneState'
 import type { NotebookId } from '../notes/ids'
+import { DocumentImportPopup } from '../components/DocumentImportPopup'
+import { ToastNotice } from '../components/ToastNotice'
+import { FastNotesView } from './FastNotesView'
 import { AgentFooter } from '../components/AgentFooter'
 import '../workspace-actions.css'
 
@@ -22,7 +27,10 @@ import '../workspace-actions.css'
 
 export function ChatbookView(): JSX.Element {
   const app = useApp()
+  const [importOpen, setImportOpen] = createSignal(false)
+  let createMenu!: HTMLDetailsElement
   const [mobilePane, setMobilePane] = createSignal<MobilePane>('reader')
+  const [compact, setCompact] = createSignal(window.innerWidth <= 600)
   const [footerConversation, setFooterConversation] = createSignal<{ notebookId?: NotebookId }>()
   const [pendingNavigation, setPendingNavigation] = createSignal<{ ready: () => boolean; run: () => void }>()
   // Hash navigation completes asynchronously in the browser and native web view.
@@ -70,14 +78,55 @@ export function ChatbookView(): JSX.Element {
 
   const focus = (selector: string) => queueMicrotask(() => document.querySelector<HTMLElement>(selector)?.focus())
   const newNotebook = () => afterNavigation(() => app.state.route.kind === 'home', app.openHome, () => {
-    setMobilePane('reader'); focus('.new-notebook-editor textarea')
+    void app.notebookAutosave.startNew().then(() => { setMobilePane('reader'); focus('.new-notebook-editor textarea') })
   })
-  const browseNotebooks = () => inReader(() => showMobilePane('files'))
+  const browseNotebooks = () => {
+    if (app.state.route.kind === 'fast') {
+      const notebookId = app.state.notebookId
+      afterNavigation(() => app.state.route.kind !== 'fast', () => notebookId ? app.openNotebook(notebookId) : app.openHome(), () => showMobilePane('files'))
+    } else inReader(() => showMobilePane('files'))
+  }
+  const libraryVisible = () => app.state.pane.leftOpen && (!compact() || mobilePane() === 'files')
+  const detailsVisible = () => app.state.pane.rightOpen && (!compact() || mobilePane() === 'details')
+  const toggleLibrary = () => {
+    if (app.state.route.kind === 'fast') { browseNotebooks(); return }
+    inReader(() => {
+    if (libraryVisible()) {
+      if (!compact()) app.toggleLeftPane()
+      setMobilePane('reader')
+    } else showMobilePane('files')
+    })
+  }
+  const toggleDetails = () => inReader(() => {
+    if (detailsVisible()) {
+      if (!compact()) app.toggleRightPane()
+      setMobilePane('reader')
+    } else showMobilePane('details')
+  })
   const agentChat = () => {
     setMobilePane('reader')
     setFooterConversation({})
     focus('.agent-footer textarea')
   }
+  const captureRegion = async (note: Note, file: File) => {
+    if (await stagePageRegion(app, note, file)) agentChat()
+  }
+  const addNote = () => {
+    if (app.state.route.kind === 'fast') {
+      afterNavigation(() => app.state.route.kind === 'fast' && !app.state.route.noteId, () => app.openFastNotes(), () => focus('[aria-label="Write a quick note"]'))
+      return
+    }
+    inReader(() => {
+    setMobilePane('reader')
+    queueMicrotask(() => {
+      const addDraftNote = document.querySelector<HTMLButtonElement>('main [aria-label="Add a note to this draft"]')
+      if (addDraftNote) { addDraftNote.click(); return }
+      document.querySelector<HTMLButtonElement>('main .note-capture > button')?.click()
+      focus('main .note-capture textarea')
+    })
+    })
+  }
+  const openImport = () => { if (createMenu) createMenu.open = false; setImportOpen(true) }
   const commands: WorkspaceCommand[] = [
     { label: 'New notebook', key: 'n', run: newNotebook },
     { label: 'Notebooks', key: '1', shift: true, run: browseNotebooks },
@@ -96,18 +145,12 @@ export function ChatbookView(): JSX.Element {
       })
     } },
     { label: 'Tags', key: '2', shift: true, run: () => showDetails('tags') },
-    { label: 'Links', key: '3', shift: true, run: () => showDetails('links') },
-    { label: 'History', key: '4', shift: true, run: () => showDetails('history') },
+    { label: 'Backlinks', key: '3', shift: true, run: () => showDetails('links') },
+    { label: 'AI conversations', key: '4', shift: true, run: () => showDetails('history') },
     { label: 'Settings', key: ',', run: app.openConfig },
-    { label: 'Toggle library pane', key: 'b', run: app.toggleLeftPane },
-    { label: 'Toggle details pane', key: 'b', shift: true, run: app.toggleRightPane },
-    { label: 'Add a note', key: 'n', shift: true, run: () => inReader(() => {
-      setMobilePane('reader')
-      queueMicrotask(() => {
-        document.querySelector<HTMLButtonElement>('.note-capture > button')?.click()
-        focus('main .note-capture textarea')
-      })
-    }) },
+    { label: 'Toggle library pane', key: 'b', run: toggleLibrary },
+    { label: 'Toggle details pane', key: 'b', shift: true, run: toggleDetails },
+    { label: 'Add a note', key: 'n', shift: true, run: addNote },
     { label: 'Save writing', key: 's', run: () => {
       const activeForm = document.activeElement?.closest('form')
       const form = activeForm?.matches('main .note-capture form, main form.note-capture, main .note-editor form') ? activeForm : document.querySelector<HTMLFormElement>('main .note-capture form, main form.note-capture, main .note-editor form')
@@ -118,6 +161,8 @@ export function ChatbookView(): JSX.Element {
   const hint = (label: string) => `${label} (${shortcutLabel(commands.find((command) => command.label === label)!)})`
 
   onMount(() => {
+    const resize = () => setCompact(window.innerWidth <= 600)
+    window.addEventListener('resize', resize)
     const shortcut = (event: KeyboardEvent) => {
       if (app.state.auth === 'unauthenticated' || app.state.searchOpen || event.defaultPrevented
         || event.isComposing || event.repeat || document.querySelector('dialog[open], [role="dialog"]')) return
@@ -144,6 +189,7 @@ export function ChatbookView(): JSX.Element {
     }
     window.addEventListener('beforeunload', protectDrafts)
     onCleanup(() => {
+      window.removeEventListener('resize', resize)
       window.removeEventListener('keydown', shortcut)
       window.removeEventListener('beforeunload', protectDrafts)
     })
@@ -151,6 +197,7 @@ export function ChatbookView(): JSX.Element {
 
   const view = () => {
     switch (app.state.route.kind) {
+      case 'fast': return 'fast'
       case 'search': return 'search'
       case 'config': return 'config'
       default: return 'reader'
@@ -180,28 +227,32 @@ export function ChatbookView(): JSX.Element {
       <a class="skip-link" href="#main-content">Skip to content</a>
       <div class="chatbook-head workspace-menu">
         <nav class="workspace-tools" aria-label="Workspace">
-          <button type="button" class="workspace-icon" aria-label="New notebook" title={hint('New notebook')} onClick={newNotebook}><WorkspaceIcon name="edit" /></button>
-          <button type="button" class="workspace-icon" aria-label="Notebooks" title={hint('Notebooks')} onClick={browseNotebooks}><WorkspaceIcon name="files" /></button>
+          <details class="workspace-create-menu" ref={createMenu} onKeyDown={(event) => { if (event.key === 'Escape') createMenu.open = false }}>
+            <summary aria-label="Workspace menu" title="Workspace menu: new notebook and document import"><WorkspaceIcon name="more" /></summary>
+            <div class="workspace-create-actions" role="group" aria-label="Notebook actions">
+              <button type="button" aria-label="New notebook" title={hint('New notebook')}
+                onClick={() => { createMenu.open = false; newNotebook() }}><WorkspaceIcon name="edit" />New notebook</button>
+              <button type="button" onClick={openImport}><WorkspaceIcon name="file" />Import PDF or image…</button>
+            </div>
+          </details>
+          <button type="button" class="workspace-icon" aria-label="Fast notes" title="Fast notes: newest created first" aria-pressed={view() === 'fast'} onClick={() => app.openFastNotes()}><WorkspaceIcon name="timeline" /></button>
+          <button type="button" class="workspace-icon" aria-label="Notebooks" title={view() === 'fast' ? 'Reference view: notebook library' : hint('Toggle library pane')} aria-expanded={view() !== 'fast' && libraryVisible()} onClick={toggleLibrary}><WorkspaceIcon name="files" /></button>
           <button type="button" class="workspace-icon" aria-label="Quick switcher" title="Quick switcher (⌘/Ctrl P)" onClick={() => app.setSearchOpen(true)}><WorkspaceIcon name="search" /></button>
           <button type="button" class="workspace-icon" aria-label="AI" title={`${hint('AI')}: Discussion for the selected page or notebook`} onClick={agentChat}><WorkspaceIcon name="ai" /></button>
-          <button type="button" class="workspace-icon" aria-label="Tags" title={hint('Tags')} onClick={() => showDetails('tags')}><WorkspaceIcon name="tags" /></button>
-          <button type="button" class="workspace-icon" aria-label="Links" title={hint('Links')} onClick={() => showDetails('links')}><WorkspaceIcon name="links" /></button>
         </nav>
         <div class="chatbook-head-actions">
+          <Show when={view() !== 'fast' || (app.state.route.kind === 'fast' && app.state.route.noteId)}><button type="button" class="workspace-icon" aria-label="Toggle details pane" title={hint('Toggle details pane')}
+            aria-expanded={detailsVisible()} onClick={toggleDetails}><WorkspaceIcon name="panelRight" /></button></Show>
           <WorkspaceShortcuts commands={commands} blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen} />
           <button type="button" class="workspace-icon" aria-label="Settings" title={hint('Settings')} onClick={app.openConfig}><WorkspaceIcon name="settings" /></button>
         </div>
       </div>
 
       <Show when={app.state.error}>
-        <div class="error-banner" role="alert">{app.state.error}
-          <button type="button" class="workspace-icon" aria-label="Retry" title="Retry" onClick={() => void app.refreshCatalog()}><WorkspaceIcon name="refresh" /><span class="sr-only">Retry</span></button>
-        </div>
+        <ToastNotice message={app.state.error} severity="error" onDismiss={app.dismissError} onRetry={() => void app.refreshCatalog()} />
       </Show>
       <Show when={app.state.message}>
-        <div class="notes-message" role="status" aria-live="polite">{app.state.message}
-          <button type="button" class="workspace-icon" aria-label="Dismiss message" title="Dismiss message" onClick={() => app.setMessage('')}><WorkspaceIcon name="close" /></button>
-        </div>
+        <ToastNotice message={app.state.message} severity={app.state.messageSeverity} onDismiss={() => app.setMessage('')} />
       </Show>
 
       <Show when={view() === 'reader'}>
@@ -212,11 +263,21 @@ export function ChatbookView(): JSX.Element {
           />
           <PaneSplitter side="left" />
           <ReaderPane
+            onCaptureRegion={captureRegion}
             onStudy={() => app.state.pane.rightTab === 'memo' ? agentChat() : showMobilePane('details')}
             onBrowseNotebooks={() => showMobilePane('files')}
           />
           <PaneSplitter side="right" />
           <RightPane onClose={() => setMobilePane('reader')} onConversation={openAgentConversation} />
+        </div>
+      </Show>
+      <Show when={view() === 'fast'}>
+        <div class="chatbook-grid fast-notes-grid" classList={{ 'has-selected-note': app.state.route.kind === 'fast' && Boolean(app.state.route.noteId) }} data-mobile-pane={mobilePane()}>
+          <FastNotesView />
+          <Show when={app.state.route.kind === 'fast' && app.state.route.noteId}>
+            <PaneSplitter side="right" />
+            <RightPane onClose={() => setMobilePane('reader')} onConversation={openAgentConversation} />
+          </Show>
         </div>
       </Show>
       <Show when={view() === 'search'}>
@@ -227,6 +288,7 @@ export function ChatbookView(): JSX.Element {
       </Show>
 
       <AgentFooter onConversation={openAgentConversation} conversationRequest={footerConversation()} />
+      <Show when={importOpen()}><DocumentImportPopup onClose={() => setImportOpen(false)} /></Show>
       <Show when={app.state.searchOpen}>
         <NoteSearchPopup
           client={app.client}

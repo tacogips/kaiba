@@ -127,3 +127,15 @@ describe('central reader jump history', () => {
     } finally { view.close() }
   })
 })
+
+
+test('reference jumps from Fast Note use the reference reader and jump back restores the feed context', async () => {
+  const view = mount('#/fast?q=neuron&layout=cards&note=page-0')
+  try {
+    await vi.waitFor(() => expect(view.app.state.note?.noteId).toBe('page-0'))
+    view.app.openNoteWithReturn(noteId('page-1'), notebookId('book'))
+    expect(view.hash()).toBe('#/note/page-1')
+    view.app.goBack()
+    expect(view.hash()).toBe('#/fast?q=neuron&layout=cards&note=page-0')
+  } finally { view.close() }
+})

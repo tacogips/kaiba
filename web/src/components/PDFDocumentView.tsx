@@ -3,6 +3,7 @@ import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import pdfWorkerURL from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { FileId } from '../notes/ids'
 import { useApp } from '../state/appStore'
+import { PageRegionSelector } from './PageRegionSelector'
 import { WorkspaceIcon } from './WorkspaceIcon'
 import '../reader-controls.css'
 import './pdf-viewer.css'
@@ -10,6 +11,7 @@ import './pdf-viewer.css'
 /** The original PDF is fetched once per document. Canvas pixels are transient;
  * the selected physical page stays controlled by the reader and its memo scope. */
 export function PDFDocumentView(props: {
+  onCaptureRegion?: (file: File) => Promise<void> | void
   preview?: boolean
   fileId: FileId; pageNumber: number; navigation?: JSX.Element; footer?: JSX.Element; textView?: JSX.Element
   onTurnLeft?: () => void; onTurnRight?: () => void
@@ -122,6 +124,10 @@ export function PDFDocumentView(props: {
     <Show when={props.onTurnRight}>
       <button type="button" class="pdf-page-edge pdf-page-edge-right" aria-label="Turn page right" title="Turn page right"
         disabled={!props.canTurnRight} onClick={props.onTurnRight}>›</button>
+    </Show>
+    <Show when={!props.preview && !props.textView && props.onCaptureRegion}>
+      <PageRegionSelector canvas={() => canvas} sourceKey={`${props.fileId}:${props.pageNumber}`} pageNumber={props.pageNumber}
+        disabled={loading() || Boolean(error())} onCapture={(file) => props.onCaptureRegion?.(file)} />
     </Show>
     </div>
     <Show when={!props.preview}><footer class="document-reader-footer pdf-controls-footer">

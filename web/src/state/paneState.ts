@@ -7,7 +7,7 @@ export type NotebookView = 'tree' | 'timeline'
 
 export type LeftTab = 'files' | 'contents'
 export type CenterTab = 'list' | 'notebook'
-export type RightTab = 'memo' | 'tags' | 'analysis' | 'links' | 'history'
+export type RightTab = 'memo' | 'tags' | 'analysis' | 'links' | 'similar' | 'same-topic' | 'related-topics' | 'history'
 
 export interface PaneState {
   notebookView: NotebookView
@@ -34,7 +34,7 @@ export function clampPaneWidth(side: 'left' | 'right', width: number): number {
 export const paneStateStorageKey = 'kaiba-chatbook-panes'
 export const leftTabs: readonly LeftTab[] = ['files', 'contents']
 export const centerTabs: readonly CenterTab[] = ['list', 'notebook']
-export const rightTabs: readonly RightTab[] = ['memo', 'tags', 'analysis', 'links', 'history']
+export const rightTabs: readonly RightTab[] = ['memo', 'tags', 'analysis', 'links', 'similar', 'same-topic', 'related-topics', 'history']
 
 export const defaultPaneState: PaneState = {
   notebookView: 'tree',

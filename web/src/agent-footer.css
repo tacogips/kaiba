@@ -52,3 +52,19 @@
   overflow-wrap: anywhere;
   font-size: 12px;
 }
+
+/* Reserve the footer's height for writing rather than empty suggestion space. */
+.chatbook .agent-footer .chat { gap: 4px; }
+.chatbook .agent-footer .chat-transcript { flex: 0 1 auto; min-height: 0; gap: 8px; }
+.chatbook .agent-footer .learning-starters { gap: 4px; padding: 2px 0; margin: 0; }
+.chatbook .agent-footer .learning-actions { gap: 4px; margin: 2px 0 0; }
+.chatbook .agent-footer .learning-starters .pane-empty { margin: 2px 0; }
+.chatbook .agent-footer .composer-main textarea { min-height: 76px; }
+.chatbook .agent-footer .chat-banner { margin: 2px 0; padding: 4px 6px; }
+.chatbook .agent-footer .chat-actions { margin: 0; }
+.attachment-thumbnail { width: 64px; height: 48px; object-fit: contain; background: white; border: 1px solid var(--line, #ddd); }
+/* The footer already identifies the document/page immediately above the chat. */
+.chatbook .agent-footer .learning-context { display: none; }
+.chatbook .agent-footer .chat { position: relative; padding: 0; }
+.chatbook .agent-footer .chat-actions { position: absolute; inset-inline-end: 0; inset-block-start: -1.75rem; z-index: 5; }
+.chatbook .agent-footer .footer-context-label { padding-inline-end: 2.5rem; }

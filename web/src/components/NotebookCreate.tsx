@@ -1,56 +1,13 @@
-import { Show, createSignal, type JSX } from 'solid-js'
-import { errorMessage, routeHref, useApp } from '../state/appStore'
+import type { JSX } from 'solid-js'
+import { useApp } from '../state/appStore'
 import { WorkspaceIcon } from './WorkspaceIcon'
 
-/** Inline creation keeps a learner's place and retains input after a failure. */
-export function NotebookCreate(props: { onCreated?: () => void; buttonLabel?: string } = {}): JSX.Element {
+/** Every notebook entry point opens the same automatically saved writer. */
+export function NotebookCreate(): JSX.Element {
   const app = useApp()
-  const { text: title, setText: setTitle, busy, setBusy, error, setError } =
-    app.writingDrafts.get('new-notebook')
-  const [open, setOpen] = createSignal(Boolean(title()))
-  let input: HTMLInputElement | undefined
-
-  const submit = async (event: Event) => {
-    event.preventDefault()
-    if (busy() || !title().trim()) return
-    setBusy(true)
-    const startedRoute = routeHref(app.state.route)
-    setError('')
-    try {
-      const notebook = await app.client.createNotebook(title())
-      setTitle('')
-      setOpen(false)
-      await app.refreshCatalog()
-      if (routeHref(app.state.route) === startedRoute) {
-        app.openNotebook(notebook.notebookId)
-        props.onCreated?.()
-      } else app.setMessage(`Created notebook “${notebook.title}”.`)
-    } catch (error) {
-      setError(`Could not create the notebook: ${errorMessage(error)}`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const closedLabel = () => title() ? 'Resume notebook draft' : props.buttonLabel ?? 'New notebook'
-
-  return <div class="notebook-create">
-    <Show when={open()} fallback={<button type="button" onClick={() => {
-      setOpen(true)
-      queueMicrotask(() => input?.focus())
-    }} aria-label={closedLabel()} title={closedLabel()}><WorkspaceIcon name={title() ? 'edit' : 'add'} /></button>}>
-      <form class="notebook-create-form" onSubmit={(event) => void submit(event)}>
-        <label>Notebook name
-          <input ref={input} value={title()} disabled={busy()} required maxlength={200}
-            placeholder="Untitled"
-            onInput={(event) => setTitle(event.currentTarget.value)} />
-        </label>
-        <div class="learning-actions">
-          <button type="submit" aria-label="Create notebook" title="Create notebook" disabled={busy() || !title().trim()}><WorkspaceIcon name="add" /></button>
-          <button type="button" class="secondary" aria-label="Cancel" title="Cancel" disabled={busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button>
-        </div>
-        <Show when={error()}><p role="alert" class="note-inline-error">{error()}</p></Show>
-      </form>
-    </Show>
-  </div>
+  return <button type="button" title="Start writing a new notebook" onClick={async () => {
+    await app.notebookAutosave.startNew()
+    app.openHome()
+    queueMicrotask(() => document.querySelector<HTMLTextAreaElement>('.new-notebook-editor textarea')?.focus())
+  }}><WorkspaceIcon name="edit" />New notebook</button>
 }

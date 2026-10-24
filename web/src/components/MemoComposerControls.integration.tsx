@@ -12,7 +12,7 @@ describe('MemoComposerControls', () => {
       canNoteEdit: true,
       busy: false,
       draft: 'Capture this',
-      attachments: [{ name: 'reference.txt' } as File],
+      attachments: [new File(['Reference text'], 'reference.txt', { type: 'text/plain' })],
       models: [{ modelId: 'configured', displayName: 'Configured model' }],
       selectedModel: 'configured',
       extensionsEnabled: true,
@@ -26,7 +26,7 @@ describe('MemoComposerControls', () => {
     }), container)
     const html = container.innerHTML
 
-    expect(html).toContain('aria-label="Attach text files"')
+    expect(html).toContain('aria-label="Attach text files or images"')
     expect(html).toContain('aria-label="Memo only"')
     expect(html).toContain('aria-pressed="true"')
     expect(html).toContain('title="Memo only"')
@@ -61,7 +61,7 @@ describe('MemoComposerControls', () => {
     }), container)
     const html = container.innerHTML
 
-    expect(html).toContain('title="Attach text files"')
+    expect(html).toContain('title="Attach text files or images"')
     expect(html).toContain('aria-disabled="true"')
     expect(html).toContain('title="Note edit mode requires a writable note"')
     expect(html).toContain('aria-label="Send message"')

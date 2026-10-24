@@ -330,6 +330,7 @@ public extension GraphQLNoteGraphQLService {
     }
     let extensionName = filename.split(separator: ".").last?.lowercased()
     return [
+      "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
       "txt": "text/plain", "md": "text/markdown", "csv": "text/csv",
       "tsv": "text/tab-separated-values", "json": "application/json",
       "xml": "application/xml", "yaml": "application/yaml", "yml": "application/x-yaml"

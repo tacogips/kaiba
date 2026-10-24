@@ -18,6 +18,8 @@
   --warning-ink: #805b17;
   --warning-line: #dec996;
   --danger-ink: #a3313c;
+  --danger-surface: #fff5f5;
+  --danger-line: #e4b9bd;
   color: var(--ink);
   background: var(--surface-subtle);
 }
@@ -157,7 +159,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 .note-modal { box-shadow: 0 20px 60px rgb(32 53 41 / 16%); }
 .tag-select-popover { box-shadow: 0 8px 24px rgb(32 53 41 / 14%); }
 .notes-message { color: var(--green-ink); border-color: var(--green-line); background: var(--green-soft); }
-.error-banner { color: var(--danger-ink); border-color: #e4b9bd; background: #fff5f5; }
+.error-banner { color: var(--danger-ink); border-color: var(--danger-line); background: var(--danger-surface); }
 .note-inline-error, .login-failure { color: var(--danger-ink); }
 .chat-badge.status-failed { color: var(--danger-ink); border-color: #e4b9bd; background: #fff5f5; }
 .chat-banner, .note-readonly-badge, .chat-badge.status-unavailable {
@@ -330,3 +332,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 .chatbook .config-section button[aria-pressed="true"] {
   color: var(--green-ink); border-color: var(--green-focus); background: var(--green-selected);
 }
+
+.chatbook .pane-right .pane-tabs { min-width: 0; scrollbar-width: thin; }
+.chatbook .pane-right .pane-tab { flex: none; white-space: nowrap; }

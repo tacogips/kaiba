@@ -35,3 +35,11 @@ button.form-action-button {
 .pane-right .source-analyses-body { max-height: none; overflow: visible; }
 .source-analyses fieldset { min-width: 0; }
 .source-analyses fieldset > button + button { margin-left: 0.4rem; }
+
+.document-import-heading { flex-basis: 100%; }
+.document-import-heading h2, .document-import-heading p { margin: 0 0 .4rem; }
+.document-import-hint { color: var(--muted); font-size: .8rem; }
+.document-import-filename { overflow-wrap: anywhere; }
+.document-import-options { width: 100%; }
+.document-import-options > summary { cursor: pointer; margin-bottom: .5rem; }
+.document-import-options label { display: grid; gap: .3rem; margin-bottom: .5rem; }

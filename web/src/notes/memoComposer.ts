@@ -6,10 +6,11 @@ import type { NoteId, NotebookId } from './ids'
 
 const allowedTypes = new Set([
   'text/plain', 'text/markdown', 'text/csv', 'text/tab-separated-values',
-  'application/json', 'application/xml', 'application/yaml', 'application/x-yaml',
+  'application/json', 'application/xml', 'application/yaml', 'application/x-yaml', 'image/png', 'image/jpeg',
 ])
 
 const extensions: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
   txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
   json: 'application/json', xml: 'application/xml', yaml: 'application/yaml', yml: 'application/x-yaml',
 }
@@ -206,16 +207,23 @@ export function composerAttachmentMediaType(file: Pick<File, 'name' | 'type'>): 
 }
 
 export async function validateComposerFiles(files: readonly File[]): Promise<{ accepted: boolean; message: string }> {
-  if (files.length > 4) return { accepted: false, message: 'Attach at most four UTF-8 text files totaling 1 MiB.' }
-  if (files.reduce((total, file) => total + file.size, 0) > 1_048_576) return { accepted: false, message: 'Attach at most four UTF-8 text files totaling 1 MiB.' }
+  if (files.length > 4) return { accepted: false, message: 'Attach at most four text files or images totaling 1 MiB.' }
+  if (files.reduce((total, file) => total + file.size, 0) > 1_048_576) return { accepted: false, message: 'Attach at most four text files or images totaling 1 MiB.' }
   const identities = new Set<string>()
   for (const file of files) {
     const mediaType = composerAttachmentMediaType(file)
     if (!file.name || new TextEncoder().encode(file.name).byteLength > 255 || hasUnsafeFilenameCharacters(file.name) || file.size === 0 || !mediaType || !allowedTypes.has(mediaType)) {
-      return { accepted: false, message: 'Attachments must be non-empty supported text files with safe filenames.' }
+      return { accepted: false, message: 'Attachments must be non-empty supported text files or images with safe filenames.' }
     }
     try {
-      new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      if (mediaType.startsWith('image/')) {
+        const header = mediaType === 'image/png' ? [137, 80, 78, 71, 13, 10, 26, 10] : [255, 216, 255]
+        if (bytes.length <= header.length || !header.every((byte, index) => bytes[index] === byte)
+          || (mediaType === 'image/jpeg' && (bytes.at(-2) !== 255 || bytes.at(-1) !== 217))) {
+          return { accepted: false, message: 'Image attachment does not match its format.' }
+        }
+      } else new TextDecoder('utf-8', { fatal: true }).decode(bytes)
     } catch {
       return { accepted: false, message: 'Attachments must contain valid UTF-8 text.' }
     }

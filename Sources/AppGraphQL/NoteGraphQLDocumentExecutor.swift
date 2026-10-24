@@ -244,6 +244,12 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "libraries":
       return try await encodedJSONValue(service.libraries())
+    case "fastNotes":
+      return try await encodedJSONValue(service.fastNotes(
+        query: try optionalString("query", variables: variables) ?? "",
+        limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
+        offset: validatedOffset(try optionalInt("offset", variables: variables))
+      ))
     case "notes":
       return try await encodedJSONValue(service.notes(
         limit: validatedLimit(try optionalInt("limit", variables: variables), defaultValue: 50),
@@ -443,6 +449,11 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     case "importDocument":
       let input: GraphQLDocumentImportInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.importDocument(input))
+    case "rebuildNotebookSearchIndex":
+      return try await encodedJSONValue(service.rebuildNotebookSearchIndex(notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables)))
+    case "saveNotebookDraft":
+      let input: GraphQLSaveNotebookDraftInput = try requiredInput("input", variables: variables)
+      return try await encodedJSONValue(service.saveNotebookDraft(input))
     case "renameNotebook":
       return try await encodedJSONValue(service.renameNotebook(
         notebookId: requiredIdentifier("notebookId", as: NotebookID.self, variables: variables),

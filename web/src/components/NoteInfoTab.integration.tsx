@@ -3,12 +3,14 @@ import { expect, test, vi } from 'vitest'
 import { NoteInfoTab } from './NoteInfoTab'
 import { NoteTagsTab } from './NoteTagsTab'
 
+const rebuild = vi.hoisted(() => vi.fn(async () => ({ diagnostics: ['Rebuilt 25 pages and 3 AI turns. Search engine refresh queued.'] })))
+
 vi.mock('../state/appStore', () => ({
   errorMessage: (error: unknown) => String(error),
   useApp: () => ({
     state: { notebookId: 'book', noteId: 'page-4', note: { noteNumber: 4, tags: [], notebookId: 'book' }, tags: [], tagClasses: [] },
     notebook: () => ({ title: 'Reading', readOnly: true, createdAt: '', updatedAt: '' }),
-    client: { notebookFiles: async () => [{ file: { originalFilename: 'source.pdf', mediaType: 'application/pdf', byteSize: 1024 } }] },
+    client: { rebuildNotebookSearchIndex: rebuild, notebookFiles: async () => [{ file: { originalFilename: 'source.pdf', mediaType: 'application/pdf', byteSize: 1024 } }] },
   }),
 }))
 
@@ -28,4 +30,19 @@ test('Info shows document and file facts while Tags contains only tag tools', as
     expect(tags.textContent).not.toContain('Created')
     expect(tags.textContent).not.toContain('File name')
   } finally { closeInfo(); closeTags(); info.remove(); tags.remove() }
+})
+
+test('Analysis can rebuild this notebook and its AI conversations and reports errors', async () => {
+  const host = document.createElement('div')
+  document.body.append(host)
+  const dispose = render(() => <NoteInfoTab />, host)
+  try {
+    const button = [...host.querySelectorAll('button')].find((item) => item.textContent?.includes('Rebuild search index'))!
+    button.click()
+    await vi.waitFor(() => expect(rebuild).toHaveBeenCalledWith('book'))
+    await vi.waitFor(() => expect(host.querySelector('[role="status"]')?.textContent).toContain('3 AI turns'))
+    rebuild.mockRejectedValueOnce(new Error('Search unavailable'))
+    button.click()
+    await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Search unavailable'))
+  } finally { dispose(); host.remove() }
 })

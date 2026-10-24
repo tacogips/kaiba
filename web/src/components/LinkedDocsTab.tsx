@@ -1,91 +1,91 @@
-import { For, Show, createEffect, createSignal, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import { errorMessage, useApp } from '../state/appStore'
-import type { NoteGraphNeighbor, NoteLink } from '../notes/types'
+import type { Note, NoteLink } from '../notes/types'
 import { NoteDestinationLink } from './NoteDestinationLink'
-import { connectionGroup, savedLinkDescription, suggestedConnectionDescription } from '../notes/linkDescriptions'
 import type { NoteId } from '../notes/ids'
 
-// Links tab: the open note's linked documents, grouped by link kind. The graph
-// query is bounded to one hop so the list is the note's own links rather than a
-// traversal of the whole store.
+interface BacklinkSource { noteId: NoteId; links: NoteLink[] }
+interface BacklinkEntry extends BacklinkSource { note: Note }
+const pageSize = 50
+const readConcurrency = 8
 
+/** Only explicit incoming edges: outgoing links and inferred similarity have
+ * their own meanings and must not appear as backlinks. */
 export function LinkedDocsTab(): JSX.Element {
   const app = useApp()
-  const [groups, setGroups] = createSignal<Array<{ kind: string; neighbors: NoteGraphNeighbor[] }>>([])
-  const [links, setLinks] = createSignal<NoteLink[]>([])
+  const [sources, setSources] = createSignal<BacklinkSource[]>([])
+  const [entries, setEntries] = createSignal<BacklinkEntry[]>([])
+  const [cursor, setCursor] = createSignal(0)
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal('')
   let generation = 0
+  onCleanup(() => { generation += 1 })
 
-  createEffect(() => {
-    const noteId = app.state.noteId
-    // Re-read whenever the note's own notebook reports a change, so a link added
-    // elsewhere shows up without a manual refresh.
-    if (app.state.notebookId) void app.state.notebookRevisions[app.state.notebookId]
-    if (!noteId) {
-      generation += 1
-      setGroups([]); setLinks([])
-      return
+  const readPage = async (all: BacklinkSource[], offset: number, current: number) => {
+    const page = all.slice(offset, offset + pageSize)
+    const loaded: BacklinkEntry[] = []
+    let failed = false
+    for (let index = 0; index < page.length; index += readConcurrency) {
+      const batch = page.slice(index, index + readConcurrency)
+      const results = await Promise.allSettled(batch.map((source) => app.client.note(source.noteId)))
+      if (current !== generation) return
+      results.forEach((result, position) => {
+        if (result.status === 'fulfilled') loaded.push({ ...batch[position]!, note: result.value })
+        else failed = true
+      })
     }
-    void load(noteId)
-  })
-
+    if (current !== generation) return
+    setEntries((previous) => [...previous, ...loaded])
+    setCursor(offset + page.length)
+    if (failed) setError('Some referring notes could not be loaded. Retry to refresh the list.')
+  }
   const load = async (noteId: NoteId) => {
     const current = ++generation
-    setLoading(true)
-    setGroups([]); setLinks([])
-    setError('')
+    setLoading(true); setError(''); setEntries([]); setSources([]); setCursor(0)
     try {
-      const [neighbors, savedLinks] = await Promise.all([app.client.noteGraphNeighbors(noteId), app.client.noteLinks(noteId)])
+      const links = await app.client.noteLinks(noteId)
       if (current !== generation) return
-      setLinks(savedLinks)
-      setGroups(groupByKind(neighbors.filter((neighbor) => neighbor.note.noteId !== noteId)))
-    } catch (loadError) {
-      if (current !== generation) return
-      setGroups([])
-      setError(errorMessage(loadError))
-    } finally {
-      if (current === generation) setLoading(false)
-    }
+      const grouped = new Map<NoteId, NoteLink[]>()
+      for (const link of links) {
+        if (link.toNoteId !== noteId || link.fromNoteId === noteId) continue
+        grouped.set(link.fromNoteId, [...(grouped.get(link.fromNoteId) ?? []), link])
+      }
+      const all = [...grouped].map(([noteId, links]) => ({ noteId, links }))
+      all.sort((left, right) => latestDate(right.links).localeCompare(latestDate(left.links)) || left.noteId.localeCompare(right.noteId))
+      setSources(all)
+      await readPage(all, 0, current)
+    } catch (failure) { if (current === generation) setError(errorMessage(failure)) }
+    finally { if (current === generation) setLoading(false) }
   }
-
-  return (
-    <div class="pane-section">
-      <Show when={app.state.noteId} fallback={<p class="pane-empty">Open a note to see its links.</p>}>
-        <Show when={loading()}><div class="loading-state"><span class="loader" />Loading links…</div></Show>
-        <Show when={error()}><p class="note-inline-error" role="alert">{error()}</p></Show>
-        <Show when={!loading() && !error() && groups().length === 0}>
-          <p class="pane-empty">No saved links or suggested connections.</p>
-        </Show>
-        <For each={groups()}>{(group) =>
-          <section class="link-group">
-            <h3>{connectionGroup(group.kind).title}</h3>
-            <p class="connection-explanation">{connectionGroup(group.kind).explanation}</p>
-            <ul class="link-list">
-              <For each={group.neighbors}>{(neighbor) =>
-                <li>
-                  <NoteDestinationLink note={neighbor.note} relationship={group.kind === 'explicit-link'
-                    ? savedLinkDescription(neighbor, links()) : suggestedConnectionDescription(neighbor, app.state.note)} />
-                </li>}
-              </For>
-            </ul>
-          </section>}
-        </For>
-      </Show>
-    </div>
-  )
+  createEffect(() => {
+    const noteId = app.state.noteId
+    void app.state.catalogRevision
+    if (app.state.notebookId) void app.state.notebookRevisions[app.state.notebookId]
+    if (noteId) void load(noteId)
+    else { generation += 1; setSources([]); setEntries([]); setCursor(0); setLoading(false); setError('') }
+  })
+  const more = async () => {
+    if (loading()) return
+    const current = generation
+    setLoading(true); setError('')
+    try { await readPage(sources(), cursor(), current) }
+    catch (failure) { if (current === generation) setError(errorMessage(failure)) }
+    finally { if (current === generation) setLoading(false) }
+  }
+  return <div class="pane-section" aria-label="Backlinks">
+    <Show when={app.state.noteId} fallback={<p class="pane-empty">Select a note or page to see which notes link to it.</p>}>
+      <p class="connection-explanation">Notes that link to this note. Open a source or preview it without leaving this page.</p>
+      <Show when={sources().length > 0}><p class="pane-note">{sources().length} referring {sources().length === 1 ? 'note' : 'notes'}</p></Show>
+      <Show when={error()}><p class="note-inline-error" role="alert">{error()} <button type="button" class="secondary" onClick={() => void load(app.state.noteId!)}>Retry</button></p></Show>
+      <Show when={!loading() && !error() && sources().length === 0}><p class="pane-empty">No notes link to this note yet.</p></Show>
+      <ul class="link-list"><For each={entries()}>{(entry) => <li>
+        <NoteDestinationLink note={entry.note} relationship={entry.links.map((link) =>
+          `Links to this note · ${link.linkKind.replace(/[-_]+/g, ' ')} · ${link.provenance === 'human' ? 'Added manually' : `Added by ${link.provenance}`}`).join('; ')} />
+      </li>}</For></ul>
+      <Show when={loading()}><p class="loading-state" role="status">Loading backlinks…</p></Show>
+      <Show when={cursor() < sources().length}><button type="button" class="secondary" disabled={loading()} onClick={() => void more()}>Load more backlinks</button></Show>
+    </Show>
+  </div>
 }
 
-function groupByKind(neighbors: NoteGraphNeighbor[]): Array<{ kind: string; neighbors: NoteGraphNeighbor[] }> {
-  const byKind = new Map<string, NoteGraphNeighbor[]>()
-  for (const neighbor of neighbors) {
-    const kind = neighbor.edgeKind || 'related'
-    byKind.set(kind, [...(byKind.get(kind) ?? []), neighbor])
-  }
-  return [...byKind.entries()]
-    .map(([kind, values]) => ({
-      kind,
-      neighbors: [...values].sort((left, right) => right.weight - left.weight),
-    }))
-    .sort((left, right) => left.kind.localeCompare(right.kind))
-}
+function latestDate(links: NoteLink[]): string { return links.reduce((date, link) => link.createdAt > date ? link.createdAt : date, '') }

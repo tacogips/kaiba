@@ -322,7 +322,7 @@ describe('MemoTab integration', () => {
       await waitFor(() => expect(host.textContent).toContain('Earlier question'))
       const composer = host.querySelector('textarea')
       const attachmentPicker = host.querySelector<HTMLInputElement>('input[type="file"]')
-      const attachmentButton = host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files"]')
+      const attachmentButton = host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files or images"]')
       const memoOnly = host.querySelector<HTMLButtonElement>('button[aria-label="Memo only"]')
       const model = host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')
       const newChat = host.querySelector<HTMLButtonElement>('button[aria-label="New chat"]')
@@ -420,7 +420,7 @@ describe('MemoTab integration', () => {
     try {
       await waitFor(() => expect(host.textContent).toContain('Earlier question'))
       const model = host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
-      const attach = host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files"]')!
+      const attach = host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files or images"]')!
       const noteEdit = host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!
       const memoOnly = host.querySelector<HTMLButtonElement>('button[aria-label="Memo only"]')!
       await waitFor(() => {
@@ -525,7 +525,7 @@ describe('MemoTab integration', () => {
         .toContain('agent model catalog'))
       expect(model().disabled).toBe(true)
       expect(model().options).toHaveLength(1)
-      expect(host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files"]')!.disabled).toBe(false)
+      expect(host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files or images"]')!.disabled).toBe(false)
       expect(host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!.disabled).toBe(false)
 
       // The server comes back; the app's own catalog reload succeeds and bumps

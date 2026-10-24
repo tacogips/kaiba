@@ -31,7 +31,7 @@ import type { NoteId } from '../notes/ids'
  * content without waiting for the observer. */
 const eagerNoteCount = 6
 
-export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: () => void } = {}): JSX.Element {
+export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: () => void; onCaptureRegion?: (note: Note, file: File) => Promise<void> | void } = {}): JSX.Element {
   const app = useApp()
   const chatNotebook = () => app.notebook()?.type === 'AGENT_CHAT'
   const [documentDisplay, setDocumentDisplay] = createSignal<DocumentDisplayMode>('original')
@@ -202,7 +202,7 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
         <div class="loading-state"><span class="loader" />Loading note…</div>
       </Show>
       <Show
-        when={app.state.notebookId || notes().length > 0}
+        when={Boolean((app.state.notebookId || notes().length > 0) && app.state.notebookId !== app.notebookAutosave.notebook()?.notebookId)}
         fallback={
           <Show when={!app.state.noteLoading}>
             <NewNotebookEditor />
@@ -234,8 +234,19 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
               <button type="button" class="secondary" aria-label="Notebook context" title="Notebook context" onClick={app.deselectNote}><WorkspaceIcon name="files" /></button>
             </Show>
             <details class="reader-tools">
-              <summary aria-label="Notebook tools" title="Notebook tools: access, copy, and download"><WorkspaceIcon name="more" /></summary>
+              <summary aria-label="Notebook tools" title="Notebook tools: access, copy, download, and delete"><WorkspaceIcon name="more" /></summary>
               <div class="reader-tools-body">
+              <Show when={app.notebook() && !app.notebook()!.readOnly}>
+                <button type="button" onClick={async () => {
+                  const notebook = app.notebook()
+                  if (!notebook) return
+                  try {
+                    await app.client.deleteNotebook(notebook.notebookId)
+                    app.openHome()
+                    await app.refreshCatalog()
+                  } catch (error) { app.setMessage(`Could not delete notebook: ${errorMessage(error)}`) }
+                }}>Delete notebook</button>
+              </Show>
             <Show when={app.notebook()}>{(notebook) => <>
               <span class="note-readonly-badge">
                 {notebook().readOnly ? 'Notebook: Read-only' : 'Notebook: Writable'}
@@ -317,6 +328,7 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           <LoadMoreSentinel />
           </>}>
             <Show when={app.state.notebookId} keyed>{(notebookId) => <DocumentNotebookReader
+              onCaptureRegion={props.onCaptureRegion}
               notes={notes()} selectedNoteId={app.state.noteId} displayMode={documentDisplay()}
               translatedVersion={selectedTranslation()?.sourceNoteId === app.state.noteId && selectedTranslation()
                 ? { noteId: app.state.noteId!, text: selectedTranslation()!.text, targetLanguage: selectedTranslation()!.targetLanguage } : undefined}

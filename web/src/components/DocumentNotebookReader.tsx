@@ -7,6 +7,7 @@ import type { NoteId, TagId } from '../notes/ids'
 import type { Note } from '../notes/types'
 import { NoteEditor } from './NoteEditor'
 import { MarkdownBody } from './Markdown'
+import { PageRegionSelector } from './PageRegionSelector'
 import { NoteFileImage } from './NoteFileImage'
 import { DocumentPageTextView } from './DocumentPageTextView'
 import { PDFDocumentView } from './PDFDocumentView'
@@ -14,6 +15,7 @@ import { WorkspaceIcon } from './WorkspaceIcon'
 import '../reader-controls.css'
 
 export function DocumentNotebookReader(props: {
+  onCaptureRegion?: (note: Note, file: File) => Promise<void> | void
   notes: Note[]
   displayMode?: 'original' | 'text' | 'translation'
   translatedVersion?: { noteId: string; text: string; targetLanguage: string }
@@ -26,6 +28,8 @@ export function DocumentNotebookReader(props: {
   onSelect: (note: Note) => void
   onLoadMore: () => Promise<void>
 }): JSX.Element {
+  const [originImage, setOriginImage] = createSignal<HTMLImageElement>()
+  createEffect(() => { void props.selectedNoteId; setOriginImage(undefined) })
   const [loading, setLoading] = createSignal(false)
   const [message, setMessage] = createSignal('')
   const [jump, setJump] = createSignal('')
@@ -127,7 +131,10 @@ export function DocumentNotebookReader(props: {
     <Show when={loading() || (props.selectedNoteId && index() < 0)}><p role="status">Loading pages…</p></Show>
     <Show when={message()}><p role="alert">{message()}</p></Show>
     <Show when={metadata()?.originMediaType === 'application/pdf'}>
-      <PDFDocumentView fileId={metadata()!.originFileId} pageNumber={metadata()!.pageNumber} navigation={navigation()} footer={position()}
+      <PDFDocumentView onCaptureRegion={props.onCaptureRegion ? (file) => {
+        const note = current()
+        if (note) return props.onCaptureRegion?.(note, file)
+      } : undefined} fileId={metadata()!.originFileId} pageNumber={metadata()!.pageNumber} navigation={navigation()} footer={position()}
         textView={props.displayMode === 'translation' ? translatedView() : props.displayMode === 'text' && current() ? <DocumentPageTextView noteId={current()!.noteId} onOpenAnalysis={props.onOpenAnalysis} /> : undefined}
         onTurnLeft={() => step(pageStepForArrow('ArrowLeft', binding()))}
         onTurnRight={() => step(pageStepForArrow('ArrowRight', binding()))}
@@ -150,7 +157,9 @@ export function DocumentNotebookReader(props: {
             event.currentTarget.setPointerCapture?.(event.pointerId)
           }}
           onPointerUp={pointerUp} onPointerCancel={() => { swipeStart = undefined }}>
-          <NoteFileImage fileId={page().originFileId} alt={`Original page ${page().pageNumber}`} />
+          <NoteFileImage fileId={page().originFileId} alt={`Original page ${page().pageNumber}`} onLoad={setOriginImage} />
+          <Show when={props.onCaptureRegion}><PageRegionSelector canvas={originImage} sourceKey={`${note.noteId}:${page().originFileId}`} pageNumber={page().pageNumber}
+            disabled={!originImage()} onCapture={(file) => props.onCaptureRegion?.(note, file)} /></Show>
         </div>}><DocumentPageTextView noteId={note.noteId} onOpenAnalysis={props.onOpenAnalysis} /></Show>}>{translatedView()}</Show></Show>
       }</Show>
     </div>}</Show>

@@ -138,16 +138,21 @@ func hydrateEngineFacets(
 func enrichRelatedReasons(
   _ hits: [SearchEngineHit],
   sourceSharedTagIds: [TagID],
+  sourceNearTagIds: [TagID] = [],
+  sourceAncestorTagIds: [TagID] = [],
   in database: SQLiteDatabase
 ) throws -> [SearchEngineHit] {
   guard !hits.isEmpty, !sourceSharedTagIds.isEmpty else {
     return hits.map { hit in
       var copy = hit
-      copy.reasons.removeAll { $0.kind == .sharedTag || $0.kind == .sharedEntity }
+      copy.reasons.removeAll { $0.kind == .sharedTag || $0.kind == .sharedEntity || $0.kind == .relatedTag }
       return copy
     }
   }
   let noteIds = orderedUnique(hits.map(\.noteId))
+  let relatedNames = try relatedTagEvidence(noteIds: noteIds,
+    nearTagIds: sourceNearTagIds.isEmpty ? sourceSharedTagIds : sourceNearTagIds,
+    ancestorTagIds: sourceAncestorTagIds, in: database)
   let tagIds = orderedUnique(sourceSharedTagIds)
   let rows = try database.query(
     """
@@ -170,6 +175,10 @@ func enrichRelatedReasons(
     var copy = hit
     let names = Array(orderedUnique(namesByNote[hit.noteId] ?? []).sorted().prefix(5))
     copy.reasons = hit.reasons.compactMap { reason in
+      if reason.kind == .relatedTag {
+        let evidence = Array(orderedUnique(relatedNames[hit.noteId] ?? []).prefix(5))
+        return evidence.isEmpty ? nil : SearchEngineHitReason(kind: .relatedTag, tagNames: evidence)
+      }
       guard reason.kind == .sharedTag || reason.kind == .sharedEntity else { return reason }
       guard !names.isEmpty else { return nil }
       return SearchEngineHitReason(kind: reason.kind, tagNames: names)

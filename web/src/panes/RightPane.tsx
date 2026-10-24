@@ -6,15 +6,15 @@ import { DocumentPageOCRControl } from '../components/DocumentPageOCRControl'
 import { NoteTagsTab } from '../components/NoteTagsTab'
 import { NoteInfoTab } from '../components/NoteInfoTab'
 import { LinkedDocsTab } from '../components/LinkedDocsTab'
-import { RelatedNotesSection } from '../components/RelatedNotesSection'
-import { NotebookLinksTab, NotebookTagsTab } from '../components/NotebookAggregateTabs'
+import { ConnectionRecommendationsTab } from '../components/ConnectionRecommendationsTab'
+import { NotebookTagsTab } from '../components/NotebookAggregateTabs'
 import { TagPane } from '../components/TagPane'
 import { useApp } from '../state/appStore'
 import type { RightTab } from '../state/paneState'
 
 // The right pane follows the selection: with a note selected it shows that
-// note's tags, analysis and links; with only a notebook open it shows the
-// notebook-wide tags and links. Discussions live in the bottom AI composer;
+// note's tags, analysis and incoming backlinks; with only a notebook open it
+// shows notebook tags and asks for a note selection before listing backlinks. Discussions live in the bottom AI composer;
 // The AI tab lists saved conversations. A tag selection
 // (`?tag=` on the route) replaces all of it with the cross-notebook tag pane.
 
@@ -24,10 +24,13 @@ export function RightPane(props: { onClose?: () => void; onConversation?: (id: N
   const tagId = createMemo(() => app.tagPaneTagId())
   const activeTab = () => app.state.pane.rightTab === 'memo' ? 'history' : app.state.pane.rightTab
   const tabs: readonly TabDescriptor<RightTab>[] = [
+    { value: 'history', label: 'AI', title: 'Saved AI conversations' },
     { value: 'tags', label: 'Tags' },
     { value: 'analysis', label: 'Analysis' },
-    { value: 'links', label: 'Links' },
-    { value: 'history', label: 'AI' },
+    { value: 'similar', label: 'Similar' },
+    { value: 'same-topic', label: 'Same topic' },
+    { value: 'related-topics', label: 'Related topics' },
+    { value: 'links', label: 'Backlinks', title: 'Notes that link to the selected note or page' },
   ]
   return (
     <aside class="pane pane-right" aria-label={tagId() ? 'Tag details' : noteMode() ? 'Note details' : 'Notebook details'}>
@@ -42,7 +45,7 @@ export function RightPane(props: { onClose?: () => void; onConversation?: (id: N
               aria-expanded={false}
               onClick={app.toggleRightPane}
             >‹</button>
-            <span class="rail-label">Tags / Analysis / AI</span>
+            <span class="rail-label">AI / Tags / Analysis</span>
           </div>
         }
       >
@@ -86,13 +89,11 @@ export function RightPane(props: { onClose?: () => void; onConversation?: (id: N
             <Show keyed when={app.state.notebookId}>{(id) => <SourceAnalyses app={app} notebookId={id} />}</Show>
           </TabPanel>
           <TabPanel idPrefix="right" value="links" active={activeTab()}>
-            <Show when={noteMode()} fallback={<NotebookLinksTab />}>
-              <>
-                <LinkedDocsTab />
-                <RelatedNotesSection />
-              </>
-            </Show>
+            <LinkedDocsTab />
           </TabPanel>
+          <TabPanel idPrefix="right" value="similar" active={activeTab()}><ConnectionRecommendationsTab category="similar" /></TabPanel>
+          <TabPanel idPrefix="right" value="same-topic" active={activeTab()}><ConnectionRecommendationsTab category="same-topic" /></TabPanel>
+          <TabPanel idPrefix="right" value="related-topics" active={activeTab()}><ConnectionRecommendationsTab category="related-topics" /></TabPanel>
         </div>
         </Show>
       </Show>

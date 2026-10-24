@@ -10,3 +10,12 @@
 .document-translation-popover button { justify-self: start; }
 .document-translation-popover p { margin: 0; overflow-wrap: anywhere; }
 .document-translation-range { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.translation-language-options { max-height: 10rem; overflow-y: auto; border: 1px solid var(--line); border-radius: .25rem; }
+.document-translation-popover .translation-language-options button { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; padding: .4rem .55rem; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: start; }
+.translation-language-options small { color: var(--muted); }
+.document-translation-popover .translation-language-options button.language-active,
+.document-translation-popover .translation-language-options button:hover { background: var(--green-selected); }
+.chatbook .document-translation-popover button.translation-submit { background: var(--green-ink); color: var(--surface); border-color: var(--green-ink); }
+.chatbook button.document-translate-trigger { color: var(--green-ink); background: transparent; }
+.document-translate-trigger svg { display: block; }
+.chatbook .document-translation-popover button.translation-submit:disabled { opacity: 1; color: var(--muted); background: var(--green-selected); border-color: var(--line); }

@@ -12,6 +12,9 @@ export function PageTagsEditor(): JSX.Element {
   const app = useApp()
   const note = () => app.notes().find((row) => row.noteId === app.state.noteId)
     ?? (app.state.note?.noteId === app.state.noteId ? app.state.note : undefined)
+  const documentTags = () => (app.notebook?.()?.tags ?? []).filter((assignment) =>
+    !assignment.tag.isSystem && !['document-kind', 'content-kind', 'folder', 'workflow', 'source'].includes(assignment.tag.classId ?? '')
+    && !note()?.tags?.some((own) => own.tag.tagId === assignment.tag.tagId))
   const [viewingTag, setViewingTag] = createSignal<string>()
   const [editing, setEditing] = createSignal(false)
   const [draft, setDraft] = createSignal('')
@@ -55,7 +58,13 @@ export function PageTagsEditor(): JSX.Element {
   return <Show when={note() && documentPageMetadata(note())}>
     <section class="page-tags-editor" aria-label="Current page tags">
       <span class="page-tags-label">Page tags</span>
-      <div class="page-tag-list"><For each={note()?.tags ?? []}>{(assignment) => <span class="page-tag-chip">
+      <div class="page-tag-list">
+        <Show when={!note()?.tags?.length && !documentTags().length}><span class="page-tag-empty">No page tags</span></Show>
+        <For each={documentTags()}>{(assignment) => <span class="page-tag-chip document-tag-chip">
+          <button type="button" class="tag-chip-open" title={`Document tag (applies to all pages): ${assignment.tag.name}`}
+            onClick={() => app.openTagPane(assignment.tag.tagId)}>{assignment.tag.name}<small>Document</small></button>
+        </span>}</For>
+        <For each={note()?.tags ?? []}>{(assignment) => <span class="page-tag-chip">
         <button type="button" class="tag-chip-open" title={`${assignment.tag.classId ?? 'Unclassified'}: ${qualifiedTagLabel(app.state.tags, assignment.tag.tagId)}`} onClick={() => { setEditing(false); setViewingTag(assignment.tag.name) }}>{assignment.tag.name}</button>
         <Show when={assignment.deletable}>
           <button type="button" class="page-tag-action" aria-label={`Edit tag ${assignment.tag.name}`} title="Edit tag" disabled={busy()} onClick={() => {

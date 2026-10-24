@@ -34,6 +34,7 @@ public struct GraphQLIngestAttachmentInput: Codable, Equatable, Sendable {
 }
 
 public struct GraphQLIngestNotebookPagesInput: Codable, Equatable, Sendable {
+  public var allowEmptyPages: Bool?
   public var idempotencyKey: String
   public var title: String
   public var kindTagName: String?
@@ -45,6 +46,7 @@ public struct GraphQLIngestNotebookPagesInput: Codable, Equatable, Sendable {
   public init(
     idempotencyKey: String,
     title: String,
+    allowEmptyPages: Bool? = nil,
     kindTagName: String? = nil,
     metaJSON: String? = nil,
     pages: [GraphQLIngestNotebookPageInput],
@@ -52,6 +54,7 @@ public struct GraphQLIngestNotebookPagesInput: Codable, Equatable, Sendable {
     originatingActionId: AutoActionID? = nil
   ) {
     self.idempotencyKey = idempotencyKey
+    self.allowEmptyPages = allowEmptyPages
     self.title = title
     self.kindTagName = kindTagName
     self.metaJSON = metaJSON
@@ -150,7 +153,7 @@ extension GraphQLNoteGraphQLService {
       throw GraphQLNoteServiceError.invalidRequest("ingest requires 1...500 pages")
     }
     guard input.pages.allSatisfy({
-      !$0.bodyMarkdown.isEmpty
+      (!$0.bodyMarkdown.isEmpty || input.allowEmptyPages == true)
         && $0.bodyMarkdown.utf8.count <= MarkdownHeadingSplitter.maximumSectionBytes
     }) else {
       throw GraphQLNoteServiceError.invalidRequest("ingest page is empty or exceeds the byte limit")

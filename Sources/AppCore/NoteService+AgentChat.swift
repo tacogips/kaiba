@@ -62,65 +62,6 @@ public struct AgentChatTurnState: Equatable, Sendable {
   }
 }
 
-/// A validated text attachment supplied with an agent chat turn.
-public struct AgentChatAttachment: Equatable, Sendable {
-  public let data: Data
-  public let mediaType: String
-  public let originalFilename: String
-
-  public init(data: Data, mediaType: String, originalFilename: String) {
-    self.data = data
-    self.mediaType = mediaType
-    self.originalFilename = originalFilename
-  }
-}
-
-public enum AgentChatAttachmentValidation {
-  public static let maximumFiles = 4
-  public static let maximumAggregateBytes = 1_048_576
-  public static let maximumFilenameBytes = 255
-  public static let allowedMediaTypes: Set<String> = [
-    "text/plain", "text/markdown", "text/csv", "text/tab-separated-values",
-    "application/json", "application/xml", "application/yaml", "application/x-yaml"
-  ]
-
-  public static func validate(
-    data: Data,
-    declaredMediaType: String,
-    originalFilename: String
-  ) throws -> AgentChatAttachment {
-    let mediaType = declaredMediaType.split(separator: ";", maxSplits: 1).first
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? ""
-    guard allowedMediaTypes.contains(mediaType) else {
-      throw NoteServiceError.invalidInput("unsupported chat attachment media type")
-    }
-    guard !originalFilename.isEmpty,
-      originalFilename.utf8.count <= maximumFilenameBytes,
-      !originalFilename.contains("/"), !originalFilename.contains("\\"),
-      !originalFilename.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
-    else {
-      throw NoteServiceError.invalidInput("invalid chat attachment filename")
-    }
-    guard !data.isEmpty, String(data: data, encoding: .utf8) != nil else {
-      throw NoteServiceError.invalidInput("chat attachments must be non-empty UTF-8 text")
-    }
-    return AgentChatAttachment(data: data, mediaType: mediaType, originalFilename: originalFilename)
-  }
-
-  public static func validate(_ attachments: [AgentChatAttachment]) throws {
-    guard attachments.count <= maximumFiles else {
-      throw NoteServiceError.invalidInput("at most four chat attachments are allowed")
-    }
-    guard attachments.reduce(0, { $0 + $1.data.count }) <= maximumAggregateBytes else {
-      throw NoteServiceError.invalidInput("chat attachments exceed 1 MiB")
-    }
-    let identities = attachments.map { "\($0.originalFilename)\u{0}\(sha256Hex($0.data))" }
-    guard Set(identities).count == identities.count else {
-      throw NoteServiceError.invalidInput("duplicate chat attachment")
-    }
-  }
-}
-
 /// What a chat conversation is about: a single note, or a whole notebook.
 public enum AgentChatSubject: Equatable, Sendable {
   case note(NoteID)
@@ -539,7 +480,7 @@ public extension NoteService {
     )
     turns.append(AgentInvocationTurn(
       role: .user,
-      markdown: state.userMarkdown + attachmentContext
+      markdown: state.userMarkdown + attachmentContext.markdown
     ))
     // Edit mode only ever targets a note subject (enforced at append time);
     // a stale or hand-written mode on another subject degrades to memo chat.
@@ -550,7 +491,7 @@ public extension NoteService {
     var turnWasCompleted = false
     do {
       var contextMarkdown = subjectSnapshot.markdown
-      var images: [AgentInvocationImage] = []
+      var images = attachmentContext.images
       var systemPrompt = editSubjectNoteId == nil ? Self.chatSystemPrompt : Self.noteEditSystemPrompt
       if editSubjectNoteId == nil, case let .note(id) = subject,
         let additions = try documentPageChatAdditions(
@@ -558,7 +499,7 @@ public extension NoteService {
         ) {
         contextMarkdown = ([contextMarkdown, additions.contextAppendix].compactMap { $0 }.filter { !$0.isEmpty })
           .joined(separator: "\n\n")
-        images = additions.images
+        images += additions.images
         systemPrompt += " " + documentPageChatSystemPromptSuffix
       }
       let request = AgentInvocationRequest(
@@ -707,11 +648,20 @@ public extension NoteService {
   private func chatAttachmentContext(
     currentTurn: Note,
     priorTurnsNewestFirst: ReversedCollection<[Note]>
-  ) throws -> String {
+  ) throws -> ChatFilePromptContents {
     try driver.withDatabase { database in
-      try ([currentTurn] + priorTurnsNewestFirst).map {
-        try chatFileContext(noteId: $0.noteId, in: database)
-      }.joined()
+      var result = ChatFilePromptContents()
+      var imageBytes = 0
+      for turn in [currentTurn] + priorTurnsNewestFirst {
+        let contents = try chatFilePromptContents(noteId: turn.noteId, in: database)
+        result.markdown += contents.markdown
+        for image in contents.images where result.images.count < AgentChatAttachmentValidation.maximumFiles {
+          guard imageBytes + image.data.count <= AgentChatAttachmentValidation.maximumAggregateBytes else { continue }
+          result.images.append(image)
+          imageBytes += image.data.count
+        }
+      }
+      return result
     }
   }
 

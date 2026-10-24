@@ -1,4 +1,4 @@
-import { For, Show, type JSX } from 'solid-js'
+import { For, Show, createEffect, type JSX } from 'solid-js'
 
 // One accessible tab strip for both side panes: roving tab stop, arrow-key
 // movement, and the `tablist`/`tab`/`tabpanel` wiring the panes rely on.
@@ -7,6 +7,7 @@ export interface TabDescriptor<Value extends string> {
   value: Value
   label: string
   disabled?: boolean
+  title?: string
 }
 
 export function Tabs<Value extends string>(props: {
@@ -16,6 +17,11 @@ export function Tabs<Value extends string>(props: {
   idPrefix: string
   onSelect: (value: Value) => void
 }): JSX.Element {
+  let strip!: HTMLDivElement
+  createEffect(() => {
+    void props.active
+    queueMicrotask(() => strip?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }))
+  })
   const move = (event: KeyboardEvent, index: number) => {
     const next = nextEnabledTabIndex(props.tabs, index, event.key)
     if (next === undefined) return
@@ -27,13 +33,14 @@ export function Tabs<Value extends string>(props: {
     strip?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
   }
   return (
-    <div class="pane-tabs" role="tablist" aria-label={props.label}>
+    <div ref={strip} class="pane-tabs" role="tablist" aria-label={props.label}>
       <For each={props.tabs}>{(tab, index) => {
         const selected = () => tab.value === props.active
         const disabled = () => tab.disabled ?? false
         return <button
           type="button"
           role="tab"
+          title={tab.title ?? tab.label}
           id={tabId(props.idPrefix, tab.value)}
           aria-selected={selected()}
           aria-controls={tabPanelId(props.idPrefix, tab.value)}

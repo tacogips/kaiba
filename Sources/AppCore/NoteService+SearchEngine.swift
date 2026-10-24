@@ -172,6 +172,8 @@ public extension NoteService {
       let enriched = try enrichRelatedReasons(
         page,
         sourceSharedTagIds: prepared.signals.sharedTagIds,
+        sourceNearTagIds: prepared.signals.nearTagIds,
+        sourceAncestorTagIds: prepared.signals.ancestorTagIds,
         in: database
       )
       let notesById = try requireNotes(enriched.map(\.noteId), in: database)

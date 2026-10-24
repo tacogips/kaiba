@@ -5,6 +5,7 @@ import './form-controls.css'
 export function DocumentImportForm(props: {
   onImport: (file: File, title?: string, maximumOCRPages?: string, textExtractionMode?: string) => Promise<void>
 }): JSX.Element {
+  let picker!: HTMLInputElement
   const [file, setFile] = createSignal<File>()
   const [title, setTitle] = createSignal('')
   const [textMode, setTextMode] = createSignal('')
@@ -35,16 +36,21 @@ export function DocumentImportForm(props: {
     }
   }
   return <form class="note-capture document-import-form" aria-label="Import document" onSubmit={(event) => void submit(event)}>
-    <label>PDF or image (up to 1 MiB)
-      <input type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp" disabled={busy()}
-        onChange={(event) => {
-          const selected = event.currentTarget.files?.[0]
-          setFile(selected); setTitle(selected?.name ?? ''); setError('')
-        }} />
+    <p class="document-import-heading">Choose a PDF or image to create a notebook from its pages.</p>
+    <input ref={picker} class="sr-only" tabindex="-1" type="file" aria-label="Document file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp" disabled={busy()}
+      onChange={(event) => {
+        const selected = event.currentTarget.files?.[0]
+        setFile(selected); setTitle(selected?.name ?? ''); setError('')
+      }} />
+    <button type="button" class="secondary form-action-button" title="Choose a PDF or image to import" disabled={busy()} onClick={() => picker.click()}><WorkspaceIcon name="files" />{file() ? 'Change file' : 'Choose file'}</button>
+    <Show when={file()}>{(selected) => <p class="document-import-filename">{selected().name}</p>}</Show>
+    <p class="document-import-hint">Browser uploads: PDF or image, up to 1 MiB per file.</p>
+    <Show when={file()}>
+    <details class="document-import-options"><summary>Import options</summary>
+    <label>Name in Kaiba (optional)
+      <input aria-label="Name in Kaiba" value={title()} placeholder={file()?.name} disabled={busy()} onInput={(event) => setTitle(event.currentTarget.value)} />
     </label>
-    <label>Document title
-      <input value={title()} disabled={busy()} onInput={(event) => setTitle(event.currentTarget.value)} />
-    </label>
+    <p class="document-import-hint">This is the notebook name. Leave it blank to use the filename; you can rename it later.</p>
     <label>Text extraction
       <select value={textMode()} disabled={busy()} onChange={(event) => setTextMode(event.currentTarget.value)}>
         <option value="">Use default from Settings</option>
@@ -57,7 +63,9 @@ export function DocumentImportForm(props: {
         onInput={(event) => setLimit(event.currentTarget.value.trim())} />
     </label>
     <p>Enter 0, a page count, or all. You can recognize more pages later.</p>
+    </details>
     <button type="submit" class="form-action-button" aria-label="Import document" title="Import document" aria-busy={busy()} disabled={!file() || busy()}><WorkspaceIcon name="file" />{busy() ? 'Importing…' : 'Import'}</button>
+    </Show>
     <Show when={error()}><p role="alert" class="note-inline-error">{error()}</p></Show>
   </form>
 }

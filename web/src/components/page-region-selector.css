@@ -1,0 +1,6 @@
+:is(.pdf-viewer-frame, .document-origin-stage) > button.page-region-trigger { position: absolute; inset-inline-end: .75rem; inset-block-end: .75rem; z-index: 12; display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; padding: .5rem; border: 1px solid var(--green-line, #aaa); border-radius: .5rem; color: var(--green-ink, #565a91); background: var(--surface, white); box-shadow: 0 2px 8px #0002; }
+.page-region-layer { position: absolute; inset: 0; z-index: 10; cursor: crosshair; touch-action: none; user-select: none; }
+.page-region-box { position: absolute; pointer-events: none; border: 2px solid var(--green-focus, #6967bb); background: #6967bb22; box-sizing: border-box; }
+.page-region-message { position: absolute; inset-inline-start: .75rem; inset-block-end: .75rem; z-index: 11; max-width: calc(100% - 5rem); padding: .3rem .5rem; margin: 0; background: var(--surface, white); color: var(--ink, #222); border: 1px solid var(--line, #ddd); border-radius: .25rem; font-size: .8rem; pointer-events: none; }
+
+.document-origin-stage { position: relative; }

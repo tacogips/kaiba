@@ -252,7 +252,24 @@ describe('ChatbookView authentication surface', () => {
       expect(host.querySelector('.note-capture [role="alert"]')?.textContent).toContain('Connection lost')
       router.setHash('#/')
       expect(host.querySelector('.new-notebook-editor textarea')).not.toBeNull()
+      const workspace = host.querySelector('[aria-label="Workspace"]')!
+      expect(workspace.querySelectorAll('[aria-label="New notebook"]')).toHaveLength(1)
+      expect(workspace.querySelector('[aria-label="New notebook"]')?.closest('details')).not.toBeNull()
+      expect(workspace.querySelector('summary[aria-label="Workspace menu"]')).not.toBeNull()
+      expect(workspace.textContent).not.toContain('Add note')
+      expect(host.querySelector('[aria-label="Add a note to this draft"]')).not.toBeNull()
+      const writer = host.querySelector<HTMLTextAreaElement>('.new-notebook-editor textarea')!
+      writer.value = 'Menu placement'; writer.dispatchEvent(new Event('input', { bubbles: true }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', shiftKey: true, metaKey: true, cancelable: true }))
+      await settle()
+      expect(writer.value).toBe('Menu placement\n\n<--->\n\n')
+
       button('Notebooks').click()
+      expect(host.querySelector('.chatbook')?.getAttribute('data-left')).toBe('closed')
+      expect(button('Notebooks').getAttribute('aria-expanded')).toBe('false')
+      button('Notebooks').click()
+      expect(host.querySelector('.chatbook')?.getAttribute('data-left')).toBe('open')
+      expect(button('Notebooks').getAttribute('aria-expanded')).toBe('true')
       expect(host.querySelector<HTMLElement>('.chatbook-grid')?.dataset.mobilePane).toBe('files')
       const notebookLink = Array.from(host.querySelectorAll<HTMLButtonElement>('.pane-left .tree-label'))
         .find((item) => item.textContent?.includes(notebook.title))!
@@ -422,8 +439,12 @@ describe('ChatbookView authentication surface', () => {
       expect(host.querySelector('.pane-left [role="tree"]')).not.toBeNull()
       expect(host.querySelector('.pane-left .notebook-create')).toBeNull()
       expect(host.querySelector('.new-notebook-editor textarea')).not.toBeNull()
-      host.querySelector<HTMLButtonElement>('[aria-label="Links"]')!.click()
+      expect(host.querySelector('[aria-label="Workspace"] [aria-label="Links"]')).toBeNull()
+      expect(host.querySelector('[aria-label="Workspace"] [aria-label="Tags"]')).toBeNull()
+      host.querySelector<HTMLButtonElement>('#right-tab-links')!.click()
       expect(host.querySelector('#right-tab-links')?.getAttribute('aria-selected')).toBe('true')
+      expect(host.querySelector('#right-tab-links')?.textContent).toBe('Backlinks')
+      expect([...host.querySelectorAll('.pane-right [role="tab"]')].map((tab) => tab.textContent)).toEqual(['AI', 'Tags', 'Analysis', 'Similar', 'Same topic', 'Related topics', 'Backlinks'])
       host.querySelector<HTMLButtonElement>('[aria-label="AI"]')!.click()
       expect(host.querySelector('#right-tab-memo')).toBeNull()
       expect(host.querySelector('.agent-footer textarea')).not.toBeNull()
@@ -469,6 +490,8 @@ describe('ChatbookView authentication surface', () => {
   })
 
   test('switches the active mobile workspace without stacking panes', async () => {
+    const originalWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
     const host = document.createElement('div')
     document.body.append(host)
     const dispose = render(() => (
@@ -496,15 +519,18 @@ describe('ChatbookView authentication surface', () => {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
       expect(grid?.dataset.mobilePane).toBe('reader')
       expect(host.querySelector('.agent-footer textarea')).not.toBeNull()
-      host.querySelector<HTMLButtonElement>('[aria-label="Tags"]')!.click()
+      host.querySelector<HTMLButtonElement>('[aria-label="Toggle details pane"]')!.click()
+      host.querySelector<HTMLButtonElement>('#right-tab-tags')!.click()
       expect(grid?.dataset.mobilePane).toBe('details')
       host.querySelector<HTMLButtonElement>('[aria-label="Collapse the details pane"]')!.click()
       expect(host.querySelector('.chatbook')?.getAttribute('data-right')).toBe('closed')
       expect(grid?.dataset.mobilePane).toBe('reader')
-      host.querySelector<HTMLButtonElement>('[aria-label="Tags"]')!.click()
+      host.querySelector<HTMLButtonElement>('[aria-label="Toggle details pane"]')!.click()
+      host.querySelector<HTMLButtonElement>('#right-tab-tags')!.click()
       expect(host.querySelector('.chatbook')?.getAttribute('data-right')).toBe('open')
       expect(host.querySelector('#right-tab-tags')?.getAttribute('aria-selected')).toBe('true')
     } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
       dispose()
       host.remove()
     }

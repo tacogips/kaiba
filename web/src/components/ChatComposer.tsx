@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, type JSX } from 'solid-js'
+import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'solid-js'
 import type { AgentModel } from '../notes/types'
 import { handleComposerKeyDown } from '../notes/memoComposer'
 import { WorkspaceIcon } from './WorkspaceIcon'
@@ -46,7 +46,7 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
   const resize = () => {
     if (!input) return
     input.style.height = 'auto'
-    input.style.height = `${Math.min(180, Math.max(44, input.scrollHeight))}px`
+    input.style.height = `${Math.min(180, Math.max(input.closest('.agent-footer') ? 76 : 44, input.scrollHeight))}px`
   }
   createEffect(() => { void props.draft; queueMicrotask(resize) })
   createEffect(() => { if (props.autofocus) queueMicrotask(() => input?.focus()) })
@@ -67,7 +67,7 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
       stage(event.dataTransfer?.files ?? null)
     }}>
     <input class="sr-only" type="file" multiple tabIndex={-1} ref={picker}
-      aria-label="Choose attachments" accept=".txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,application/json"
+      aria-label="Choose attachments" accept=".txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,application/json,image/png,image/jpeg"
       disabled={!canAttach()} onChange={(event) => {
         stage(event.currentTarget.files)
         event.currentTarget.value = ''
@@ -75,9 +75,9 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
     <Show when={props.attachments.length > 0}>
       <div class="attachment-chips" aria-label="Attached files">
         <For each={props.attachments}>{(file, index) => <div class="attachment-card">
-          <WorkspaceIcon name="file" />
+          <Show when={file.type.startsWith('image/')} fallback={<WorkspaceIcon name="file" />}><AttachmentThumbnail file={file} /></Show>
           <span class="attachment-description"><strong title={file.name}>{file.name}</strong>
-            <small>{Math.max(1, Math.ceil(file.size / 1024))} KB · Text</small></span>
+            <small>{Math.max(1, Math.ceil(file.size / 1024))} KB · {file.type.startsWith('image/') ? 'Image' : 'Text'}</small></span>
           <button type="button" aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`}
             disabled={locked() || props.readOnly} onClick={() => props.onRemoveAttachment(index())}><WorkspaceIcon name="close" /></button>
         </div>}</For>
@@ -95,8 +95,8 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
         }, props.onSubmit)} />
     </div>
     <div class="composer-toolbar">
-      <button type="button" class="composer-icon" title="Attach text files"
-        aria-label="Attach text files" aria-disabled={!canAttach()} disabled={!canAttach()} onClick={() => picker?.click()}><WorkspaceIcon name="add" /></button>
+      <button type="button" class="composer-icon" title="Attach text files or images"
+        aria-label="Attach text files or images" aria-disabled={!canAttach()} disabled={!canAttach()} onClick={() => picker?.click()}><WorkspaceIcon name="add" /></button>
       <select class="composer-model" aria-label="Agent provider" title="Agent provider"
         disabled={!props.extensionsEnabled || locked() || props.readOnly || !props.providers?.length}
         value={props.selectedProvider ?? ''} onInput={(event) => props.onProviderChange?.(event.currentTarget.value)}>
@@ -133,4 +133,14 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
     </div>
     <Show when={props.memoOnly || props.noteEdit}><span class="composer-active-mode">{props.memoOnly ? 'Memo only' : 'Editing note'}</span></Show>
   </div>
+}
+
+function AttachmentThumbnail(props: { file: File }): JSX.Element {
+  const [url, setURL] = createSignal('')
+  createEffect(() => {
+    const value = URL.createObjectURL(props.file)
+    setURL(value)
+    onCleanup(() => URL.revokeObjectURL(value))
+  })
+  return <img class="attachment-thumbnail" src={url()} alt={props.file.name} />
 }

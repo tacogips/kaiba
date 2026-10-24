@@ -1,5 +1,5 @@
 import type { FileId, NoteId, NotebookId, TagClassId, TagId } from './ids'
-import { derivedNoteTitle } from './noteText'
+import { parseNotebookDraft } from './notebookDraft'
 import type {
   AgentChatMessageResult,
   AgentChatAttachmentInput,
@@ -256,6 +256,19 @@ export class NoteGraphQLClient {
         }
       }
     `, { noteId }, (data) => data.note)
+  }
+
+  async fastNotes(query = '', offset = 0, limit = 50): Promise<Note[]> {
+    return this.queryValue<{ fastNotes: QueryPayload<Note[]> }, Note[]>('FastNotes', `
+      query FastNotes($query: String, $offset: Int, $limit: Int) {
+        fastNotes(query: $query, offset: $offset, limit: $limit) {
+          result { accepted status diagnostics }
+          value { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt
+            tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
+          }
+        }
+      }
+    `, { ...(query.trim() ? { query } : {}), offset, limit }, (data) => data.fastNotes)
   }
 
   async noteLinks(noteId: NoteId): Promise<import('./types').NoteLink[]> {
@@ -769,6 +782,8 @@ export class NoteGraphQLClient {
   }
 
   async saveNewNotebook(bodyMarkdown: string, idempotencyKey: string): Promise<Notebook> {
+    const draft = parseNotebookDraft(bodyMarkdown)
+    if (!bodyMarkdown.trim()) throw new NoteTransportError('Write something to start the notebook.', 'result')
     return this.notebookMutation('SaveNewNotebook', `
       mutation SaveNewNotebook($input: IngestNotebookPagesInput!) {
         ingestNotebookPages(input: $input) {
@@ -780,9 +795,32 @@ export class NoteGraphQLClient {
         }
       }
     `, { input: {
-      idempotencyKey, title: derivedNoteTitle(bodyMarkdown),
-      pages: [{ bodyMarkdown, readOnly: false }],
+      idempotencyKey, title: draft.title || 'Untitled notebook', allowEmptyPages: true,
+      pages: draft.notes.map((note) => ({ bodyMarkdown: note.bodyMarkdown, readOnly: false })),
     } }, 'ingestNotebookPages')
+  }
+
+  async saveNotebookDraft(notebookId: NotebookId, bodyMarkdown: string): Promise<Notebook> {
+    const draft = parseNotebookDraft(bodyMarkdown)
+    return this.notebookMutation('SaveNotebookDraft', `
+      mutation SaveNotebookDraft($input: SaveNotebookDraftInput!) {
+        saveNotebookDraft(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: { notebookId, title: draft.title || 'Untitled notebook', bodies: draft.notes.map((note) => note.bodyMarkdown) } }, 'saveNotebookDraft')
+  }
+
+  async deleteNotebook(notebookId: NotebookId): Promise<void> {
+    const data = await this.request<{ deleteNotebook: { result: ControlResult } }>('DeleteNotebook', `
+      mutation DeleteNotebook($notebookId: String!) {
+        deleteNotebook(notebookId: $notebookId) { result { accepted status diagnostics } }
+      }
+    `, { notebookId })
+    ensureAccepted(data.deleteNotebook.result)
   }
 
   async createNote(notebookId: NotebookId, bodyMarkdown: string): Promise<Note> {
@@ -844,6 +882,16 @@ export class NoteGraphQLClient {
         }
       }
     `, { notebookId, tagId, provenance: 'human' }, 'removeNotebookTagById')
+  }
+
+  async rebuildNotebookSearchIndex(notebookId: NotebookId): Promise<ControlResult> {
+    const data = await this.request<{ rebuildNotebookSearchIndex: { result: ControlResult } }>('RebuildNotebookSearchIndex', `
+      mutation RebuildNotebookSearchIndex($notebookId: String!) {
+        rebuildNotebookSearchIndex(notebookId: $notebookId) { result { accepted status diagnostics } }
+      }
+    `, { notebookId })
+    ensureAccepted(data.rebuildNotebookSearchIndex.result)
+    return data.rebuildNotebookSearchIndex.result
   }
 
   async renameNotebook(notebookId: NotebookId, title: string): Promise<Notebook> {

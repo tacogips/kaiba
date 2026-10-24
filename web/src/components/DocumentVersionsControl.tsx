@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createResource, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js'
 import type { NoteId, NotebookId } from '../notes/ids'
 import { useApp } from '../state/appStore'
+import { TranslationLanguagePicker } from './TranslationLanguagePicker'
 import { WorkspaceIcon } from './WorkspaceIcon'
 import './form-controls.css'
 import './document-versions.css'
@@ -137,15 +138,14 @@ export function DocumentVersionsControl(props: {
         </option>}</For>
       </select>
     </Show>
-    <button type="button" class="secondary form-icon-button" ref={trigger} aria-label="Translate pages" title="Translate pages"
+    <button type="button" class="workspace-icon document-translate-trigger" ref={trigger} aria-label="Translate pages" title="Translate pages"
       aria-expanded={open()} aria-controls="document-translation-options" onClick={() => setOpen(!open())}>
       <WorkspaceIcon name="translate" />
     </button>
     <Show when={open()}>
       <section class="document-translation-popover" id="document-translation-options" aria-label="Translate pages">
         <form onSubmit={(event) => void translate(event)}>
-          <label>Target language<input autofocus value={language()} placeholder="e.g. English" disabled={busy()}
-            onInput={(event) => setLanguage(event.currentTarget.value)} /></label>
+          <TranslationLanguagePicker value={language()} disabled={busy()} onChange={setLanguage} />
           <label>Pages<select aria-label="Pages to translate" value={scope()} disabled={busy()}
             onChange={(event) => setScope(event.currentTarget.value as 'current' | 'range' | 'all')}>
             <option value="current">Current page ({props.pageNumber})</option>
@@ -161,7 +161,7 @@ export function DocumentVersionsControl(props: {
             </div>
             <Show when={!validRange()}><p role="alert">Choose a range from 1 to {props.totalPages}.</p></Show>
           </Show>
-          <button type="submit" class="form-action-button" aria-label="Request translation" title="Request translation" aria-busy={busy()}
+          <button type="submit" class="form-action-button translation-submit" aria-label="Request translation" title="Request translation" aria-busy={busy()}
             disabled={busy() || !language().trim() || (scope() === 'range' && !validRange())}>
             <WorkspaceIcon name="check" />{busy() ? 'Requesting…' : 'Translate'}
           </button>

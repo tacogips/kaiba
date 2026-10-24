@@ -92,3 +92,6 @@
   border-radius: .25rem;
   padding: .3rem .4rem;
 }
+
+.reader .page-tag-empty { color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.reader .document-tag-chip small { margin-inline-start: .35rem; color: var(--muted); font-size: .65rem; }
