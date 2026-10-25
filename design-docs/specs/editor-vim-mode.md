@@ -39,8 +39,11 @@ Accepted (2026-10-24). Initial implementation.
     are adopted as external edits outside the undo history.
   - Normal and visual modes refuse native text input (`beforeinput`). An IME
     composition started in normal mode is discarded at `compositionend`.
-  - The block cursor is a one-character selection, styled through
-    `textarea[data-vim-mode]::selection`.
+  - In normal mode the textarea still selects the character under the
+    cursor, but the native caret and selection are transparent; a measured
+    overlay (`.vim-block-cursor`) draws the block, so empty lines and the end
+    of the text also show a full cell. The overlay only shows while the
+    editor is focused.
   - Command chords, and Control chords that are neither built-in Vim chords
     nor mapped, pass through to the app, so workspace shortcuts keep working.
     Tab keeps moving focus.
@@ -85,8 +88,9 @@ Accepted (2026-10-24). Initial implementation.
 ```
 
 Modes are `n`, `i`, `x` (`v` is an alias), `o` and `c` (command-line keys).
-Without a stored keymap, the engine runs its plain built-in bindings, as vactr
-does before a keymap is applied. Applying a keymap that has entry errors
+Without a stored keymap, the editor uses the `Default` preset: no mappings
+or hop, and which-key hints for `g`, `z` and `m` (normal) and `g` (visual)
+shown with no delay. Applying a keymap that has entry errors
 skips those entries and keeps the rest. A keymap that cannot be parsed is not
 applied.
 
@@ -97,3 +101,36 @@ applied.
 - Registers are per editor instance; yanks also go to the system clipboard.
 - On touch devices without a hardware keyboard, the mode badge toggles insert
   mode.
+
+## Writing view and workspace keys, 2026-10-25
+
+- Writing shows line numbers in a gutter (`editor/LineNumberGutter.tsx`).
+  Only the logical lines in view are measured, through the same mirror
+  geometry, so a soft-wrapped line keeps its number on its first row. The
+  caret's line is bold.
+- Workspace bindings (`notes/workspaceVimKeys.ts`) are configurable in
+  Settings > Editor and checked for overlapping sequences:
+
+  | Keys | Action | Where |
+  | --- | --- | --- |
+  | `i` | Write at the current note (insert mode) | outside text fields |
+  | `<C-w>h/l/j/k/w` | Focus library / details / AI / reader / next pane | everywhere |
+  | `<Space>w` | Toggle Writing / Preview (Writing opens in normal mode) | outside text fields and in a Vim editor's normal mode |
+  | `<Space>a` | Open / close the AI panel | same |
+  | `<Space>e`, `<Space>d` | Toggle library, details | same |
+  | `<Space>f` | Quick switcher | same |
+  | `gp` | Go to page: prompts for a number | outside text fields |
+  | `gg`, `G` | First, last page | outside text fields |
+
+  A count typed before `gp`, `gg` or `G` outside text fields jumps to that
+  page (`12gg`). Page commands reach the document reader (physical pages)
+  and the Markdown reader (notes). In Writing they place the caret at the
+  note's first line; inside the editor `g` keeps its Vim meaning.
+- In a Vim editor the workspace only takes `<Space>` in normal mode with no
+  pending Vim command (`data-vim-pending`), and only if the editor keymap maps
+  nothing starting with `<Space>`. A keymap such as `mise-darwin`, whose
+  leader is `<Space>`, keeps those keys in the editor.
+- A pending prefix lists its next keys at the bottom right, Helix style, with
+  the typed prefix (and count) as the heading and each entry shown as its full
+  sequence. The editor's own which-key hints use the same panel. There is no
+  prefix timeout; `Esc`, a click, or a non-matching key cancels it.

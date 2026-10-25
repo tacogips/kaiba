@@ -4,7 +4,7 @@ import { vimModeEnabled } from '../notes/settings'
 import { KEYMAP_PRESETS, compileUserKeymap, defaultKeymapText, type KeymapIssue } from '../editor/vimKeymap'
 import './form-controls.css'
 import '../editor/vim-editor.css'
-import { defaultWorkspaceVimKeys, parseWorkspaceVimKeys, workspaceVimKeysIssue, type WorkspaceVimKeys } from '../notes/workspaceVimKeys'
+import { defaultWorkspaceVimKeys, parseWorkspaceVimKeys, workspaceVimActions, workspaceVimKeysIssue, type WorkspaceVimAction, type WorkspaceVimKeys } from '../notes/workspaceVimKeys'
 
 /** The "Editor" card on the Config screen: the Vim mode switch (on by
  * default) and the keymap JSON editor. The keymap is stored with the other
@@ -51,9 +51,9 @@ export function VimSettings(): JSX.Element {
     <Show when={vimModeEnabled(app.state.settings)}>
       <details class="vim-settings-workspace">
         <summary>Workspace keybindings</summary>
-        <p>Use Vim notation such as <code>{'<C-w>h'}</code>. The writing shortcut applies outside text fields.</p>
+        <p>Use Vim notation such as <code>{'<C-w>h'}</code> or <code>{'<Space>w'}</code>. Ctrl-W chords work everywhere; <code>{'<Space>'}</code> keys also work in a Vim editor's normal mode; the others apply outside text fields. A count before a page key picks the page, as in <code>12gg</code>.</p>
         <For each={Object.entries(defaultWorkspaceVimKeys)}>{([action, fallback]) =>
-          <label>{({ write: 'Enter writing', left: 'Focus library', right: 'Focus details', bottom: 'Focus AI', reader: 'Focus reader', next: 'Next pane' } as Record<string, string>)[action]}
+          <label>{workspaceVimActions[action as WorkspaceVimAction].desc}
             <input aria-label={`Workspace key: ${action}`} value={app.state.settings.workspaceVimKeys?.[action as keyof WorkspaceVimKeys] ?? fallback}
               onChange={(event) => {
                 const parsed = parseWorkspaceVimKeys({ [action]: event.currentTarget.value })

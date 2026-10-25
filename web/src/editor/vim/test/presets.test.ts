@@ -19,10 +19,12 @@ describe('keymap presets', () => {
     ]);
   });
 
-  it('compiles Default without issues and preserves K0 defaults', () => {
+  it('compiles Default without issues, with which-key hints for g, z and m', () => {
     const keymap = compile('default');
     expect(keymap.maps.n).toEqual([]);
-    expect(keymap.hints.enabled).toBe(false);
+    expect(keymap.hints.enabled).toBe(true);
+    expect(keymap.hints.delayMs).toBe(0);
+    expect(keymap.hints.triggers.n).toEqual([['g'], ['z'], ['m']]);
     expect(keymap.hop.enabled).toBe(false);
     expect(keymap.leader).toBe('\\');
   });

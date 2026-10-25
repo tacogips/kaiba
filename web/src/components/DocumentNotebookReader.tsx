@@ -1,5 +1,5 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
-import { readerControlPage, readerKeyAllowed, scrollReader } from '../notes/readerKeyboard'
+import { onGotoPage, readerControlPage, readerKeyAllowed, scrollReader } from '../notes/readerKeyboard'
 import { documentPageMetadata, pageStepForArrow } from '../notes/documentPages'
 import { noteHeadingPrefix } from '../notes/toc'
 import { tagTermsFromAssignments } from '../notes/tagMatch'
@@ -92,7 +92,8 @@ export function DocumentNotebookReader(props: {
 
   onMount(() => {
     window.addEventListener('keydown', keydown)
-    onCleanup(() => window.removeEventListener('keydown', keydown))
+    const stopGoto = onGotoPage((target) => void selectIndex(target === 'first' ? 0 : target === 'last' ? Math.max(0, total() - 1) : Math.min(target, Math.max(1, total())) - 1))
+    onCleanup(() => { window.removeEventListener('keydown', keydown); stopGoto() })
   })
   const navigation = () => <nav classList={{ 'document-page-navigation': true, 'right-binding': binding() === 'right' }} aria-label="Page navigation">
         <button type="button" class="secondary reader-control" aria-label="Previous page" title="Previous page (Ctrl+U)" disabled={loading() || index() === 0}

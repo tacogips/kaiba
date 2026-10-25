@@ -1,7 +1,8 @@
-import { For, Show, createEffect, createMemo, type JSX } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, type JSX } from 'solid-js'
 import { MarkdownBody } from './Markdown'
 import { parseNotebookDraft } from '../notes/notebookDraft'
 import { createVimTextarea } from '../editor/VimTextarea'
+import { LineNumberGutter } from '../editor/LineNumberGutter'
 import { useApp, type AppStore } from '../state/appStore'
 import { tagTermsFromAssignments } from '../notes/tagMatch'
 import { noteHeadingPrefix } from '../notes/toc'
@@ -26,6 +27,7 @@ export function NotebookWritingView(props: { writer: Writer; writing: boolean; r
   })
   const vim = createVimTextarea({ save: () => { if (!props.readOnly) void props.writer.autosave.flush() } })
   let source!: HTMLTextAreaElement
+  const [sourceElement, setSourceElement] = createSignal<HTMLTextAreaElement>()
   const trackNote = () => {
     const cursor = source.selectionStart
     let number = 1
@@ -35,9 +37,12 @@ export function NotebookWritingView(props: { writer: Writer; writing: boolean; r
   createEffect(() => { if (props.writing) queueMicrotask(() => source?.focus()) })
   return <div class="reader-body notebook-writing">
     <form class="notebook-writing-form" onSubmit={(event) => { event.preventDefault(); if (!props.readOnly) void props.writer.autosave.flush() }}>
-      <textarea class="notebook-source" aria-label="Notebook Markdown source" ref={(element) => { source = element; vim.ref(element) }} hidden={!props.writing}
-        value={props.writer.draft.text()} readOnly={props.readOnly} disabled={props.readOnly}
-        onInput={(event) => { props.writer.draft.setText(event.currentTarget.value); trackNote() }} onClick={trackNote} onKeyUp={trackNote} onSelect={trackNote} spellcheck={false} />
+      <div class="notebook-source-frame" hidden={!props.writing}>
+        <Show when={props.writing}><LineNumberGutter textarea={sourceElement} text={props.writer.draft.text} /></Show>
+        <textarea class="notebook-source" aria-label="Notebook Markdown source" ref={(element) => { source = element; setSourceElement(element); vim.ref(element) }} hidden={!props.writing}
+          value={props.writer.draft.text()} readOnly={props.readOnly} disabled={props.readOnly}
+          onInput={(event) => { props.writer.draft.setText(event.currentTarget.value); trackNote() }} onClick={trackNote} onKeyUp={trackNote} onSelect={trackNote} spellcheck={false} />
+      </div>
       <Show when={!props.writing}><div ref={props.onViewport} class="notebook-source-preview" aria-label="Notebook preview">
         <For each={parsed().notes}>{(note, index) => {
           const stored = () => metadata()[index()]

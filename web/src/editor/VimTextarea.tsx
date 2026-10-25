@@ -81,6 +81,9 @@ export function createVimTextarea(options: VimTextareaOptions = {}): VimTextarea
       <Show when={current().hints}>{(hints) => <VimHints view={hints()} />}</Show>
       <Show when={current().hop}>{(hop) => <VimHopLabels view={hop()} session={session} />}</Show>
       <Show when={current().blockRanges}>{(ranges) => <VimBlockSelection ranges={ranges()} session={session} textarea={textarea} />}</Show>
+      <Show when={current().mode === 'normal' || current().mode === 'operator-pending'}>
+        <VimBlockCursor from={current().displayCursor} to={current().displayCursorEnd} session={session} textarea={textarea} />
+      </Show>
     </div>}
   </Show>
 
@@ -105,6 +108,60 @@ function VimBlockSelection(props: { ranges: { from: number; to: number }[]; sess
   return <Portal><div aria-hidden="true" class="vim-block-selection"><For each={rectangles()}>{(box) =>
     <span style={{ position: 'fixed', top: `${box.top}px`, left: `${box.left}px`, width: `${box.width}px`, height: `${box.height}px` }} />
   }</For></div></Portal>
+}
+
+/** The normal-mode cursor: a filled cell over the character under the
+ * cursor, including an empty line's newline and the end of the text, where a
+ * one-character textarea selection would collapse to a thin caret. */
+function VimBlockCursor(props: { from: number; to: number; session: Accessor<TextareaVim | null>; textarea: Accessor<HTMLTextAreaElement | undefined> }): JSX.Element {
+  const [revision, setRevision] = createSignal(0)
+  const [focused, setFocused] = createSignal(false)
+  createEffect(() => {
+    const input = props.textarea()
+    if (!input) return
+    let frame = 0
+    const update = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => setRevision((value) => value + 1)) }
+    const focus = () => { setFocused(input.ownerDocument.activeElement === input); update() }
+    focus()
+    const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : undefined
+    resize?.observe(input)
+    input.addEventListener('scroll', update)
+    input.addEventListener('input', update)
+    input.addEventListener('focus', focus)
+    input.addEventListener('blur', focus)
+    window.addEventListener('resize', update)
+    onCleanup(() => {
+      cancelAnimationFrame(frame)
+      resize?.disconnect()
+      input.removeEventListener('scroll', update)
+      input.removeEventListener('input', update)
+      input.removeEventListener('focus', focus)
+      input.removeEventListener('blur', focus)
+      window.removeEventListener('resize', update)
+    })
+  })
+  // Measure after the engine has written the textarea (a microtask later).
+  createEffect(on(() => [props.from, props.to], () => requestAnimationFrame(() => setRevision((value) => value + 1))))
+  const cell = createMemo(() => {
+    revision()
+    const input = props.textarea(), geometry = props.session()?.geometry
+    if (!input || !geometry || !focused()) return null
+    const text = input.value.slice(props.from, props.to)
+    const style = getComputedStyle(input)
+    const box = input.getBoundingClientRect()
+    const glyph = text && text !== '\n' && text !== '\r\n' ? text : ''
+    const measured = glyph ? geometry.clientRangeRects(props.from, props.to)[0] : undefined
+    const point = measured ?? geometry.clientPoint(props.from)
+    if (!point) return null
+    const width = measured?.width ?? Math.max(4, (Number.parseFloat(style.fontSize) || 14) * 0.6)
+    if (point.top < box.top || point.top + point.height > box.bottom + 1) return null
+    return { top: point.top, left: point.left, width, height: point.height, glyph: glyph === '\t' ? '' : glyph,
+      font: `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}` }
+  })
+  return <Show when={cell()}>{(current) => <Portal><span aria-hidden="true" class="vim-block-cursor" style={{
+    top: `${current().top}px`, left: `${current().left}px`, width: `${current().width}px`, height: `${current().height}px`,
+    font: current().font, 'line-height': `${current().height}px`,
+  }}>{current().glyph}</span></Portal>}</Show>
 }
 
 function VimPrompt(props: { kind: ':' | '/' | '?'; initial: string; keymap: Accessor<CompiledKeymap | null>; onSubmit(text: string): void; onCancel(): void }): JSX.Element {
@@ -159,7 +216,7 @@ function VimHints(props: { view: HintView }): JSX.Element {
     <div class="vim-hints-prefix">{props.view.prefix}</div>
     <div class="vim-hints-grid" aria-hidden="true">
       <For each={visible()}>{(entry) => <div class="vim-hints-row" data-group={entry.group ? 'true' : undefined}>
-        <kbd>{entry.key}</kbd><span>{entry.desc}</span>
+        <kbd><span class="vim-hints-typed">{props.view.prefix}</span>{entry.key}</kbd><span>{entry.desc}</span>
       </div>}</For>
       <Show when={props.view.entries.length > hintRows}><div class="vim-hints-row"><span>+{hidden()} more</span></div></Show>
     </div>

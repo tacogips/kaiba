@@ -1,7 +1,11 @@
 /* Vim mode for Markdown textareas. In normal mode the textarea selects the
-   character under the cursor, styled here as a block cursor. */
+   character under the cursor; .vim-block-cursor draws the block over it, so
+   the native caret and selection stay invisible there. */
+textarea[data-vim-mode='normal'],
+textarea[data-vim-mode='operator-pending'] { caret-color: transparent; }
 textarea[data-vim-mode='normal']::selection,
-textarea[data-vim-mode='operator-pending']::selection { background: var(--ink); color: var(--surface); }
+textarea[data-vim-mode='operator-pending']::selection { background: transparent; color: inherit; }
+.vim-block-cursor { position: fixed; z-index: 25; pointer-events: none; overflow: hidden; white-space: pre; background: var(--ink); color: var(--surface); }
 
 .vim-status { position: relative; display: flex; align-items: center; gap: .5rem; min-height: 1.6rem; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .72rem; color: var(--muted); }
 .vim-status > button.vim-status-mode { flex: none; min-height: 0; padding: .1rem .45rem; border: 1px solid var(--line); border-radius: .25rem; background: var(--surface-subtle); color: var(--ink); font: inherit; font-weight: 600; letter-spacing: .04em; box-shadow: none; }
@@ -14,8 +18,12 @@ textarea[data-vim-mode='operator-pending']::selection { background: var(--ink); 
 .vim-status-prompt { display: flex; flex: 1; align-items: center; gap: .2rem; min-width: 0; margin: 0; color: var(--ink); font: inherit; }
 .vim-status-prompt input { flex: 1; min-width: 0; min-height: 0; padding: .1rem .3rem; border: 1px solid var(--line); border-radius: .2rem; font: inherit; color: var(--ink); background: var(--surface); }
 
-.vim-hints { position: absolute; bottom: calc(100% + .35rem); left: 0; z-index: 20; max-width: min(36rem, 90vw); padding: .5rem .65rem; border: 1px solid var(--line); border-radius: .35rem; background: var(--surface); color: var(--ink); box-shadow: 0 .4rem 1.2rem rgb(0 0 0 / .12); }
-.vim-hints-prefix { margin-bottom: .3rem; color: var(--muted); }
+/* Which-key style next keys, at the bottom right like Helix. */
+.vim-hints { position: fixed; right: 1rem; bottom: 2.75rem; z-index: 60; box-sizing: border-box; min-width: 12rem; max-width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 6rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--line); border-radius: .35rem; background: var(--surface); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .75rem; box-shadow: 0 .4rem 1.2rem rgb(0 0 0 / .12); }
+.vim-hints-prefix { margin-bottom: .3rem; color: var(--ink); font-weight: 700; }
+.vim-hints-typed { color: var(--muted); font-weight: 400; }
+.vim-page-prompt .vim-hints-prefix { display: flex; align-items: center; gap: .5rem; margin: 0; }
+.vim-page-prompt input { width: 6rem; min-height: 0; padding: .1rem .3rem; font: inherit; }
 .vim-hints-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .15rem .9rem; }
 .vim-hints-row { display: flex; gap: .45rem; min-width: 0; white-space: nowrap; }
 .vim-hints-row kbd { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; }

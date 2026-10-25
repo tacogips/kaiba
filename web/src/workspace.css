@@ -221,6 +221,11 @@ body { background: #1e1e20; }
 .notebook-writing-form { display: flex; flex: 1; flex-direction: column; min-height: 0; margin: 0; }
 .chatbook .notebook-source { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 8px 12px; margin: 0; resize: none; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--ink); font-family: ui-monospace, monospace; line-height: 1.7; }
 .chatbook .notebook-source[hidden] { display: none; }
+.notebook-source-frame { display: flex; flex: 1; min-height: 0; }
+.notebook-source-frame[hidden] { display: none; }
+.line-number-gutter { position: relative; flex: none; overflow: hidden; box-sizing: content-box; padding-inline: 4px 6px; border-right: 1px solid var(--line); color: var(--muted); font-family: ui-monospace, monospace; text-align: right; user-select: none; font-variant-numeric: tabular-nums; }
+.line-number-gutter > span { position: absolute; right: 6px; white-space: nowrap; }
+.line-number-gutter > span[data-current] { color: var(--ink); font-weight: 600; }
 .notebook-source-preview { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; }
 .notebook-writing-status { display: flex; flex: none; align-items: center; gap: 1rem; padding: 4px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: .75rem; }
 .notebook-writing-status > :last-child { margin-inline-start: auto; }

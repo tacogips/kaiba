@@ -27,3 +27,15 @@ export function scrollReader(event: KeyboardEvent, container: HTMLElement | unde
   event.preventDefault()
   return true
 }
+
+/** Detail of the `kaiba-goto-page` window event: a 1-based page, or an end. */
+export type GotoPageTarget = number | 'first' | 'last'
+
+export function onGotoPage(listener: (target: GotoPageTarget) => void): () => void {
+  const handle = (event: Event) => {
+    const detail = (event as CustomEvent<unknown>).detail
+    if (detail === 'first' || detail === 'last' || (typeof detail === 'number' && Number.isSafeInteger(detail) && detail > 0)) listener(detail)
+  }
+  window.addEventListener('kaiba-goto-page', handle)
+  return () => window.removeEventListener('kaiba-goto-page', handle)
+}

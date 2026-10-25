@@ -1,4 +1,4 @@
-import { scrollReader } from '../notes/readerKeyboard'
+import { onGotoPage, scrollReader } from '../notes/readerKeyboard'
 import { parseNotebookDraft } from '../notes/notebookDraft'
 import { noteId as asNoteId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
@@ -81,34 +81,55 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
 
   const notes = createMemo(() => app.notes())
   onMount(() => {
-    const beginWriting = async () => {
+    /** Places the Writing caret at a note's first line, in normal mode. */
+    const placeCaret = (number: number | 'last') => {
+      const source = document.querySelector<HTMLTextAreaElement>('main .notebook-source')
+      if (!source) return undefined
+      const parts = parseNotebookDraft(source.value).notes
+      const note = parts[number === 'last' ? parts.length - 1 : Math.min(Math.max(0, number - 1), parts.length - 1)]
+      const boundary = note?.startOffset ?? 0
+      const blankLines = source.value.slice(boundary, note?.endOffset).match(/^(?:[\t ]*\r?\n)+/)?.[0].length ?? 0
+      const caret = boundary + blankLines
+      source.focus()
+      source.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      source.setSelectionRange(caret, caret)
+      source.dispatchEvent(new Event('select', { bubbles: true }))
+      return source
+    }
+    const beginWriting = async (insert: boolean) => {
       const id = app.state.notebookId
       if (!id || app.notebook()?.readOnly || notes().some((note) => documentPageMetadata(note))) return
       const number = writer()?.currentNote() ?? app.state.note?.noteNumber ?? 1
       await setNotebookWriting(true)
       if (app.state.notebookId !== id || !writer()) return
       queueMicrotask(() => {
-        const source = document.querySelector<HTMLTextAreaElement>('main .notebook-source')
-        if (!source) return
-        const note = parseNotebookDraft(source.value).notes[Math.max(0, number - 1)]
-        const boundary = note?.startOffset ?? 0
-        const blankLines = source.value.slice(boundary, note?.endOffset).match(/^(?:[\t ]*\r?\n)+/)?.[0].length ?? 0
-        const caret = boundary + blankLines
-        source.focus()
-        source.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-        source.setSelectionRange(caret, caret)
-        source.dispatchEvent(new Event('select', { bubbles: true }))
-        source.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', bubbles: true, cancelable: true }))
+        const source = placeCaret(number)
+        if (insert) source?.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', bubbles: true, cancelable: true }))
       })
     }
-    const writingShortcut = () => { void beginWriting() }
+    const writingShortcut = () => { void beginWriting(true) }
+    const toggleWriting = () => {
+      if (!writing()) { void beginWriting(false); return }
+      void setNotebookWriting(false).then(() => queueMicrotask(() => document.querySelector<HTMLElement>('main.reader')?.focus()))
+    }
+    const stopGoto = onGotoPage((target) => {
+      if (notes().some((note) => documentPageMetadata(note) !== undefined)) return
+      if (writing()) { placeCaret(target === 'first' ? 1 : target); return }
+      const all = notes()
+      const note = target === 'first' ? all[0] : target === 'last' ? all[all.length - 1] : all.find((candidate) => candidate.noteNumber === target) ?? all[target - 1]
+      const container = body()
+      if (!note || !container) return
+      app.openNote(note.noteId, note.notebookId)
+      queueMicrotask(() => scrollToNote(container, note.noteId))
+    })
     window.addEventListener('kaiba-write-notebook', writingShortcut)
+    window.addEventListener('kaiba-toggle-writing', toggleWriting)
     const keydown = (event: KeyboardEvent) => {
       // DocumentNotebookReader owns physical-page navigation and its inner viewport.
       if (!writing() && !notes().some((note) => documentPageMetadata(note) !== undefined)) scrollReader(event, body())
     }
     window.addEventListener('keydown', keydown)
-    onCleanup(() => { window.removeEventListener('keydown', keydown); window.removeEventListener('kaiba-write-notebook', writingShortcut) })
+    onCleanup(() => { window.removeEventListener('keydown', keydown); window.removeEventListener('kaiba-write-notebook', writingShortcut); window.removeEventListener('kaiba-toggle-writing', toggleWriting); stopGoto() })
   })
   const selectedDocumentPage = createMemo(() => documentPageMetadata(notes().find((note) => note.noteId === app.state.noteId)
     ?? (app.state.note?.noteId === app.state.noteId ? app.state.note : undefined)))

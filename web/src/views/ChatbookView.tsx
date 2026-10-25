@@ -21,6 +21,8 @@ import { ToastNotice } from '../components/ToastNotice'
 import { FastNotesView } from './FastNotesView'
 import { AgentFooter } from '../components/AgentFooter'
 import { WorkspaceVimNavigation } from '../components/WorkspaceVimNavigation'
+import type { WorkspaceVimAction } from '../notes/workspaceVimKeys'
+import type { GotoPageTarget } from '../notes/readerKeyboard'
 import '../workspace-actions.css'
 
 // The chatbook shell: a three-column grid whose fold state is expressed as data
@@ -129,6 +131,21 @@ export function ChatbookView(): JSX.Element {
       queueMicrotask(() => (document.querySelector<HTMLElement>('main .notebook-source:not([hidden]):not(:disabled)')
         ?? document.querySelector<HTMLElement>('main.reader'))?.focus())
     })
+  }
+  const workspaceCommand = (action: WorkspaceVimAction, page?: number) => {
+    switch (action) {
+      case 'write': inReader(() => { setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-write-notebook')) }); return
+      case 'left': case 'right': case 'bottom': case 'reader': case 'next': focusPane(action); return
+      case 'writing': inReader(() => { setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-toggle-writing')) }); return
+      case 'agent': setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-toggle-ai')); return
+      case 'library': toggleLibrary(); return
+      case 'details': toggleDetails(); return
+      case 'search': app.setSearchOpen(true); return
+      case 'gotoPage': case 'firstPage': case 'lastPage': {
+        const target: GotoPageTarget = page ?? (action === 'lastPage' ? 'last' : 'first')
+        inReader(() => { setMobilePane('reader'); window.dispatchEvent(new CustomEvent<GotoPageTarget>('kaiba-goto-page', { detail: target })) })
+      }
+    }
   }
   const addNote = () => {
     if (app.state.route.kind === 'fast') {
@@ -254,8 +271,7 @@ export function ChatbookView(): JSX.Element {
       data-view={view()}
     >
       <a class="skip-link" href="#main-content">Skip to content</a>
-      <WorkspaceVimNavigation blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen}
-        onWrite={() => inReader(() => { setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-write-notebook')) })} onFocus={focusPane} />
+      <WorkspaceVimNavigation blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen} onCommand={workspaceCommand} />
       <div class="chatbook-head workspace-menu">
         <nav class="workspace-tools" aria-label="Workspace">
           <details class="workspace-create-menu" ref={createMenu} onKeyDown={(event) => { if (event.key === 'Escape') createMenu.open = false }}>

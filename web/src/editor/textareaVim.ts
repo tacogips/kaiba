@@ -200,6 +200,9 @@ export function attachTextareaVim(textarea: HTMLTextAreaElement, options: Textar
     const end = visual ? Math.min(nextGrapheme(state.doc, main.to), state.doc.length) : textMode ? main.to : snapshot.displayCursorEnd
     const direction = main.head < main.anchor ? 'backward' : 'forward'
     textarea.dataset.vimMode = snapshot.mode
+    // Workspace leader keys (`<Space>w`, ...) wait until no Vim command is pending.
+    if (snapshot.pending) textarea.dataset.vimPending = 'true'
+    else delete textarea.dataset.vimPending
     rendered = { start, end }
     if (textarea.selectionStart !== start || textarea.selectionEnd !== end) textarea.setSelectionRange(start, end, direction)
   }
@@ -388,6 +391,7 @@ export function attachTextareaVim(textarea: HTMLTextAreaElement, options: Textar
       doc.removeEventListener('selectionchange', onSelectionChange)
       geometry.dispose()
       delete textarea.dataset.vimMode
+      delete textarea.dataset.vimPending
       // Leave a caret, not the one-character block selection, behind.
       if ((mode === 'normal' || mode === 'operator-pending') && rendered.start !== rendered.end) textarea.setSelectionRange(rendered.start, rendered.start)
     },

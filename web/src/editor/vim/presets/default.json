@@ -4,9 +4,18 @@
   "timeoutlen": 1000,
   "maps": {},
   "hints": {
-    "enabled": false,
-    "delayMs": 200,
-    "triggers": {}
+    "enabled": true,
+    "delayMs": 0,
+    "triggers": {
+      "n": [
+        "g",
+        "z",
+        "m"
+      ],
+      "x": [
+        "g"
+      ]
+    }
   },
   "hop": {
     "enabled": false,

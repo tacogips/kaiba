@@ -19,8 +19,16 @@ export function AgentFooter(props: {
     setExpanded(true)
     queueMicrotask(() => document.querySelector<HTMLTextAreaElement>('.agent-footer textarea')?.focus())
   }
+  const togglePanel = () => {
+    if (!expanded()) { focusPanel(); return }
+    const leaving = footer?.contains(document.activeElement)
+    setExpanded(false)
+    setLargePanel(false)
+    if (leaving) queueMicrotask(() => document.querySelector<HTMLElement>('main.reader')?.focus())
+  }
   window.addEventListener('kaiba-focus-ai', focusPanel)
-  onCleanup(() => window.removeEventListener('kaiba-focus-ai', focusPanel))
+  window.addEventListener('kaiba-toggle-ai', togglePanel)
+  onCleanup(() => { window.removeEventListener('kaiba-focus-ai', focusPanel); window.removeEventListener('kaiba-toggle-ai', togglePanel) })
   const [showHistory, setShowHistory] = createSignal(false)
   const [selectedConversation, setSelectedConversation] = createSignal<NotebookId>()
   const [largePanel, setLargePanel] = createSignal(false)
