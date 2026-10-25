@@ -31,6 +31,16 @@ final class PDFTextModeGraphQLTests: XCTestCase {
     XCTAssertEqual(payload["value"]?.asObject?["textSource"], .string("pdf-text"))
     XCTAssertEqual(payload["value"]?.asObject?["textStatus"], .string("complete"))
     XCTAssertTrue(try XCTUnwrap(payload["value"]?.asObject?["text"]?.asString).contains("Fixture Document"))
+    for _ in 0..<2 {
+      let repeated = await executor.execute(GraphQLDocumentRequest(query: """
+        mutation($id:String!,$force:Boolean!){recognizeDocumentPage(noteId:$id,forceOCR:$force){result{accepted} note{documentPage{textSource}}}}
+        """, variables: ["id": .id(page.noteId), "force": .bool(true)]))
+      let result = repeated.body["data"]?.asObject?["recognizeDocumentPage"]?.asObject
+      XCTAssertEqual(result?["result"]?.asObject?["accepted"], .bool(true))
+      XCTAssertEqual(result?["note"]?.asObject?["documentPage"]?.asObject?["textSource"], .string("ocr"))
+      XCTAssertEqual(try store.documentPageText(noteId: page.noteId).text, "Forced OCR\n\nSearch text")
+    }
+    XCTAssertEqual(recognizer.calls, 4)
     let invalid = await api.importDocument(.init(filename: "invalid.pdf", contentBase64: encoded, textExtractionMode: "invalid"))
     XCTAssertFalse(invalid.result.accepted)
   }

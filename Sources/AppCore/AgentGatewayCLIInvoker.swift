@@ -53,7 +53,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
   ) {
     self.commandPath = commandPath
     self.vendor = vendor
-    self.model = model
+    self.model = CurrentAgentModels.resolved(model, vendor: vendor)
     self.apiKeyEnvironment = apiKeyEnvironment
     self.environment = environment
     self.executionMode = executionMode
@@ -86,7 +86,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
     var arguments = [
       "client",
       "--vendor", request.provider ?? vendor,
-      "--model", request.model ?? model,
+      "--model", CurrentAgentModels.resolved(request.model ?? model, vendor: request.provider ?? vendor),
       "--prompt", "-"
     ]
     if !request.systemPrompt.isEmpty {
@@ -246,6 +246,7 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
 
   struct ParsedACPOutput: Equatable {
     var resultText: String?
+    var stopReason: String?
     var streamedText: String = ""
     var errorMessage: String?
   }
@@ -272,10 +273,11 @@ public struct AgentGatewayCLIInvoker: AgentInvoking {
         parsed.streamedText += text
         continue
       }
-      if let result = object["result"],
-        result["stopReason"] != nil,
-        let text = result["_meta"]?["agentGateway"]?["resultText"]?.asString {
-        parsed.resultText = text
+      if let result = object["result"], let stopReason = result["stopReason"]?.asString {
+        parsed.stopReason = stopReason
+        if let text = result["_meta"]?["agentGateway"]?["resultText"]?.asString {
+          parsed.resultText = text
+        }
       }
     }
     return parsed

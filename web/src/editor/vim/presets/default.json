@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "leader": "\\",
+  "timeoutlen": 1000,
+  "maps": {},
+  "hints": {
+    "enabled": false,
+    "delayMs": 200,
+    "triggers": {}
+  },
+  "hop": {
+    "enabled": false,
+    "keys": "fdjhklsagqwertyuiopzxcvbnm",
+    "uppercaseLabels": false
+  }
+}

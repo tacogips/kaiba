@@ -307,6 +307,8 @@ public struct KaibaAgentBackendConfiguration: Codable, Equatable, Sendable {
   /// gemini, or openrouter.
   public var provider: String?
   public var model: String?
+  /// Explicit server credential routes exposed in the cross-vendor model picker.
+  public var allowedProviders: [String]?
   /// Environment-variable NAME for the provider credential (never a value);
   /// the gateway's per-vendor default applies when absent.
   public var apiKeyEnvironmentVariable: String?
@@ -316,12 +318,14 @@ public struct KaibaAgentBackendConfiguration: Codable, Equatable, Sendable {
     commandPath: String? = nil,
     provider: String? = nil,
     model: String? = nil,
-    apiKeyEnvironmentVariable: String? = nil
+    apiKeyEnvironmentVariable: String? = nil,
+    allowedProviders: [String]? = nil
   ) {
     self.backend = backend
     self.commandPath = commandPath
     self.provider = provider
     self.model = model
+    self.allowedProviders = allowedProviders
     self.apiKeyEnvironmentVariable = apiKeyEnvironmentVariable
   }
 }

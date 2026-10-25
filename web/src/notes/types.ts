@@ -33,6 +33,7 @@ export interface NoteTagAssignment {
 
 export interface Notebook {
   type: 'DOCUMENT' | 'AGENT_CHAT'
+  metaJSON?: string | null
   notebookId: NotebookId
   title: string
   readOnly: boolean
@@ -216,6 +217,8 @@ export interface AgentChatAttachmentInput {
 }
 
 export interface AgentModel {
+  /** Credential route selected together with this model in the aggregate picker. */
+  provider?: string
   modelId: string
   displayName?: string | null
   description?: string | null

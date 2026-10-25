@@ -2,6 +2,7 @@ import { Show, createSignal, type JSX } from 'solid-js'
 import type { NotebookId } from '../notes/ids'
 import { errorMessage, routeHref, useApp } from '../state/appStore'
 import { WorkspaceIcon } from './WorkspaceIcon'
+import { createVimTextarea } from '../editor/VimTextarea'
 
 export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): JSX.Element {
   const app = useApp()
@@ -9,6 +10,7 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
     app.writingDrafts.get(`note:${props.notebookId}`)
   const [open, setOpen] = createSignal(Boolean(draft()))
   let textarea: HTMLTextAreaElement | undefined
+  const vim = createVimTextarea({ close: () => { if (props.empty) textarea?.blur(); else if (!busy()) setOpen(false) } })
 
   const save = async (event: Event) => {
     event.preventDefault()
@@ -40,9 +42,10 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
     }}><WorkspaceIcon name="add" /></button>}>
       <form onSubmit={(event) => void save(event)}>
         <label><span class="sr-only">Write a note</span>
-          <textarea ref={textarea} rows={6} value={draft()} disabled={busy()}
+          <textarea ref={(element) => { textarea = element; vim.ref(element) }} rows={6} value={draft()} disabled={busy()}
             onInput={(event) => setDraft(event.currentTarget.value)} />
         </label>
+        <vim.Status />
         <div class="learning-actions">
           <button type="submit" aria-label="Save note" title="Save note" disabled={busy() || !draft().trim()}><WorkspaceIcon name="check" /></button>
           <Show when={!props.empty}><button type="button" class="secondary" aria-label="Close draft" title="Close draft" disabled={busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button></Show>

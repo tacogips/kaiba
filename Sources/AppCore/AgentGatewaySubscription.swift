@@ -111,8 +111,10 @@ extension AgentGatewayCLIInvoker {
     let url = subscriptionHome(environment: ProcessInfo.processInfo.environment).appendingPathComponent("models_cache.json")
     guard let data = try? Data(contentsOf: url), data.count <= 5_000_000,
       let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let models = document["models"] as? [[String: Any]] else { return [defaultModel] }
+      let models = document["models"] as? [[String: Any]] else { return [CurrentAgentModels.resolved(defaultModel, vendor: "codex")] }
     let slugs = models.compactMap { $0["slug"] as? String }.filter { !$0.isEmpty && $0.count <= 200 }
-    return [defaultModel] + Array(Set(slugs).subtracting([defaultModel])).sorted()
+    let selected = CurrentAgentModels.resolved(defaultModel, vendor: "codex")
+    let current = Set(CurrentAgentModels.models(for: "codex"))
+    return [selected] + Array(Set(slugs.filter { current.contains($0) }).subtracting([selected])).sorted()
   }
 }

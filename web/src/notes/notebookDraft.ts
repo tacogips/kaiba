@@ -5,7 +5,7 @@ export interface NotebookDraftNote {
   endOffset: number
 }
 
-/** A standalone angle-bracket marker with 3+ hyphens starts a new note outside fenced code. */
+/** A standalone, unescaped <><> starts a new note outside fenced code. */
 export function parseNotebookDraft(source: string): { title: string; notes: NotebookDraftNote[]; fenceOpen: boolean } {
   const notes: NotebookDraftNote[] = []
   let start = 0
@@ -23,7 +23,7 @@ export function parseNotebookDraft(source: string): { title: string; notes: Note
       continue
     }
     if (marker) { fence = { character: marker[1]![0]!, length: marker[1]!.length }; continue }
-    if (/^ {0,3}<-{3,}>[\t ]*$/.test(line)) {
+    if (/^ {0,3}<><>[\t ]*$/.test(line)) {
       append(match.index)
       start = match.index + match[0].length
     }

@@ -21,7 +21,13 @@ export interface UserAgentSettingsProps {
 const providerLabels: Record<string, string> = {
   codex: 'Codex (subscription on server)',
   server: 'Server default',
-  anthropic: 'Anthropic',
+  'server:codex': 'OpenAI (subscription)',
+  'server:openai': 'OpenAI (API)',
+  'server:anthropic': 'Claude (API)',
+  'server:claude-code': 'Claude (subscription)',
+  'server:gemini': 'Gemini',
+  gemini: 'Gemini',
+  anthropic: 'Claude',
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
   'openai-compatible': 'OpenAI-compatible endpoint',
@@ -155,7 +161,7 @@ export function UserAgentSettings(props: UserAgentSettingsProps): JSX.Element {
                   id="user-agent-model"
                   type="text"
                   spellcheck={false}
-                  placeholder="e.g. claude-opus-5 or openai/gpt-5"
+                  placeholder="e.g. claude-opus-5-5 or gpt-6.1-sol"
                   value={model()}
                   onInput={(event) => setModel(event.currentTarget.value)}
                 />

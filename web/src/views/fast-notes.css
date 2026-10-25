@@ -14,6 +14,8 @@
 .chatbook .fast-capture button { display: inline-flex; align-items: center; padding: .35rem; color: var(--surface); background: var(--green-ink); border-color: var(--green-ink); }
 .chatbook .fast-capture button:disabled { color: var(--muted); background: var(--surface); border-color: var(--line); opacity: 1; }
 .chatbook .fast-feed-message button { color: var(--green-ink); background: var(--surface); border-color: var(--line); }
+.fast-capture-meta { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.chatbook .fast-capture .vim-status-mode { padding: .1rem .45rem; color: var(--ink); background: var(--surface); border-color: var(--line); }
 .fast-capture > p { margin: 0; padding: .5rem 1rem; color: var(--danger-ink); }
 .fast-search { display: flex; align-items: center; gap: .5rem; max-width: 62rem; margin: 0 auto 1rem; color: var(--muted); }
 .chatbook .fast-search input { flex: 1; min-width: 0; padding: .6rem .75rem; border: 1px solid var(--line); border-radius: .35rem; background: var(--surface); font-size: .8rem; }

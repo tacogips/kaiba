@@ -4,6 +4,7 @@ import { MarkdownBody } from '../components/Markdown'
 import { NoteEditor } from '../components/NoteEditor'
 import { PageTagsEditor } from '../components/PageTagsEditor'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
+import { createVimTextarea } from '../editor/VimTextarea'
 import { noteDisplayTitle } from '../notes/noteText'
 import { notebookPreview } from '../notes/notebookList'
 import { formatTimestamp } from '../notes/format'
@@ -24,6 +25,7 @@ export function FastNotesView(): JSX.Element {
   const [moreBusy, setMoreBusy] = createSignal(false)
   const [moreError, setMoreError] = createSignal('')
   const draft = app.writingDrafts.get('fast-note-capture')
+  const vim = createVimTextarea()
   let requestGeneration = 0
   let searchTimer: ReturnType<typeof setTimeout> | undefined
   onCleanup(() => clearTimeout(searchTimer))
@@ -78,11 +80,11 @@ export function FastNotesView(): JSX.Element {
       </header>
       <div class="fast-notes-content">
         <form class="fast-capture" aria-label="Quick note" onSubmit={(event) => void capture(event)}>
-          <textarea aria-label="Write a quick note" placeholder="Write a quick note…" rows={3} value={draft.text()} disabled={draft.busy()}
+          <textarea ref={vim.ref} aria-label="Write a quick note" placeholder="Write a quick note…" rows={3} value={draft.text()} disabled={draft.busy()}
             onInput={(event) => draft.setText(event.currentTarget.value)} onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); void capture(event) }
             }} />
-          <div><span>Markdown · ⌘/Ctrl Enter to save</span><button type="submit" title="Save quick note" aria-label="Save quick note" disabled={draft.busy() || !draft.text().trim()}><WorkspaceIcon name="check" /></button></div>
+          <div><span class="fast-capture-meta"><vim.Status /><span>Markdown · ⌘/Ctrl Enter to save</span></span><button type="submit" title="Save quick note" aria-label="Save quick note" disabled={draft.busy() || !draft.text().trim()}><WorkspaceIcon name="check" /></button></div>
           <Show when={draft.error()}><p role="alert">{draft.error()}</p></Show>
         </form>
         <label class="fast-search"><WorkspaceIcon name="search" /><span class="sr-only">Search fast notes</span>

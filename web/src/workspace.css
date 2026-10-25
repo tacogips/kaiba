@@ -39,10 +39,14 @@ body { background: #1e1e20; }
 .reader-head { padding: 12px 24px; border-color: #343438; background: #202022; }
 .reader-title h1 { font-family: inherit; font-size: calc(17px * var(--fs, 1)); font-weight: 550; color: #dedee5; }
 .eyebrow { color: #8f8f9b; letter-spacing: .02em; font-weight: 400; }
-.reader-body { padding: 24px clamp(16px, 4vw, 56px) 64px; }
-.reader-note { border-color: #38383e; border-radius: 0; background: transparent; padding: 16px 0; }
+.reader-body { padding: 8px 12px 16px; }
+.reader .reader-note, .reader .reader-note:hover, .reader .reader-note.selected { max-width: none; margin: 0; padding: 8px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.reader .reader-note + .reader-note { border-top: 1px solid var(--line, #38383e); }
+.reader .reader-note.has-images { padding-inline-start: 1.5rem; }
+.reader .reader-note .markdown-body { max-width: none; margin-inline: 0; }
+.reader-note .note-editor { margin-top: 0; padding-top: 0; border: 0; }
 .reader-note.selected { border-color: #8f77c6; background: transparent; box-shadow: none; }
-.reader-note-head { gap: 10px; border-color: #343438; }
+.reader-note-head { gap: 8px; margin-bottom: 6px; padding-bottom: 0; border: 0; }
 .reader-note-title { color: #c9c9d2; }
 .reader-note-page, .reader-position { color: #82828e; }
 .study-note-button { min-height: 28px; padding: 4px 8px !important; }
@@ -181,10 +185,10 @@ body { background: #1e1e20; }
 .pdf-controls-footer .pdf-viewer-zoom { margin: 0; }
 .pdf-footer-position { display: flex; align-items: center; gap: .75rem; margin-inline-start: auto; white-space: nowrap; }
 .reader-head.document-reader-head { flex-wrap: nowrap; align-items: center; gap: .5rem; min-height: 46px; padding-block: .35rem; }
-.document-reader-head .reader-title { flex: 0 1 auto; min-width: 0; max-width: 35%; }
+.document-reader-head .reader-title { flex: 0 1 12rem; min-width: 6rem; max-width: 35%; }
 .document-reader-head .document-title-editor { flex-wrap: nowrap; }
-.document-reader-head h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
-.document-reader-head .page-tags-editor { flex: 1 1 auto; flex-basis: auto; min-width: 0; flex-wrap: nowrap; position: relative; }
+.document-reader-head h1 { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
+.document-reader-head .page-tags-editor { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; position: relative; }
 .document-reader-head .page-tags-label { display: none; }
 .document-reader-head .reader-actions { flex: none; flex-wrap: nowrap; order: 3; }
 .document-reader-head .reader-actions > :not(.page-status-icon):not(.reader-tools):not(.reader-back) { display: none; }
@@ -207,3 +211,16 @@ body { background: #1e1e20; }
 /* The tools menu needs no disclosure arrow beside its ellipsis icon. */
 .reader-tools > summary { display: inline-flex; align-items: center; justify-content: center; list-style: none; }
 .reader-tools > summary::-webkit-details-marker { display: none; }
+
+.notebook-display-mode { display: inline-flex; gap: 2px; }
+.notebook-display-mode button { white-space: nowrap; }
+.notebook-display-mode button[aria-pressed="true"] { background: var(--green-selected, #38333f); color: var(--ink, #eee); }
+.tree-page-loader { min-height: 1px; padding-inline-start: 1.5rem; }
+.tree-page-loader button { margin-block: .25rem; font-size: .8rem; }
+.reader .notebook-writing { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.notebook-writing-form { display: flex; flex: 1; flex-direction: column; min-height: 0; margin: 0; }
+.chatbook .notebook-source { flex: 1; min-height: 0; width: 100%; box-sizing: border-box; padding: 8px 12px; margin: 0; resize: none; border: 0; border-radius: 0; box-shadow: none; background: transparent; color: var(--ink); font-family: ui-monospace, monospace; line-height: 1.7; }
+.chatbook .notebook-source[hidden] { display: none; }
+.notebook-source-preview { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; }
+.notebook-writing-status { display: flex; flex: none; align-items: center; gap: 1rem; padding: 4px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: .75rem; }
+.notebook-writing-status > :last-child { margin-inline-start: auto; }

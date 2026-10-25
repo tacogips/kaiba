@@ -6,14 +6,14 @@ import type { createWritingDrafts } from './writingDrafts'
 type Draft = ReturnType<ReturnType<typeof createWritingDrafts>['get']>
 
 /** App-owned so navigation cannot cancel a pending save or create another book. */
-export function createNotebookAutosave(client: NoteGraphQLClient, draft: Draft, refresh: () => Promise<void>, onDeleted?: () => void) {
-  const [notebook, setNotebook] = createSignal<Notebook>()
+export function createNotebookAutosave(client: NoteGraphQLClient, draft: Draft, refresh: () => Promise<void>, onDeleted?: () => void, existingNotebook?: Notebook) {
+  const [notebook, setNotebook] = createSignal<Notebook | undefined>(existingNotebook)
   const [deleting, setDeleting] = createSignal(false)
   const [retry, setRetry] = createSignal(0)
   let inFlight: Promise<boolean> | undefined
   let disposed = false
   let generation = 0
-  draft.setBaseText('')
+  if (!existingNotebook) draft.setBaseText('')
 
   const flush = (): Promise<boolean> => {
     if (inFlight) return inFlight
@@ -30,7 +30,8 @@ export function createNotebookAutosave(client: NoteGraphQLClient, draft: Draft, 
       try {
         const existing = notebook()
         const saved = existing
-          ? await client.saveNotebookDraft(existing.notebookId, request.body)
+          ? existingNotebook ? await client.saveNotebookDraft(existing.notebookId, request.body, existing.title)
+            : await client.saveNotebookDraft(existing.notebookId, request.body)
           : await client.saveNewNotebook(request.body, request.key)
         if (disposed || startedGeneration !== generation) return false
         setNotebook(saved)

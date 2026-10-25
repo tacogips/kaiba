@@ -164,10 +164,10 @@ final class UserAgentCredentialGraphQLTests: XCTestCase {
     XCTAssertEqual(unavailable.agentStatus, "agent-unavailable")
 
     _ = try withDispatcher.setUserAgentCredential(UserAgentCredentialInput(
-      provider: .anthropic, apiKey: "sk-ant-1", defaultModel: "claude-opus-5"
+      provider: .anthropic, apiKey: "sk-ant-1", defaultModel: "claude-opus-5-5"
     ))
     let pending = await service.sendAgentChatMessage(GraphQLSendAgentChatMessageInput(
-      subjectNoteId: subject.noteId, userMarkdown: "Now?", model: "claude-opus-5"
+      subjectNoteId: subject.noteId, userMarkdown: "Now?", model: "claude-opus-5-5"
     ))
     XCTAssertTrue(pending.result.accepted, "\(pending.result)")
     XCTAssertEqual(pending.agentStatus, "pending")

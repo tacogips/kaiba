@@ -140,7 +140,7 @@ public enum AgentInvokerFactory {
     let invoker = AgentGatewayCLIInvoker(
       commandPath: agent.commandPath,
       vendor: vendor,
-      model: model,
+      model: CurrentAgentModels.resolved(model, vendor: vendor),
       apiKeyEnvironment: agent.apiKeyEnvironmentVariable,
       environment: environment,
       executionMode: executionMode == .served && vendor == "codex" && configuration?.userAgent?.allowCodexSubscription == true
@@ -180,7 +180,7 @@ public enum AgentInvokerFactory {
     let invoker = AgentGatewayCLIInvoker(
       commandPath: agent.commandPath,
       vendor: vendor,
-      model: model,
+      model: CurrentAgentModels.resolved(model, vendor: vendor),
       apiKeyEnvironment: agent.apiKeyEnvironmentVariable,
       environment: environment,
       executionMode: executionMode == .served && vendor == "codex" && configuration?.userAgent?.allowCodexSubscription == true

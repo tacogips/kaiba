@@ -61,7 +61,8 @@ public extension GraphQLNoteGraphQLService {
   /// server-authoritative fallback and the status reports the degradation.
   func agentModels(provider requestedProvider: String? = nil) async -> GraphQLAgentModelsResult {
     let personalProvider = personalAgentProvider()
-    let providers = (agentInvoker == nil ? [] : ["server"]) + (personalProvider.map { [$0] } ?? [])
+    let gatewayProviders = agentInvoker is AgentGatewayCLIInvoker ? agentAllowedProviders.map { "server:\($0)" } : []
+    let providers = (agentInvoker == nil ? [] : ["server"]) + (personalProvider.map { [$0] } ?? []) + gatewayProviders
     let selected = requestedProvider.flatMap { providers.contains($0) ? $0 : nil }
       ?? personalProvider ?? (agentInvoker == nil ? nil : "server")
     var catalog = await agentModelCatalogForProvider(selected)
@@ -71,14 +72,24 @@ public extension GraphQLNoteGraphQLService {
   }
 
   private func agentModelCatalogForProvider(_ requestedProvider: String?) async -> GraphQLAgentModelsResult {
+    if let requestedProvider, requestedProvider.hasPrefix("server:") {
+      let vendor = String(requestedProvider.dropFirst("server:".count))
+      guard agentInvoker is AgentGatewayCLIInvoker, agentAllowedProviders.contains(vendor) else {
+        return GraphQLAgentModelsResult(result: .init(accepted: false, status: "unsupported-provider"), models: [], discoveryAvailable: false, configuredModel: nil)
+      }
+      let models = CurrentAgentModels.models(for: vendor)
+      return GraphQLAgentModelsResult(result: .init(accepted: true, status: "ok"), models: models.map { GraphQLAgentModelDTO(modelId: $0) }, discoveryAvailable: false, configuredModel: models.first)
+    }
     // A user with an enabled personal credential chats through their own
     // provider, so their default model is the configured model for them
     // (`design-docs/specs/user-agent-tools.md`, UA5). No discovery runs.
     if requestedProvider != "server", let personal = personalAgentModel() {
+      let currentModels = CurrentAgentModels.models(for: personalAgentProvider() ?? "")
+      let personalModels = currentModels.isEmpty ? [personal] : [personal] + currentModels.filter { $0 != personal }
       return GraphQLAgentModelsResult(
         result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
         models: (personalAgentProvider() == "codex"
-          ? AgentGatewayCLIInvoker.subscriptionModels(defaultModel: personal) : [personal]).map { GraphQLAgentModelDTO(modelId: $0) },
+          ? AgentGatewayCLIInvoker.subscriptionModels(defaultModel: personal) : personalModels).map { GraphQLAgentModelDTO(modelId: $0) },
         discoveryAvailable: false, configuredModel: personal
       )
     }
@@ -109,7 +120,7 @@ public extension GraphQLNoteGraphQLService {
         admission: service.agentExecutionAdmission,
         loading: agentModelCatalog
       )
-      var models = catalog.models.map(GraphQLAgentModelDTO.init)
+      var models = catalog.models.filter { CurrentAgentModels.resolved($0.modelId, vendor: agentProvider ?? "") == $0.modelId || $0.modelId == configured }.map(GraphQLAgentModelDTO.init)
       if !models.contains(where: { $0.modelId == configured }) {
         models.insert(GraphQLAgentModelDTO(modelId: configured), at: 0)
       }
@@ -184,7 +195,8 @@ public extension GraphQLNoteGraphQLService {
     guard let requested = input?.trimmingCharacters(in: .whitespacesAndNewlines), !requested.isEmpty else {
       return personalAgentProvider() ?? (agentInvoker == nil ? nil : "server")
     }
-    guard (requested == "server" && agentInvoker != nil) || requested == personalAgentProvider() else {
+    guard (requested == "server" && agentInvoker != nil) || requested == personalAgentProvider()
+      || (requested.hasPrefix("server:") && agentInvoker is AgentGatewayCLIInvoker && agentAllowedProviders.contains(String(requested.dropFirst("server:".count)))) else {
       throw GraphQLNoteServiceError.invalidRequest("unsupported agent provider")
     }
     return requested
@@ -460,7 +472,7 @@ public extension GraphQLNoteGraphQLService {
     else {
       return nil
     }
-    return summary.defaultModel
+    return CurrentAgentModels.resolved(summary.defaultModel, vendor: summary.provider.rawValue)
   }
 
   private func userAgentCredentialResult(

@@ -149,8 +149,8 @@ extension GraphQLNoteGraphQLService {
   private func prepareNotebookIngest(
     _ input: GraphQLIngestNotebookPagesInput
   ) throws -> PreparedGraphQLNotebookIngest {
-    guard !input.pages.isEmpty, input.pages.count <= 500 else {
-      throw GraphQLNoteServiceError.invalidRequest("ingest requires 1...500 pages")
+    guard !input.pages.isEmpty, input.pages.count <= NoteService.maximumDraftNoteCount else {
+      throw GraphQLNoteServiceError.invalidRequest("ingest requires 1...\(NoteService.maximumDraftNoteCount) pages")
     }
     guard input.pages.allSatisfy({
       (!$0.bodyMarkdown.isEmpty || input.allowEmptyPages == true)

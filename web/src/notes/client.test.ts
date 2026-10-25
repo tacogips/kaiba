@@ -52,15 +52,32 @@ describe('Note GraphQL transport', () => {
     const notebook = { notebookId: 'book', type: 'DOCUMENT', title: 'Field notes', readOnly: false, tags: [] }
     const harness = environment([{ data: { ingestNotebookPages: { result, notebook } } }])
     const client = new NoteGraphQLClient(harness.value)
-    await client.saveNewNotebook('Field notes\n\n# A later heading\nFirst body\n<----->\n# Second note\n```text\n<--->\n```', 'stable-key')
+    await client.saveNewNotebook('Field notes\n\n# A later heading\nFirst body\n<><>\n# Second note\n```text\n<><>\n```', 'stable-key')
     expect(requestBody(harness.requests[0]).variables).toEqual({ input: {
       idempotencyKey: 'stable-key', title: 'Field notes', allowEmptyPages: true, pages: [
         { bodyMarkdown: 'Field notes\n\n# A later heading\nFirst body', readOnly: false },
-        { bodyMarkdown: '# Second note\n```text\n<--->\n```', readOnly: false },
+        { bodyMarkdown: '# Second note\n```text\n<><>\n```', readOnly: false },
       ],
     } })
     await expect(client.saveNewNotebook('   ', 'empty')).rejects.toThrow('Write something')
     expect(harness.requests).toHaveLength(1)
+  })
+
+  test('aggregates model routes, removes the retired default, and retains each credential route', async () => {
+    const result = { accepted: true, status: 'ok', diagnostics: [] }
+    const providers = ['server', 'server:codex', 'server:gemini']
+    const reply = (provider: string, models: string[]) => ({ data: { agentModels: {
+      result, models: models.map((modelId) => ({ modelId })), configuredProvider: provider,
+      configuredModel: models[0], discoveryAvailable: false, providers,
+    } } })
+    const harness = environment([
+      reply('server', ['gpt-6.1-sol', 'gpt-5.6-luna']), reply('server:codex', ['gpt-6.1-sol']), reply('server:gemini', ['gemini-4-argon']),
+    ])
+    const catalog = await new NoteGraphQLClient(harness.value).allAgentModels()
+    expect(catalog.models).toEqual([
+      { modelId: 'gpt-6.1-sol', provider: 'server:codex' }, { modelId: 'gemini-4-argon', provider: 'server:gemini' },
+    ])
+    expect(catalog.configuredModel).toBe('gpt-6.1-sol')
   })
 
   test('transmits the selected subscription provider and model for chat dispatch', async () => {
@@ -69,10 +86,10 @@ describe('Note GraphQL transport', () => {
       conversationNotebookId: 'conversation', turnNoteId: 'turn', agentStatus: 'pending',
     } } }])
     await new NoteGraphQLClient(harness.value).sendAgentChatMessage({
-      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-5.6-luna',
+      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-6.1-sol',
     })
     expect(requestBody(harness.requests[0]).variables).toEqual({ input: {
-      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-5.6-luna',
+      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-6.1-sol',
     } })
   })
 
@@ -380,13 +397,13 @@ async function expectErrorKind(
   }
 }
 
-test('manual document OCR sends only the note ID and retains returned page metadata', async () => {
+test('manual document OCR sends a scoped note ID and force option and retains returned page metadata', async () => {
   const note = { noteId: asNoteId('page-1'), notebookId: asNotebookId('book'), noteNumber: 1, title: null,
     bodyMarkdown: 'Recognized text', readOnly: false, createdAt: '', updatedAt: '', metaJSON: '{"documentPage":{"textStatus":"complete"}}' }
   const harness = environment([{ data: { recognizeDocumentPage: { result: { accepted: true, status: 'ok', diagnostics: [] }, note } } }])
   const result = await new NoteGraphQLClient(harness.value).recognizeDocumentPage(note.noteId)
   expect(result).toEqual(note)
   const request = JSON.parse(String(harness.requests[0]?.init?.body))
-  expect(request.variables).toEqual({ noteId: 'page-1' })
+  expect(request.variables).toEqual({ noteId: 'page-1', forceOCR: false })
   expect(request.query).toContain('metaJSON')
 })

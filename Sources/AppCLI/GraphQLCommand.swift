@@ -166,6 +166,7 @@ struct GraphQLCommand {
           agentInvoker: AgentInvokerFactory.makeInvoker(configuration: aiConfiguration),
           agentProvider: aiConfiguration?.agent?.provider,
           agentModel: aiConfiguration?.agent?.model,
+          agentAllowedProviders: aiConfiguration?.agent?.allowedProviders ?? [],
           agentModelCatalog: graphQLAgentModelCatalog(configuration: aiConfiguration)
         ),
         s3Profiles: try KaibaConfigurationLoader.makeS3Profiles(

@@ -1,17 +1,19 @@
 import Foundation
 
 public extension NoteService {
-  /// Completes deferred OCR from the stored original. Recognition runs outside
+  /// Completes deferred extraction, or replaces page text using OCR when forced.
+  /// Recognition always uses the stored original and runs outside
   /// the transaction; concurrent note changes cause the final compare-and-write to fail.
   @discardableResult
   func recognizeDocumentPage(
     noteId: NoteID,
     recognizer: any DocumentPageRecognizing,
-    analyzer: (any DocumentPageAnalyzing)? = nil
+    analyzer: (any DocumentPageAnalyzing)? = nil,
+    forceOCR: Bool = false
   ) throws -> Note {
     let snapshot = try driver.withDatabase { db in
       try requireEnabledActingUser(in: db)
-      return try requirePendingDocumentOCRNote(noteId, in: db)
+      return try requirePendingDocumentOCRNote(noteId, forceOCR: forceOCR, in: db)
     }
     guard let page = snapshot.documentPage else {
       throw NoteServiceError.invalidInput("note is not an imported document page")
@@ -20,7 +22,7 @@ public extension NoteService {
     let recognized: String
     let analysis: DocumentPageAnalysis
     let textSource: DocumentPageTextSource
-    if page.isPDFPage, page.textExtractionMode != .ocrOnly,
+    if !forceOCR, page.isPDFPage, page.textExtractionMode != .ocrOnly,
        let native = try PDFDocumentImageExtractor.pageText(pdfData: content, pageNumber: page.pageNumber) {
       recognized = native
       analysis = page.analysis
@@ -39,7 +41,7 @@ public extension NoteService {
     }
     let outcome = try driver.withDatabase { database in
       try database.transaction { db in
-        let current = try requirePendingDocumentOCRNote(noteId, in: db)
+        let current = try requirePendingDocumentOCRNote(noteId, forceOCR: forceOCR, in: db)
         guard current == snapshot else {
           throw NoteServiceError.conflict("page changed while OCR was running; no content was replaced")
         }
@@ -98,14 +100,14 @@ extension NoteService {
   /// The notebook import lock allows completing pending OCR; an explicit note
   /// lock still prevents it. Reachability and ownership checks are mandatory.
   /// The origin file is guaranteed by the `document_pages` foreign key.
-  func requirePendingDocumentOCRNote(_ noteId: NoteID, in db: SQLiteDatabase) throws -> Note {
+  func requirePendingDocumentOCRNote(_ noteId: NoteID, forceOCR: Bool = false, in db: SQLiteDatabase) throws -> Note {
     let note = try requireNote(noteId, in: db)
     try requireNotebookOwnership(note.notebookId, subject: noteId.rawValue, in: db)
     guard !note.readOnly else { throw NoteServiceError.invalidInput("page is read-only") }
     guard let page = note.documentPage else {
       throw NoteServiceError.invalidInput("note is not an imported document page")
     }
-    guard page.textStatus == .pending else {
+    guard forceOCR || page.textStatus == .pending else {
       throw NoteServiceError.conflict("page OCR is already complete")
     }
     return note

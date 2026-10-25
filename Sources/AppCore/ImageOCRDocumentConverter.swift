@@ -44,6 +44,7 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
   Preserve the original wording and reading order. Use line breaks and blank lines to separate lines and paragraphs.
   Keep headings, list items, and table cells as plain text. Do not add Markdown formatting, heading markers,
   emphasis, table syntax, code fences, commentary, summaries, or inferred content. Return only the transcribed text.
+  If the image contains no visible text, return an empty response.
   """
 
   public var commandPath: String?
@@ -149,9 +150,13 @@ public struct AgentGatewayImageOCRConverter: DocumentConverting {
           : "agent-gateway OCR exited with status \(execution.exitCode)"
       )
     }
+    guard parsed.stopReason == "end_turn" else {
+      throw DocumentConversionError.failed("agent-gateway OCR did not complete")
+    }
+    // An explicit successful empty result represents a blank page. A missing
+    // response is still an error; truncated/cancelled replies never replace text.
     guard let markdown = parsed.resultText
-      ?? (parsed.streamedText.isEmpty ? nil : parsed.streamedText),
-      !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ?? (parsed.streamedText.isEmpty ? nil : parsed.streamedText)
     else {
       throw DocumentConversionError.failed("agent-gateway OCR produced no text")
     }

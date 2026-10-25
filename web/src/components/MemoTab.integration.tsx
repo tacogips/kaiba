@@ -324,7 +324,7 @@ describe('MemoTab integration', () => {
       const attachmentPicker = host.querySelector<HTMLInputElement>('input[type="file"]')
       const attachmentButton = host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files or images"]')
       const memoOnly = host.querySelector<HTMLButtonElement>('button[aria-label="Memo only"]')
-      const model = host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')
+      const model = host.querySelector<HTMLInputElement>('input[aria-label="Agent model"]')
       const newChat = host.querySelector<HTMLButtonElement>('button[aria-label="New chat"]')
       expect(composer).not.toBeNull()
       expect(attachmentPicker).not.toBeNull()
@@ -339,8 +339,10 @@ describe('MemoTab integration', () => {
       attachmentButton!.click()
       expect(attachmentPickerClicks).toBe(1)
 
+      model!.focus()
       model!.value = 'compact'
       model!.dispatchEvent(new Event('input', { bubbles: true }))
+      model!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       const attachment = new File(['reference'], 'reference.txt', { type: 'text/plain' })
       Object.defineProperty(attachmentPicker!, 'files', { configurable: true, value: [attachment] })
       attachmentPicker!.dispatchEvent(new Event('change', { bubbles: true }))
@@ -419,7 +421,7 @@ describe('MemoTab integration', () => {
     const dispose = render(() => <MemoTab app={testStore([], [])} />, host)
     try {
       await waitFor(() => expect(host.textContent).toContain('Earlier question'))
-      const model = host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
+      const model = host.querySelector<HTMLInputElement>('input[aria-label="Agent model"]')!
       const attach = host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files or images"]')!
       const noteEdit = host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!
       const memoOnly = host.querySelector<HTMLButtonElement>('button[aria-label="Memo only"]')!
@@ -520,18 +522,18 @@ describe('MemoTab integration', () => {
     )
     try {
       await waitFor(() => expect(host.textContent).toContain('Earlier question'))
-      const model = () => host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
+      const model = () => host.querySelector<HTMLInputElement>('input[aria-label="Agent model"]')!
       await waitFor(() => expect(host.querySelector('.note-inline-error')?.textContent ?? '')
         .toContain('agent model catalog'))
       expect(model().disabled).toBe(true)
-      expect(model().options).toHaveLength(1)
+      expect(host.querySelectorAll('.agent-model-options [role="option"]')).toHaveLength(0)
       expect(host.querySelector<HTMLButtonElement>('button[aria-label="Attach text files or images"]')!.disabled).toBe(false)
       expect(host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!.disabled).toBe(false)
 
       // The server comes back; the app's own catalog reload succeeds and bumps
       // catalogRevision. Discovery re-runs on that and the banner retires.
       bumpCatalog()
-      await waitFor(() => expect(model().options).toHaveLength(2))
+      await waitFor(() => expect(host.querySelectorAll('.agent-model-options [role="option"]')).toHaveLength(2))
       expect(host.querySelector('.note-inline-error')).toBeNull()
     } finally {
       dispose()
@@ -553,12 +555,14 @@ describe('MemoTab integration', () => {
     const dispose = render(() => <MemoTab app={store} />, host)
     try {
       await waitFor(() => expect(host.textContent).toContain('Earlier question'))
-      const model = host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
+      const model = host.querySelector<HTMLInputElement>('input[aria-label="Agent model"]')!
       await waitFor(() => expect(model.disabled).toBe(false))
 
       // The user picks a non-default model through the real control.
+      model.focus()
       model.value = 'compact'
       model.dispatchEvent(new Event('input', { bubbles: true }))
+      model.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
       await waitFor(() => expect(store.state.settings.agentModel).toBe('compact'))
 
       // The server blips on the next catalog refresh.
@@ -566,7 +570,7 @@ describe('MemoTab integration', () => {
       await waitFor(() => expect(host.querySelector('.note-inline-error')?.textContent ?? '')
         .toContain('agent model catalog'))
       expect(store.state.settings.agentModel).toBe('compact')
-      expect(model.options).toHaveLength(2)
+      expect(host.querySelectorAll('.agent-model-options [role="option"]')).toHaveLength(2)
     } finally {
       dispose()
       host.remove()
@@ -598,13 +602,12 @@ describe('MemoTab integration', () => {
 
       // Newer run wins first.
       releaseSecond()
-      const model = () => host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
-      await waitFor(() => expect(model().options).toHaveLength(2))
+      await waitFor(() => expect(host.querySelectorAll('.agent-model-options [role="option"]')).toHaveLength(2))
 
       // The stale first run now rejects; it must be ignored, banner included.
       releaseFirst()
       await settle(); await settle(); await settle()
-      expect(model().options).toHaveLength(2)
+      expect(host.querySelectorAll('.agent-model-options [role="option"]')).toHaveLength(2)
       expect(host.querySelector('.note-inline-error')).toBeNull()
     } finally {
       dispose()
@@ -635,7 +638,7 @@ describe('MemoTab integration', () => {
     try {
       await waitFor(() => expect(host.textContent).toContain('Earlier question'))
       releaseFirst()
-      const model = () => host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
+      const model = () => host.querySelector<HTMLInputElement>('input[aria-label="Agent model"]')!
       await waitFor(() => expect(model().disabled).toBe(false))
 
       const noteEdit = host.querySelector<HTMLButtonElement>('button[aria-label="Edit note mode"]')!
@@ -696,8 +699,7 @@ describe('MemoTab integration', () => {
     try {
       await waitFor(() => expect(host.textContent).toContain('Earlier question'))
       const picker = host.querySelector<HTMLInputElement>('input[type="file"]')!
-      const model = host.querySelector<HTMLSelectElement>('select[aria-label="Agent model"]')!
-      await waitFor(() => expect(model.options).toHaveLength(2))
+      await waitFor(() => expect(host.querySelectorAll('.agent-model-options [role="option"]')).toHaveLength(2))
 
       const staged = new File(['context'], 'context.txt', { type: 'text/plain' })
       Object.defineProperty(picker, 'files', { configurable: true, value: [staged] })

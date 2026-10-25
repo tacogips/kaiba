@@ -4,6 +4,7 @@
 // outlive this shape.
 
 import { parseAnalysisTemplates, type AnalysisTemplate } from './analysisTemplates'
+import { parseWorkspaceVimKeys, type WorkspaceVimKeys } from './workspaceVimKeys'
 
 export type PDFTextMode = 'prefer-pdf-text' | 'ocr-only'
 
@@ -15,12 +16,23 @@ export interface WebAppSettings {
   agentProvider?: string
   analysisTemplates?: AnalysisTemplate[]
   pdfTextMode?: PDFTextMode
+  /** Vim keybindings in the Markdown editors. Absent means on: Vim is the
+   * default editing mode, and only an explicit `false` turns it off. */
+  vimMode?: boolean
+  /** Custom Vim keymap JSON (see web/src/editor/vim/keymap-schema.ts); absent
+   * means the built-in bindings. Kept as text so the user's layout survives. */
+  vimKeymap?: string
+  workspaceVimKeys?: WorkspaceVimKeys
 }
 
 export const webSettingsKey = 'web'
 
 /** Larger-than-1 default: the app reads bigger out of the box. */
 export const defaultWebSettings: WebAppSettings = { fontScale: 1.15 }
+
+export function vimModeEnabled(settings: Pick<WebAppSettings, 'vimMode'>): boolean {
+  return settings.vimMode !== false
+}
 
 export const fontScaleBounds = { minimum: 0.8, maximum: 1.8 } as const
 
@@ -51,6 +63,9 @@ export function parseWebSettings(json: string | null | undefined): WebAppSetting
     ...(['prefer-pdf-text', 'ocr-only'].includes(String(record.pdfTextMode)) ? { pdfTextMode: record.pdfTextMode as PDFTextMode } : {}),
     ...(parseAnalysisTemplates(record.analysisTemplates).length ? { analysisTemplates: parseAnalysisTemplates(record.analysisTemplates) } : {}),
     ...(typeof record.agentProvider === 'string' && record.agentProvider.trim() ? { agentProvider: record.agentProvider.trim() } : {}),
+    ...(record.vimMode === false ? { vimMode: false } : {}),
+    ...(typeof record.vimKeymap === 'string' && record.vimKeymap.trim() ? { vimKeymap: record.vimKeymap } : {}),
+    ...(record.workspaceVimKeys ? { workspaceVimKeys: parseWorkspaceVimKeys(record.workspaceVimKeys) } : {}),
   }
 }
 
@@ -61,5 +76,8 @@ export function serializeWebSettings(settings: WebAppSettings): string {
     ...(settings.analysisTemplates?.length ? { analysisTemplates: parseAnalysisTemplates(settings.analysisTemplates) } : {}),
     ...(settings.agentProvider?.trim() ? { agentProvider: settings.agentProvider.trim() } : {}),
     ...(settings.agentModel?.trim() ? { agentModel: settings.agentModel.trim() } : {}),
+    ...(settings.vimMode === false ? { vimMode: false } : {}),
+    ...(settings.vimKeymap?.trim() ? { vimKeymap: settings.vimKeymap } : {}),
+    ...(settings.workspaceVimKeys ? { workspaceVimKeys: parseWorkspaceVimKeys(settings.workspaceVimKeys) } : {}),
   })
 }

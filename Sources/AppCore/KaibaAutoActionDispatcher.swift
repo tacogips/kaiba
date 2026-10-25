@@ -21,6 +21,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
   public var invoker: (any AgentInvoking)?
   public var provider: String?
   public var model: String?
+  public var allowedChatProviders: [String]
   public var tagRegistrationPrompt: String?
   /// Translation-only vendor overrides (`ai.translate` in config.json);
   /// nil falls back to the agent defaults above.
@@ -39,6 +40,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     invoker: (any AgentInvoking)?,
     provider: String? = nil,
     model: String? = nil,
+    allowedChatProviders: [String] = [],
     tagRegistrationPrompt: String? = nil,
     translateProvider: String? = nil,
     translateModel: String? = nil,
@@ -48,7 +50,8 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
     self.service = service
     self.invoker = invoker
     self.provider = provider
-    self.model = model
+    self.model = model.map { CurrentAgentModels.resolved($0, vendor: provider ?? "") }
+    self.allowedChatProviders = allowedChatProviders
     self.tagRegistrationPrompt = tagRegistrationPrompt
     self.translateProvider = translateProvider
     self.translateModel = translateModel
@@ -328,7 +331,7 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
       try await service.generateAgentChatReply(
         turnNoteId: noteId,
         invoker: selection.invoker,
-        provider: selection.usesPersonalRuntime ? nil : provider,
+        provider: selection.usesPersonalRuntime ? nil : selection.providerOverride ?? provider,
         model: selection.usesPersonalRuntime ? nil : model,
         originatingActionId: record.action.actionId,
         streamPublisher: streamPublisher
@@ -359,12 +362,29 @@ public struct KaibaAutoActionDispatcher: FinalAutoActionReconciliationDispatchin
   struct ChatRuntimeSelection {
     var invoker: any AgentInvoking
     var usesPersonalRuntime: Bool
+    var providerOverride: String?
   }
 
   /// UA5 routing: an authenticated principal with an enabled credential gets
   /// the personal runtime built over the already scoped and fenced service;
   /// everyone else gets the gateway; with neither, the turn fails clearly.
   func resolveChatRuntime(for service: NoteService, selectedProvider: String? = nil) throws -> ChatRuntimeSelection {
+    if let selectedProvider, selectedProvider.hasPrefix("server:") {
+      let vendor = String(selectedProvider.dropFirst("server:".count))
+      guard allowedChatProviders.contains(vendor), CurrentAgentModels.selectableGatewayVendors.contains(vendor),
+        var gateway = invoker as? AgentGatewayCLIInvoker else {
+        throw AgentInvocationError.unavailable("Selected server vendor is not enabled")
+      }
+      if vendor == "codex", gateway.executionMode != .subscription,
+        userAgentRuntime?.configuration.allowCodexSubscription != true {
+        throw AgentInvocationError.unavailable("Codex subscription is disabled on this server")
+      }
+      if gateway.vendor != vendor { gateway.apiKeyEnvironment = nil }
+      gateway.vendor = vendor
+      gateway.model = CurrentAgentModels.models(for: vendor).first ?? gateway.model
+      gateway.executionMode = ["codex", "claude-code"].contains(vendor) ? .subscription : .served
+      return ChatRuntimeSelection(invoker: gateway, usesPersonalRuntime: false, providerOverride: vendor)
+    }
     if let selectedProvider, selectedProvider != "server" {
       guard let summary = try service.userAgentCredentialSummary(), summary.enabled,
         summary.provider.rawValue == selectedProvider else {

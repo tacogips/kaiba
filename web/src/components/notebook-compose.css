@@ -56,3 +56,8 @@
   .compose-note-number { width: auto; }
   .compose-topbar, .compose-statusbar { padding-inline: .75rem; }
 }
+@media (max-width: 480px) {
+  .compose-outline { flex-basis: 6.5rem; }
+  .chatbook .compose-outline button.compose-note-entry { justify-content: flex-start; }
+  .compose-note-entry > span:last-child { display: block; }
+}

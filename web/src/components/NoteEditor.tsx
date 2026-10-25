@@ -2,13 +2,19 @@ import { Show, createSignal, type JSX } from 'solid-js'
 import { WorkspaceIcon } from './WorkspaceIcon'
 import type { Note } from '../notes/types'
 import { errorMessage, useApp } from '../state/appStore'
+import { createVimTextarea } from '../editor/VimTextarea'
 
-export function NoteEditor(props: { note: Note }): JSX.Element {
+export function NoteEditor(props: { note: Note; forceOpen?: boolean }): JSX.Element {
   const app = useApp()
   const record = app.writingDrafts.get(`edit:${props.note.noteId}`)
-  const [open, setOpen] = createSignal(Boolean(record.text()))
+  const [open, setOpen] = createSignal(Boolean(props.forceOpen || record.text()))
+  if (props.forceOpen && !record.text() && record.baseText() === undefined) {
+    record.setText(props.note.bodyMarkdown)
+    record.setBaseText(props.note.bodyMarkdown)
+  }
   const [conflict, setConflict] = createSignal(false)
   const writable = () => !props.note.readOnly && !app.notebook()?.readOnly
+  const vim = createVimTextarea({ close: () => { if (!record.busy()) setOpen(false) } })
   const save = async (event: Event) => {
     event.preventDefault()
     if (record.busy() || !writable() || !record.text().trim()) return
@@ -21,10 +27,10 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
         record.setError('This note changed while you were editing. Your draft has not been saved over the newer version.')
         return
       }
-      await app.client.updateNote(props.note.noteId, record.text())
-      record.setText('')
-      record.setBaseText(undefined)
-      setOpen(false)
+      const updated = await app.client.updateNote(props.note.noteId, record.text())
+      record.setText(props.forceOpen ? updated.bodyMarkdown : '')
+      record.setBaseText(props.forceOpen ? updated.bodyMarkdown : undefined)
+      if (!props.forceOpen) setOpen(false)
       await app.refreshCatalog()
       app.setMessage('Note updated.')
     } catch (error) {
@@ -35,7 +41,7 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
   }
   return <Show when={writable() || open()}>
     <div class="note-editor">
-      <Show when={open()} fallback={<button type="button" class="secondary" aria-label={record.text() ? 'Resume editing' : 'Edit my note'} title="Edit note" onClick={() => {
+      <Show when={props.forceOpen || open()} fallback={<button type="button" class="secondary" aria-label={record.text() ? 'Resume editing' : 'Edit my note'} title="Edit note" onClick={() => {
         if (!record.text()) {
           record.setText(props.note.bodyMarkdown)
           record.setBaseText(props.note.bodyMarkdown)
@@ -44,12 +50,13 @@ export function NoteEditor(props: { note: Note }): JSX.Element {
       }}><WorkspaceIcon name="edit" /></button>}>
         <form onSubmit={(event) => void save(event)}>
           <label>Edit note text
-            <textarea rows={10} value={record.text()} disabled={record.busy()}
+            <textarea ref={vim.ref} rows={props.forceOpen ? Math.max(3, Math.min(20, record.text().split('\n').length + 1)) : 10} value={record.text()} disabled={record.busy()}
               onInput={(event) => record.setText(event.currentTarget.value)} />
           </label>
+          <vim.Status />
           <div class="learning-actions">
             <button type="submit" aria-label="Save changes" title="Save changes" disabled={!writable() || record.busy() || !record.text().trim()}><WorkspaceIcon name="check" /></button>
-            <button type="button" class="secondary" aria-label="Close draft" title="Close draft" disabled={record.busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button>
+            <Show when={!props.forceOpen}><button type="button" class="secondary" aria-label="Close draft" title="Close draft" disabled={record.busy()} onClick={() => setOpen(false)}><WorkspaceIcon name="close" /></button></Show>
           </div>
           <Show when={!writable()}><p role="status">This note is now read-only. Your draft is kept for this session.</p></Show>
           <Show when={record.error()}><p role="alert" class="note-inline-error">{record.error()}</p></Show>

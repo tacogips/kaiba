@@ -23,7 +23,7 @@ test('tag popup retries errors, paginates, and supports keyboard dismissal', asy
     loadMore.click()
     await vi.waitFor(() => expect(lookup).toHaveBeenLastCalledWith('Topic', 50, 50))
     await vi.waitFor(() => expect(loadMore.isConnected).toBe(false))
-    document.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     expect(close).toHaveBeenCalledTimes(1)
   } finally { dispose(); host.remove() }
 })
@@ -45,4 +45,25 @@ test('closing a tag popup ignores a pending occurrence response and restores foc
   expect(document.querySelector('.tag-notes-popup')).toBeNull()
   expect(document.activeElement).toBe(trigger)
   host.remove(); trigger.remove()
+})
+
+test('tag results preview inside the modal, dismiss independently, and navigate only when opened', async () => {
+  const open = vi.fn(), close = vi.fn()
+  const host = document.createElement('div'); document.body.append(host)
+  const client = { notesByTag: vi.fn(async () => [result]), note: vi.fn(async () => ({ ...result, bodyMarkdown: 'Tagged preview body' })) } as unknown as NoteGraphQLClient
+  const dispose = render(() => <TagNotesPopup client={client} tagName="Topic" notebooks={[]}
+    onOpenNote={open} onClose={close} />, host)
+  try {
+    await vi.waitFor(() => expect(document.querySelector('.note-preview-trigger')).not.toBeNull())
+    document.querySelector<HTMLButtonElement>('.note-preview-trigger')!.click()
+    await vi.waitFor(() => expect(document.querySelector('.note-link-preview')?.textContent).toContain('Tagged preview body'))
+    expect(document.querySelector('.tag-notes-popup .note-link-preview')).not.toBeNull()
+    expect(open).not.toHaveBeenCalled()
+    document.querySelector('.note-link-preview')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(document.querySelector('.note-link-preview')).toBeNull()
+    expect(close).not.toHaveBeenCalled()
+    document.querySelector<HTMLButtonElement>('.note-destination-open')!.click()
+    expect(open).toHaveBeenCalledWith(result.noteId, result.notebookId)
+    expect(close).toHaveBeenCalledOnce()
+  } finally { dispose(); host.remove() }
 })

@@ -31,8 +31,39 @@ public struct AITagExtractionResult: Equatable, Sendable {
   }
 }
 
+public enum AITagExtractionStatus: String, Codable, Equatable, Sendable {
+  case none, queued, running, retrying, completed, failed
+}
+
 public extension NoteService {
   static let manualTagExtractionActionId = AutoActionID("manual-tag-extraction")
+
+  /// Scoped progress for the latest manual request on a readable note. Provider
+  /// diagnostics stay private; only lifecycle state crosses the API boundary.
+  func tagExtractionStatus(noteId: NoteID) throws -> AITagExtractionStatus {
+    try driver.withDatabase { db in
+      try requireEnabledActingUser(in: db)
+      _ = try requireNote(noteId, in: db)
+      guard let row = try db.query(
+        """
+        SELECT status, attempt_count, last_error FROM auto_action_dispatches
+        WHERE action_id = ? AND json_extract(event_json, '$.noteId') = ?
+        ORDER BY created_at DESC, dispatch_id DESC LIMIT 1
+        """,
+        bindings: [.id(Self.manualTagExtractionActionId), .id(noteId)]
+      ).first else { return .none }
+      switch row["status"] {
+      case AutoActionDispatchStatus.dispatched.rawValue: return .completed
+      case AutoActionDispatchStatus.inFlight.rawValue: return .running
+      case AutoActionDispatchStatus.cancelled.rawValue: return .failed
+      default:
+        if row["last_error"] != nil {
+          return (Int(row["attempt_count"] ?? "0") ?? 0) >= maximumAutoActionDispatchAttempts ? .failed : .retrying
+        }
+        return .queued
+      }
+    }
+  }
 
   /// Queues a manual tag-extraction dispatch for the subject (the UI's
   /// "extract tags" button and the GraphQL `requestTagExtraction` mutation).
@@ -46,6 +77,15 @@ public extension NoteService {
     switch subject {
     case .note(let noteId):
       let note = try getNote(noteId)
+      if note.documentPage != nil {
+        let text = try retrievalText(for: note)
+        guard text.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) })
+          || text.filter(\.isNumber).count >= 4 else {
+          throw NoteServiceError.invalidInput(
+            "This page has no usable recognized text for tag extraction. Run OCR again with an engine that supports the page's language and layout."
+          )
+        }
+      }
       trigger = .noteUpdated
       event = makeAutoActionEvent(
         trigger: trigger,
@@ -213,7 +253,12 @@ public struct AITagExtractionService: Sendable {
 
     Reply with ONLY a JSON array, no prose, no code fences, of objects:
     [{"name": "tag-name", "class": "class-id", "parent": "parent-tag-name"}]
-    - "name" is required: lowercase, hyphenated, specific.
+    - Extract explicitly mentioned people, organizations, places, book/work titles,
+      and dates as well as topics. Use the matching ontology class from the list.
+    - Preserve proper names and book/work titles in their original language and
+      spelling. Do not translate, lowercase, or hyphenate those entity names.
+    - "name" is required: concise and specific; use lowercase hyphenated names
+      for general topic tags.
     - "class" is optional but strongly preferred; it must be one of the class \
     ids listed above.
     - "parent" is optional: the name of a broader existing or proposed tag.

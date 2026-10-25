@@ -1,6 +1,7 @@
 import { type JSX } from 'solid-js'
 
 const paths = {
+  tasks: 'M9 5h12 M9 12h12 M9 19h12 M2 4l2 2 3-3 M2 11l2 2 3-3 M2 18l2 2 3-3',
   list: 'M4 6h16 M4 12h16 M4 18h16',
   cards: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   panelRight: 'M3 3h18v18H3z M15 3v18',
@@ -30,8 +31,10 @@ const paths = {
   copy: 'M8 8h13v13H8z M16 8V3H3v13h5',
   file: 'M5 3h9l5 5v13H5z M14 3v6h5 M8 13h8 M8 17h6',
   more: 'M5 12h.01 M12 12h.01 M19 12h.01',
+  chevronDown: 'M6 9l6 6 6-6',
   download: 'M12 3v12 M6 9l6 6 6-6 M4 16v5h16v-5',
   expand: 'M3 9V3h6 M15 3h6v6 M21 15v6h-6 M9 21H3v-6',
+  collapse: 'M9 3v6H3 M21 9h-6V3 M15 21v-6h6 M3 15h6v6',
   links: 'M9 15l6-6 M8 17l-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0 M16 7l1-1a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0',
 } as const
 

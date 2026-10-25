@@ -3,8 +3,9 @@ import { Portal } from 'solid-js/web'
 import type { NoteGraphQLClient } from '../notes/client'
 import type { Note, Notebook } from '../notes/types'
 import type { NoteId, NotebookId } from '../notes/ids'
-import { noteDisplayTitle } from '../notes/noteText'
+import { NoteDestinationLink } from './NoteDestinationLink'
 import { WorkspaceIcon } from './WorkspaceIcon'
+import { usePopoverDismissal } from './usePopoverDismissal'
 import '../reader-controls.css'
 
 const pageSize = 50
@@ -24,6 +25,9 @@ export function TagNotesPopup(props: {
   let disposed = false
   let closeButton!: HTMLButtonElement
   let dialog!: HTMLElement
+  usePopoverDismissal({ isOpen: () => true, canDismiss: () => true,
+    contains: (target) => dialog.contains(target), onDismiss: () => props.onClose(),
+    dismissOutside: false, captureEscape: false })
   const load = async () => {
     if (loading()) return
     setLoading(true)
@@ -62,12 +66,12 @@ export function TagNotesPopup(props: {
       <Show when={loading()}><p role="status">Loading tagged notes…</p></Show>
       <Show when={error()}><p role="alert">{error()} <button type="button" class="workspace-icon" aria-label="Retry tagged notes" title="Retry" onClick={() => void load()}><WorkspaceIcon name="refresh" /></button></p></Show>
       <Show when={!loading() && !error() && notes().length === 0}><p>No notes or pages with this tag.</p></Show>
-      <ul class="note-search-results" aria-label="Tagged notes">
-        <For each={notes()}>{(note) => <li><button type="button" onClick={() => {
-          props.onOpenNote(note.noteId, note.notebookId); props.onClose()
-        }}><strong>{noteDisplayTitle(note)}</strong><span class="note-search-meta">
-          {props.notebooks.find((notebook) => notebook.notebookId === note.notebookId)?.title ?? 'Notebook'} · #{note.noteNumber}
-        </span></button></li>}</For>
+      <ul class="note-search-results link-list" aria-label="Tagged notes">
+        <For each={notes()}>{(note) => <li><NoteDestinationLink note={note}
+          relationship={`Tag: ${props.tagName}`} previewMount={dialog}
+          app={{ client: props.client, state: { get notebooks() { return props.notebooks } },
+            openNote: (noteId, notebookId) => { props.onOpenNote(noteId, notebookId ?? note.notebookId); props.onClose() } }}
+        /></li>}</For>
       </ul>
       <Show when={hasMore() && !error()}><button type="button" class="secondary" disabled={loading()} onClick={() => void load()}>Load more</button></Show>
     </section>

@@ -47,6 +47,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
   public var agentInvoker: (any AgentInvoking)?
   public var agentProvider: String?
   public var agentModel: String?
+  public var agentAllowedProviders: [String]
   /// Receives one sanitized line for each failed `agenticSearch` request.
   public var agenticSearchFailureLog: @Sendable (String) -> Void = {
     FileHandle.standardError.write(Data(($0 + "\n").utf8))
@@ -96,6 +97,7 @@ public struct GraphQLNoteGraphQLService: Sendable {
     agentInvoker: (any AgentInvoking)? = nil,
     agentProvider: String? = nil,
     agentModel: String? = nil,
+    agentAllowedProviders: [String] = [],
     agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)? = nil,
     agentModelCatalogCache: AgentModelCatalogCache = AgentModelCatalogCache(),
     userAgentConfiguration: KaibaUserAgentConfiguration = KaibaUserAgentConfiguration(),
@@ -111,7 +113,10 @@ public struct GraphQLNoteGraphQLService: Sendable {
     self.documentPageAnalyzer = documentPageAnalyzer
     self.agentInvoker = agentInvoker
     self.agentProvider = agentProvider
-    self.agentModel = agentModel
+    self.agentModel = agentModel.map { CurrentAgentModels.resolved($0, vendor: agentProvider ?? "") }
+    self.agentAllowedProviders = agentAllowedProviders.filter {
+      CurrentAgentModels.selectableGatewayVendors.contains($0) && ($0 != "codex" || userAgentConfiguration.allowCodexSubscription == true)
+    }
     self.agentModelCatalog = agentModelCatalog
     self.agentModelCatalogCache = agentModelCatalogCache
     self.userAgentConfiguration = userAgentConfiguration
@@ -764,34 +769,6 @@ public struct GraphQLNoteGraphQLService: Sendable {
     }
   }
 
-  public func requestTagExtraction(
-    _ input: GraphQLRequestTagExtractionInput
-  ) async -> GraphQLTagExtractionRequestResult {
-    do {
-      let subject: AITagExtractionSubject
-      switch (input.noteId, input.notebookId) {
-      case (let noteId?, nil):
-        subject = .note(noteId)
-      case (nil, let notebookId?):
-        subject = .notebook(notebookId)
-      default:
-        throw GraphQLNoteServiceError.invalidRequest(
-          "requestTagExtraction requires exactly one of noteId or notebookId"
-        )
-      }
-      let queued = try service.requestManualTagExtraction(subject: subject)
-      return GraphQLTagExtractionRequestResult(
-        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
-        status: queued ? "queued" : "agent-unavailable"
-      )
-    } catch {
-      return GraphQLTagExtractionRequestResult(
-        result: graphQLNoteResult(for: error),
-        status: "error"
-      )
-    }
-  }
-
   public func requestNotebookTranslation(
     _ input: GraphQLRequestNotebookTranslationInput
   ) async -> GraphQLNotebookTranslationRequestResult {
@@ -920,6 +897,8 @@ func graphQLNotePublicDiagnostic(for error: Error) -> String {
     return "note is read-only"
   case NoteServiceError.protectedTag:
     return "tag is protected"
+  case is DocumentConversionError:
+    return "Document processing failed. Check the file and OCR provider configuration, then retry."
   case let NoteServiceError.invalidInput(message):
     return "invalid note request: \(message)"
   case let NoteServiceError.conflict(message):

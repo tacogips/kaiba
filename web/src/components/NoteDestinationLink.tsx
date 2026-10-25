@@ -11,7 +11,9 @@ import { WorkspaceIcon } from './WorkspaceIcon'
 import './link-preview.css'
 
 /** All connection lists share the same destination and non-navigating preview. */
-export function NoteDestinationLink(props: { note: Note; relationship?: string; app?: AppStore }): JSX.Element {
+type DestinationApp = Pick<AppStore, 'client' | 'openNote'> & { state: Pick<AppStore['state'], 'notebooks'> }
+
+export function NoteDestinationLink(props: { note: Note; relationship?: string; app?: DestinationApp; previewMount?: HTMLElement }): JSX.Element {
   const app = props.app ?? useApp()
   const [open, setOpen] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
@@ -73,7 +75,7 @@ export function NoteDestinationLink(props: { note: Note; relationship?: string; 
     <button type="button" class="workspace-icon note-preview-trigger" aria-label={`Preview ${noteDisplayTitle(props.note)}`}
       title="Preview destination without leaving this page" aria-haspopup="dialog" aria-expanded={open()} aria-controls={open() ? id : undefined}
       onClick={() => open() ? close() : void show()}><WorkspaceIcon name="preview" /></button>
-    <Show when={open()}><Portal>
+    <Show when={open()}><Portal mount={props.previewMount}>
       <section ref={popup} id={id} class="note-link-preview" role="dialog" aria-label={`Preview: ${noteDisplayTitle(props.note)}`}
         style={{ left: `${position().left}px`, top: `${position().top}px` }}
         onPointerEnter={cancelTimer} onPointerLeave={leave} onKeyDown={escape}

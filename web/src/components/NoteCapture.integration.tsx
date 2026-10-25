@@ -10,7 +10,7 @@ test('adds Markdown to the active notebook without converting or dropping its fo
   const body = '# Second note\n\n**Bold** text.\n\n- One\n- Two\n\n```js\nconst value = 42\n```'
   const createNote = vi.fn(async () => ({ noteId: 'second', notebookId: 'book' }))
   const openNote = vi.fn()
-  fixture.app = { state: { route: { kind: 'home' } }, writingDrafts: createWritingDrafts(), client: { createNote }, refreshCatalog: vi.fn(async () => {}), openNote, setMessage: vi.fn() }
+  fixture.app = { state: { route: { kind: 'home' }, settings: { fontScale: 1.15 } }, writingDrafts: createWritingDrafts(), client: { createNote }, refreshCatalog: vi.fn(async () => {}), openNote, setMessage: vi.fn() }
   const host = document.createElement('div'); document.body.append(host)
   const dispose = render(() => <NoteCapture notebookId={notebookId('book')} empty={true} />, host)
   try {

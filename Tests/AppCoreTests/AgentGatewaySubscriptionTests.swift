@@ -65,7 +65,7 @@ final class AgentGatewaySubscriptionTests: XCTestCase {
     guard ProcessInfo.processInfo.environment["KAIBA_LIVE_SUBSCRIPTION_TEST"] == "1" else {
       throw XCTSkip("Set KAIBA_LIVE_SUBSCRIPTION_TEST=1 to verify the server's real Codex login")
     }
-    let model = ProcessInfo.processInfo.environment["KAIBA_LIVE_SUBSCRIPTION_MODEL"] ?? "gpt-5.6-luna"
+    let model = ProcessInfo.processInfo.environment["KAIBA_LIVE_SUBSCRIPTION_MODEL"] ?? "gpt-6.1-sol"
     let invoker = AgentGatewayCLIInvoker(vendor: "codex", model: model, executionMode: .subscription)
     let result = try await invoker.invoke(.init(
       purpose: .chat, systemPrompt: "Answer briefly without using tools.",

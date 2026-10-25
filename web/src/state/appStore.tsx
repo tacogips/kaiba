@@ -1,7 +1,11 @@
 import { notebookId as asNotebookId } from '../notes/ids'
-import { createContext, onCleanup, useContext, type JSX } from 'solid-js'
+import { createContext, createSignal, getOwner, onCleanup, runWithOwner, useContext, type JSX, type Accessor, type Setter } from 'solid-js'
+import { notebookSource } from '../notes/notebookSource'
 import { createStore, reconcile } from 'solid-js/store'
 import { createWritingDrafts } from './writingDrafts'
+import { createSettingsSave } from './settingsSave'
+import type { DocumentViewSelection } from '../notes/documentVersions'
+import { createOCRTasks } from './ocrTasks'
 import { createNotebookAutosave } from './notebookAutosave'
 import { NoteGraphQLClient, NoteTransportError, notebookPageLimit } from '../notes/client'
 import { subscribeNoteEvents } from '../notes/events'
@@ -23,6 +27,7 @@ import {
   type SearchScope,
 } from '../router'
 import { popReturn, pushReturn } from './returnStack'
+import { browserReaderRouteStorage, readReaderRoute, writeReaderRoute } from './readerRouteStorage'
 import {
   browserPaneStorage,
   clampPaneWidth,
@@ -57,6 +62,13 @@ import type { NoteId, NotebookId, TagId } from '../notes/ids'
  * lands, so the shell renders neither the reader nor a login form on a host
  * whose auth mode has not been observed yet. */
 export type AuthState = 'unknown' | 'authenticated' | 'unauthenticated'
+
+export interface NotebookWriterSession {
+  draft: ReturnType<ReturnType<typeof createWritingDrafts>['get']>
+  autosave: ReturnType<typeof createNotebookAutosave>
+  currentNote: Accessor<number>
+  setCurrentNote: Setter<number>
+}
 
 export interface AppState {
   route: Route
@@ -98,8 +110,13 @@ export interface AppState {
 }
 
 export interface AppStore {
+  settingsSave: ReturnType<typeof createSettingsSave>
   writingDrafts: ReturnType<typeof createWritingDrafts>
   notebookAutosave: ReturnType<typeof createNotebookAutosave>
+  notebookWriter(notebookId: NotebookId): Promise<NotebookWriterSession>
+  notebookWritingContext(): { source: string; noteNumber: number } | undefined
+  ocrTasks: ReturnType<typeof createOCRTasks>
+  documentViews: Map<NotebookId, DocumentViewSelection>
   state: AppState
   client: NoteGraphQLClient
   notes(): Note[]
@@ -129,6 +146,7 @@ export interface AppStore {
    * to the currently open notebook. */
   openSearch(query: string, scope: SearchScope, method: SearchMethod): void
   openConfig(): void
+  openTasks(): void
   /** Applies immediately and persists to the store's sqlite (debounced). */
   updateSettings(partial: Partial<WebAppSettings>): void
   setPaneWidth(side: 'left' | 'right', width: number): void
@@ -156,6 +174,8 @@ export interface AppStore {
   refreshNote(): Promise<void>
   loadNotes(notebookId: NotebookId): Promise<void>
   loadMoreNotes(notebookId: NotebookId): Promise<void>
+  canLoadMoreNotes(notebookId: NotebookId): boolean
+  notesLoadState(notebookId: NotebookId): 'idle' | 'loading' | 'ready' | 'error'
   /** Changes the open or named notebook's persisted access mode. */
   setNotebookReadOnly(notebookId: NotebookId, readOnly: boolean): Promise<void>
   /** Clears the note selection but keeps the notebook open (its notes stay in
@@ -167,6 +187,7 @@ export interface AppStoreOptions {
   client?: NoteGraphQLClient
   router?: RouterEnvironment
   paneStorage?: PaneStateStorage
+  readerRouteStorage?: PaneStateStorage
 }
 
 const AppStoreContext = createContext<AppStore>()
@@ -183,10 +204,14 @@ export function useApp(): AppStore {
 }
 
 export function createAppStore(options: AppStoreOptions = {}): AppStore {
+  const owner = getOwner()
+  const notebookWriters = new Map<NotebookId, NotebookWriterSession>()
   const writingDrafts = createWritingDrafts()
+  const documentViews = new Map<NotebookId, DocumentViewSelection>()
   const client = options.client ?? new NoteGraphQLClient()
   const router = options.router ?? browserRouterEnvironment()
   const paneStorage = options.paneStorage ?? browserPaneStorage()
+  const readerStorage = options.readerRouteStorage ?? (options.router ? undefined : browserReaderRouteStorage())
   const [state, setState] = createStore<AppState>({
     route: { ...parseRoute(router.currentHash()) },
     loading: true,
@@ -213,11 +238,12 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   })
 
   const setMessage = (message: string, severity: 'info' | 'error' = 'info') => setState({ message, messageSeverity: severity })
+  const settingsSave = createSettingsSave((snapshot) => client.setAppSetting(webSettingsKey, snapshot),
+    (error) => setMessage(`Could not save the settings: ${errorMessage(error)}`, 'error'))
 
   let catalogGeneration = 0
   let noteGeneration = 0
   let catalogTimer: ReturnType<typeof setTimeout> | undefined
-  let settingsTimer: ReturnType<typeof setTimeout> | undefined
   const readOnlyController = new NotebookReadOnlyController({
     setReadOnly: (notebookId, readOnly) => client.setNotebookReadOnly(notebookId, readOnly),
   }, (updated, error) => {
@@ -231,15 +257,24 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
    * rejected credential by the time this runs. */
   const adoptUnauthenticated = (error: unknown): boolean => {
     if (!isUnauthorized(error)) return false
+    settingsSave.reset()
     notebookAutosave.clear()
+    for (const writer of notebookWriters.values()) writer.autosave.clear()
+    notebookWriters.clear()
+    ocrTasks.clear()
+    documentViews.clear()
     writingDrafts.clear()
+    readerRoute = { kind: 'home' }
+    writeReaderRoute(readerRoute, readerStorage)
     setState({ auth: 'unauthenticated', error: '', message: '', loading: false })
     return true
   }
 
   const loadSettings = async (): Promise<void> => {
+    const revision = settingsSave.revision()
     try {
-      setState('settings', parseWebSettings(await client.appSetting(webSettingsKey)))
+      const settings = parseWebSettings(await client.appSetting(webSettingsKey))
+      if (settingsSave.revision() === revision && settingsSave.status() === 'idle') setState('settings', settings)
     } catch {
       // No stored settings (or an offline host) keeps the defaults.
     }
@@ -262,14 +297,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       ...(partial.fontScale !== undefined ? { fontScale: clampFontScale(partial.fontScale) } : {}),
     }
     setState('settings', next)
-    if (settingsTimer) clearTimeout(settingsTimer)
-    settingsTimer = setTimeout(() => {
-      settingsTimer = undefined
-      void client.setAppSetting(webSettingsKey, serializeWebSettings(state.settings))
-        .catch((error: unknown) => {
-          setMessage(`Could not save the settings: ${errorMessage(error)}`, 'error')
-        })
-    }, 500)
+    settingsSave.queue(serializeWebSettings(next))
   }
 
   const setPane = (next: PaneState) => {
@@ -285,6 +313,14 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   // older reload finishing late replaces pages a newer load (or a lazy-scroll
   // append) already put on screen.
   const noteLoadGenerations: Record<string, number> = {}
+  const [notePagesComplete, setNotePagesComplete] = createStore<Record<string, boolean>>({})
+  const [noteLoadStates, setNoteLoadStates] = createStore<Record<string, 'idle' | 'loading' | 'ready' | 'error'>>({})
+  const notePageRequests = new Map<NotebookId, Promise<void>>()
+  const canLoadMoreNotes = (notebookId: NotebookId) => {
+    const count = state.notesByNotebook[notebookId]?.length ?? 0
+    const total = state.notebooks.find((book) => book.notebookId === notebookId)?.noteCount
+    return count > 0 && !notePagesComplete[notebookId] && (total == null || count < total)
+  }
   const nextNoteLoadGeneration = (notebookId: NotebookId): number => {
     const generation = (noteLoadGenerations[notebookId] ?? 0) + 1
     noteLoadGenerations[notebookId] = generation
@@ -295,6 +331,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
    * screen so an events-feed refresh never truncates a lazily grown list. */
   const loadNotes = async (notebookId: NotebookId): Promise<void> => {
     const generation = nextNoteLoadGeneration(notebookId)
+    setNoteLoadStates(notebookId, 'loading')
     const target = state.notesByNotebook[notebookId]?.length ?? 0
     const pages = Math.max(1, Math.ceil(target / notebookPageLimit))
     try {
@@ -305,8 +342,12 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
         if (chunk.length < notebookPageLimit) break
       }
       if (noteLoadGenerations[notebookId] !== generation) return
-      setState('notesByNotebook', notebookId, all)
+      setNotePagesComplete(notebookId, all.length % notebookPageLimit !== 0 || all.length === 0)
+      setState('notesByNotebook', notebookId, reconcile(all, { key: 'noteId' }))
+      setNoteLoadStates(notebookId, 'ready')
     } catch (error) {
+      if (noteLoadGenerations[notebookId] !== generation) return
+      setNoteLoadStates(notebookId, 'error')
       if (adoptUnauthenticated(error)) return
       setMessage(`Could not load notes: ${errorMessage(error)}`, 'error')
     }
@@ -314,18 +355,25 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
 
   /** Appends the next page of notes for the reader's lazy scroll. Does nothing
    * once the last fetched page came back short (the list is complete). */
-  const loadMoreNotes = async (notebookId: NotebookId): Promise<void> => {
+  const loadMoreNotes = (notebookId: NotebookId): Promise<void> => {
+    const pending = notePageRequests.get(notebookId)
+    if (pending) return pending
     const current = state.notesByNotebook[notebookId]
-    if (!current || current.length === 0 || current.length % notebookPageLimit !== 0) return
+    if (!current || !canLoadMoreNotes(notebookId)) return Promise.resolve()
     const generation = nextNoteLoadGeneration(notebookId)
-    try {
-      const chunk = await client.notes(notebookId, current.length)
-      if (noteLoadGenerations[notebookId] !== generation) return
-      if (chunk.length > 0) setState('notesByNotebook', notebookId, [...current, ...chunk])
-    } catch (error) {
-      if (adoptUnauthenticated(error)) return
-      setMessage(`Could not load more notes: ${errorMessage(error)}`, 'error')
-    }
+    const request = (async () => {
+      try {
+        const chunk = await client.notes(notebookId, current.length)
+        if (noteLoadGenerations[notebookId] !== generation) return
+        setNotePagesComplete(notebookId, chunk.length < notebookPageLimit)
+        if (chunk.length > 0) setState('notesByNotebook', notebookId, reconcile([...current, ...chunk], { key: 'noteId' }))
+      } catch (error) {
+        if (adoptUnauthenticated(error)) return
+        setMessage(`Could not load more notes: ${errorMessage(error)}`, 'error')
+      }
+    })().finally(() => { notePageRequests.delete(notebookId) })
+    notePageRequests.set(notebookId, request)
+    return request
   }
 
   const refreshCatalog = async (): Promise<void> => {
@@ -343,14 +391,14 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
         () => generation === catalogGeneration,
         (values) => {
           if (generation === catalogGeneration) {
-            setState('notebooks', values.map((notebook) =>
-              readOnlyController.adopt(notebook, readOnlySnapshot)))
+            setState('notebooks', reconcile(values.map((notebook) =>
+              readOnlyController.adopt(notebook, readOnlySnapshot)), { key: 'notebookId' }))
           }
         },
       )
       if (!notebooks || generation !== catalogGeneration) return
-      setState('notebooks', notebooks.map((notebook) =>
-        readOnlyController.adopt(notebook, readOnlySnapshot)))
+      setState('notebooks', reconcile(notebooks.map((notebook) =>
+        readOnlyController.adopt(notebook, readOnlySnapshot)), { key: 'notebookId' }))
       setState('catalogRevision', (revision) => revision + 1)
       setState('auth', 'authenticated')
     } catch (error) {
@@ -422,7 +470,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     }
     // The search and config screens keep the current selection so "this
     // notebook" scope and the Reader button still refer to what was open.
-    if (route.kind === 'search' || route.kind === 'config') return
+    if (route.kind === 'search' || route.kind === 'config' || route.kind === 'tasks') return
     setState({ notebookId: undefined, noteId: undefined, note: undefined, activeHeadingId: '' })
   }
 
@@ -486,7 +534,7 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   let previousSourceRoute: Route | undefined = state.route.kind === 'note' || state.route.kind === 'notebook' || (state.route.kind === 'fast' && Boolean(state.route.noteId))
     ? { ...state.route } : undefined
   let restoringHash: string | undefined
-  let readerRoute = rememberReaderRoute(state.route)
+  let readerRoute = rememberReaderRoute(state.route, readReaderRoute(readerStorage))
   const unsubscribeRoute = subscribeRoute(router, (route) => {
     // Observe the central route boundary so tree clicks, PDF paging, search
     // results, linked notes, and direct hash changes all share one history.
@@ -498,7 +546,9 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       }
       previousSourceRoute = route.kind === 'home' || (route.kind === 'fast' && !route.noteId) ? undefined : { ...route }
     }
+    if (route.kind === 'tasks') previousSourceRoute = undefined
     readerRoute = rememberReaderRoute(route, readerRoute)
+    writeReaderRoute(readerRoute, readerStorage)
     // Routes are a union: fields from the previous variant must be removed.
     setState('route', reconcile({ ...route }))
     const key = selectionKey(route)
@@ -555,7 +605,14 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     unsubscribeRoute()
     unsubscribeEvents()
     if (catalogTimer) clearTimeout(catalogTimer)
-    if (settingsTimer) clearTimeout(settingsTimer)
+  })
+
+  const ocrTasks = createOCRTasks(client, (note) => {
+    if (state.noteId === note.noteId) setState('note', note)
+    bumpNotebook(note.notebookId)
+    if (state.notesByNotebook[note.notebookId]) void loadNotes(note.notebookId)
+  }, (error, task) => {
+    if (!adoptUnauthenticated(error)) setMessage(`${task.label} · Page ${task.pageNumber ?? '?'} OCR failed: ${errorMessage(error)}. Open Tasks to retry.`, 'error')
   })
 
   const notebookAutosave = createNotebookAutosave(client, writingDrafts.get('new-notebook-body'), async () => {
@@ -567,6 +624,43 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
   const store: AppStore = {
     writingDrafts,
     notebookAutosave,
+    notebookWriter: async (notebookId) => {
+      const cached = notebookWriters.get(notebookId)
+      if (cached) return cached
+      if (!state.notesByNotebook[notebookId]) await loadNotes(notebookId)
+      if (!state.notesByNotebook[notebookId]) throw new Error('Could not load the notebook. Retry before editing.')
+      while (canLoadMoreNotes(notebookId)) {
+        const before = state.notesByNotebook[notebookId]?.length ?? 0
+        await loadMoreNotes(notebookId)
+        if ((state.notesByNotebook[notebookId]?.length ?? 0) <= before) throw new Error('Could not load the complete notebook. Retry before editing.')
+      }
+      const book = state.notebooks.find((item) => item.notebookId === notebookId)
+      const notes = state.notesByNotebook[notebookId] ?? []
+      if (!book || book.readOnly || notes.some((note) => note.readOnly)) throw new Error('This notebook contains read-only notes.')
+      const draft = writingDrafts.get(`notebook:${notebookId}`)
+      draft.setBaseText(notebookSource(notes.map((note) => note.bodyMarkdown)))
+      draft.setText(notebookSource(notes.map((note) => {
+        const previous = writingDrafts.get(`edit:${note.noteId}`)
+        return previous.baseText() !== undefined && previous.text() !== previous.baseText() ? previous.text() : note.bodyMarkdown
+      })))
+      const autosave = runWithOwner(owner, () => createNotebookAutosave(client, draft, async () => {
+        await refreshCatalog(); await loadNotes(notebookId)
+      }, undefined, book))!
+      const [currentNote, setCurrentNote] = createSignal(state.note?.notebookId === notebookId ? state.note.noteNumber : 1)
+      const writer = { draft, autosave, currentNote, setCurrentNote }
+      notebookWriters.set(notebookId, writer)
+      for (const note of notes) {
+        const previous = writingDrafts.get(`edit:${note.noteId}`)
+        previous.setText(''); previous.setBaseText(undefined)
+      }
+      return writer
+    },
+    notebookWritingContext: () => {
+      const writer = state.notebookId ? notebookWriters.get(state.notebookId) : undefined
+      return writer ? { source: writer.draft.text(), noteNumber: writer.currentNote() } : undefined
+    },
+    ocrTasks,
+    documentViews,
     state,
     client,
     notes: () => (state.notebookId ? state.notesByNotebook[state.notebookId] ?? [] : []),
@@ -631,8 +725,12 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
         ...(notebookId ? { notebookId } : {}),
       })
     },
+    openTasks: () => {
+      if (state.route.kind !== 'tasks') goWithReturn({ kind: 'tasks' })
+    },
     openConfig: () => go({ kind: 'config' }),
     updateSettings,
+    settingsSave,
     setPaneWidth: (side, width) => {
       const clamped = clampPaneWidth(side, width)
       setPane(side === 'left'
@@ -674,6 +772,11 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
       await refreshNote()
     },
     signInWithKey: async (key) => {
+      settingsSave.reset()
+      ocrTasks.clear()
+      documentViews.clear()
+      readerRoute = rememberReaderRoute(state.route)
+      writeReaderRoute(readerRoute, readerStorage)
       client.useCredential(key)
       setState({ auth: 'unknown', error: '', message: '' })
       await refreshCatalog()
@@ -690,6 +793,8 @@ export function createAppStore(options: AppStoreOptions = {}): AppStore {
     refreshNote,
     loadNotes,
     loadMoreNotes,
+    canLoadMoreNotes,
+    notesLoadState: (notebookId) => noteLoadStates[notebookId] ?? 'idle',
     setNotebookReadOnly: async (notebookId, readOnly) => {
       const notebook = state.notebooks.find((candidate) => candidate.notebookId === notebookId)
       if (!notebook) {
@@ -714,6 +819,7 @@ export function routeHref(route: Route): string {
 
 function selectionKey(route: Route): string {
   switch (route.kind) {
+    case 'tasks': return 'tasks'
     case 'fast': return `fast:${route.noteId ?? 'feed'}`
     case 'note': return `note:${route.noteId}`
     case 'notebook': return `notebook:${route.notebookId}`

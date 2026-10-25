@@ -14,13 +14,14 @@ export type Route =
   | { kind: 'note'; noteId: NoteId; conversationId?: NotebookId; tagId?: TagId }
   | { kind: 'search'; query: string; scope: SearchScope; method: SearchMethod; notebookId?: NotebookId }
   | { kind: 'config' }
+  | { kind: 'tasks' }
 
 export const homeRoute: Route = { kind: 'home' }
 
 /** Keeps the route the reader should restore after a visit to the search
  * results screen or the config screen. */
 export function rememberReaderRoute(route: Route, previous: Route = homeRoute): Route {
-  return route.kind === 'search' || route.kind === 'config'
+  return route.kind === 'search' || route.kind === 'config' || route.kind === 'tasks'
     ? previous
     : route
 }
@@ -44,6 +45,7 @@ export function parseRoute(hash: string): Route {
       ...(parameters.note ? { noteId: asNoteId(parameters.note) } : {}),
       ...(conversationId ? { conversationId } : {}), ...(tagId ? { tagId } : {}) }
   }
+  if (head === 'tasks') return { kind: 'tasks' }
   if (head === 'config') return { kind: 'config' }
   if (head === 'search') {
     const parameters = readQueryParameters(queryPart)
@@ -89,6 +91,7 @@ export function formatRoute(route: Route): string {
       if (route.tagId) parameters.set('tag', route.tagId)
       return `#/fast${parameters.size ? `?${parameters}` : ''}`
     }
+    case 'tasks': return '#/tasks'
     case 'config':
       return '#/config'
     case 'search': {

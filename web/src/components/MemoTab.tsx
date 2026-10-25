@@ -67,6 +67,7 @@ export interface MemoTabProps {
   composerPlaceholder?: string
   /** Empty-timeline wording override. */
   emptyMessage?: string
+  contextAttachments?: () => Promise<AgentChatAttachmentInput[]>
 }
 
 /** Shown when the model catalog query fails. It is a transport error, not a
@@ -174,7 +175,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     // Runs can overlap: `catalogRevision` is bumped by a debounced refresh, so
     // a slow request can settle after a newer one. Same guard idiom as `load()`.
     const requested = ++catalogGeneration
-    void app.client.agentModels(app.state.settings.agentProvider).then((catalog) => {
+    void (app.client.allAgentModels ? app.client.allAgentModels(app.state.settings.agentProvider) : app.client.agentModels(app.state.settings.agentProvider)).then((catalog) => {
       if (requested !== catalogGeneration) return
       setProviders(catalog.providers ?? [])
       setConfiguredProvider(catalog.configuredProvider ?? undefined)
@@ -423,6 +424,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     const effectiveModel = app.state.settings.agentModel
     const effectiveProvider = app.state.settings.agentProvider ?? configuredProvider()
     const directConversationId = props.conversationNotebookId
+    const contextAttachments = retry ? undefined : props.contextAttachments
     // The New chat button is gated on `busy()` so a click during the await
     // window cannot reroute an already-submitted message; the captures settle
     // the request itself in one direction.
@@ -435,9 +437,10 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
     submittedDraft.setBusy(true)
     setError('')
     try {
+      const context = contextAttachments ? await contextAttachments() : []
       current = current ?? await props.ensureSubject?.()
       if (!current) return
-      const attachmentInputs = await Promise.all(stagedAttachments.map(fileToAttachment))
+      const attachmentInputs = [...context, ...await Promise.all(stagedAttachments.map(fileToAttachment))]
       // Nothing below reads a signal or a store field: every reactive value is
       // one of the captures above.
       const request = buildAgentChatComposerRequest({
@@ -737,7 +740,7 @@ export function MemoTab(props: MemoTabProps = {}): JSX.Element {
           }}
           onDraftChange={setDraft}
           onRemoveAttachment={(index) => setAttachments((files) => removeComposerAttachment(files, index))}
-          onModelChange={(model) => app.updateSettings({ agentModel: model || undefined })}
+          onModelChange={(model, provider) => app.updateSettings({ agentModel: model || undefined, ...(provider ? { agentProvider: provider } : {}) })}
           onSubmit={submit}
         />
       </Show>

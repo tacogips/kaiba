@@ -5,13 +5,14 @@ import { documentPageMetadata } from '../notes/documentPages'
 import { useApp } from '../state/appStore'
 import { TagNotesPopup } from './TagNotesPopup'
 import { WorkspaceIcon } from './WorkspaceIcon'
+import { usePopoverDismissal } from './usePopoverDismissal'
 import '../reader-controls.css'
 
 /** Edits assignments on this page; changing a chip never renames a shared tag. */
 export function PageTagsEditor(): JSX.Element {
   const app = useApp()
-  const note = () => app.notes().find((row) => row.noteId === app.state.noteId)
-    ?? (app.state.note?.noteId === app.state.noteId ? app.state.note : undefined)
+  const note = () => (app.state.note?.noteId === app.state.noteId ? app.state.note : undefined)
+    ?? app.notes().find((row) => row.noteId === app.state.noteId)
   const documentTags = () => (app.notebook?.()?.tags ?? []).filter((assignment) =>
     !assignment.tag.isSystem && !['document-kind', 'content-kind', 'folder', 'workflow', 'source'].includes(assignment.tag.classId ?? '')
     && !note()?.tags?.some((own) => own.tag.tagId === assignment.tag.tagId))
@@ -24,6 +25,15 @@ export function PageTagsEditor(): JSX.Element {
   const [original, setOriginal] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<{ noteId: string; message: string }>()
+  let trigger: HTMLButtonElement | undefined
+  let addButton!: HTMLButtonElement
+  let popover: HTMLDivElement | undefined
+  const close = (restoreFocus = false) => {
+    setOriginal(undefined); setDraft(''); setEditing(false)
+    if (restoreFocus) (trigger?.isConnected ? trigger : addButton).focus()
+  }
+  usePopoverDismissal({ isOpen: editing, canDismiss: () => !busy(),
+    contains: (target) => Boolean(popover?.contains(target) || trigger?.contains(target)), onDismiss: close })
   createEffect(() => { const id = app.state.noteId; if (id) { setDraft(''); setOriginal(undefined); setError(undefined); setEditing(false); setViewingTag(undefined) } })
   const save = async (event: Event) => {
     event.preventDefault()
@@ -42,7 +52,7 @@ export function PageTagsEditor(): JSX.Element {
           catch { throw new Error('The new tag was added, but the previous tag could not be removed. Retry removing it.') }
         }
       }
-      setDraft(''); setOriginal(undefined); setEditing(false)
+      close(true)
     } catch (failure) {
       setError({ noteId: selected.noteId, message: failure instanceof Error ? failure.message : 'Tag could not be saved' })
     } finally { await app.refreshCatalog(); setBusy(false) }
@@ -67,19 +77,20 @@ export function PageTagsEditor(): JSX.Element {
         <For each={note()?.tags ?? []}>{(assignment) => <span class="page-tag-chip">
         <button type="button" class="tag-chip-open" title={`${assignment.tag.classId ?? 'Unclassified'}: ${qualifiedTagLabel(app.state.tags, assignment.tag.tagId)}`} onClick={() => { setEditing(false); setViewingTag(assignment.tag.name) }}>{assignment.tag.name}</button>
         <Show when={assignment.deletable}>
-          <button type="button" class="page-tag-action" aria-label={`Edit tag ${assignment.tag.name}`} title="Edit tag" disabled={busy()} onClick={() => {
+          <button type="button" class="page-tag-action" aria-label={`Edit tag ${assignment.tag.name}`} title="Edit tag" disabled={busy()} onClick={(event) => {
+            trigger = event.currentTarget
             setOriginal(assignment.tag.name); setDraft(assignment.tag.name); setClassId(assignment.tag.classId ?? ''); setEditing(true)
           }}><WorkspaceIcon name="edit" /></button>
           <button type="button" class="page-tag-action" aria-label={`Remove tag ${assignment.tag.name}`} title="Remove tag" disabled={busy()}
             onClick={() => void remove(assignment.tag.name)}><WorkspaceIcon name="close" /></button>
         </Show>
       </span>}</For></div>
-      <button type="button" class="secondary reader-control" aria-label="Add page tag" title="Add page tag" onClick={() => {
+      <button ref={addButton} type="button" class="secondary reader-control" aria-label="Add page tag" title="Add page tag" onClick={(event) => {
+        trigger = event.currentTarget
         setOriginal(undefined); setDraft(''); setClassId(''); setEditing(true)
       }}><WorkspaceIcon name="add" /></button>
-      <Show when={editing()}><div class="page-tag-popover" role="dialog" aria-label={original() ? 'Edit page tag' : 'Add page tag'}>
-      <form onSubmit={(event) => void save(event)}
-        onKeyDown={(event) => { if (event.key === 'Escape' && !busy()) { event.preventDefault(); setOriginal(undefined); setDraft(''); setEditing(false) } }}>
+      <Show when={editing()}><div ref={popover} class="page-tag-popover" role="dialog" aria-label={original() ? 'Edit page tag' : 'Add page tag'}>
+      <form onSubmit={(event) => void save(event)}>
         <input type={selectedClass() === 'date' ? 'date' : 'text'} aria-label="Page tag" list="page-tag-suggestions" placeholder={original() ? 'Edit page tag' : 'Add page tag'} value={draft()}
           ref={(input) => queueMicrotask(() => { input.focus(); input.select() })}
           disabled={busy()} onInput={(event) => setDraft(event.currentTarget.value)} />
@@ -94,13 +105,13 @@ export function PageTagsEditor(): JSX.Element {
         <button type="submit" class="secondary reader-control" aria-label={original() ? 'Save tag' : 'Add tag'} title={original() ? 'Save' : 'Add'}
           aria-busy={busy()} disabled={busy() || !draft().trim()}><WorkspaceIcon name="check" /></button>
         <button type="button" class="secondary reader-control" aria-label="Cancel tag edit" title="Cancel" disabled={busy()}
-          onClick={() => { setOriginal(undefined); setDraft(''); setEditing(false) }}><WorkspaceIcon name="close" /></button>
+          onClick={() => close(true)}><WorkspaceIcon name="close" /></button>
         <Show when={error()?.noteId === app.state.noteId}><p role="alert">{error()?.message}</p></Show>
       </form>
       </div></Show>
       <Show when={!editing() && error()?.noteId === app.state.noteId}>
         <button type="button" class="secondary reader-control reader-control-error" aria-label={error()?.message} title={error()?.message}
-          onClick={() => setEditing(true)}><WorkspaceIcon name="warning" /></button>
+          onClick={(event) => { trigger = event.currentTarget; setEditing(true) }}><WorkspaceIcon name="warning" /></button>
       </Show>
       <Show when={viewingTag()} keyed>{(name) => <TagNotesPopup client={app.client} tagName={name} notebooks={app.state.notebooks ?? []}
         onOpenNote={(noteId, notebookId) => app.openNoteWithReturn(noteId, notebookId)} onClose={() => setViewingTag(undefined)} />}</Show>
