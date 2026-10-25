@@ -4,7 +4,9 @@ planId: `tauri-client-connection-p4-docs`. Wave 1, with no dependencies.
 Status: accepted in session opus-luna-design-and-implement-review-loop-session-481
 (test-integrity and adversarial review). Its changes are in the working tree.
 Do not redispatch; the dispatch manifest lists it under `acceptedDependencies`.
-Index and shared rules: `impl-plans/active/tauri-client-connection.md`.
+Completed: P5's combined-tree gates passed in session 483, and the plan was
+moved to `impl-plans/completed/` at Step 8 on 2026-10-25.
+Index and shared rules: `impl-plans/completed/tauri-client-connection.md`.
 Design: `design-docs/specs/tauri-client-apps.md`, "Connection settings". The
 accepted design text is the source of truth. Describe it; do not extend it.
 

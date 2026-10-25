@@ -3,6 +3,20 @@
 Issue: workflowInput 'Tauri client app with configurable connection target'
 (user request 2026-10-25; no GitHub issue). Workflow mode: issue-resolution.
 
+**Status**: Completed. P1-P4 were accepted in session 481 and P5 in session
+483. Every progress log under `tmp/tauri-client-connection/P1..P5/` ends with
+`status: done`. P5 recorded exit 0 for `cd web && bun test src` (1341 pass,
+0 fail), `cd web && bunx vitest run` (56 files, 238 tests), `cd web && bun
+run typecheck`, `cd web && bun run lint`, `mise run tauri:check` and `mise
+run tauri:build`. The unsigned bundle is
+`web/src-tauri/target/release/bundle/macos/Kaiba.app`, and its
+`Contents/MacOS/kaiba` is byte-identical to the fresh
+`web/src-tauri/local-service/kaiba-aarch64-apple-darwin`. The browser E2E
+step was skipped because the repository has no E2E harness, and `Kaiba.app`
+was not launched. Moved to `impl-plans/completed/` at Step 8 on 2026-10-25.
+The dispatch manifest `impl-plans/active/tauri-client-connection-dispatch.json`
+is a workflow runtime artifact and stays in `impl-plans/active/`.
+
 Design (accepted at Step 3, needs_revision=false):
 
 - `design-docs/specs/tauri-client-apps.md`: sections "Connection modes",
@@ -27,11 +41,11 @@ states. Per-origin bearer scoping must not regress.
 
 | Plan | File | Wave | Depends on |
 | --- | --- | --- | --- |
-| P1 endpoint store helpers | `impl-plans/active/tauri-client-connection-p1-endpoint-store.md` | 1 | none |
-| P2 connection probe | `impl-plans/active/tauri-client-connection-p2-connection-probe.md` | 1 | none |
-| P4 README and spec touch-up | `impl-plans/active/tauri-client-connection-p4-docs.md` | 1 | none |
-| P3 settings UI and reachability tests | `impl-plans/active/tauri-client-connection-p3-settings-ui.md` | 2 | P1, P2 |
-| P5 integration gates and app bundle | `impl-plans/active/tauri-client-connection-p5-bundle-build.md` | 3 | P1, P2, P3, P4 |
+| P1 endpoint store helpers | `impl-plans/completed/tauri-client-connection-p1-endpoint-store.md` | 1 | none |
+| P2 connection probe | `impl-plans/completed/tauri-client-connection-p2-connection-probe.md` | 1 | none |
+| P4 README and spec touch-up | `impl-plans/completed/tauri-client-connection-p4-docs.md` | 1 | none |
+| P3 settings UI and reachability tests | `impl-plans/completed/tauri-client-connection-p3-settings-ui.md` | 2 | P1, P2 |
+| P5 integration gates and app bundle | `impl-plans/completed/tauri-client-connection-p5-bundle-build.md` | 3 | P1, P2, P3, P4 |
 
 Checkpoint (session opus-luna-design-and-implement-review-loop-session-483,
 2026-10-25): P1, P2, P3 and P4 were accepted in session 481 by test-integrity

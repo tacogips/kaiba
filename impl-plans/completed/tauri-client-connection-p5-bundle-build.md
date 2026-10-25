@@ -6,6 +6,17 @@ opus-luna-design-and-implement-review-loop-session-481 and are listed under
 `acceptedDependencies` in the dispatch manifest. P5 is the only plan
 dispatched in session 483, as the single plan of wave 1.
 
+Status: completed in session 483. All gates exited 0:
+`cd web && bun test src` (1341 pass, 0 fail), `cd web && bunx vitest run`
+(56 files, 238 tests), `cd web && bun run typecheck`, `cd web && bun run
+lint`, `mise run tauri:check`, `mise run tauri:build`, the freshness check
+and the post-build `shasum -c`. The bundle is
+`web/src-tauri/target/release/bundle/macos/Kaiba.app`, and its service binary
+has sha256 `f76dd8b074b5dc8a2a52f1c843fc176adc74d77dafee0d8fc41d26924460119d`,
+identical to the fresh sidecar. Evidence:
+`tmp/tauri-client-connection/P5/evidence.md`. Moved to `impl-plans/completed/`
+at Step 8 on 2026-10-25.
+
 Resume note: session 481 blocked P5 only because its typecheck gate was
 `bunx tsc --noEmit -p web` from the repository root. That command cannot
 resolve `bun:test`/Bun types (34 baseline errors at 83a02f1, all in
@@ -31,7 +42,7 @@ every step below under it; the last line of the file must become
 `status: done` (or a new `status: blocked: ...`). Rewrite `evidence.md`
 from scratch for this rerun. Leave the old `logs/04-tsc.log` in place and
 note in `evidence.md` that it is superseded by `logs/04-typecheck.log`.
-Index and shared rules: `impl-plans/active/tauri-client-connection.md`.
+Index and shared rules: `impl-plans/completed/tauri-client-connection.md`.
 Design: `design-docs/specs/tauri-client-apps.md`, "Build surfaces"
 (including its "Bundled local service" paragraph). Decision D12 is in
 `design-docs/user-qa/tauri-client-connection-20261025.md`.

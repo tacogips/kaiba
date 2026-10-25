@@ -5,7 +5,9 @@ dependencies.
 Status: accepted in session opus-luna-design-and-implement-review-loop-session-481
 (test-integrity and adversarial review). Its changes are in the working tree.
 Do not redispatch; the dispatch manifest lists it under `acceptedDependencies`.
-Index and shared rules: `impl-plans/active/tauri-client-connection.md`
+Completed: P5's combined-tree gates passed in session 483, and the plan was
+moved to `impl-plans/completed/` at Step 8 on 2026-10-25.
+Index and shared rules: `impl-plans/completed/tauri-client-connection.md`
 (the edit protocol, evidence policy and invariants all apply).
 Design: `design-docs/specs/tauri-client-apps.md`, sections "Recent remote
 endpoints" and "Connection settings" (plain-`http` warning, active connection
