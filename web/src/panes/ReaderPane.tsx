@@ -1,3 +1,5 @@
+import { onGotoPage, scrollReader } from '../notes/readerKeyboard'
+import { parseNotebookDraft } from '../notes/notebookDraft'
 import { noteId as asNoteId } from '../notes/ids'
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import { MarkdownBody } from '../components/Markdown'
@@ -10,14 +12,14 @@ import { PageTagsEditor } from '../components/PageTagsEditor'
 import { documentPageMetadata } from '../notes/documentPages'
 import { NoteImageCarousel } from '../components/NoteImageCarousel'
 import { NoteCapture } from '../components/NoteCapture'
-import { NoteEditor } from '../components/NoteEditor'
+import { NotebookWritingView } from '../components/NotebookWritingView'
 import { NewNotebookEditor } from '../components/NewNotebookEditor'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
 import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
 import { normalizeSelectionTagName, tagTermsFromAssignments } from '../notes/tagMatch'
 import { noteHeadingPrefix } from '../notes/toc'
-import { errorMessage, useApp } from '../state/appStore'
+import { errorMessage, useApp, type AppStore } from '../state/appStore'
 import type { Note } from '../notes/types'
 import type { NoteId } from '../notes/ids'
 
@@ -34,8 +36,40 @@ const eagerNoteCount = 6
 export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: () => void; onCaptureRegion?: (note: Note, file: File) => Promise<void> | void } = {}): JSX.Element {
   const app = useApp()
   const chatNotebook = () => app.notebook()?.type === 'AGENT_CHAT'
-  const [documentDisplay, setDocumentDisplay] = createSignal<DocumentDisplayMode>('original')
-  const [selectedTranslation, setSelectedTranslation] = createSignal<DocumentTranslationVersion>()
+  const savedView = () => app.state.notebookId ? app.documentViews.get(app.state.notebookId) : undefined
+  const [documentDisplay, setDocumentDisplay] = createSignal<DocumentDisplayMode>(savedView()?.mode ?? 'original')
+  const [selectedTranslation, setSelectedTranslation] = createSignal<DocumentTranslationVersion | undefined>(savedView()?.translation)
+  createEffect(() => {
+    const saved = savedView()
+    setDocumentDisplay(saved?.mode ?? 'original')
+    setSelectedTranslation(saved?.translation)
+  })
+  const notebookModes = new Map<string, boolean>()
+  type Writer = Awaited<ReturnType<AppStore['notebookWriter']>>
+  const writers = new Map<string, Writer>()
+  const [writer, setWriter] = createSignal<Writer>()
+  const [writerLoading, setWriterLoading] = createSignal(false)
+  const [writing, setWriting] = createSignal(false)
+  createEffect(() => {
+    setWriting(!app.notebook()?.readOnly && (notebookModes.get(app.state.notebookId ?? '') ?? false))
+    setWriter(writers.get(app.state.notebookId ?? ''))
+  })
+  const setNotebookWriting = async (value: boolean) => {
+    const id = app.state.notebookId
+    if (!id) return
+    if (value && !writer()) {
+      setWriterLoading(true)
+      try {
+        const loaded = await app.notebookWriter(id)
+        writers.set(id, loaded)
+        if (app.state.notebookId !== id) return
+        setWriter(loaded)
+      } catch (error) { app.setMessage(errorMessage(error), 'error'); return }
+      finally { setWriterLoading(false) }
+    }
+    notebookModes.set(id, value)
+    setWriting(value)
+  }
   const [copied, setCopied] = createSignal(false)
   const [gotoDraft, setGotoDraft] = createSignal('')
   const [accessBusy, setAccessBusy] = createSignal(false)
@@ -46,6 +80,57 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
   let selectionFromClick = false
 
   const notes = createMemo(() => app.notes())
+  onMount(() => {
+    /** Places the Writing caret at a note's first line, in normal mode. */
+    const placeCaret = (number: number | 'last') => {
+      const source = document.querySelector<HTMLTextAreaElement>('main .notebook-source')
+      if (!source) return undefined
+      const parts = parseNotebookDraft(source.value).notes
+      const note = parts[number === 'last' ? parts.length - 1 : Math.min(Math.max(0, number - 1), parts.length - 1)]
+      const boundary = note?.startOffset ?? 0
+      const blankLines = source.value.slice(boundary, note?.endOffset).match(/^(?:[\t ]*\r?\n)+/)?.[0].length ?? 0
+      const caret = boundary + blankLines
+      source.focus()
+      source.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      source.setSelectionRange(caret, caret)
+      source.dispatchEvent(new Event('select', { bubbles: true }))
+      return source
+    }
+    const beginWriting = async (insert: boolean) => {
+      const id = app.state.notebookId
+      if (!id || app.notebook()?.readOnly || notes().some((note) => documentPageMetadata(note))) return
+      const number = writer()?.currentNote() ?? app.state.note?.noteNumber ?? 1
+      await setNotebookWriting(true)
+      if (app.state.notebookId !== id || !writer()) return
+      queueMicrotask(() => {
+        const source = placeCaret(number)
+        if (insert) source?.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', bubbles: true, cancelable: true }))
+      })
+    }
+    const writingShortcut = () => { void beginWriting(true) }
+    const toggleWriting = () => {
+      if (!writing()) { void beginWriting(false); return }
+      void setNotebookWriting(false).then(() => queueMicrotask(() => document.querySelector<HTMLElement>('main.reader')?.focus()))
+    }
+    const stopGoto = onGotoPage((target) => {
+      if (notes().some((note) => documentPageMetadata(note) !== undefined)) return
+      if (writing()) { placeCaret(target === 'first' ? 1 : target); return }
+      const all = notes()
+      const note = target === 'first' ? all[0] : target === 'last' ? all[all.length - 1] : all.find((candidate) => candidate.noteNumber === target) ?? all[target - 1]
+      const container = body()
+      if (!note || !container) return
+      app.openNote(note.noteId, note.notebookId)
+      queueMicrotask(() => scrollToNote(container, note.noteId))
+    })
+    window.addEventListener('kaiba-write-notebook', writingShortcut)
+    window.addEventListener('kaiba-toggle-writing', toggleWriting)
+    const keydown = (event: KeyboardEvent) => {
+      // DocumentNotebookReader owns physical-page navigation and its inner viewport.
+      if (!writing() && !notes().some((note) => documentPageMetadata(note) !== undefined)) scrollReader(event, body())
+    }
+    window.addEventListener('keydown', keydown)
+    onCleanup(() => { window.removeEventListener('keydown', keydown); window.removeEventListener('kaiba-write-notebook', writingShortcut); window.removeEventListener('kaiba-toggle-writing', toggleWriting); stopGoto() })
+  })
   const selectedDocumentPage = createMemo(() => documentPageMetadata(notes().find((note) => note.noteId === app.state.noteId)
     ?? (app.state.note?.noteId === app.state.noteId ? app.state.note : undefined)))
   const index = createMemo(() => notes().findIndex((note) => note.noteId === app.state.noteId))
@@ -227,6 +312,12 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
               <WorkspaceIcon name={metadata().textStatus === 'pending' ? 'warning' : 'check'} />
             </button>}</Show>
             <JumpBackControl />
+            <Show when={!chatNotebook() && !notes().some((note) => documentPageMetadata(note) !== undefined)}>
+              <div class="notebook-display-mode" role="group" aria-label="Notebook display mode">
+                <button type="button" class="secondary" title="Render Markdown for the entire notebook" aria-pressed={!writing()} onClick={() => setNotebookWriting(false)}>Preview</button>
+                <button type="button" class="secondary" title={app.notebook()?.readOnly ? 'Make this notebook writable to edit its notes' : 'Edit this notebook as one Markdown file'} aria-pressed={writing()} disabled={Boolean(app.notebook()?.readOnly) || writerLoading()} onClick={() => void setNotebookWriting(true)}>{writerLoading() ? 'Loading…' : 'Writing'}</button>
+              </div>
+            </Show>
             <Show when={!notes().some((note) => documentPageMetadata(note) !== undefined)}>
               <span class="reader-position">{pageLabel(index(), notes().length)}</span>
             </Show>
@@ -295,11 +386,14 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
               <DocumentVersionsControl notebookId={app.state.notebookId!} sourceNoteId={app.state.noteId!}
                 pageNumber={selectedDocumentPage()!.pageNumber} totalPages={app.notebook()?.noteCount ?? notes().length}
                 displayMode={documentDisplay()} selectedLanguage={selectedTranslation()?.targetLanguage}
-                onSelect={(mode, version) => { setDocumentDisplay(mode); setSelectedTranslation(version) }} />
+                onSelect={(mode, version) => {
+                  if (app.state.notebookId) app.documentViews.set(app.state.notebookId, { mode, translation: version })
+                  setDocumentDisplay(mode); setSelectedTranslation(version)
+                }} />
             </Show>
           </Show>
         </header>
-        <Show when={chatNotebook() && !app.state.noteId} fallback={<article
+        <Show when={writer()} fallback={<Show when={chatNotebook() && !app.state.noteId} fallback={<article
           class="reader-body"
           classList={{ 'document-notebook-body': notes().some((note) => documentPageMetadata(note) !== undefined) }}
           ref={setBody}
@@ -319,7 +413,6 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           <For each={notes()}>{(note, noteIndex) => (
             <NoteSection
               note={note}
-              page={note.noteNumber ?? noteIndex() + 1}
               selected={note.noteId === app.state.noteId}
               eager={noteIndex() < eagerNoteCount}
               onSelect={() => select(note)}
@@ -342,7 +435,7 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
           <div class="reader-body reader-conversation">
             <MemoTab conversationNotebookId={app.state.notebookId} />
           </div>
-        </Show>
+        </Show>}>{(current) => <NotebookWritingView writer={current()} writing={writing()} readOnly={Boolean(app.notebook()?.readOnly)} onViewport={setBody} />}</Show>
         <Show when={selectionTag()}>{(staged) => (
           <div
             class="tag-select-popover"
@@ -375,12 +468,14 @@ function selectionElement(node: Node | null): Element | null {
  * nears the viewport. */
 function NoteSection(props: {
   note: Note
-  page: number
   selected: boolean
   eager: boolean
   onSelect: () => void
 }): JSX.Element {
   const app = useApp()
+  const draft = app.writingDrafts.get(`edit:${props.note.noteId}`)
+  const displayMarkdown = () => draft.baseText() !== undefined && draft.text() !== draft.baseText()
+    ? draft.text() : props.note.bodyMarkdown
   const [mounted, setMounted] = createSignal(props.eager)
   const [images, setImages] = createSignal<NoteImageEntry[]>([])
   const [imagesOpen, setImagesOpen] = createSignal(false)
@@ -420,13 +515,12 @@ function NoteSection(props: {
       classList={{ 'reader-note': true, selected: props.selected, 'has-images': images().length > 0 }}
       data-note-id={props.note.noteId}
       aria-current={props.selected ? 'true' : undefined}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest('button, a, input, textarea, select') || (window.getSelection() && !window.getSelection()!.isCollapsed)) return
+        props.onSelect()
+      }}
     >
-      <header class="reader-note-head">
-        <span class="reader-note-page">p.{props.page}</span>
-        <span class="reader-note-title">{noteDisplayTitle(props.note)}</span>
-        <button type="button" class="secondary study-note-button" aria-pressed={props.selected}
-          onClick={props.onSelect}>{props.selected ? 'AI context' : 'Ask AI'}</button>
-      </header>
+      <Show when={props.note.title?.trim()}>{(title) => <header class="reader-note-head"><span class="reader-note-title">{title()}</span></header>}</Show>
       <Show when={images().length > 0 && !imagesOpen()}>
         <button
           type="button"
@@ -441,15 +535,8 @@ function NoteSection(props: {
           when={!imagesOpen()}
           fallback={<NoteImageCarousel entries={images()} onClose={() => setImagesOpen(false)} />}
         >
-          <MarkdownBody
-            markdown={props.note.bodyMarkdown}
-            anchorPrefix={noteHeadingPrefix(props.note.noteId)}
-            tagTerms={tagTerms()}
-            onTagClick={(tagId) => app.openTagPane(tagId)}
-          />
-          <Show when={props.selected && app.notebook()?.type !== 'AGENT_CHAT'}>
-            <NoteEditor note={props.note} />
-          </Show>
+          <MarkdownBody markdown={displayMarkdown()} anchorPrefix={noteHeadingPrefix(props.note.noteId)}
+            tagTerms={tagTerms()} onTagClick={(tagId) => app.openTagPane(tagId)} />
         </Show>
       </Show>
     </section>

@@ -111,6 +111,58 @@ export function readServerEndpoint(storage?: EndpointStorage): string {
   }
 }
 
+export const recentServerEndpointsStorageKey = 'kaiba-recent-server-endpoints'
+export const recentServerEndpointLimit = 5
+
+export function readRecentServerEndpoints(storage?: EndpointStorage): string[] {
+  try {
+    const resolved = storage ?? availableEndpointStorage()
+    const stored = resolved?.getItem(recentServerEndpointsStorageKey)
+    if (!stored) return []
+    const parsed: unknown = JSON.parse(stored)
+    if (!Array.isArray(parsed)) return []
+    const endpoints: string[] = []
+    for (const entry of parsed) {
+      if (typeof entry !== 'string') continue
+      try {
+        const endpoint = normalizeServerEndpoint(entry)
+        if (!endpoints.includes(endpoint)) endpoints.push(endpoint)
+      } catch {
+        // Invalid entries are discarded without making settings unreadable.
+      }
+    }
+    return endpoints.slice(0, recentServerEndpointLimit)
+  } catch {
+    return []
+  }
+}
+
+export function recordRecentServerEndpoint(endpoint: string, storage?: EndpointStorage): string[] {
+  const normalized = normalizeServerEndpoint(endpoint)
+  const resolved = storage ?? availableEndpointStorage()
+  if (!resolved) throw new Error('Server settings are unavailable in this environment.')
+  const recent = [normalized, ...readRecentServerEndpoints(resolved).filter((item) => item !== normalized)]
+    .slice(0, recentServerEndpointLimit)
+  resolved.setItem(recentServerEndpointsStorageKey, JSON.stringify(recent))
+  return recent
+}
+
+export function isUnencryptedRemoteEndpoint(value: string): boolean {
+  try {
+    const url = new URL(normalizeServerEndpoint(value))
+    const loopback = url.hostname === 'localhost' || url.hostname === '[::1]'
+      || url.hostname.split('.')[0] === '127'
+    return url.protocol === 'http:' && !loopback
+  } catch {
+    return false
+  }
+}
+
+export function activeConnectionLabel(storage?: EndpointStorage): string {
+  if (readConnectionMode(storage) === 'local') return 'Local — this Mac'
+  return `Remote — ${new URL(readServerEndpoint(storage)).host}`
+}
+
 /** Repointing the client at a different origin must not carry the previous
  * server's bearer to the new host: nothing downstream revokes it -- the only
  * clear-on-failure path is a 401 from the GraphQL route, and a server started

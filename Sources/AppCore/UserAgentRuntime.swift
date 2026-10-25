@@ -42,7 +42,7 @@ public struct UserAgentRuntimeFactory: Sendable {
       guard configuration.allowCodexSubscription == true else {
         throw AgentInvocationError.unavailable("Codex subscription is disabled on this server")
       }
-      return AgentGatewayCLIInvoker(vendor: "codex", model: credential.defaultModel, executionMode: .subscription)
+      return AgentGatewayCLIInvoker(vendor: "codex", model: CurrentAgentModels.resolved(credential.defaultModel, vendor: credential.provider.rawValue), executionMode: .subscription)
     }
     guard let baseURL = credential.resolvedBaseURL else {
       throw AgentInvocationError.unavailable(
@@ -61,7 +61,7 @@ public struct UserAgentRuntimeFactory: Sendable {
     return UserAgentToolLoopRunner(
       client: client,
       tools: KaibaAgentToolbox(service: service),
-      model: credential.defaultModel,
+      model: CurrentAgentModels.resolved(credential.defaultModel, vendor: credential.provider.rawValue),
       maxToolRounds: configuration.resolvedMaxToolRounds,
       supportsImageInput: Self.supportsImageInput(for: credential.provider)
     )

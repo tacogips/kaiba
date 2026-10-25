@@ -63,6 +63,24 @@ final class DocumentGatewayIsolationTests: XCTestCase {
     XCTAssertLessThan(Date().timeIntervalSince(start), 10)
   }
 
+  func testExplicitBlankResultSucceedsButMissingOrTruncatedRepliesFail() throws {
+    let root = try fixtureRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let image = root.appendingPathComponent("source.png")
+    try Data("image".utf8).write(to: image)
+    for (reply, succeeds) in [
+      (#"{"id":3,"result":{"stopReason":"end_turn","_meta":{"agentGateway":{"resultText":""}}}}"#, true),
+      (#"{"id":3,"result":{"stopReason":"end_turn"}}"#, false),
+      (#"{"id":3,"result":{"stopReason":"max_tokens","_meta":{"agentGateway":{"resultText":"partial text"}}}}"#, false)
+    ] {
+      let gateway = try script(in: root, body: "#!/bin/sh\n/bin/cat >/dev/null\nprintf '%s\\n' '\(reply)'\n")
+      let converter = AgentGatewayImageOCRConverter(commandPath: gateway.path, vendor: "openai", model: "test")
+      if succeeds { XCTAssertEqual(try converter.convert(inputPath: image.path).markdown, "") } else {
+        XCTAssertThrowsError(try converter.convert(inputPath: image.path))
+      }
+    }
+  }
+
   private func fixtureRoot() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("tmp/image-gateway-test-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

@@ -30,7 +30,7 @@ final class AIConfigurationTests: NoteTestCase {
         "ocr": {
           "commandPath": "/opt/bin/agent-gateway",
           "vendor": "codex",
-          "model": "gpt-5.6-luna"
+          "model": "gpt-6.1-sol"
         }
       }
     }
@@ -45,7 +45,7 @@ final class AIConfigurationTests: NoteTestCase {
     XCTAssertTrue(configuration.ai?.autoTagEnabled == true)
     XCTAssertEqual(configuration.importSettings?.ocr?.commandPath, "/opt/bin/agent-gateway")
     XCTAssertEqual(configuration.importSettings?.ocr?.vendor, "codex")
-    XCTAssertEqual(configuration.importSettings?.ocr?.model, "gpt-5.6-luna")
+    XCTAssertEqual(configuration.importSettings?.ocr?.model, "gpt-6.1-sol")
   }
 
   func testAbsentAISectionDefaults() throws {
@@ -145,6 +145,18 @@ final class AITagExtractionServiceTests: NoteTestCase {
     XCTAssertEqual(assignment.tag.classId, TagClassID("topic"))
     let parent = try XCTUnwrap(try service.listTags().first { $0.name == "swift" })
     XCTAssertEqual(assignment.tag.parentTagId, parent.tagId)
+  }
+
+  func testPreservesJapanesePersonAndBookTitleTags() async throws {
+    let service = try makeService()
+    let note = try service.createNote(bodyMarkdown: "大前研一の『世界が見える／日本が見える』について。")
+    let extraction = AITagExtractionService(service: service, invoker: StubInvoker(reply:
+      #"[{"name":"大前研一","class":"person"},{"name":"世界が見える／日本が見える","class":"name"}]"#
+    ))
+    _ = try await extraction.extractTags(subject: .note(note.noteId))
+    let tags = try service.getNote(note.noteId).tags
+    XCTAssertTrue(tags.contains { $0.tag.name == "大前研一" && $0.tag.classId == .person })
+    XCTAssertTrue(tags.contains { $0.tag.name == "世界が見える／日本が見える" && $0.tag.classId == .name })
   }
 
   func testDryRunDoesNotApply() async throws {

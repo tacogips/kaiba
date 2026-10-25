@@ -1,21 +1,15 @@
-import { For, Show, createEffect, createResource, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js'
+import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount, type JSX } from 'solid-js'
 import type { NoteId, NotebookId } from '../notes/ids'
 import { useApp } from '../state/appStore'
+import { PageOCRAction } from './PageOCRAction'
+import { documentPageMetadata } from '../notes/documentPages'
 import { TranslationLanguagePicker } from './TranslationLanguagePicker'
 import { WorkspaceIcon } from './WorkspaceIcon'
 import './form-controls.css'
 import './document-versions.css'
 
-/** The Translated version of one source page in one language. */
-export interface DocumentTranslationVersion {
-  sourceNoteId: NoteId
-  targetLanguage: string
-  text: string
-  /** False once the page text changed after this translation was made. */
-  isCurrent: boolean
-}
-/** The page versions: Original, OCR (extracted text) and Translated. */
-export type DocumentDisplayMode = 'original' | 'text' | 'translation'
+import type { DocumentDisplayMode, DocumentTranslationVersion } from '../notes/documentVersions'
+export type { DocumentDisplayMode, DocumentTranslationVersion } from '../notes/documentVersions'
 
 export function DocumentVersionsControl(props: {
   notebookId: NotebookId
@@ -28,6 +22,7 @@ export function DocumentVersionsControl(props: {
   onSelect: (mode: DocumentDisplayMode, translation?: DocumentTranslationVersion) => void
 }): JSX.Element {
   const app = useApp()
+  const [actions, setActions] = createSignal<'ocr' | 'translation'>()
   const [open, setOpen] = createSignal(false)
   const [language, setLanguage] = createSignal('')
   const [scope, setScope] = createSignal<'current' | 'range' | 'all'>('current')
@@ -42,7 +37,8 @@ export function DocumentVersionsControl(props: {
   let desiredLanguage = ''
   let adoptedVersion: DocumentTranslationVersion | undefined
   const [versions] = createResource(
-    () => ({ noteId: props.sourceNoteId, revision: app.state.catalogRevision }),
+    () => ({ noteId: props.sourceNoteId, revision: app.state.catalogRevision,
+      notebookRevision: app.state.notebookRevisions[props.notebookId] ?? 0 }),
     async ({ noteId }): Promise<DocumentTranslationVersion[]> => {
       setLoadFailure('')
       try {
@@ -81,20 +77,26 @@ export function DocumentVersionsControl(props: {
     }))
   const validRange = () => /^\d+$/.test(start()) && /^\d+$/.test(end())
     && Number(start()) >= 1 && Number(end()) >= Number(start()) && Number(end()) <= props.totalPages
-  const close = () => { setOpen(false); trigger.focus() }
-  createEffect(on(() => [props.pageNumber, props.sourceNoteId] as const, ([page]) => {
-    setStart(String(page))
-    setEnd(String(page))
+  const close = () => { setOpen(false); setActions(undefined); trigger?.focus() }
+  const pageKey = createMemo(() => `${props.sourceNoteId}/${props.pageNumber}`)
+  createEffect(on(pageKey, () => {
+    setStart(String(props.pageNumber))
+    setEnd(String(props.pageNumber))
     setStatus('')
     setFailure('')
     setOpen(false)
+    setActions(undefined)
   }))
   onMount(() => {
     const dismiss = (event: PointerEvent) => {
-      if (open() && event.target instanceof Node && !container.contains(event.target)) setOpen(false)
+      if ((open() || actions()) && event.target instanceof Node && !container.contains(event.target)) { setOpen(false); setActions(undefined) }
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && (open() || actions())) { event.preventDefault(); close() }
     }
     document.addEventListener('pointerdown', dismiss)
-    onCleanup(() => document.removeEventListener('pointerdown', dismiss))
+    document.addEventListener('keydown', escape)
+    onCleanup(() => { document.removeEventListener('pointerdown', dismiss); document.removeEventListener('keydown', escape) })
   })
   const translate = async (event: Event) => {
     event.preventDefault()
@@ -118,14 +120,22 @@ export function DocumentVersionsControl(props: {
     } finally { setBusy(false) }
   }
   return <div class="document-versions-control" ref={container} onKeyDown={(event) => {
-    if (event.key === 'Escape' && open()) { event.stopPropagation(); close() }
+    if (event.key === 'Escape' && (open() || actions())) { event.stopPropagation(); close() }
   }}>
     <div class="document-version-switch" role="group" aria-label="Page display">
-      <button type="button" class="secondary" aria-pressed={props.displayMode === 'original'} onClick={() => props.onSelect('original')}>Original</button>
-      <button type="button" class="secondary" aria-pressed={props.displayMode === 'text'} onClick={() => props.onSelect('text')}>OCR</button>
-      <button type="button" class="secondary" aria-pressed={props.displayMode === 'translation'} disabled={!selected() || versions.loading}
-        title={selected() ? `Translated: ${selected()!.targetLanguage}${selected()!.isCurrent ? '' : ' (outdated: the page text changed)'}` : 'No translation for this page'}
-        onClick={() => chooseTranslation(selected())}>Translated</button>
+      <button type="button" class="secondary document-version-mode" aria-label="Original" title="Show original page" aria-pressed={props.displayMode === 'original'} onClick={() => { setActions(undefined); setOpen(false); props.onSelect('original') }}><span class="document-version-icon"><WorkspaceIcon name="preview" /></span><span class="document-version-label">Original</span></button>
+      <span class="document-version-split">
+        <button type="button" class="secondary document-version-mode" aria-label="OCR" title="Show OCR text" aria-pressed={props.displayMode === 'text'} onClick={() => { setActions(undefined); setOpen(false); props.onSelect('text') }}><span class="document-version-icon"><WorkspaceIcon name="file" /></span><span class="document-version-label">OCR</span></button>
+        <button type="button" class="secondary document-version-actions" aria-label="OCR actions" title="OCR actions" aria-expanded={actions() === 'ocr'} aria-controls="document-version-actions"
+          onClick={(event) => { trigger = event.currentTarget; setOpen(false); setActions(actions() === 'ocr' ? undefined : 'ocr') }}><WorkspaceIcon name="chevronDown" /></button>
+      </span>
+      <span class="document-version-split">
+        <button type="button" class="secondary document-version-mode" aria-label="Translated" aria-pressed={props.displayMode === 'translation'}
+          title={selected() ? `Translated: ${selected()!.targetLanguage}${selected()!.isCurrent ? '' : ' (outdated: the page text changed)'}` : 'Show translated text'}
+          onClick={() => { setActions(undefined); setOpen(false); chooseTranslation(selected()) }}><span class="document-version-icon"><WorkspaceIcon name="translate" /></span><span class="document-version-label">Translated</span></button>
+        <button type="button" class="secondary document-version-actions" aria-label="Translation actions" title="Translation actions" aria-expanded={open() || actions() === 'translation'} aria-controls={open() ? 'document-translation-options' : 'document-version-actions'}
+          onClick={(event) => { trigger = event.currentTarget; const wasOpen = open(); setOpen(false); setActions(wasOpen || actions() === 'translation' ? undefined : 'translation') }}><WorkspaceIcon name="chevronDown" /></button>
+      </span>
     </div>
     <Show when={props.displayMode === 'translation' && availableVersions().length > 1}>
       <select class="document-translation-language" aria-label="Translation language" title={selected()?.targetLanguage}
@@ -138,10 +148,16 @@ export function DocumentVersionsControl(props: {
         </option>}</For>
       </select>
     </Show>
-    <button type="button" class="workspace-icon document-translate-trigger" ref={trigger} aria-label="Translate pages" title="Translate pages"
-      aria-expanded={open()} aria-controls="document-translation-options" onClick={() => setOpen(!open())}>
-      <WorkspaceIcon name="translate" />
-    </button>
+    <Show when={actions()}>
+      <section class="document-translation-popover document-version-action-list" id="document-version-actions" aria-label={actions() === 'ocr' ? 'OCR actions' : 'Translation actions'}>
+        <Show when={actions() === 'ocr'} fallback={
+          <button type="button" class="secondary form-action-button" aria-label="Translate pages" title="Choose language and pages to translate"
+            onClick={() => { setActions(undefined); setLanguage(selected()?.targetLanguage ?? language()); setOpen(true) }}><WorkspaceIcon name="translate" />{selected() ? 'Translate again…' : 'Translate…'}</button>
+        }>
+          <PageOCRAction noteId={props.sourceNoteId} pageNumber={props.pageNumber} complete={documentPageMetadata(app.state.note)?.textStatus === 'complete'} />
+        </Show>
+      </section>
+    </Show>
     <Show when={open()}>
       <section class="document-translation-popover" id="document-translation-options" aria-label="Translate pages">
         <form onSubmit={(event) => void translate(event)}>

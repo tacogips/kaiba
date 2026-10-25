@@ -1,4 +1,5 @@
 /* Reader controls keep the same shape even when a document title or tag is long. */
+.reader { container: reader / inline-size; }
 .reader button.reader-control.reader-control {
   display: inline-flex;
   flex: none;
@@ -48,7 +49,7 @@
   align-items: center;
   gap: .4rem;
 }
-.reader .page-tag-popover input { inline-size: 100%; min-inline-size: 0; box-sizing: border-box; }
+.reader .page-tag-popover input { grid-column: 1; grid-row: 1; inline-size: 100%; min-inline-size: 0; box-sizing: border-box; }
 .reader .page-tag-chip .tag-chip-open {
   min-inline-size: 0;
   max-inline-size: 12rem;
@@ -85,6 +86,8 @@
 .reader .page-tag-class-field { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
 .reader .page-tag-class-field select { flex: 1; min-inline-size: 0; }
 .reader .page-tag-popover form > button { grid-row: 1; }
+.reader .page-tag-popover form > button[type="submit"] { grid-column: 2; }
+.reader .page-tag-popover form > button[type="button"] { grid-column: 3; }
 .reader .page-tag-ontology-hint { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .reader .document-reader-footer input {
   flex: none;
@@ -95,3 +98,17 @@
 
 .reader .page-tag-empty { color: var(--muted); font-size: .75rem; white-space: nowrap; }
 .reader .document-tag-chip small { margin-inline-start: .35rem; color: var(--muted); font-size: .65rem; }
+
+@container reader (max-width: 40rem) {
+  .reader .reader-head.document-reader-head { padding-inline: .5rem; gap: .25rem; }
+  .reader .document-reader-head .reader-title { flex-basis: 6rem; }
+  .reader .document-reader-head .page-tags-editor { min-inline-size: 4rem; }
+  .reader .document-reader-head .document-version-label { display: none; }
+  .reader .document-reader-head .document-version-icon { display: inline-flex; }
+  .reader .document-reader-head .document-version-mode { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 1.6rem; padding-inline: .15rem; }
+  .reader .document-reader-head .document-version-actions { inline-size: 1.2rem; padding-inline: .1rem; }
+  .reader .document-reader-head .page-tags-editor > .reader-control { inline-size: 1.6rem; min-inline-size: 1.6rem; padding-inline: .15rem; }
+  .reader .document-reader-head .reader-actions { gap: .15rem; }
+  .reader .document-reader-head .reader-actions > button,
+  .reader .document-reader-head .reader-tools > summary { inline-size: 1.8rem; min-inline-size: 1.8rem; padding-inline: .2rem; }
+}

@@ -1,9 +1,10 @@
-import { For, type JSX } from 'solid-js'
+import { For, Show, type JSX } from 'solid-js'
 import { useApp } from '../state/appStore'
 import { clampFontScale, fontScaleBounds, type PDFTextMode } from '../notes/settings'
 import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
 import { UserAgentSettings } from '../components/UserAgentSettings'
 import { SearchEngineSettings } from '../components/SearchEngineSettings'
+import { VimSettings } from '../components/VimSettings'
 import '../components/form-controls.css'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
 
@@ -28,6 +29,16 @@ export function ConfigView(): JSX.Element {
         <h1>Settings</h1>
         <button type="button" class="secondary form-icon-button" aria-label="Back to reader" title="Back to reader" onClick={app.openReader}><WorkspaceIcon name="back" /></button>
       </header>
+      <Show when={app.settingsSave?.status() !== 'idle' && app.settingsSave}>
+        {(save) => <div class="config-preference-save" aria-label="Preference save status">
+          <Show when={save().status() === 'saving'}><p role="status">Saving preferences…</p></Show>
+          <Show when={save().status() === 'saved'}><p role="status">Preferences saved.</p></Show>
+          <Show when={save().status() === 'error'}><p role="alert" class="note-inline-error">
+            Preferences could not be saved: {save().error()}
+            <button type="button" class="secondary form-icon-button" aria-label="Retry saving preferences" title="Retry saving preferences" onClick={save().retry}><WorkspaceIcon name="refresh" /></button>
+          </p></Show>
+        </div>}
+      </Show>
 
       <section class="config-section">
         <h2>Font size</h2>
@@ -72,6 +83,8 @@ export function ConfigView(): JSX.Element {
         </label>
         <p>You can override this choice for each import.</p>
       </section>
+
+      <VimSettings />
       <ServerConnectionSettings />
 
       <UserAgentSettings />

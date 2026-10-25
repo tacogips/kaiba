@@ -34,10 +34,10 @@ test('one character creates after three quiet seconds; later edits update the sa
     expect(view.create).toHaveBeenCalledTimes(1)
     expect(view.autosave.status()).toBe('Saved')
     expect(view.draft.text()).toBe('First')
-    view.draft.setText('First\n<--->\nSecond')
+    view.draft.setText('First\n<><>\nSecond')
     await vi.advanceTimersByTimeAsync(3000)
     expect(view.create).toHaveBeenCalledTimes(1)
-    expect(view.update).toHaveBeenCalledWith(saved.notebookId, 'First\n<--->\nSecond')
+    expect(view.update).toHaveBeenCalledWith(saved.notebookId, 'First\n<><>\nSecond')
     expect(view.autosave.status()).toBe('Saved')
     expect(view.draft.baseText()).toBe(view.draft.text())
   } finally { view.dispose(); vi.useRealTimers() }

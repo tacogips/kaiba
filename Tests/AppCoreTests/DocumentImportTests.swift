@@ -106,7 +106,7 @@ final class DocumentConverterRoutingTests: NoteTestCase {
     let scriptURL = try makeExecutableScript("""
     #!/bin/sh
     if [ "$1" != "client" ] || [ "$2" != "--vendor" ] || [ "$3" != "codex" ] || \
-       [ "$4" != "--model" ] || [ "$5" != "gpt-5.6-luna" ] || \
+       [ "$4" != "--model" ] || [ "$5" != "gpt-6.1-sol" ] || \
        [ "$6" != "--prompt" ] || [ "$7" != "-" ] || \
        [ "$8" != "--api-key-environment" ] || [ "$9" != "CODEX_TOKEN" ] || \
        [ "${10}" != "--" ] || [ "${11}" != "--image" ] || [ -z "${12}" ]; then
@@ -130,7 +130,7 @@ final class DocumentConverterRoutingTests: NoteTestCase {
       ocr: AgentGatewayImageOCRConverter(
         commandPath: scriptURL.path,
         vendor: "codex",
-        model: "gpt-5.6-luna",
+        model: "gpt-6.1-sol",
         apiKeyEnvironment: "CODEX_TOKEN",
         environment: [:]
       )

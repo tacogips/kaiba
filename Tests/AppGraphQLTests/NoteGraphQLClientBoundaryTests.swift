@@ -151,7 +151,7 @@ final class NoteGraphQLClientBoundaryTests: XCTestCase {
       GraphQLIngestNotebookPagesInput(
         idempotencyKey: UUID().uuidString,
         title: "too-many",
-        pages: Array(repeating: validPage, count: 501)
+        pages: Array(repeating: validPage, count: NoteService.maximumDraftNoteCount + 1)
       ),
       GraphQLIngestNotebookPagesInput(
         idempotencyKey: UUID().uuidString,

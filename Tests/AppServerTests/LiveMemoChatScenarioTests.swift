@@ -123,7 +123,7 @@ final class LiveMemoChatScenarioTests: XCTestCase {
 
 private actor LiveLunaInvoker: AgentInvoking {
   private var calls = 0
-  private let gateway = AgentGatewayCLIInvoker(vendor: "codex", model: "gpt-5.6-luna", executionMode: .local)
+  private let gateway = AgentGatewayCLIInvoker(vendor: "codex", model: "gpt-6.1-sol", executionMode: .local)
 
   func count() -> Int { calls }
 
@@ -152,7 +152,7 @@ private final class LiveMemoScenarioServer {
     let bare = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root.path))
     var service = bare
     service.autoActionDispatcher = KaibaAutoActionDispatcher(
-      service: bare, invoker: invoker, provider: "codex", model: "gpt-5.6-luna"
+      service: bare, invoker: invoker, provider: "codex", model: "gpt-6.1-sol"
     )
     try service.configureAutoAction(
       actionId: NoteStoreSchema.agentChatReplyActionId, trigger: .noteCreated,
@@ -160,7 +160,7 @@ private final class LiveMemoScenarioServer {
     )
     self.service = service
     let executor = NoteGraphQLDocumentExecutor(service: GraphQLNoteGraphQLService(
-      service: service, agentInvoker: invoker, agentProvider: "codex", agentModel: "gpt-5.6-luna"
+      service: service, agentInvoker: invoker, agentProvider: "codex", agentModel: "gpt-6.1-sol"
     ))
     let handler = DeterministicServerRouteHandler(
       graphQLExecutor: executor, allowUnauthenticatedNoteAPI: true, noteService: service
@@ -228,7 +228,7 @@ private final class LiveMemoScenarioServer {
       } }
       """
     let variables: [String: Any] = ["input": [
-      "conversationNotebookId": notebookId, "userMarkdown": question, "model": "gpt-5.6-luna",
+      "conversationNotebookId": notebookId, "userMarkdown": question, "model": "gpt-6.1-sol",
       "idempotencyKey": UUID().uuidString, "attachments": attachments
     ]]
     let payload = try await operation(query, field: "sendAgentChatMessage", variables: variables)
@@ -243,7 +243,7 @@ private final class LiveMemoScenarioServer {
   func assertAnswer(_ identifier: String, contains tokens: [String]) throws {
     let note = try service.getNote(XCTUnwrap(NoteID(rawValue: identifier)))
     XCTAssertEqual(NoteService.chatTurnState(of: note)?.status, .answered)
-    XCTAssertEqual(NoteService.chatTurnState(of: note)?.model, "gpt-5.6-luna")
+    XCTAssertEqual(NoteService.chatTurnState(of: note)?.model, "gpt-6.1-sol")
     let answer = try XCTUnwrap(NoteService.assistantMarkdown(fromTurnBody: note.bodyMarkdown))
     for token in tokens {
       XCTAssertTrue(answer.contains(token), "Expected \(token) in live answer: \(answer)")

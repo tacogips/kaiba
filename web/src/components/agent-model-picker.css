@@ -1,0 +1,5 @@
+.agent-model-picker { position: relative; min-width: 9rem; width: min(22rem, 50vw); }
+.chatbook .agent-model-picker input { width: 100%; min-width: 0; box-sizing: border-box; padding: 4px 6px; font-size: .8rem; }
+.agent-model-options { position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 50; width: max-content; min-width: 100%; max-width: min(30rem, 90vw); max-height: min(20rem, 50dvh); overflow: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--surface, white); box-shadow: 0 3px 12px #0002; }
+.chatbook .agent-model-options button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; white-space: nowrap; }
+.chatbook .agent-model-options button.active, .chatbook .agent-model-options button:hover { background: var(--green-selected); }

@@ -35,6 +35,15 @@ final class DocumentPageOCRGraphQLTests: XCTestCase {
     XCTAssertEqual(try fixture.executor.service.service.getNote(fixture.note.noteId).bodyMarkdown, "")
   }
 
+  func testOCRFailureHasSafeActionableDiagnostic() async throws {
+    let fixture = try makeFixture(recognizer: FailingGraphQLPageRecognizer())
+    let response = await fixture.executor.execute(request(noteId: fixture.note.noteId))
+    let result = response.body["data"]?.asObject?["recognizeDocumentPage"]?.asObject?["result"]?.asObject
+    XCTAssertEqual(result?["accepted"], .bool(false))
+    let diagnostics = try XCTUnwrap(result?["diagnostics"]?.asArray)
+    XCTAssertEqual(diagnostics, [.string("Document processing failed. Check the file and OCR provider configuration, then retry.")])
+  }
+
   private func request(noteId: NoteID) -> GraphQLDocumentRequest {
     GraphQLDocumentRequest(query: """
       mutation OCR($noteId: String!) {
@@ -46,14 +55,13 @@ final class DocumentPageOCRGraphQLTests: XCTestCase {
       """, variables: ["noteId": .id(noteId)])
   }
 
-  private func makeFixture() throws -> (executor: NoteGraphQLDocumentExecutor, note: Note) {
+  private func makeFixture(recognizer: any DocumentPageRecognizing = GraphQLPageRecognizer()) throws -> (executor: NoteGraphQLDocumentExecutor, note: Note) {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
       .appendingPathComponent("tmp/AppGraphQLTests/DocumentPageOCR-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     let source = root.appendingPathComponent("image.png")
     try Data("original image".utf8).write(to: source)
     let service = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root.path))
-    let recognizer = GraphQLPageRecognizer()
     let imported = try service.importDocumentPages(at: source.path, processor: DocumentPageProcessor(recognizer: recognizer), maximumOCRPages: 0)
     return (NoteGraphQLDocumentExecutor(service: GraphQLNoteGraphQLService(service: service, documentPageRecognizer: recognizer)), try XCTUnwrap(imported.notes.first))
   }
@@ -63,5 +71,11 @@ private struct GraphQLPageRecognizer: DocumentPageRecognizing {
   func recognize(imageURL: URL) throws -> String {
     XCTAssertEqual(try Data(contentsOf: imageURL), Data("original image".utf8))
     return "# Page recognized"
+  }
+}
+
+private struct FailingGraphQLPageRecognizer: DocumentPageRecognizing {
+  func recognize(imageURL: URL) throws -> String {
+    throw DocumentConversionError.failed("private provider diagnostic must not escape")
   }
 }

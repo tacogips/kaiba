@@ -1,3 +1,4 @@
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import { expect, test, vi } from 'vitest'
 import { notebookId } from '../notes/ids'
@@ -33,4 +34,32 @@ test('renames a read-only document and preserves the editor when saving fails', 
     expect(mocks.rename).toHaveBeenLastCalledWith('pdf-book', 'My reading')
     expect(mocks.refresh).toHaveBeenCalledTimes(1)
   } finally { dispose(); host.remove() }
+})
+
+test('title edits dismiss outside or with global Escape, restore keyboard focus, and reset on notebook change', async () => {
+  vi.clearAllMocks()
+  const [id, setId] = createSignal('first')
+  const host = document.createElement('div'); document.body.append(host)
+  const outside = document.createElement('button'); document.body.append(outside)
+  const dispose = render(() => <NotebookTitleEditor notebook={{ notebookId: notebookId(id()), type: 'DOCUMENT',
+    title: `${id()}.pdf`, readOnly: true, tags: [], createdAt: '', updatedAt: '' }} />, host)
+  try {
+    const trigger = host.querySelector<HTMLButtonElement>('[aria-label="Rename document"]')!
+    trigger.click()
+    await vi.waitFor(() => expect(document.activeElement).toBe(host.querySelector('input')))
+    host.querySelector('input')!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    expect(host.querySelector('form')).not.toBeNull()
+    outside.dispatchEvent(new Event('pointerdown', { bubbles: true })); outside.focus()
+    expect(host.querySelector('form')).toBeNull()
+    expect(document.activeElement).toBe(outside)
+    trigger.click(); await Promise.resolve()
+    outside.focus()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    expect(host.querySelector('form')).toBeNull()
+    expect(document.activeElement).toBe(trigger)
+    trigger.click(); setId('second')
+    expect(host.querySelector('form')).toBeNull()
+    expect(host.querySelector('h1')?.textContent).toBe('second.pdf')
+    expect(mocks.rename).not.toHaveBeenCalled()
+  } finally { dispose(); host.remove(); outside.remove() }
 })

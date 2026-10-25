@@ -119,3 +119,39 @@ test.each([
     await vi.waitFor(() => expect(apply).toHaveBeenCalledWith('source', value, classId))
   } finally { dispose(); host.remove() }
 })
+
+test('newly refreshed page assignments take precedence over stale notebook-list entries', () => {
+  const fresh = { noteId: noteId('page-1'), notebookId: notebookId('pdf'), noteNumber: 1,
+    documentPage: testDocumentPage(), tags: [{ tag: { tagId: 'tag-new', name: 'Ada Lovelace', classId: 'person' }, deletable: true }] }
+  fixture.app = { state: { noteId: fresh.noteId, note: fresh, tags: [], tagClasses: [] },
+    notes: () => [{ ...fresh, tags: [] }], notebook: () => ({ tags: [] }) }
+  const host = document.createElement('header'); document.body.append(host)
+  const dispose = render(() => <PageTagsEditor />, host)
+  try { expect(host.textContent).toContain('Ada Lovelace'); expect(host.textContent).not.toContain('No page tags') }
+  finally { dispose(); host.remove() }
+})
+
+test('tag popovers dismiss outside and on global Escape with focus restored to their opening control', async () => {
+  const source = { noteId: noteId('page'), notebookId: notebookId('pdf'), noteNumber: 1,
+    documentPage: testDocumentPage(), tags: [{ tag: { tagId: 'date-tag', name: '2026-10-24', classId: 'date' }, deletable: true }] }
+  fixture.app = { state: { noteId: source.noteId, note: source, tags: [], tagClasses: [] }, notes: () => [source] }
+  const host = document.createElement('header'); document.body.append(host)
+  const outside = document.createElement('button'); document.body.append(outside)
+  const dispose = render(() => <PageTagsEditor />, host)
+  try {
+    const add = host.querySelector<HTMLButtonElement>('[aria-label="Add page tag"]')!
+    add.click(); await Promise.resolve()
+    host.querySelector('input')!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    outside.dispatchEvent(new Event('pointerdown', { bubbles: true })); outside.focus()
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(outside)
+    const edit = host.querySelector<HTMLButtonElement>('[aria-label="Edit tag 2026-10-24"]')!
+    edit.click(); await Promise.resolve()
+    expect(host.querySelector('input')?.type).toBe('date')
+    outside.focus()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(edit)
+  } finally { dispose(); host.remove(); outside.remove() }
+})

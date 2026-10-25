@@ -213,7 +213,7 @@ public struct AppCommand: Sendable {
       notebook   readonly <notebook-id> (--on|--off)
 
     Import:
-      page-ocr   <note-id>
+      page-ocr   <note-id> [--force-ocr]
       import     <file-path> [--title <t>] [--kind-tag <tag>] [--max-ocr-pages <N|all>] [--text-mode <prefer-pdf-text|ocr-only>] [--ocr-engine <vision|agent-gateway|google-document-ai>]
                  [--output json|text]
                  # convert a document (pdf, docx, pptx, epub, ...) with

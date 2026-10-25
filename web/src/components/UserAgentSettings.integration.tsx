@@ -91,7 +91,7 @@ describe('UserAgentSettings', () => {
     await settle()
 
     setInput(container, 'user-agent-api-key', 'sk-test-secret-1234')
-    setInput(container, 'user-agent-model', 'claude-opus-5')
+    setInput(container, 'user-agent-model', 'claude-opus-5-5')
     const form = container.querySelector('form') as HTMLFormElement
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await settle()
@@ -99,13 +99,13 @@ describe('UserAgentSettings', () => {
     expect(client.setCalls).toEqual([{
       provider: 'anthropic',
       apiKey: 'sk-test-secret-1234',
-      defaultModel: 'claude-opus-5',
+      defaultModel: 'claude-opus-5-5',
       baseURL: null,
       enabled: true,
     }])
     const status = container.querySelector('[data-testid="user-agent-status"]')?.textContent ?? ''
     expect(status).toContain('key ending in 1234')
-    expect(status).toContain('claude-opus-5')
+    expect(status).toContain('claude-opus-5-5')
     expect(container.innerHTML).not.toContain('sk-test-secret-1234')
     const keyField = container.querySelector('#user-agent-api-key') as HTMLInputElement
     expect(keyField.value).toBe('')
@@ -167,7 +167,7 @@ describe('UserAgentSettings', () => {
   })
 
   test('labels providers for people', () => {
-    expect(providerLabel('anthropic')).toBe('Anthropic')
+    expect(providerLabel('anthropic')).toBe('Claude')
     expect(providerLabel('openai-compatible')).toBe('OpenAI-compatible endpoint')
     expect(providerLabel('custom')).toBe('custom')
   })

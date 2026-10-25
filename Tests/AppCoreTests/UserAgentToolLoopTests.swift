@@ -675,7 +675,8 @@ final class UserAgentDispatchRoutingTests: NoteTestCase {
     XCTAssertEqual(streamer.requests.count, 2)
     XCTAssertEqual(streamer.requests[0].headers["x-api-key"], "sk-ant-alice")
     let second = try streamer.requestBody(at: 1)
-    XCTAssertEqual(second["model"]?.asString, "claude-opus-5")
+    // Legacy credential defaults are upgraded before the personal runtime sends.
+    XCTAssertEqual(second["model"]?.asString, "claude-opus-5-5")
     let lastMessage = try XCTUnwrap(second["messages"]?.asArray?.last)
     let toolResult = try XCTUnwrap(lastMessage["content"]?.asArray?.first?["content"]?.asString)
     XCTAssertTrue(toolResult.contains(plan.noteId.rawValue), toolResult)

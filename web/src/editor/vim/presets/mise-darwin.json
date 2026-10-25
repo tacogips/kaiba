@@ -1,0 +1,500 @@
+{
+  "version": 1,
+  "leader": "<Space>",
+  "timeoutlen": 1000,
+  "hints": {
+    "enabled": true,
+    "delayMs": 200,
+    "triggers": {
+      "n": [
+        "<Space>",
+        "g",
+        "m",
+        "z"
+      ],
+      "x": [
+        "<Space>",
+        "g"
+      ]
+    }
+  },
+  "hop": {
+    "enabled": true,
+    "keys": "fdjhklsagqwertyuiopzxcvbnm",
+    "uppercaseLabels": false
+  },
+  "maps": {
+    "n": [
+      {
+        "lhs": "<leader>y",
+        "rhs": "\"+y",
+        "desc": "Yank to clipboard"
+      },
+      {
+        "lhs": "<leader>p",
+        "rhs": "\"+p",
+        "desc": "Paste after from clipboard"
+      },
+      {
+        "lhs": "<leader>P",
+        "rhs": "\"+P",
+        "desc": "Paste before from clipboard"
+      },
+      {
+        "lhs": "<leader>Y",
+        "rhs": "\"+Y",
+        "desc": "Yank line to clipboard"
+      },
+      {
+        "lhs": "k",
+        "rhs": "gk",
+        "desc": "Move up by display line"
+      },
+      {
+        "lhs": "J",
+        "rhs": "gJ",
+        "desc": "Join lines without spaces"
+      },
+      {
+        "lhs": "+",
+        "rhs": "g;",
+        "desc": "Go to older change position"
+      },
+      {
+        "lhs": "mm",
+        "rhs": "%",
+        "desc": "Jump to matching bracket"
+      },
+      {
+        "lhs": "zc",
+        "rhs": "zz",
+        "desc": "Center current line"
+      },
+      {
+        "lhs": "zj",
+        "rhs": "<C-e>",
+        "desc": "Scroll view down"
+      },
+      {
+        "lhs": "zk",
+        "rhs": "<C-y>",
+        "desc": "Scroll view up"
+      },
+      {
+        "lhs": "<Esc><Esc>",
+        "rhs": ":nohlsearch<CR>",
+        "desc": "Clear search highlight"
+      },
+      {
+        "lhs": "Q",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "gQ",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "gq",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "g%",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "gx",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "g0",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "g8",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "ga",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "g^",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "g_",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "g~",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "za",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zA",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zo",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zO",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zr",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zi",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zf",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zF",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "z=",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "z^",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "z.",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "z+",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zp",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zP",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zw",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zW",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zx",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "zX",
+        "rhs": "<Nop>",
+        "desc": "Disable unsupported built-in mapping"
+      },
+      {
+        "lhs": "ms",
+        "rhs": "ys",
+        "remap": true,
+        "desc": "Add surround"
+      },
+      {
+        "lhs": "mr",
+        "rhs": "cs",
+        "remap": true,
+        "desc": "Replace surround"
+      },
+      {
+        "lhs": "md",
+        "rhs": "ds",
+        "remap": true,
+        "desc": "Delete surround"
+      },
+      {
+        "lhs": "ma",
+        "rhs": "va",
+        "remap": true,
+        "desc": "Select around textobject"
+      },
+      {
+        "lhs": "mi",
+        "rhs": "vi",
+        "remap": true,
+        "desc": "Select inside textobject"
+      },
+      {
+        "lhs": "gj",
+        "action": "hop.char1",
+        "desc": "Hop anywhere"
+      },
+      {
+        "lhs": "gf",
+        "action": "hop.char1Line",
+        "desc": "Hop on current line"
+      },
+      {
+        "lhs": "<leader>w",
+        "action": "kaiba.save",
+        "desc": "Write (save) the note"
+      },
+      {
+        "lhs": "<leader>q",
+        "action": "kaiba.close",
+        "desc": "Quit (close) the editor"
+      }
+    ],
+    "i": [
+      {
+        "lhs": "<C-d>",
+        "rhs": "<Del>",
+        "desc": "Delete forward"
+      },
+      {
+        "lhs": "<C-h>",
+        "rhs": "<BS>",
+        "desc": "Delete backward"
+      },
+      {
+        "lhs": "<C-f>",
+        "rhs": "<Right>",
+        "desc": "Move right"
+      },
+      {
+        "lhs": "<C-b>",
+        "rhs": "<Left>",
+        "desc": "Move left"
+      },
+      {
+        "lhs": "kj",
+        "rhs": "<Esc>",
+        "desc": "Exit insert mode"
+      },
+      {
+        "lhs": "<C-j>",
+        "rhs": "<Nop>",
+        "desc": "Disable Ctrl-j mapping"
+      }
+    ],
+    "x": [
+      {
+        "lhs": "kj",
+        "rhs": "<Esc>",
+        "desc": "Exit visual mode"
+      },
+      {
+        "lhs": "<leader>y",
+        "rhs": "\"+y",
+        "desc": "Yank to clipboard"
+      },
+      {
+        "lhs": "<leader>p",
+        "rhs": "\"+p",
+        "desc": "Paste after from clipboard"
+      },
+      {
+        "lhs": "<leader>P",
+        "rhs": "\"+P",
+        "desc": "Paste before from clipboard"
+      },
+      {
+        "lhs": "<leader>Y",
+        "rhs": "\"+Y",
+        "desc": "Yank line to clipboard"
+      },
+      {
+        "lhs": "gj",
+        "action": "hop.char1",
+        "desc": "Hop anywhere"
+      },
+      {
+        "lhs": "gf",
+        "action": "hop.char1Line",
+        "desc": "Hop on current line"
+      }
+    ],
+    "c": [
+      {
+        "lhs": "<C-g>",
+        "rhs": "<Esc>",
+        "desc": "Cancel command line"
+      },
+      {
+        "lhs": "<C-a>",
+        "rhs": "<Home>",
+        "desc": "Move to command line start"
+      }
+    ]
+  },
+  "unsupported": [
+    {
+      "mode": "i",
+      "lhs": "<C-v>",
+      "reference": "paste from + register",
+      "reason": "Ctrl-v is reserved for platform paste; use Mod-v for clipboard paste (KQ7)."
+    },
+    {
+      "mode": "i",
+      "lhs": "<C-a>",
+      "reference": "LSP completion trigger",
+      "reason": "The completion action exists, but Ctrl-a is reserved for platform shortcuts in insert mode and cannot be mapped."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>k",
+      "reference": "LSP hover",
+      "reason": "kaiba has no hover action."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>\\",
+      "reference": "LSP restart",
+      "reason": "No kaiba action restarts the language server."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>.",
+      "reference": "Reload file (:edit!)",
+      "reason": "The Vim keymap has no file reload action."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>c",
+      "reference": "Copy file path",
+      "reason": "No kaiba action copies the current file path."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>C",
+      "reference": "Copy working directory",
+      "reason": "No kaiba action copies the working directory."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>v",
+      "reference": "Open current path in Chilla",
+      "reason": "Chilla integration is not available in kaiba."
+    },
+    {
+      "mode": "n",
+      "lhs": "gd",
+      "reference": "LSP definition",
+      "reason": "No definition navigation action is exposed."
+    },
+    {
+      "mode": "n",
+      "lhs": "gy",
+      "reference": "LSP type definition",
+      "reason": "No type-definition action is exposed."
+    },
+    {
+      "mode": "n",
+      "lhs": "gr",
+      "reference": "Telescope LSP references",
+      "reason": "No references picker is exposed."
+    },
+    {
+      "mode": "n",
+      "lhs": "gi",
+      "reference": "Telescope LSP implementations",
+      "reason": "No implementations picker is exposed."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>a",
+      "reference": "LSP code action",
+      "reason": "No code-action interface is exposed."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>r",
+      "reference": "LSP rename",
+      "reason": "No rename action is exposed."
+    },
+    {
+      "mode": "i",
+      "lhs": "<Esc>",
+      "reference": "Exit insert and set iminsert=0",
+      "reason": "Exit insert is built in; the extra iminsert toggle is Neovim-specific."
+    },
+    {
+      "mode": "n",
+      "lhs": "(no mapping)",
+      "reference": "window, buffer and tab commands",
+      "reason": "No such command mapping appears in the inspected reference keymaps.lua."
+    },
+    {
+      "mode": "n",
+      "lhs": "(no mapping)",
+      "reference": "Telescope pickers beyond LSP references and implementations",
+      "reason": "No additional picker mapping appears in the inspected reference keymaps.lua."
+    },
+    {
+      "mode": "n",
+      "lhs": "gn",
+      "reference": "Next diagnostic",
+      "reason": "kaiba editors have no diagnostics or live evaluation."
+    },
+    {
+      "mode": "n",
+      "lhs": "<C-g>",
+      "reference": "Next diagnostic",
+      "reason": "kaiba editors have no diagnostics or live evaluation."
+    },
+    {
+      "mode": "n",
+      "lhs": "gp",
+      "reference": "Previous diagnostic",
+      "reason": "kaiba editors have no diagnostics or live evaluation."
+    },
+    {
+      "mode": "n",
+      "lhs": "<C-s>",
+      "reference": "Previous diagnostic",
+      "reason": "kaiba editors have no diagnostics or live evaluation."
+    },
+    {
+      "mode": "n",
+      "lhs": "<leader>R",
+      "reference": "Run current buffer",
+      "reason": "kaiba editors have no diagnostics or live evaluation."
+    }
+  ]
+}

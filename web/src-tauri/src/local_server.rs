@@ -173,9 +173,21 @@ fn local_configuration(mut value: serde_json::Value) -> Result<serde_json::Value
         .ok_or("Local AI configuration must be an object")?;
     ai.entry("agent").or_insert_with(|| {
         serde_json::json!({
-            "backend": "agent-gateway-cli", "provider": "codex", "model": "gpt-5.6-luna"
+            "backend": "agent-gateway-cli", "provider": "codex", "model": "gpt-6.1-sol",
+            "allowedProviders": ["codex", "claude-code", "openai", "gemini"]
         })
     });
+    if let Some(agent) = ai
+        .get_mut("agent")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        if agent.get("model").and_then(serde_json::Value::as_str) == Some("gpt-5.6-luna") {
+            agent.insert("model".into(), serde_json::json!("gpt-6.1-sol"));
+            agent
+                .entry("allowedProviders")
+                .or_insert_with(|| serde_json::json!(["codex", "claude-code", "openai", "gemini"]));
+        }
+    }
     let personal = ai
         .entry("userAgent")
         .or_insert_with(|| serde_json::json!({}))
@@ -205,15 +217,29 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn empty_local_store_has_codex_luna_defaults() {
+    fn empty_local_store_has_current_codex_defaults() {
         let configured = local_configuration(json!({})).unwrap();
         assert_eq!(configured["ai"]["agent"]["provider"], "codex");
-        assert_eq!(configured["ai"]["agent"]["model"], "gpt-5.6-luna");
+        assert_eq!(configured["ai"]["agent"]["model"], "gpt-6.1-sol");
         assert_eq!(
             configured["ai"]["userAgent"]["allowCodexSubscription"],
             true
         );
         assert_eq!(local_configuration(configured.clone()).unwrap(), configured);
+    }
+
+    #[test]
+    fn previous_local_default_is_migrated_without_overwriting_vendor_policy() {
+        let original = json!({"ai": {"agent": {
+            "backend": "agent-gateway-cli", "provider": "codex", "model": "gpt-5.6-luna",
+            "allowedProviders": ["codex"]
+        }}});
+        let configured = local_configuration(original).unwrap();
+        assert_eq!(configured["ai"]["agent"]["model"], "gpt-6.1-sol");
+        assert_eq!(
+            configured["ai"]["agent"]["allowedProviders"],
+            json!(["codex"])
+        );
     }
 
     #[test]

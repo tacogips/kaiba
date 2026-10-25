@@ -19,6 +19,8 @@
     "tauri:ios:build": "tauri ios build"
   },
   "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/state": "6.7.6",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-http": "^2.0.0",
     "pdfjs-dist": "^6.4.299",

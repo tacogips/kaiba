@@ -1,5 +1,6 @@
 .document-versions-control { position: relative; display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
 .document-version-switch { display: flex; align-items: center; gap: 0.15rem; }
+.document-version-icon { display: none; }
 .document-version-switch button { white-space: nowrap; padding: 0.3rem 0.45rem; }
 .document-version-switch button[aria-pressed="true"] { background: var(--green-selected, #34303f); color: var(--green-ink, #e0d7f8); border-color: var(--green-ink, #e0d7f8); }
 .document-translation-language { min-width: 0; max-width: 8rem; }
@@ -19,3 +20,10 @@
 .chatbook button.document-translate-trigger { color: var(--green-ink); background: transparent; }
 .document-translate-trigger svg { display: block; }
 .chatbook .document-translation-popover button.translation-submit:disabled { opacity: 1; color: var(--muted); background: var(--green-selected); border-color: var(--line); }
+
+.document-version-split { display: inline-flex; align-items: stretch; }
+.document-version-split > button:first-child { border-start-end-radius: 0; border-end-end-radius: 0; border-inline-end: 0; }
+.document-version-split > button.document-version-actions { display: inline-flex; align-items: center; justify-content: center; padding-inline: .2rem; border-start-start-radius: 0; border-end-start-radius: 0; }
+.document-version-actions svg { width: .8rem; height: .8rem; }
+.document-version-action-list { width: max-content; max-width: calc(100vw - 2rem); padding: .5rem; }
+.document-version-action-list .page-ocr-action { display: grid; gap: .5rem; }

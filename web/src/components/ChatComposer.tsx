@@ -2,7 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup, type JSX } from 'soli
 import type { AgentModel } from '../notes/types'
 import { handleComposerKeyDown } from '../notes/memoComposer'
 import { WorkspaceIcon } from './WorkspaceIcon'
-import { providerLabel } from './UserAgentSettings'
+import { AgentModelPicker } from './AgentModelPicker'
 
 export interface MemoComposerControlsProps {
   memoOnly: boolean
@@ -30,7 +30,7 @@ export interface MemoComposerControlsProps {
   onToggleNoteEdit(): void
   onDraftChange(value: string): void
   onRemoveAttachment(index: number): void
-  onModelChange(model: string): void
+  onModelChange(model: string, provider?: string): void
   onSubmit(): void
 }
 
@@ -97,20 +97,9 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
     <div class="composer-toolbar">
       <button type="button" class="composer-icon" title="Attach text files or images"
         aria-label="Attach text files or images" aria-disabled={!canAttach()} disabled={!canAttach()} onClick={() => picker?.click()}><WorkspaceIcon name="add" /></button>
-      <select class="composer-model" aria-label="Agent provider" title="Agent provider"
-        disabled={!props.extensionsEnabled || locked() || props.readOnly || !props.providers?.length}
-        value={props.selectedProvider ?? ''} onInput={(event) => props.onProviderChange?.(event.currentTarget.value)}>
-        <Show when={!props.selectedProvider}><option value="">Default provider</option></Show>
-        <For each={props.providers ?? []}>{(provider) => <option value={provider}>{providerLabel(provider)}</option>}</For>
-      </select>
-      <select class="composer-model" aria-label="Agent model" title="Agent model"
-        disabled={!props.extensionsEnabled || locked() || props.readOnly || props.models.length === 0}
-        value={props.selectedModel ?? ''} onInput={(event) => props.onModelChange(event.currentTarget.value)}>
-        <Show when={!props.selectedModel || !props.models.some((model) => model.modelId === props.selectedModel)}>
-          <option value={props.selectedModel ?? ''}>{props.selectedModel ?? (props.models.length ? 'Default model' : 'No model configured')}</option>
-        </Show>
-        <For each={props.models}>{(model) => <option value={model.modelId}>{model.displayName ?? model.modelId}</option>}</For>
-      </select>
+      <AgentModelPicker models={props.models} selectedModel={props.selectedModel} selectedProvider={props.selectedProvider}
+        disabled={!props.extensionsEnabled || locked() || Boolean(props.readOnly) || props.models.length === 0}
+        onSelect={props.onModelChange} />
       <Show when={!props.hideModes}>
         <details class="composer-options">
           <summary aria-label="Chat options" title="Chat options"><WorkspaceIcon name="more" /></summary>

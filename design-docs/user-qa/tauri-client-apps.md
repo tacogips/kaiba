@@ -68,8 +68,8 @@ which is exactly why the gate question matters.
 
 ### Should a non-loopback `http` endpoint be blocked or warned?
 
-Status: Pending
+Status: Answered (2026-10-25)
 
-The endpoint validator accepts any `http` host, so a LAN address sends the
-bearer in plaintext. Options are to keep the current behavior, warn in the
-settings form, or require HTTPS for non-loopback hosts.
+Warn, do not block. The settings form shows a non-blocking notice for an
+`http` endpoint whose host is not loopback. See
+`design-docs/user-qa/tauri-client-connection-20261025.md`.

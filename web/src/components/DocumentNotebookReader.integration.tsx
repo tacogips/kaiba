@@ -226,3 +226,30 @@ test('PDF translations stay plain text and page navigation selects source notes 
     expect(harness.host.querySelector('[aria-label="Translated page"] pre')?.textContent).toBe(translatedText)
   } finally { harness.close() }
 })
+
+
+test('PDF Ctrl-D/U use physical key codes while j/k scroll without changing pages', async () => {
+  const harness = mount(() => {
+    const [selected, setSelected] = createSignal(noteId('note-1'))
+    const notes = [page(1), page(2)].map((note) => ({ ...note,
+      documentPage: { ...note.documentPage!, originMediaType: 'application/pdf' } }))
+    return <main class="reader"><button aria-label="Reader header control">Original</button>
+      <DocumentNotebookReader notes={notes} selectedNoteId={selected()} totalCount={2}
+        onSelect={(note) => setSelected(note.noteId)} onLoadMore={async () => {}} /></main>
+  }, async () => new Blob(['pdf'], { type: 'application/pdf' }))
+  try {
+    await settle()
+    const stage = harness.host.querySelector<HTMLElement>('.pdf-viewer-stage')!
+    stage.scrollBy = vi.fn()
+    for (const key of ['j', 'k']) window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }))
+    expect(stage.scrollBy).toHaveBeenNthCalledWith(1, { top: 48, behavior: 'instant' })
+    expect(stage.scrollBy).toHaveBeenNthCalledWith(2, { top: -48, behavior: 'instant' })
+    expect(harness.host.textContent).toContain('Page 1 / 2')
+    const header = harness.host.querySelector<HTMLButtonElement>('[aria-label="Reader header control"]')!
+    header.focus()
+    header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', code: 'KeyD', ctrlKey: true, cancelable: true, bubbles: true }))
+    await settle(); expect(harness.host.textContent).toContain('Page 2 / 2')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Unidentified', code: 'KeyU', ctrlKey: true, cancelable: true }))
+    await settle(); expect(harness.host.textContent).toContain('Page 1 / 2')
+  } finally { harness.close() }
+})

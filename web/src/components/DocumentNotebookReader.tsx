@@ -1,4 +1,5 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
+import { onGotoPage, readerControlPage, readerKeyAllowed, scrollReader } from '../notes/readerKeyboard'
 import { documentPageMetadata, pageStepForArrow } from '../notes/documentPages'
 import { noteHeadingPrefix } from '../notes/toc'
 import { tagTermsFromAssignments } from '../notes/tagMatch'
@@ -49,6 +50,7 @@ export function DocumentNotebookReader(props: {
   const total = () => props.totalCount ?? ordered().length
   let disposed = false
   let swipeStart: number | undefined
+  let reader!: HTMLElement
   onCleanup(() => { disposed = true })
 
   const selectIndex = async (targetIndex: number) => {
@@ -74,12 +76,9 @@ export function DocumentNotebookReader(props: {
   }
   const step = (delta: number) => void selectIndex(index() + delta)
   const keydown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.isComposing || event.metaKey || event.altKey
-      || document.querySelector('dialog[open], [role="dialog"]')) return
-    if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
-    const delta = event.ctrlKey
-      ? event.key.toLowerCase() === 'u' ? -1 : event.key.toLowerCase() === 'd' ? 1 : 0
-      : pageStepForArrow(event.key, binding())
+    if (!readerKeyAllowed(event, reader)) return
+    if (scrollReader(event, reader, false)) return
+    const delta = event.ctrlKey ? readerControlPage(event) : pageStepForArrow(event.key, binding())
     if (delta) { event.preventDefault(); step(delta) }
   }
   const pointerUp = (event: PointerEvent) => {
@@ -93,7 +92,8 @@ export function DocumentNotebookReader(props: {
 
   onMount(() => {
     window.addEventListener('keydown', keydown)
-    onCleanup(() => window.removeEventListener('keydown', keydown))
+    const stopGoto = onGotoPage((target) => void selectIndex(target === 'first' ? 0 : target === 'last' ? Math.max(0, total() - 1) : Math.min(target, Math.max(1, total())) - 1))
+    onCleanup(() => { window.removeEventListener('keydown', keydown); stopGoto() })
   })
   const navigation = () => <nav classList={{ 'document-page-navigation': true, 'right-binding': binding() === 'right' }} aria-label="Page navigation">
         <button type="button" class="secondary reader-control" aria-label="Previous page" title="Previous page (Ctrl+U)" disabled={loading() || index() === 0}
@@ -124,7 +124,7 @@ export function DocumentNotebookReader(props: {
     </div>}>{(version) => <pre lang={version().targetLanguage}>{version().text}</pre>}</Show>
   </section>
 
-  return <section class="document-reader" aria-label="Document pages" tabindex="0">
+  return <section class="document-reader" aria-label="Document pages" tabindex="0" ref={reader} aria-keyshortcuts="Control+d Control+u j k">
     <Show when={metadata()?.originMediaType !== 'application/pdf'}>
       <header class="document-reader-toolbar">{navigation()}</header>
     </Show>

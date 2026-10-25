@@ -101,19 +101,21 @@ export function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
 
 export function parseInlineSegments(text: string): InlineSegment[] {
   const segments: InlineSegment[] = []
-  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)|(!?\[([^\]]*)\]\(([^)\s]+)\))/g
+  const pattern = /\\[!-/:-@[-`{-~]|(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\s][^*]*\*)|(_[^_\s][^_]*_)|(!?\[([^\]]*)\]\(([^)\s]+)\))/g
   let cursor = 0
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
     if (match.index > cursor) segments.push({ kind: 'text', text: text.slice(cursor, match.index) })
     const token = match[0] ?? ''
-    if (token.startsWith('`')) {
+    if (token.startsWith('\\')) {
+      segments.push({ kind: 'text', text: token.slice(1) })
+    } else if (token.startsWith('`')) {
       segments.push({ kind: 'code', text: token.slice(1, -1) })
     } else if (token.startsWith('**') || token.startsWith('__')) {
-      segments.push({ kind: 'bold', text: token.slice(2, -2) })
+      segments.push({ kind: 'bold', text: unescapePunctuation(token.slice(2, -2)) })
     } else if ((token.startsWith('[') || token.startsWith('![')) && match[7] !== undefined && match[8] !== undefined) {
-      segments.push({ kind: token.startsWith('!') ? 'image' : 'link', text: match[7], href: match[8] })
+      segments.push({ kind: token.startsWith('!') ? 'image' : 'link', text: unescapePunctuation(match[7]), href: unescapePunctuation(match[8]) })
     } else {
-      segments.push({ kind: 'italic', text: token.slice(1, -1) })
+      segments.push({ kind: 'italic', text: unescapePunctuation(token.slice(1, -1)) })
     }
     cursor = match.index + token.length
   }
@@ -129,4 +131,9 @@ export function plainInlineText(text: string): string {
 
 export function isSafeHref(href: string): boolean {
   return /^(https?:|mailto:|#|\/)/i.test(href)
+}
+
+/** Backslash escapes ASCII punctuation in Markdown prose, never code spans. */
+function unescapePunctuation(text: string): string {
+  return text.replace(/\\([!-/:-@[-`{-~])/g, '$1')
 }

@@ -9,20 +9,21 @@ const fixture = vi.hoisted(() => ({ app: {} as Record<string, unknown> }))
 vi.mock('../state/appStore', () => ({ useApp: () => fixture.app }))
 
 function mount(available: DocumentTranslationVersion[] = []) {
-  const [state, setState] = createStore({ catalogRevision: 0 })
+  const [state, setState] = createStore({ catalogRevision: 0, notebookRevisions: {} as Record<string, number> })
   const versions = vi.fn(async (_id: string) => available.map((version) => ({
     noteId: version.sourceNoteId, language: version.targetLanguage, body: version.text,
     isCurrent: version.isCurrent, updatedAt: '',
   })))
   const translate = vi.fn(async (_input: unknown) => ({ status: 'queued' }))
   fixture.app = { state, client: { noteTranslations: versions, requestNotebookTranslation: translate } }
+  const [page, setPage] = createSignal({ pageNumber: 4 })
   const [source, setSource] = createSignal(noteId('page-4'))
   const [mode, setMode] = createSignal<DocumentDisplayMode>('original')
   const [selected, setSelected] = createSignal<DocumentTranslationVersion>()
   const onSelect = vi.fn((next: DocumentDisplayMode, version?: DocumentTranslationVersion) => { setMode(next); setSelected(version) })
   const host = document.createElement('div')
   document.body.append(host)
-  const dispose = render(() => <DocumentVersionsControl notebookId={notebookId('pdf')} sourceNoteId={source()} pageNumber={4}
+  const dispose = render(() => <DocumentVersionsControl notebookId={notebookId('pdf')} sourceNoteId={source()} pageNumber={page().pageNumber}
     totalPages={12} displayMode={mode()} selectedLanguage={selected()?.targetLanguage} onSelect={onSelect} />, host)
   const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')]
     .find((item) => (item.getAttribute('aria-label') ?? item.textContent) === label)!
@@ -31,18 +32,18 @@ function mount(available: DocumentTranslationVersion[] = []) {
     element.value = value
     element.dispatchEvent(new Event(event, { bubbles: true }))
   }
-  const open = () => button('Translate pages').click()
+  const open = () => { button('Translation actions').click(); button('Translate pages').click() }
   const submit = () => host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   const close = () => { dispose(); host.remove() }
-  return { host, versions, translate, button, input, open, submit, close, setState, setSource, onSelect }
+  return { host, versions, translate, button, input, open, submit, close, setState, setSource, setPage, onSelect }
 }
 
 describe('PDF header versions and translation', () => {
-  test('switches Original/OCR and disables Translated when no version exists', async () => {
+  test('keeps both views available before recognition or translation', async () => {
     const view = mount()
     try {
       await vi.waitFor(() => expect(view.versions).toHaveBeenCalledWith('page-4'))
-      expect(view.button('Translated').disabled).toBe(true)
+      expect(view.button('Translated').disabled).toBe(false)
       view.button('OCR').click()
       expect(view.onSelect).toHaveBeenLastCalledWith('text')
       expect(view.button('OCR').getAttribute('aria-pressed')).toBe('true')
@@ -56,7 +57,7 @@ describe('PDF header versions and translation', () => {
     const french = { ...english, targetLanguage: 'French', text: 'Bonjour', isCurrent: false }
     const view = mount([english, french])
     try {
-      await vi.waitFor(() => expect(view.button('Translated').disabled).toBe(false))
+      await vi.waitFor(() => expect(view.button('Translated').title).toContain('English'))
       view.button('Translated').click()
       expect(view.onSelect).toHaveBeenLastCalledWith('translation', english)
       view.input('[aria-label="Translation language"]', 'French', 'change')
@@ -75,7 +76,7 @@ describe('PDF header versions and translation', () => {
     const french = { ...english, targetLanguage: 'French', text: 'Bonjour' }
     const view = mount([english, french])
     try {
-      await vi.waitFor(() => expect(view.button('Translated').disabled).toBe(false))
+      await vi.waitFor(() => expect(view.button('Translated').title).toContain('English'))
       view.button('Translated').click()
       view.input('[aria-label="Translation language"]', 'French', 'change')
       const page5 = { ...french, sourceNoteId: noteId('page-5'), text: 'Page cinq' }
@@ -95,7 +96,7 @@ describe('PDF header versions and translation', () => {
       view.versions.mockResolvedValueOnce([])
       view.setSource(noteId('page-6'))
       await vi.waitFor(() => expect(view.onSelect).toHaveBeenLastCalledWith('translation', undefined))
-      expect(view.button('Translated').disabled).toBe(true)
+      expect(view.button('Translated').disabled).toBe(false)
     } finally { view.close() }
   })
 
@@ -138,8 +139,53 @@ describe('PDF header versions and translation', () => {
       await vi.waitFor(() => expect(view.host.querySelector('[role="status"]')?.textContent).toContain('not queued'))
       view.host.querySelector('form')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       expect(view.host.querySelector('form')).toBeNull()
-      expect(view.button('Translate pages').getAttribute('aria-expanded')).toBe('false')
-      expect(document.activeElement).toBe(view.button('Translate pages'))
+      expect(view.button('Translation actions').getAttribute('aria-expanded')).toBe('false')
+      expect(document.activeElement).toBe(view.button('Translation actions'))
     } finally { view.close() }
   })
+})
+
+test('split arrows expose actions even before OCR or translation exists', async () => {
+  const view = mount()
+  const enqueue = vi.fn()
+  fixture.app.ocrTasks = { taskFor: () => undefined, enqueue }
+  fixture.app.notebook = () => ({ title: 'PDF' })
+  try {
+    view.button('OCR actions').click()
+    expect(view.button('OCR actions').getAttribute('aria-expanded')).toBe('true')
+    view.button('Make page searchable').click()
+    expect(enqueue).toHaveBeenCalledWith('page-4', 'PDF', 4, true)
+    view.button('Translation actions').click()
+    view.button('Translate pages').click()
+    expect(view.host.querySelector('form')).not.toBeNull()
+    view.button('Translated').click()
+    expect(view.onSelect).toHaveBeenLastCalledWith('translation', undefined)
+  } finally { view.close() }
+})
+
+test('a completed background translation appears on a notebook event without a catalog reload', async () => {
+  const view = mount()
+  try {
+    await vi.waitFor(() => expect(view.versions).toHaveBeenCalledTimes(1))
+    view.button('Translated').click()
+    view.versions.mockResolvedValueOnce([{ noteId: noteId('page-4'), language: 'Japanese', body: '翻訳済み', isCurrent: true, updatedAt: '' }])
+    view.setState('notebookRevisions', 'pdf', 1)
+    await vi.waitFor(() => expect(view.onSelect).toHaveBeenLastCalledWith('translation', {
+      sourceNoteId: 'page-4', targetLanguage: 'Japanese', text: '翻訳済み', isCurrent: true,
+    }))
+  } finally { view.close() }
+})
+
+test('translation options survive same-page refreshes and Escape works after focus leaves the popover', () => {
+  const view = mount()
+  try {
+    view.open()
+    view.input('input', 'English')
+    view.setPage({ pageNumber: 4 })
+    expect(view.host.querySelector('form')).not.toBeNull()
+    expect(view.host.querySelector<HTMLInputElement>('input')?.value).toBe('English')
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(view.host.querySelector('form')).toBeNull()
+    expect(document.activeElement).toBe(view.button('Translation actions'))
+  } finally { view.close() }
 })

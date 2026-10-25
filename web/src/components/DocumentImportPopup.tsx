@@ -3,6 +3,7 @@ import { Portal } from 'solid-js/web'
 import { routeHref, useApp } from '../state/appStore'
 import { DocumentImportForm } from './DocumentImportForm'
 import { WorkspaceIcon } from './WorkspaceIcon'
+import { usePopoverDismissal } from './usePopoverDismissal'
 import './document-import-popup.css'
 
 export function DocumentImportPopup(props: { onClose: () => void }): JSX.Element {
@@ -15,6 +16,9 @@ export function DocumentImportPopup(props: { onClose: () => void }): JSX.Element
     onCleanup(() => { if (previous?.isConnected) previous.focus() })
   })
   const close = () => { if (!busy()) props.onClose() }
+  usePopoverDismissal({ isOpen: () => true, canDismiss: () => !busy(),
+    contains: (target) => dialog.contains(target), onDismiss: close,
+    dismissOutside: false, captureEscape: false })
   const importDocument = async (file: File, title?: string, maximumOCRPages?: string, textExtractionMode?: string) => {
     const startedRoute = routeHref(app.state.route)
     setBusy(true)

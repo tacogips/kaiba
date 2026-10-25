@@ -91,6 +91,7 @@ extension AppCommand {
   func runDocumentPageOCR(_ context: CommandContext) throws -> String {
     var cursor = context.cursor
     let output = try cursor.extractOutputMode()
+    let forceOCR = cursor.extractFlag("--force-ocr")
     guard let value = cursor.next() else { throw Error.invalidUsage("page-ocr requires <note-id>") }
     try cursor.finish()
     let settings = context.configuration.importSettings
@@ -98,7 +99,7 @@ extension AppCommand {
     let service = try makeService(context)
     let note = try service.recognizeDocumentPage(
       noteId: NoteID(value), recognizer: recognizer,
-      analyzer: settings?.makePageAnalyzer(environment: environment)
+      analyzer: settings?.makePageAnalyzer(environment: environment), forceOCR: forceOCR
     )
     let warnings = try tagImportedPages(
       context: context, service: service, notebookId: note.notebookId, noteIds: [note.noteId]

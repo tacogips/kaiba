@@ -8,15 +8,14 @@ test('shared composer handles Enter, IME, models, file drop/paste, removal, and 
   const stage = vi.fn()
   const remove = vi.fn()
   const model = vi.fn()
-  const provider = vi.fn()
   const [busy, setBusy] = createSignal(false)
   const [generating, setGenerating] = createSignal(false)
   const host = document.createElement('div')
   document.body.append(host)
   const file = new File(['context'], 'context.txt', { type: 'text/plain' })
   const dispose = render(() => <MemoComposerControls memoOnly={false} noteEdit={false} canNoteEdit={false}
-    busy={busy()} generating={generating()} draft="Hello" attachments={[file]} models={[{ modelId: 'small' }, { modelId: 'large' }]}
-    providers={['server', 'codex']} selectedProvider="server" onProviderChange={provider}
+    busy={busy()} generating={generating()} draft="Hello" attachments={[file]} models={[{ modelId: 'small', provider: 'server' }, { modelId: 'large', provider: 'codex' }]}
+    providers={['server', 'codex']} selectedProvider="server"
     selectedModel="small" extensionsEnabled={!busy()} onStageFiles={stage} onRemoveAttachment={remove}
     onModelChange={model} onSubmit={send} onDraftChange={() => {}} onToggleMemoOnly={() => {}} onToggleNoteEdit={() => {}} />, host)
   try {
@@ -27,14 +26,12 @@ test('shared composer handles Enter, IME, models, file drop/paste, removal, and 
     expect(send).not.toHaveBeenCalled()
     key()
     expect(send).toHaveBeenCalledTimes(1)
-    const providerSelector = host.querySelector<HTMLSelectElement>('[aria-label="Agent provider"]')!
-    providerSelector.value = 'codex'
-    providerSelector.dispatchEvent(new Event('input', { bubbles: true }))
-    expect(provider).toHaveBeenCalledWith('codex')
-    const selector = host.querySelector<HTMLSelectElement>('[aria-label="Agent model"]')!
-    selector.value = 'large'
+    expect(host.querySelector('[aria-label="Agent provider"]')).toBeNull()
+    const selector = host.querySelector<HTMLInputElement>('[aria-label="Agent model"]')!
+    selector.focus(); selector.value = 'large'
     selector.dispatchEvent(new Event('input', { bubbles: true }))
-    expect(model).toHaveBeenCalledWith('large')
+    selector.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    expect(model).toHaveBeenCalledWith('large', 'codex')
     host.querySelector<HTMLButtonElement>('[aria-label="Remove context.txt"]')!.click()
     expect(remove).toHaveBeenCalledWith(0)
     const drop = new Event('drop', { bubbles: true, cancelable: true })

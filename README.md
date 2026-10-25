@@ -490,7 +490,15 @@ mise run tauri:ios:dev
 mise run tauri:ios:build
 ```
 
-In Settings > Server connection, choose **Local — this Mac** or **Remote server**.
+In Settings > Server connection, choose **Local — this Mac** or **Remote server**. The form
+shows the active connection (Local or the remote host). **Test connection** checks an
+unsaved remote URL and reports whether it connects, needs sign-in, is not a Kaiba server,
+is unreachable, or returns a server error; it sends no API key. Saving a remote URL adds
+it to **Recent servers**, the last 5 on this device; choosing one fills the URL field. A
+non-loopback plain `http` URL warns that the key travels unencrypted, but is not blocked.
+The form is also on the sign-in screen, and Settings remains reachable if the server is
+unreachable.
+
 Local notes persist in the app's local data directory, under `local/`, separately
 from the CLI's `~/.kaiba` store. The app chooses an available loopback port and
 stops its child service on exit. Local mode grants the desktop user access to all

@@ -159,16 +159,21 @@ public actor KaibaServerRuntime {
     )
     let agentReplyStreamHub = AgentReplyStreamHub()
     let userAgentConfiguration = aiConfiguration.resolvedUserAgent
+    let observer = FanOutNoteChangeObserver([
+      NoteChangeFeedObserver(feed: changeFeed),
+      SearchEngineControllerKickObserver(controller: searchRuntimeController)
+    ])
     var dispatcher: KaibaAutoActionDispatcher?
     // A dispatcher exists whenever any runtime can answer a chat turn: the
     // server gateway, or a user's own credential through the personal agent
     // (`design-docs/specs/user-agent-tools.md`, UA5).
     if invoker != nil || userAgentConfiguration.isEnabled {
       dispatcher = KaibaAutoActionDispatcher(
-        service: try NoteService(driver: driver, searchEngineSlot: searchEngineSlot),
+        service: try NoteService(driver: driver, changeObserver: observer, searchEngineSlot: searchEngineSlot),
         invoker: invoker,
         provider: aiConfiguration?.agent?.provider,
         model: aiConfiguration?.agent?.model,
+        allowedChatProviders: aiConfiguration?.agent?.allowedProviders ?? [],
         tagRegistrationPrompt: aiConfiguration?.autoTag?.prompt,
         translateProvider: aiConfiguration?.translate?.provider,
         translateModel: aiConfiguration?.translate?.model,
@@ -178,10 +183,6 @@ public actor KaibaServerRuntime {
           : nil
       )
     }
-    let observer = FanOutNoteChangeObserver([
-      NoteChangeFeedObserver(feed: changeFeed),
-      SearchEngineControllerKickObserver(controller: searchRuntimeController)
-    ])
     let service = try NoteService(
       driver: driver,
       autoActionDispatcher: dispatcher,
@@ -226,6 +227,7 @@ public actor KaibaServerRuntime {
         agentInvoker: invoker,
         agentProvider: aiConfiguration?.agent?.provider,
         agentModel: aiConfiguration?.agent?.model,
+        agentAllowedProviders: aiConfiguration?.agent?.allowedProviders ?? [],
         agentModelCatalog: agentModelCatalog(
           configuration: aiConfiguration,
           environment: config.environment

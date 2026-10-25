@@ -90,9 +90,21 @@ final class DocumentPageRetrievalTextTests: NoteTestCase {
 
     let requests = await invoker.requests
     XCTAssertEqual(requests.count, 2)
+    XCTAssertTrue(requests[0].systemPrompt.contains("book/work titles"))
+    XCTAssertTrue(requests[0].systemPrompt.contains("original language"))
     XCTAssertTrue(requests[0].turns.first?.markdown.contains(ocrText) == true)
     let notebookContext = try XCTUnwrap(requests[1].turns.first?.markdown)
     XCTAssertTrue(notebookContext.contains("## Zephyrine harbor manifest\n\(ocrText)"))
+  }
+
+  func testManualTagExtractionRejectsPageNumberOnlyOCR() throws {
+    let service = try makeService()
+    let imported = try service.createNotebookWithNotes(title: "Number-only OCR", pages: [
+      syntheticPageDraft(originFileId: try insertSyntheticOriginFile(service), text: "198", readOnly: false)
+    ])
+    XCTAssertThrowsError(try service.requestManualTagExtraction(subject: .note(imported.notes[0].noteId))) { error in
+      XCTAssertTrue(String(describing: error).contains("Run OCR again"))
+    }
   }
 
   func testNotebookListPreviewUsesPageRetrievalText() throws {

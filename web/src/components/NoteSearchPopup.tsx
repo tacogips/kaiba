@@ -1,17 +1,19 @@
 import { For, Show, createSignal, onCleanup, onMount } from 'solid-js'
 import type { NoteGraphQLClient } from '../notes/client'
-import type { NoteSearchResult, NoteTag } from '../notes/types'
+import type { NoteSearchResult, NoteTag, Notebook } from '../notes/types'
 import { qualifiedTagLabel } from '../notes/tree'
 import { noteDisplayTitle, searchPageSize } from '../notes/noteText'
 import { errorMessage } from '../state/appStore'
 import type { NoteId, NotebookId } from '../notes/ids'
 import { WorkspaceIcon } from './WorkspaceIcon'
+import { usePopoverDismissal } from './usePopoverDismissal'
 
 /** Full-text note search presented as a popup, mirroring
  * RielaNoteSearchPopupSheet: picking a result opens that note and dismisses. */
 export function NoteSearchPopup(props: {
   client: NoteGraphQLClient
   tags: NoteTag[]
+  notebooks?: Notebook[]
   initialQuery?: string
   onOpenNote: (noteId: NoteId, notebookId: NotebookId) => void
   onClose: () => void
@@ -25,6 +27,9 @@ export function NoteSearchPopup(props: {
   const [error, setError] = createSignal('')
   let input: HTMLInputElement | undefined
   let dialog: HTMLElement | undefined
+  usePopoverDismissal({ isOpen: () => true, canDismiss: () => true,
+    contains: (target) => Boolean(dialog?.contains(target)), onDismiss: () => props.onClose(),
+    dismissOutside: false, captureEscape: false })
   // Only the newest query may publish results; a slower earlier search that
   // resolves late is dropped instead of overwriting the visible list.
   let generation = 0
@@ -135,7 +140,7 @@ export function NoteSearchPopup(props: {
               <strong>{noteDisplayTitle(result.note)}</strong>
               <Show when={result.snippet.trim()}><span class="note-search-snippet">{result.snippet}</span></Show>
               <span class="note-search-meta">
-                #{result.note.noteNumber}
+                {props.notebooks?.find((notebook) => notebook.notebookId === result.note.notebookId)?.title ?? 'Notebook'} · #{result.note.noteNumber}
                 <Show when={result.isLinkedNeighbor}><em> · linked neighbor</em></Show>
                 <Show when={result.termCoverage < 1}><em> · partial {Math.round(result.termCoverage * 100)}%</em></Show>
                 <For each={result.matchedTags}>{(tag) => <em> · {qualifiedTagLabel(props.tags, tag.tagId)}</em>}</For>

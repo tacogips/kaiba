@@ -1,3 +1,8 @@
+> Current separator decision (2026-10-24): standalone `<><>` creates a note;
+> `\<><>` is literal text using Markdown escaping. Former hyphen-marker rules
+> below describe the earlier implementation and are superseded. Existing stored
+> notes are unchanged.
+
 # Markdown notebook composer
 
 New Notebook opens a writing workspace with a notes outline, a continuous Markdown
@@ -90,3 +95,27 @@ Add note button, empty-state help, and footer now use this marker. Hyphen-only
 rules retain their Markdown meaning; markers inside fenced/indented code,
 quoted lines, and inline text remain content. Existing database note records
 are unchanged.
+
+## Continuous editing identity reconciliation, 2026-10-25
+
+Notebook saves preserve unchanged note IDs when a standalone `<><>` inserts or
+removes a section in the middle. Exact body matches form an ordered common
+subsequence, with duplicate ties favoring their existing positions. Additional
+unchanged moved sections retain their IDs too. Edited sections retain IDs in
+order within the gaps between these anchors: a split keeps the original ID on
+its first part, and a merge keeps the first surviving section's ID. Consequently,
+following unchanged notes retain their tags, memos, links, and translations.
+Completely rewritten or identical duplicate sections cannot carry unambiguous
+identity through plain text alone; matching within those changed gaps is ordered.
+
+The transaction snapshots removed notes before renumbering survivors, then uses
+temporary distinct positions to avoid unique-index conflicts and publishes the
+final consecutive order. Replaying the same snapshot retains the same IDs. The
+exact-match working table is bounded; exceptionally large existing notebooks use
+exact-body matching without that table rather than allocating unbounded memory.
+
+Markdown creation and saves accept up to 2,000 sections, including empty sections.
+The 400 KiB per-section limit and the independent 2 MiB HTTP request limit remain.
+PDF import retains its separate physical-page bound. Native Preview matches
+unchanged section bodies to metadata while an unsaved split is pending, so a new
+section does not temporarily display the following note's tags or title.

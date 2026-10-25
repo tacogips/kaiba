@@ -12,6 +12,7 @@ final class NoteGraphQLSchemaInventoryTests: XCTestCase {
       "searchNotes",
       "noteGraphNeighbors",
       "proposeNoteLinks",
+      "tagExtractionStatus",
       "tags",
       "tagClasses",
       "noteFile",

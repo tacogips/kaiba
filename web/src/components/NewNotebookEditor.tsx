@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, createUniqueId, type JSX } from 'solid-js'
 import { useApp } from '../state/appStore'
 import { parseNotebookDraft } from '../notes/notebookDraft'
+import { createVimTextarea } from '../editor/VimTextarea'
 import { MarkdownBody } from './Markdown'
 import { WorkspaceIcon } from './WorkspaceIcon'
 import './notebook-compose.css'
@@ -16,6 +17,7 @@ export function NewNotebookEditor(): JSX.Element {
   const locked = () => autosave.deleting()
   const words = () => parsed().notes.reduce((total, note) => total + (note.bodyMarkdown.match(/\S+/g)?.length ?? 0), 0)
   let input: HTMLTextAreaElement | undefined
+  const vim = createVimTextarea()
   let preview: HTMLDivElement | undefined
   const trackCursor = () => {
     const cursor = input?.selectionStart ?? 0
@@ -42,7 +44,7 @@ export function NewNotebookEditor(): JSX.Element {
     const last = parsed().notes.at(-1)!
     if (last.bodyMarkdown.trim()) {
       const source = draft.text()
-      draft.setText(`${source}${source.endsWith('\n\n') ? '' : source.endsWith('\n') ? '\n' : '\n\n'}<--->\n\n`)
+      draft.setText(`${source}${source.endsWith('\n\n') ? '' : source.endsWith('\n') ? '\n' : '\n\n'}<><>\n\n`)
     }
     setMode('write'); setActiveNote(parsed().notes.length - 1)
     queueMicrotask(() => {
@@ -70,11 +72,11 @@ export function NewNotebookEditor(): JSX.Element {
       <div class="compose-workspace">
         <aside class="compose-outline" aria-label="Draft notes">
           <header><span>Notes <small>{parsed().notes.length}</small></span>
-            <button type="button" class="compose-icon" aria-label="Add a note to this draft" title={parsed().fenceOpen ? 'Close the code block before adding a note' : 'Add a note with a <---> separator'}
+            <button type="button" class="compose-icon" aria-label="Add a note to this draft" title={parsed().fenceOpen ? 'Close the code block before adding a note' : 'Add a note with a <><> separator'}
               disabled={locked() || parsed().fenceOpen} onClick={addNote}><WorkspaceIcon name="add" /></button></header>
           <ol><For each={parsed().notes}>{(note, index) => <li><button type="button" classList={{ 'compose-note-entry': true, active: activeNote() === index() }}
             aria-current={activeNote() === index() ? 'true' : undefined} title={note.title || 'Untitled note'} onClick={() => selectNote(index())}>
-            <span class="compose-note-number">{index() + 1}</span><span>{note.title || 'Untitled note'}</span>
+            <span>{note.title || 'Untitled note'}</span>
           </button></li>}</For></ol>
           <p class="compose-outline-hint">One notebook.<br />Separate notes.</p>
         </aside>
@@ -88,23 +90,23 @@ export function NewNotebookEditor(): JSX.Element {
           </header>
           <Show when={mode() === 'write'} fallback={<div class="compose-preview" ref={preview} aria-label="Notebook preview">
             <For each={parsed().notes}>{(note, index) => <section class="compose-preview-note" data-draft-note={index()}>
-              <div class="compose-preview-label">Note {index() + 1}</div>
               <Show when={note.bodyMarkdown} fallback={<p class="compose-empty-note">Empty note</p>}><MarkdownBody markdown={note.bodyMarkdown} /></Show>
             </section>}</For>
           </div>}>
             <div class="compose-source">
-              <textarea ref={input} aria-label="Write a new notebook" aria-describedby={`${id}-help`} spellcheck={false}
+              <textarea ref={(element) => { input = element; vim.ref(element) }} aria-label="Write a new notebook" aria-describedby={`${id}-help`} spellcheck={false}
                 value={draft.text()} disabled={locked()} onInput={(event) => { draft.setText(event.currentTarget.value); trackCursor() }}
                 onClick={trackCursor} onKeyUp={trackCursor} onSelect={trackCursor} />
               <Show when={!draft.text()}><div class="compose-empty-guide" aria-hidden="true"><strong>Your notebook starts here</strong>
-                <p>First line: notebook title.</p><p>Write in Markdown. Add <code>{'<--->'}</code> on its own line to begin the next note.</p></div></Show>
+                <p>First line: notebook title.</p><p>Write in Markdown. Add <code>{'<><>'}</code> on its own line to begin the next note.</p></div></Show>
             </div>
           </Show>
         </section>
       </div>
       <footer class="compose-statusbar">
+        <Show when={mode() === 'write'}><vim.Status /></Show>
         <span>{parsed().notes.length} {parsed().notes.length === 1 ? 'note' : 'notes'} <span class="compose-status-dot">·</span> {words()} words</span>
-        <span id={`${id}-help`}>First line names the notebook. <kbd>{'<--->'}</kbd> starts the next note.</span>
+        <span id={`${id}-help`}>First line names the notebook. <kbd>{'<><>'}</kbd> starts the next note; <kbd>{'\\<><>'}</kbd> keeps literal text.</span>
       </footer>
       <Show when={draft.error()}><p class="compose-error" role="alert">{draft.error()}</p></Show>
     </form>

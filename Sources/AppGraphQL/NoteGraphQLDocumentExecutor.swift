@@ -461,7 +461,8 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
       ))
     case "recognizeDocumentPage":
       return try await encodedJSONValue(service.recognizeDocumentPage(
-        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables),
+        forceOCR: optionalBool("forceOCR", variables: variables) ?? false
       ))
     case "setNoteReadOnly":
       return try await encodedJSONValue(service.setReadOnly(
@@ -595,6 +596,10 @@ public struct NoteGraphQLDocumentExecutor: GraphQLDocumentExecuting, GraphQLDocu
     case "unpromoteTagNote":
       let input: GraphQLUnpromoteTagNoteInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.unpromoteTagNote(input))
+    case "tagExtractionStatus":
+      return try encodedJSONValue(service.tagExtractionStatus(
+        noteId: requiredIdentifier("noteId", as: NoteID.self, variables: variables)
+      ))
     case "requestTagExtraction":
       let input: GraphQLRequestTagExtractionInput = try requiredInput("input", variables: variables)
       return try await encodedJSONValue(service.requestTagExtraction(input))

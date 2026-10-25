@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "leader": "\\",
+  "timeoutlen": 1000,
+  "maps": {},
+  "hints": {
+    "enabled": true,
+    "delayMs": 0,
+    "triggers": {
+      "n": [
+        "g",
+        "z",
+        "m"
+      ],
+      "x": [
+        "g"
+      ]
+    }
+  },
+  "hop": {
+    "enabled": false,
+    "keys": "fdjhklsagqwertyuiopzxcvbnm",
+    "uppercaseLabels": false
+  }
+}

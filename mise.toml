@@ -80,7 +80,7 @@ scripts/test-s3-gateway-integration.sh
 '''
 
 [tasks."test:live-memo-chat"]
-description = "Run a fresh-database memo/branch scenario with real GPT-5.6 Luna replies (requires local Codex login)"
+description = "Run a fresh-database memo/branch scenario with real GPT-6.1 Sol replies (requires local Codex login)"
 run = '''
 bash scripts/test-live-memo-chat.sh
 '''

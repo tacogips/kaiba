@@ -262,7 +262,7 @@ describe('ChatbookView authentication surface', () => {
       writer.value = 'Menu placement'; writer.dispatchEvent(new Event('input', { bubbles: true }))
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', shiftKey: true, metaKey: true, cancelable: true }))
       await settle()
-      expect(writer.value).toBe('Menu placement\n\n<--->\n\n')
+      expect(writer.value).toBe('Menu placement\n\n<><>\n\n')
 
       button('Notebooks').click()
       expect(host.querySelector('.chatbook')?.getAttribute('data-left')).toBe('closed')
@@ -301,7 +301,8 @@ describe('ChatbookView authentication surface', () => {
       button('Notebook context').click()
       await settle()
       expect(hash).toBe('#/notebook/learning')
-      host.querySelector<HTMLButtonElement>('.study-note-button')!.click()
+      host.querySelector<HTMLElement>('.reader-note')!.click()
+      host.querySelector<HTMLButtonElement>('[aria-label="AI"]')!.click()
       expect(host.querySelector<HTMLElement>('.chatbook-grid')?.dataset.mobilePane).toBe('reader')
       expect(host.querySelector('.agent-footer textarea')).not.toBeNull()
       expect(hash).toBe('#/note/first-note')

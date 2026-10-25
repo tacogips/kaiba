@@ -8,7 +8,7 @@ import { AppStoreProvider, useApp, type AppStore } from './appStore'
 
 vi.mock('../notes/events', () => ({ subscribeNoteEvents: () => () => undefined }))
 
-function mount(initial = '#/note/page-0') {
+function mount(initial = '#/note/page-0', readerRouteStorage?: { getItem(key: string): string | null; setItem(key: string, value: string): void }) {
   let hash = initial
   const listeners = new Set<() => void>()
   const router: RouterEnvironment = {
@@ -32,7 +32,7 @@ function mount(initial = '#/note/page-0') {
   function Capture() { app = useApp(); return <JumpBackControl /> }
   const host = document.createElement('div')
   document.body.append(host)
-  const dispose = render(() => <AppStoreProvider options={{ client, router, paneStorage: { getItem: () => null, setItem: () => undefined } }}>
+  const dispose = render(() => <AppStoreProvider options={{ client, router, readerRouteStorage, paneStorage: { getItem: () => null, setItem: () => undefined } }}>
     <Capture />
   </AppStoreProvider>, host)
   return { app, host, router, hash: () => hash, close: () => { dispose(); host.remove() } }
@@ -138,4 +138,16 @@ test('reference jumps from Fast Note use the reference reader and jump back rest
     view.app.goBack()
     expect(view.hash()).toBe('#/fast?q=neuron&layout=cards&note=page-0')
   } finally { view.close() }
+})
+
+test('Back to reader restores the source after the app is reloaded on Settings', () => {
+  const values = new Map<string, string>()
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
+  const first = mount('#/note/pdf-page', storage)
+  first.app.openConfig()
+  expect(first.hash()).toBe('#/config')
+  first.close()
+  const reloaded = mount('#/config', storage)
+  try { reloaded.app.openReader(); expect(reloaded.hash()).toBe('#/note/pdf-page') }
+  finally { reloaded.close() }
 })

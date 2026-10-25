@@ -3,6 +3,8 @@ import { expect, test, vi } from 'vitest'
 import { NoteInfoTab } from './NoteInfoTab'
 import { NoteTagsTab } from './NoteTagsTab'
 
+const extract = vi.hoisted(() => vi.fn(async () => 'agent-unavailable'))
+
 const rebuild = vi.hoisted(() => vi.fn(async () => ({ diagnostics: ['Rebuilt 25 pages and 3 AI turns. Search engine refresh queued.'] })))
 
 vi.mock('../state/appStore', () => ({
@@ -10,7 +12,7 @@ vi.mock('../state/appStore', () => ({
   useApp: () => ({
     state: { notebookId: 'book', noteId: 'page-4', note: { noteNumber: 4, tags: [], notebookId: 'book' }, tags: [], tagClasses: [] },
     notebook: () => ({ title: 'Reading', readOnly: true, createdAt: '', updatedAt: '' }),
-    client: { rebuildNotebookSearchIndex: rebuild, notebookFiles: async () => [{ file: { originalFilename: 'source.pdf', mediaType: 'application/pdf', byteSize: 1024 } }] },
+    client: { tagExtractionStatus: async () => 'none', requestTagExtraction: extract, rebuildNotebookSearchIndex: rebuild, notebookFiles: async () => [{ file: { originalFilename: 'source.pdf', mediaType: 'application/pdf', byteSize: 1024 } }] },
   }),
 }))
 
@@ -44,5 +46,14 @@ test('Analysis can rebuild this notebook and its AI conversations and reports er
     rebuild.mockRejectedValueOnce(new Error('Search unavailable'))
     button.click()
     await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Search unavailable'))
+  } finally { dispose(); host.remove() }
+})
+
+test('unavailable tag extraction is an explicit error rather than an empty successful result', async () => {
+  const host = document.createElement('div'); document.body.append(host)
+  const dispose = render(() => <NoteTagsTab />, host)
+  try {
+    host.querySelector<HTMLButtonElement>('[aria-label="Extract tags with agent"]')!.click()
+    await vi.waitFor(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('no AI agent is configured'))
   } finally { dispose(); host.remove() }
 })

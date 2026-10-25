@@ -2,12 +2,16 @@
 
 ## Notebook note boundaries
 
-A standalone angle-bracket marker with three or more hyphens starts the next
-note: `<--->`, `<---->`, `<----->`, and longer forms are accepted. Add note inserts
-the canonical `<--->` form. Inline markers, quoted markers, and markers in fenced
-or indented code remain content. Plain Markdown rules (`---`, `----`, `-----`)
-retain their normal formatting meaning. The outline, preview, and atomic save
-all consume the same parsed draft. Existing database note records are unchanged.
+A standalone `<><>` line starts the next note. Add note inserts that same
+marker. Write `\<><>` to keep a literal marker, using Markdown backslash escaping.
+The backslash stays in stored Markdown and is hidden when prose is rendered.
+Inline markers, quoted markers, and markers in fenced or indented code remain
+content. Code spans and fenced code retain backslashes literally.
+
+The former `<--->` / `<---->` / `<----->` forms are now ordinary text. Existing
+stored note records remain separate and unchanged. Plain Markdown rules and
+heading underlines retain their existing meaning. The outline, preview, and
+atomic save consume the same parsed draft.
 
 ## Backlinks
 
@@ -48,3 +52,11 @@ an empty list. Catalog and notebook revisions refresh the incoming links.
   ESLint, and production build. `mise run tauri:check` passed.
 - Runtime evidence: `tmp/pdf-validation-20261024/separators-backlinks-runtime-check.json`.
   Only the temporary validation notebooks and their notes/links were removed.
+
+## Separator change, accepted 2026-10-24
+
+The user replaced the former angle/hyphen marker with `<><>` and requested
+Markdown-style backslash escaping. Current parser and editor tests cover exact
+standalone matching, escaped literal text, fenced/indented/quoted/inline content,
+CRLF, empty notes, and canonical Add note insertion. Earlier verification above
+for hyphen-marker variants is historical; the new rule requires its own UI rerun.

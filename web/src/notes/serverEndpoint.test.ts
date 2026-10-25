@@ -1,11 +1,18 @@
 import { describe, expect, test } from 'bun:test'
 import {
   assertServerOrigin,
+  activeConnectionLabel,
+  connectionModeStorageKey,
   currentServerCredentialKey,
   defaultServerEndpoint,
   isTauriRuntime,
+  isUnencryptedRemoteEndpoint,
   normalizeServerEndpoint,
+  readRecentServerEndpoints,
   readServerEndpoint,
+  recentServerEndpointLimit,
+  recentServerEndpointsStorageKey,
+  recordRecentServerEndpoint,
   resolveServerRequest,
   saveServerEndpoint,
   serverCredentialKey,
@@ -26,6 +33,90 @@ function memoryStorage(initial?: string, credential?: string) {
 }
 
 describe('native server endpoint', () => {
+  test('reads an empty recent endpoint list from empty storage', () => {
+    expect(readRecentServerEndpoints(memoryStorage())).toEqual([])
+  })
+
+  test('ignores corrupt or non-array recent endpoint data', () => {
+    for (const value of ['not json', '{"a":1}']) {
+      const storage = memoryStorage()
+      storage.values.set(recentServerEndpointsStorageKey, value)
+      expect(readRecentServerEndpoints(storage)).toEqual([])
+    }
+  })
+
+  test('normalizes valid recent endpoints and drops invalid and duplicate entries', () => {
+    const storage = memoryStorage()
+    storage.values.set(recentServerEndpointsStorageKey, JSON.stringify([
+      'https://a.example/', 'ftp://x', 42, 'https://a.example', 'http://b.example:8787',
+    ]))
+    expect(readRecentServerEndpoints(storage)).toEqual(['https://a.example', 'http://b.example:8787'])
+  })
+
+  test('caps recent endpoint reads at the configured limit', () => {
+    const storage = memoryStorage()
+    storage.values.set(recentServerEndpointsStorageKey, JSON.stringify(
+      Array.from({ length: recentServerEndpointLimit + 2 }, (_, index) => `https://${index}.example`),
+    ))
+    expect(readRecentServerEndpoints(storage)).toHaveLength(recentServerEndpointLimit)
+  })
+
+  test('records a normalized endpoint first and evicts the oldest entry', () => {
+    const storage = memoryStorage()
+    const existing = Array.from({ length: recentServerEndpointLimit }, (_, index) => `https://${index}.example`)
+    storage.values.set(recentServerEndpointsStorageKey, JSON.stringify(existing))
+    const result = recordRecentServerEndpoint('https://new.example/', storage)
+    expect(result).toEqual(['https://new.example', ...existing.slice(0, -1)])
+    expect(storage.values.get(recentServerEndpointsStorageKey)).toBe(JSON.stringify(result))
+  })
+
+  test('moves a re-recorded endpoint to the front without duplication', () => {
+    const storage = memoryStorage()
+    storage.values.set(recentServerEndpointsStorageKey, JSON.stringify([
+      'https://a.example', 'https://b.example', 'https://c.example',
+    ]))
+    expect(recordRecentServerEndpoint('https://b.example/', storage))
+      .toEqual(['https://b.example', 'https://a.example', 'https://c.example'])
+  })
+
+  test('rejects invalid recent endpoints without changing storage', () => {
+    const storage = memoryStorage()
+    storage.values.set(recentServerEndpointsStorageKey, 'unchanged')
+    expect(() => recordRecentServerEndpoint('https://x.example/path', storage)).toThrow('must not contain a path')
+    expect(storage.values.get(recentServerEndpointsStorageKey)).toBe('unchanged')
+  })
+
+  test('preserves all bearer values when recording and evicting recent endpoints', () => {
+    const storage = memoryStorage()
+    const existing = Array.from({ length: recentServerEndpointLimit }, (_, index) => `https://${index}.example`)
+    storage.values.set(recentServerEndpointsStorageKey, JSON.stringify(existing))
+    for (const endpoint of existing) storage.values.set(serverCredentialKey(endpoint), `bearer:${endpoint}`)
+    const credentials = [...storage.values].filter(([key]) => key.startsWith(`${serverCredentialStorageKey}:`))
+    recordRecentServerEndpoint('https://new.example', storage)
+    expect([...storage.values].filter(([key]) => key.startsWith(`${serverCredentialStorageKey}:`)))
+      .toEqual(credentials)
+  })
+
+  test('warns for non-loopback HTTP endpoints only', () => {
+    expect(isUnencryptedRemoteEndpoint('http://192.168.1.20:8787')).toBe(true)
+    expect(isUnencryptedRemoteEndpoint('http://notes.example.com')).toBe(true)
+    for (const endpoint of [
+      'http://127.0.0.1:8787', 'http://127.1:8787', 'http://localhost:8787',
+      'http://[::1]:8787', 'https://192.168.1.20', 'garbage',
+    ]) expect(isUnencryptedRemoteEndpoint(endpoint)).toBe(false)
+  })
+
+  test('labels the active local or remote connection', () => {
+    const storage = memoryStorage()
+    storage.values.set(connectionModeStorageKey, 'local')
+    expect(activeConnectionLabel(storage)).toBe('Local — this Mac')
+    storage.values.set(connectionModeStorageKey, 'remote')
+    storage.values.set(serverEndpointStorageKey, 'https://notes.example.com:8443')
+    expect(activeConnectionLabel(storage)).toBe('Remote — notes.example.com:8443')
+    storage.values.delete(serverEndpointStorageKey)
+    expect(activeConnectionLabel(storage)).toBe(`Remote — ${new URL(defaultServerEndpoint).host}`)
+  })
+
   test('permits configured HTTP and HTTPS hosts on any port in the native shell', async () => {
     const capabilityUrl = new URL('../../src-tauri/capabilities/default.json', import.meta.url)
     const capability = await Bun.file(capabilityUrl).json() as {

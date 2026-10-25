@@ -165,3 +165,8 @@ test('Fast Note routes retain list layout, search, selected note, and right-pane
   expect(routeTagId(parseRoute(formatRoute(tagged)))).toBe(asTagId('tag-1'))
   expect(parseRoute(formatRoute(withConversation(tagged, asNotebookId('chat-1'))))).toEqual({ kind: 'fast', query: '日本語 & notes', layout: 'cards', noteId: asNoteId('note-1'), tagId: asTagId('tag-1'), conversationId: asNotebookId('chat-1') })
 })
+
+test('task list has a stable route', () => {
+  expect(parseRoute('#/tasks')).toEqual({ kind: 'tasks' })
+  expect(formatRoute({ kind: 'tasks' })).toBe('#/tasks')
+})

@@ -1,0 +1,45 @@
+/* Vim mode for Markdown textareas. In normal mode the textarea selects the
+   character under the cursor; .vim-block-cursor draws the block over it, so
+   the native caret and selection stay invisible there. */
+textarea[data-vim-mode='normal'],
+textarea[data-vim-mode='operator-pending'] { caret-color: transparent; }
+textarea[data-vim-mode='normal']::selection,
+textarea[data-vim-mode='operator-pending']::selection { background: transparent; color: inherit; }
+.vim-block-cursor { position: fixed; z-index: 25; pointer-events: none; overflow: hidden; white-space: pre; background: var(--ink); color: var(--surface); }
+
+.vim-status { position: relative; display: flex; align-items: center; gap: .5rem; min-height: 1.6rem; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .72rem; color: var(--muted); }
+.vim-status > button.vim-status-mode { flex: none; min-height: 0; padding: .1rem .45rem; border: 1px solid var(--line); border-radius: .25rem; background: var(--surface-subtle); color: var(--ink); font: inherit; font-weight: 600; letter-spacing: .04em; box-shadow: none; }
+.vim-status > button.vim-status-mode[data-mode='insert'], .vim-status > button.vim-status-mode[data-mode='replace'] { border-color: var(--green-line, var(--line)); background: var(--green-selected, var(--surface-subtle)); }
+.vim-status > button.vim-status-mode[data-mode='visual'], .vim-status > button.vim-status-mode[data-mode='visual-line'] { border-color: var(--ink); }
+.vim-status-pending { color: var(--ink); }
+.vim-status-recording { color: var(--danger-ink); }
+.vim-status-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vim-status-message[data-kind='error'] { color: var(--danger-ink); }
+.vim-status-prompt { display: flex; flex: 1; align-items: center; gap: .2rem; min-width: 0; margin: 0; color: var(--ink); font: inherit; }
+.vim-status-prompt input { flex: 1; min-width: 0; min-height: 0; padding: .1rem .3rem; border: 1px solid var(--line); border-radius: .2rem; font: inherit; color: var(--ink); background: var(--surface); }
+
+/* Which-key style next keys, at the bottom right like Helix. */
+.vim-hints { position: fixed; right: 1rem; bottom: 2.75rem; z-index: 60; box-sizing: border-box; min-width: 12rem; max-width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 6rem); overflow: auto; padding: .5rem .65rem; border: 1px solid var(--line); border-radius: .35rem; background: var(--surface); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .75rem; box-shadow: 0 .4rem 1.2rem rgb(0 0 0 / .12); }
+.vim-hints-prefix { margin-bottom: .3rem; color: var(--ink); font-weight: 700; }
+.vim-hints-typed { color: var(--muted); font-weight: 400; }
+.vim-page-prompt .vim-hints-prefix { display: flex; align-items: center; gap: .5rem; margin: 0; }
+.vim-page-prompt input { width: 6rem; min-height: 0; padding: .1rem .3rem; font: inherit; }
+.vim-hints-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .15rem .9rem; }
+.vim-hints-row { display: flex; gap: .45rem; min-width: 0; white-space: nowrap; }
+.vim-hints-row kbd { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; }
+.vim-hints-row[data-group='true'] span { color: var(--muted); }
+.vim-hints-row span { overflow: hidden; text-overflow: ellipsis; }
+
+.vim-hop-layer { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+.vim-hop-label { position: fixed; padding: 0 .1rem; border-radius: .15rem; background: var(--ink); color: var(--surface); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .75rem; font-weight: 700; }
+
+.vim-settings-toggle { display: flex; align-items: center; gap: .5rem; }
+.vim-settings-keymap { display: grid; gap: .6rem; min-width: 0; }
+.vim-settings-keymap > summary { cursor: pointer; }
+.vim-settings-keymap p { margin: 0; }
+.vim-settings-text { width: 100%; min-height: 14rem; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .78rem; line-height: 1.5; tab-size: 2; }
+.vim-settings-issues { margin: 0; padding-left: 1.1rem; font-size: .78rem; }
+.vim-settings-issues li[data-severity='error'] { color: var(--danger-ink); }
+.vim-settings-issues li[data-severity='warning'] { color: var(--muted); }
+.vim-block-selection { position: fixed; inset: 0; pointer-events: none; z-index: 30; }
+.vim-block-selection span { background: rgba(85, 135, 220, .3); }

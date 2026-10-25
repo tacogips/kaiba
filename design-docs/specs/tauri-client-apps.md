@@ -4,6 +4,12 @@
 
 Accepted (2026-08-29). Initial implementation.
 
+Revised (2026-10-25): documents the Local/Remote connection modes and the
+bundled local service, and adds Test connection, recent remote endpoints, the
+active-connection display and the plain-`http` warning (see "Connection modes"
+and "Connection settings"). Decisions are recorded in
+`design-docs/user-qa/tauri-client-connection-20261025.md`.
+
 ## Goal
 
 Ship the existing SolidJS note client as installable macOS and iPhone apps
@@ -85,6 +91,138 @@ runtime" covers the surrounding chrome: a caller cannot leave an empty card on
 the Config screen in the browser build. Saving a new endpoint reloads the WebView so every cached
 client and subscription re-resolves against the new origin.
 
+## Connection modes
+
+A native client runs in one of two modes, stored under
+`kaiba-connection-mode`:
+
+- `local`: the shell starts the bundled `kaiba` executable
+  (`start_local_server`, `web/src-tauri/src/local_server.rs`) on a free
+  loopback port with `--allow-unauthenticated --as-admin`, against the app's
+  own store under the app local data directory (`local/`). Requests in this
+  mode carry no `Authorization` header, and the credential key in effect is
+  `kaiba-note-bearer:local`, which is never sent. Local mode is macOS only;
+  `supportsLocalService()` is false on iPhone and the shell refuses the
+  command there.
+- `remote`: requests go to the stored endpoint (`kaiba-server-endpoint`)
+  under the per-origin credential rules below.
+
+When the mode key is absent (first launch), an install that already holds a
+saved endpoint keeps Remote, iPhone defaults to Remote, and macOS defaults to
+Local. There is no separate first-run chooser. First launch either works
+(Local) or leaves the shell showing a load error, and in both cases the
+connection settings are one click away (see "Reachability").
+
+Saving Local first awaits `start_local_server` and stores the mode only if it
+succeeds, so a service that fails to start reports its error (including the
+`service.log` path) in the form and leaves the previous mode in effect.
+
+## Connection settings
+
+`ServerConnectionSettings` is the single connection UI, rendered in full on
+the Config screen and compact on the login screen. It contains:
+
+- **Mode select**: Local (disabled where `supportsLocalService()` is false)
+  or Remote.
+- **Remote URL field**: validated by `normalizeServerEndpoint` as described in
+  "Endpoint validation". A rejected value shows the validator's message and is
+  neither stored nor recorded.
+- **Plain-`http` warning**: a non-blocking inline notice when the entered URL
+  uses `http` and its host is not loopback (`localhost`, `127.0.0.0/8`,
+  `[::1]`). The notice says that the API key travels unencrypted. Saving is
+  not blocked, because LAN servers reached from an iPhone are an intended use.
+- **Test connection** (Remote only): probes the entered URL without saving it.
+  See "Test connection".
+- **Recent servers** (Remote only, hidden when the list is empty): picking an
+  entry fills the URL field. It does not save or switch. See "Recent remote
+  endpoints".
+- **Active connection line**: shows what is in effect now, read from storage
+  and not from unsaved form state. It reads `Local — this Mac` in Local mode,
+  or `Remote — <host[:port]>` taken from the stored endpoint. It appears in
+  both the full and compact forms, so the login screen names the server that
+  is asking for a credential.
+- **Save/Reconnect**: stores the endpoint (Remote, through
+  `saveServerEndpoint`) and the mode (through `saveConnectionMode`), records
+  the endpoint in the recent list, then reloads the WebView. Saving does not
+  require a passed test. A server that is down at the moment can still be
+  configured, and a mistyped origin costs nothing because credentials are
+  scoped per origin.
+
+### Switching and per-account state
+
+Every successful save reloads the WebView, including a save that only
+re-selects the current target. The reload is the reset mechanism for
+per-account in-memory state: the app store, caches, note-events long poll,
+autosave queues, writers and the cached local-service promise are all rebuilt
+against the new target. No in-place reset path is added. Credentials are not
+touched by a switch: Remote to Remote, Remote to Local and Local to Remote
+each read the key of the target in effect after the reload, so a previously
+signed-in origin is signed in again when the user switches back.
+
+### Test connection
+
+The probe runs only in a native runtime, through the Tauri HTTP plugin
+directly, not through `serverRequest`. `serverRequest` resolves against the
+endpoint currently in effect, while the probe targets an unsaved candidate.
+Steps:
+
+1. Normalize the candidate with `normalizeServerEndpoint`. A validation
+   failure is reported as the validator's message, and nothing is sent.
+2. `GET <candidate>/healthz`. A network failure, or no response within 5
+   seconds (the request is aborted), gives **unreachable**. Any response
+   other than HTTP 200 with a JSON body whose `service` is `"kaiba"` and
+   `status` is `"ok"` gives **not a kaiba server**.
+3. `POST <candidate>/graphql` with `{"query":"{ __typename }"}` and the same
+   timeout. HTTP 200 gives **connected** (the server accepts unauthenticated
+   requests). HTTP 401 gives **sign-in required**. Any other status gives
+   **server error (HTTP n)**. A network failure here also gives
+   **unreachable**.
+
+Credential rule: the probe sends no `Authorization` header to any origin,
+including the candidate. Both targets are fixed paths on the normalized
+candidate and pass `assertServerOrigin(target, candidate)` before dispatch.
+When the result is sign-in required and a credential is already stored under
+`serverCredentialKey(candidate)`, the message adds that the saved key will be
+used after connecting. That check is a local storage presence test. The value
+is not read into the request. The result is shown inline. It changes no
+storage and does not gate Save.
+
+### Recent remote endpoints
+
+- Storage: `kaiba-recent-server-endpoints` in WebView local storage, a JSON
+  array of normalized origins, most recent first, without duplicates, bounded
+  to 5.
+- Written only by a successful Remote save, after `saveServerEndpoint`
+  returns. A Test connection, a validation failure, or a Local save does not
+  record anything.
+- Read defensively: unparsable JSON yields an empty list, and every entry is
+  re-validated with `normalizeServerEndpoint`, so invalid entries are
+  dropped. A corrupted value cannot break the form, matching the endpoint
+  fallback rule.
+- The list holds origins only, never credentials. An entry evicted from the
+  list leaves that origin's `kaiba-note-bearer:<origin>` key in place. As
+  stated below, nothing prunes per-origin credentials.
+- Native-only, like the endpoint itself. The browser build neither reads nor
+  writes the list.
+
+### Reachability
+
+The connection settings must be reachable from every state the native client
+can be in:
+
+- **Unauthenticated / registration** (`auth === 'unauthenticated'`, including
+  the capture page's unregistered fallback): `LoginView` renders the compact
+  form.
+- **Unreachable or erroring server**, or a local service that failed to start
+  (`auth` stays `unknown` and the catalog load fails): the shell still renders.
+  The error toast shows the failure, and the header Settings button opens the
+  Config screen, which renders `ServerConnectionSettings` independently of
+  any server response. No connection screen replaces the shell.
+- **Authenticated**: the Config screen.
+
+The integration tests are the guard for this invariant: with a failing
+transport, the Settings route must render the connection form.
+
 iPhone layout uses `viewport-fit=cover` with `env(safe-area-inset-*)` padding
 on the document body, so the shared UI clears the notch and home indicator
 without a phone-specific layout branch.
@@ -127,7 +265,7 @@ passes validation, and the only in-app recovery is pasting a key issued on the
 server host, so destroying the credential on every origin change would make one
 mistyped character an unrecoverable state on a phone away from that host. With
 per-origin keys, correcting the endpoint makes the original credential readable
-again, and no confirmation prompt is needed because nothing was lost. An
+again, and no confirmation prompt is needed because nothing was lost.
 Clearing is per origin for the same reason: `clearCredential()` drops the key
 for the endpoint currently in effect and leaves other origins' credentials in
 place, so a 401 from one server does not sign the user out of the others.
@@ -141,6 +279,8 @@ endpoint changes first.
 Residual risk accepted for this release: the bearer lives in WebView local
 storage and travels in plaintext when a user configures a non-loopback `http`
 endpoint. The app does not downgrade or upgrade schemes on the user's behalf.
+The settings form warns about such an endpoint but does not block it (see
+"Connection settings").
 Requests leave through the Rust shell rather than `URLSession`, so iOS App
 Transport Security does not apply and no OS-level warning is raised.
 
@@ -151,6 +291,21 @@ Transport Security does not apply and no OS-level warning is raised.
 - `mise run tauri:ios:init` generates the Tauri Xcode project when needed.
 - `mise run tauri:ios:dev` runs the iPhone app for development.
 - `mise run tauri:ios:build` builds the iPhone application.
+
+Bundled local service: `beforeBuildCommand` runs
+`scripts/build-tauri-local-service.sh release`, which builds the Swift `kaiba`
+product for the target triple and copies it to
+`web/src-tauri/local-service/kaiba-<triple>`. `tauri.macos.conf.json` declares
+`externalBin: ["local-service/kaiba"]`. Tauri resolves that to the
+triple-suffixed file and installs it as `Kaiba.app/Contents/MacOS/kaiba`,
+which is the path `local_server.rs` executes. A bare
+`local-service/kaiba` file, if present, is a leftover and is not bundled. A
+build is fresh when the bundled `Contents/MacOS/kaiba` is byte-identical to
+`local-service/kaiba-<triple>` and both mtimes postdate the build start. The
+built app must not be launched to check this, because Local mode opens the
+user's real app store under the app local data directory. Runtime checks run
+the bundled executable directly with `--note-root`, `--config` and
+`KAIBA_SQLITE_PATH` pointing under `tmp/`.
 
 The Vite dev server is pinned to port 1420 with `strictPort`, and binds a
 non-loopback host only when `TAURI_DEV_HOST` is set, which is what lets a

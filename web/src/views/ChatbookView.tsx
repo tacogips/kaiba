@@ -15,9 +15,14 @@ import type { Note } from '../notes/types'
 import type { RightTab } from '../state/paneState'
 import type { NotebookId } from '../notes/ids'
 import { DocumentImportPopup } from '../components/DocumentImportPopup'
+import { TaskIndicator } from '../components/TaskIndicator'
+import { TasksView } from './TasksView'
 import { ToastNotice } from '../components/ToastNotice'
 import { FastNotesView } from './FastNotesView'
 import { AgentFooter } from '../components/AgentFooter'
+import { WorkspaceVimNavigation } from '../components/WorkspaceVimNavigation'
+import type { WorkspaceVimAction } from '../notes/workspaceVimKeys'
+import type { GotoPageTarget } from '../notes/readerKeyboard'
 import '../workspace-actions.css'
 
 // The chatbook shell: a three-column grid whose fold state is expressed as data
@@ -68,7 +73,7 @@ export function ChatbookView(): JSX.Element {
   }
 
   const inReader = (run: () => void) => afterNavigation(
-    () => app.state.route.kind !== 'config' && app.state.route.kind !== 'search', app.openReader, run)
+    () => app.state.route.kind !== 'config' && app.state.route.kind !== 'search' && app.state.route.kind !== 'tasks', app.openReader, run)
   const showDetails = (tab: RightTab, then?: () => void) => inReader(() => afterNavigation(
     () => !app.tagPaneTagId(), app.closeTagPane, () => {
       app.setRightTab(tab)
@@ -111,6 +116,37 @@ export function ChatbookView(): JSX.Element {
   const captureRegion = async (note: Note, file: File) => {
     if (await stagePageRegion(app, note, file)) agentChat()
   }
+  const focusPane = (pane: 'left' | 'right' | 'bottom' | 'reader' | 'next') => {
+    if (pane === 'next') {
+      const order = ['left', 'reader', 'right', 'bottom'] as const
+      const selectors = ['.pane-left', 'main.reader', '.pane-right', '.agent-footer']
+      const index = selectors.findIndex((selector) => document.activeElement?.closest(selector))
+      focusPane(order[(index + 1) % order.length]!); return
+    }
+    if (pane === 'bottom') { setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-focus-ai')); return }
+    if (pane === 'left') { browseNotebooks(); focus('.pane-left button'); return }
+    if (pane === 'right') { showDetails(app.state.pane.rightTab, () => focus('.pane-right button')); return }
+    inReader(() => {
+      setMobilePane('reader')
+      queueMicrotask(() => (document.querySelector<HTMLElement>('main .notebook-source:not([hidden]):not(:disabled)')
+        ?? document.querySelector<HTMLElement>('main.reader'))?.focus())
+    })
+  }
+  const workspaceCommand = (action: WorkspaceVimAction, page?: number) => {
+    switch (action) {
+      case 'write': inReader(() => { setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-write-notebook')) }); return
+      case 'left': case 'right': case 'bottom': case 'reader': case 'next': focusPane(action); return
+      case 'writing': inReader(() => { setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-toggle-writing')) }); return
+      case 'agent': setMobilePane('reader'); window.dispatchEvent(new Event('kaiba-toggle-ai')); return
+      case 'library': toggleLibrary(); return
+      case 'details': toggleDetails(); return
+      case 'search': app.setSearchOpen(true); return
+      case 'gotoPage': case 'firstPage': case 'lastPage': {
+        const target: GotoPageTarget = page ?? (action === 'lastPage' ? 'last' : 'first')
+        inReader(() => { setMobilePane('reader'); window.dispatchEvent(new CustomEvent<GotoPageTarget>('kaiba-goto-page', { detail: target })) })
+      }
+    }
+  }
   const addNote = () => {
     if (app.state.route.kind === 'fast') {
       afterNavigation(() => app.state.route.kind === 'fast' && !app.state.route.noteId, () => app.openFastNotes(), () => focus('[aria-label="Write a quick note"]'))
@@ -119,6 +155,13 @@ export function ChatbookView(): JSX.Element {
     inReader(() => {
     setMobilePane('reader')
     queueMicrotask(() => {
+      const notebookSource = document.querySelector<HTMLTextAreaElement>('main .notebook-source:not([hidden])')
+      if (notebookSource) {
+        notebookSource.value += '\n\n<><>\n\n'
+        notebookSource.dispatchEvent(new Event('input', { bubbles: true }))
+        notebookSource.focus(); notebookSource.setSelectionRange(notebookSource.value.length, notebookSource.value.length)
+        return
+      }
       const addDraftNote = document.querySelector<HTMLButtonElement>('main [aria-label="Add a note to this draft"]')
       if (addDraftNote) { addDraftNote.click(); return }
       document.querySelector<HTMLButtonElement>('main .note-capture > button')?.click()
@@ -152,6 +195,8 @@ export function ChatbookView(): JSX.Element {
     { label: 'Toggle details pane', key: 'b', shift: true, run: toggleDetails },
     { label: 'Add a note', key: 'n', shift: true, run: addNote },
     { label: 'Save writing', key: 's', run: () => {
+      const notebookForm = document.querySelector<HTMLFormElement>('main .notebook-writing-form')
+      if (notebookForm) { notebookForm.requestSubmit(); return }
       const activeForm = document.activeElement?.closest('form')
       const form = activeForm?.matches('main .note-capture form, main form.note-capture, main .note-editor form') ? activeForm : document.querySelector<HTMLFormElement>('main .note-capture form, main form.note-capture, main .note-editor form')
       form?.querySelector<HTMLButtonElement>('button[type="submit"]:not(:disabled)')?.click()
@@ -182,21 +227,22 @@ export function ChatbookView(): JSX.Element {
       }
     }
     window.addEventListener('keydown', shortcut)
-    const protectDrafts = (event: BeforeUnloadEvent) => {
-      if (!app.writingDrafts.hasUnsavedChanges()) return
+    const protectWork = (event: BeforeUnloadEvent) => {
+      if (!app.writingDrafts.hasUnsavedChanges() && app.ocrTasks.active().length === 0 && !app.settingsSave?.pending()) return
       event.preventDefault()
       event.returnValue = true
     }
-    window.addEventListener('beforeunload', protectDrafts)
+    window.addEventListener('beforeunload', protectWork)
     onCleanup(() => {
       window.removeEventListener('resize', resize)
       window.removeEventListener('keydown', shortcut)
-      window.removeEventListener('beforeunload', protectDrafts)
+      window.removeEventListener('beforeunload', protectWork)
     })
   })
 
   const view = () => {
     switch (app.state.route.kind) {
+      case 'tasks': return 'tasks'
       case 'fast': return 'fast'
       case 'search': return 'search'
       case 'config': return 'config'
@@ -225,6 +271,7 @@ export function ChatbookView(): JSX.Element {
       data-view={view()}
     >
       <a class="skip-link" href="#main-content">Skip to content</a>
+      <WorkspaceVimNavigation blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen} onCommand={workspaceCommand} />
       <div class="chatbook-head workspace-menu">
         <nav class="workspace-tools" aria-label="Workspace">
           <details class="workspace-create-menu" ref={createMenu} onKeyDown={(event) => { if (event.key === 'Escape') createMenu.open = false }}>
@@ -241,6 +288,7 @@ export function ChatbookView(): JSX.Element {
           <button type="button" class="workspace-icon" aria-label="AI" title={`${hint('AI')}: Discussion for the selected page or notebook`} onClick={agentChat}><WorkspaceIcon name="ai" /></button>
         </nav>
         <div class="chatbook-head-actions">
+          <TaskIndicator />
           <Show when={view() !== 'fast' || (app.state.route.kind === 'fast' && app.state.route.noteId)}><button type="button" class="workspace-icon" aria-label="Toggle details pane" title={hint('Toggle details pane')}
             aria-expanded={detailsVisible()} onClick={toggleDetails}><WorkspaceIcon name="panelRight" /></button></Show>
           <WorkspaceShortcuts commands={commands} blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen} />
@@ -280,6 +328,7 @@ export function ChatbookView(): JSX.Element {
           </Show>
         </div>
       </Show>
+      <Show when={view() === 'tasks'}><TasksView /></Show>
       <Show when={view() === 'search'}>
         <SearchView />
       </Show>
@@ -293,6 +342,7 @@ export function ChatbookView(): JSX.Element {
         <NoteSearchPopup
           client={app.client}
           tags={app.state.tags}
+          notebooks={app.state.notebooks}
           onOpenNote={(noteId, notebookId) => {
             app.openNoteWithReturn(noteId, notebookId)
             setMobilePane('reader')
@@ -352,6 +402,7 @@ function PaneSplitter(props: { side: 'left' | 'right' }): JSX.Element {
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize the ${props.side} pane`}
+      title={`Drag to resize the ${props.side} pane; double-click to reset pane widths`}
       onPointerDown={down}
       onDblClick={() => app.resetPaneWidths()}
     />
