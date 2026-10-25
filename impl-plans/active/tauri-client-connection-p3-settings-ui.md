@@ -3,6 +3,9 @@
 planId: `tauri-client-connection-p3-settings-ui`. Wave 2; it depends on P1
 (`tauri-client-connection-p1-endpoint-store`) and P2
 (`tauri-client-connection-p2-connection-probe`).
+Status: accepted in session opus-luna-design-and-implement-review-loop-session-481
+(test-integrity and adversarial review). Its changes are in the working tree.
+Do not redispatch; the dispatch manifest lists it under `acceptedDependencies`.
 Index and shared rules: `impl-plans/active/tauri-client-connection.md`.
 Design: `design-docs/specs/tauri-client-apps.md`, sections "Connection
 settings", "Switching and per-account state", "Test connection", "Recent
@@ -189,7 +192,8 @@ storage remote, and the HTTP plugin and core mocked:
   src/views/ChatbookView.integration.tsx src/views/CaptureView.integration.tsx`:
   exit 0 with a positive count. These are regression checks on the
   surfaces that embed the form.
-- `bunx tsc --noEmit -p web`: exit 0.
+- `cd web && bun run typecheck`: exit 0. (Corrected gate: never `bunx tsc
+  --noEmit -p web` from the repository root.)
 - `cd web && bunx eslint src/components/ServerConnectionSettings.tsx
   src/components/ServerConnectionSettings.integration.tsx
   src/views/ConnectionReachability.integration.tsx`: exit 0.

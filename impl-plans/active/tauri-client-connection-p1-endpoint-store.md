@@ -2,6 +2,9 @@
 
 planId: `tauri-client-connection-p1-endpoint-store`. Wave 1, with no
 dependencies.
+Status: accepted in session opus-luna-design-and-implement-review-loop-session-481
+(test-integrity and adversarial review). Its changes are in the working tree.
+Do not redispatch; the dispatch manifest lists it under `acceptedDependencies`.
 Index and shared rules: `impl-plans/active/tauri-client-connection.md`
 (the edit protocol, evidence policy and invariants all apply).
 Design: `design-docs/specs/tauri-client-apps.md`, sections "Recent remote
@@ -117,8 +120,10 @@ Each case is a situation followed by its expected outcome:
 - `cd web && bun test src/notes/serverEndpoint.test.ts`: exit 0, with the
   pass count greater than the pre-change count (18 existing tests; expect at least 28). Record
   both counts.
-- `bunx tsc --noEmit -p web`: exit 0. A failure that points only at peer
-  files is recorded as peer drift, not as a P1 failure.
+- `cd web && bun run typecheck`: exit 0. A failure that points only at peer
+  files is recorded as peer drift, not as a P1 failure. (Corrected gate:
+  `bunx tsc --noEmit -p web` from the repository root cannot resolve
+  `bun:test` types and is not a valid gate.)
 - `cd web && bunx eslint src/notes/serverEndpoint.ts
   src/notes/serverEndpoint.test.ts`: exit 0.
 

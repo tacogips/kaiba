@@ -2,6 +2,9 @@
 
 planId: `tauri-client-connection-p2-connection-probe`. Wave 1, with no
 dependencies.
+Status: accepted in session opus-luna-design-and-implement-review-loop-session-481
+(test-integrity and adversarial review). Its changes are in the working tree.
+Do not redispatch; the dispatch manifest lists it under `acceptedDependencies`.
 Index and shared rules: `impl-plans/active/tauri-client-connection.md`.
 Design: `design-docs/specs/tauri-client-apps.md`, section "Test connection".
 Decisions D3, D4 and D5 are in
@@ -150,8 +153,9 @@ rejects. Each case is a situation followed by its expected outcome:
 
 - `cd web && bun test src/notes/serverProbe.test.ts`: exit 0 and a pass
   count of at least 12.
-- `bunx tsc --noEmit -p web`: exit 0. Failures that point only at peer files
-  are recorded as peer drift.
+- `cd web && bun run typecheck`: exit 0. Failures that point only at peer
+  files are recorded as peer drift. (Corrected gate: never `bunx tsc
+  --noEmit -p web` from the repository root.)
 - `cd web && bunx eslint src/notes/serverProbe.ts src/notes/serverProbe.test.ts`:
   exit 0.
 

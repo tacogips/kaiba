@@ -265,7 +265,7 @@ passes validation, and the only in-app recovery is pasting a key issued on the
 server host, so destroying the credential on every origin change would make one
 mistyped character an unrecoverable state on a phone away from that host. With
 per-origin keys, correcting the endpoint makes the original credential readable
-again, and no confirmation prompt is needed because nothing was lost. An
+again, and no confirmation prompt is needed because nothing was lost.
 Clearing is per origin for the same reason: `clearCredential()` drops the key
 for the endpoint currently in effect and leaves other origins' credentials in
 place, so a 401 from one server does not sign the user out of the others.

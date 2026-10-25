@@ -1,7 +1,36 @@
 # P5: integration gates and unsigned macOS app bundle
 
-planId: `tauri-client-connection-p5-bundle-build`. Wave 3; it depends on P1,
-P2, P3 and P4.
+planId: `tauri-client-connection-p5-bundle-build`. It depends on P1, P2, P3
+and P4, which were accepted in session
+opus-luna-design-and-implement-review-loop-session-481 and are listed under
+`acceptedDependencies` in the dispatch manifest. P5 is the only plan
+dispatched in session 483, as the single plan of wave 1.
+
+Resume note: session 481 blocked P5 only because its typecheck gate was
+`bunx tsc --noEmit -p web` from the repository root. That command cannot
+resolve `bun:test`/Bun types (34 baseline errors at 83a02f1, all in
+`*.test.ts`) and is not a valid gate. The corrected gate is
+`cd web && bun run typecheck` (`tsc --noEmit` with web's own config), which
+exits 0 on the current tree. The 13:02/13:05 build artifacts from session 481
+do not count; P5 rebuilds and proves freshness against a new marker.
+
+Preserve the accepted P1-P4 changes. They are in the working tree (and
+possibly in the plan checkpoint commit): `README.md`,
+`design-docs/specs/tauri-client-apps.md`,
+`web/src/components/ServerConnectionSettings.tsx`,
+`web/src/components/ServerConnectionSettings.integration.tsx`,
+`web/src/notes/serverEndpoint.ts`, `web/src/notes/serverEndpoint.test.ts`,
+`web/src/notes/serverProbe.ts`, `web/src/notes/serverProbe.test.ts`,
+`web/src/views/ConnectionReachability.integration.tsx`. P5 never edits,
+reverts, stashes or formats them.
+
+Existing P5 evidence from session 481: `tmp/tauri-client-connection/P5/progress.md`
+ends with `status: blocked: required bunx tsc --noEmit -p web exited 1`.
+Keep that history. Append a `## Session 483 rerun` heading and record
+every step below under it; the last line of the file must become
+`status: done` (or a new `status: blocked: ...`). Rewrite `evidence.md`
+from scratch for this rerun. Leave the old `logs/04-tsc.log` in place and
+note in `evidence.md` that it is superseded by `logs/04-typecheck.log`.
 Index and shared rules: `impl-plans/active/tauri-client-connection.md`.
 Design: `design-docs/specs/tauri-client-apps.md`, "Build surfaces"
 (including its "Bundled local service" paragraph). Decision D12 is in
@@ -46,11 +75,17 @@ and records its exit code in `progress.md`.
 1. `git rev-parse HEAD`, `git status --short`, and
    `git diff --stat f02c4fe -- Sources Package.swift Package.resolved`. The
    last must be empty. A non-empty result is a blocker: record it and stop.
+   Also write `shasum -a 256` of the nine accepted P1-P4 files listed above
+   into `logs/00-accepted-pre.sha256`, and confirm the design deliverables
+   exist: `test -s design-docs/user-qa/tauri-client-connection-20261025.md`
+   and `grep -c "Test connection" design-docs/specs/tauri-client-apps.md`
+   prints a count greater than 0.
 2. `cd web && bun test src`: exit 0. Record the pass and fail counts; pass
    must be greater than 0 and fail must be 0.
 3. `cd web && bunx vitest run`: exit 0. Record the test-file and test
    counts.
-4. `bunx tsc --noEmit -p web`: exit 0.
+4. `cd web && bun run typecheck`: exit 0. Never substitute `bunx tsc
+   --noEmit -p web` from the repository root.
 5. `cd web && bun run lint`: exit 0.
 6. `mise run tauri:check`: exit 0. This runs cargo fmt --check, check and
    clippy -D warnings.
@@ -72,10 +107,14 @@ and records its exit code in `progress.md`.
    - `test web/dist/index.html -nt .../build-start.marker`
    - `stat -f '%Sm %z %N'` on each of these files
    - `shasum -a 256` of both binaries
-10. Write `evidence.md`. It holds one record per command, each with the
+10. `shasum -a 256 -c logs/00-accepted-pre.sha256` into
+    `logs/10-accepted-post.log`: exit 0, which proves the accepted P1-P4
+    files are unchanged by the gates and the build.
+11. Write `evidence.md`. It holds one record per command, each with the
     command, the exit code, the full log path and the counts. It also holds
-    the bundle path, the freshness results, HEAD, and the empty Swift diff
-    from step 1.
+    the bundle path, the freshness results (mtimes must be later than the
+    session-481 artifacts dated 2026-10-25 13:02:44), HEAD, the empty Swift
+    diff from step 1 and the preservation result from step 10.
 
 ## Pitfalls (what not to do)
 
@@ -101,7 +140,7 @@ and records its exit code in `progress.md`.
 
 ## Done criteria
 
-- Steps 2 to 9 all exit 0, and the counts in steps 2 and 3 are greater
+- Steps 2 to 10 all exit 0, and the counts in steps 2 and 3 are greater
   than 0.
 - `evidence.md` names
   `web/src-tauri/target/release/bundle/macos/Kaiba.app` and records that

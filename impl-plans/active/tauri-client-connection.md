@@ -33,6 +33,16 @@ states. Per-origin bearer scoping must not regress.
 | P3 settings UI and reachability tests | `impl-plans/active/tauri-client-connection-p3-settings-ui.md` | 2 | P1, P2 |
 | P5 integration gates and app bundle | `impl-plans/active/tauri-client-connection-p5-bundle-build.md` | 3 | P1, P2, P3, P4 |
 
+Checkpoint (session opus-luna-design-and-implement-review-loop-session-483,
+2026-10-25): P1, P2, P3 and P4 were accepted in session 481 by test-integrity
+and adversarial review. Their changes are in the working tree and must be
+preserved. They are listed under `acceptedDependencies` in
+`impl-plans/active/tauri-client-connection-dispatch.json` and are not
+redispatched. Only P5 is dispatched, as the single plan of wave 1. Session 481
+blocked P5 only because of an invalid typecheck gate (`bunx tsc --noEmit -p
+web` from the repository root, which cannot resolve `bun:test` types). Every
+plan now uses `cd web && bun run typecheck` instead.
+
 P1 and P2 pin the TypeScript contracts that P3 consumes. Their exact
 signatures are written in each plan, so P3 can be read and prepared in
 advance but is only implemented once P1 and P2 have landed.
@@ -101,7 +111,7 @@ not a pass.
 
 - P1 to P5 progress logs end in `status: done`.
 - P5 records exit 0 and a positive count for `cd web && bun test src` and
-  `cd web && bunx vitest run`, and exit 0 for `bunx tsc --noEmit -p web`,
+  `cd web && bunx vitest run`, and exit 0 for `cd web && bun run typecheck`,
   `cd web && bun run lint`, `mise run tauri:check` and `mise run
   tauri:build`. It also records that
   `web/src-tauri/target/release/bundle/macos/Kaiba.app/Contents/MacOS/kaiba`
