@@ -57,10 +57,24 @@ Kaiba ships as:
   `RielaSQLite`-style target, matching kaiba's existing
   `AppCore`/`AppCLI` boundary. A new `CKaibaSQLite3` system-library
   target provides the sqlite3 C API.
-- **K3 — CryptoKit replaces swift-crypto.** Kaiba targets macOS 14+
-  only, so Apple CryptoKit provides the same `SHA256`/`HMAC<SHA256>` API
-  without adding swift-crypto. The only external SwiftPM dependency is
-  `anydoc-swift`, introduced by K9 for in-process document conversion.
+- **K3 — CryptoKit on Apple platforms, swift-crypto 5.x on Linux.**
+  Apple CryptoKit provides the `SHA256`/`HMAC<SHA256>`/`SymmetricKey`
+  API on macOS/iOS. The Linux CLI build links
+  `apple/swift-crypto` instead: `AppCore` declares the `Crypto` product
+  with `condition: .when(platforms: [.linux])`. Every crypto-importing
+  file selects the module with `#if canImport(CryptoKit)`. Updated
+  2026-10-27: the requirement is `from: "5.0.3"`, so the Riela
+  dependency graph resolves to a single swift-crypto 5.x, and
+  `Package.resolved` pins 5.x. Kaiba uses only `SHA256.hash(data:)`,
+  incremental `SHA256()`, `HMAC<SHA256>.authenticationCode` /
+  `isValidAuthenticationCode` and `SymmetricKey(data:)`, and their
+  outputs are fixed by the algorithms. The upgrade must not change
+  call sites beyond what swift-crypto 5 needs to compile. It must not
+  add a workaround for a dependency that caps swift-crypto below 5,
+  because the only other dependency, `anydoc-swift`, declares none.
+  Because macOS builds never link `Crypto`, the Linux compile is
+  verified separately (see Verification). The external SwiftPM
+  dependencies are `anydoc-swift` (K9) and `swift-crypto`.
 - **K4 — Note operations are direct library calls.** Riela routed CLI
   note operations through its GraphQL executor because GraphQL was the
   shared control plane. Kaiba has no control plane; `AppCLI` calls
@@ -127,6 +141,30 @@ Kaiba ships as:
   clicks open a cross-notebook tag detail pane whose memos and agent
   chat bind to a lazily created per-tag `tag-memo` notebook. See
   `tag-detail-pane.md`.
+- **K15 — Auto-action outbox maintenance inputs are clamped
+  (2026-10-27).** This ports the intent of Riela f5a26c83 and cf34383d
+  into `Sources/AppCore/AutoActionDispatching.swift`. Nothing else
+  changes.
+  - *Retry limit.* `retryPendingAutoActionDispatches(limit:)` binds
+    `max(limit, 0)` as the SQL `LIMIT`, because SQLite treats a negative
+    `LIMIT` as unbounded. A zero or negative limit therefore selects and
+    dispatches no rows and returns 0. It still runs the store-administrator
+    and maintenance-auth checks first, so authorization behavior is
+    unchanged. Callers with a positive limit (the default is 50) behave
+    exactly as before. The limit is not raised to 1: `LIMIT 0` is already
+    safe, and a caller asking for zero rows should get zero.
+  - *Heartbeat interval.* `autoActionDispatchLeaseHeartbeatIntervalNanos`
+    (made internal, like `autoActionDispatchLeaseCutoff`, so tests can
+    call it) still uses `staleness / 3`. It returns 0, which disables the
+    heartbeat, when the interval is not `> 0`, which includes NaN. Before
+    multiplying, it caps the interval in seconds at
+    `Double(UInt64.max / 1_000_000_000)`, so `+infinity`,
+    `.greatestFiniteMagnitude` and other huge staleness values yield a
+    finite capped `UInt64` and never trap. Normal values are unchanged:
+    the 15-minute default still gives 300 s (`300_000_000_000` ns).
+  - *Out of scope.* Similar conversions in
+    `GoogleDocumentAIPageRecognizer.swift` and `SearchIndexSyncLoop.swift`
+    are not touched. The same goes for the lease-cutoff date arithmetic.
 
 ## Domain Model (inherited from Riela Note D1–D19)
 
@@ -275,3 +313,24 @@ integration points, and the concrete agent runtime stays external
   `AppCoreTests`), `swiftlint`.
 - CLI smoke: create/list/search/tag/attach/readonly/delete round-trips
   against a temp note root.
+- K3 (swift-crypto 5.x): `Package.resolved` records swift-crypto 5.x
+  (>= 5.0.3) after `swift package update swift-crypto`. The existing
+  crypto tests (`KaibaJWTTests` and the file-store hash tests) pass
+  without changes. The Linux compile, the only build that links
+  `Crypto`, is checked by `.github/workflows/linux-amd64-build.yml` on
+  the push to main. Before pushing, run the same container build
+  locally when a container runtime is available. After pushing, report
+  that workflow's conclusion. A Linux failure means a follow-up fix,
+  not a pass.
+- K15 (clamps), in `Tests/AppCoreTests/AutoActionRecoveryTests.swift`
+  (`AutoActionTests.swift` is already about 990 lines):
+  `retryPendingAutoActionDispatches(limit: -1)` and `(limit: 0)` return
+  0 and leave the pending rows pending, and a later default call
+  dispatches them. The heartbeat helper returns the cap for `.infinity`,
+  `.greatestFiniteMagnitude` and `1e30`, returns 0 for 0, negative and
+  NaN, and returns `300_000_000_000` for the 900 s default.
+- Release hygiene: the patch bump 0.1.18 -> 0.1.19 touches `VERSION`,
+  `Sources/AppCore/Version.swift`, `web/src-tauri/Cargo.toml`, the
+  `kaiba-client` entry in `web/src-tauri/Cargo.lock`, and
+  `web/src-tauri/tauri.conf.json`, matching cf1254b. `mise run check`
+  must pass.

@@ -1,0 +1,192 @@
+{
+  "taskId": "swift-crypto-5",
+  "workflowMode": "issue-resolution",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-510",
+  "implementationBranch": "main",
+  "baseBranch": "main",
+  "remote": "origin",
+  "originalHead": "31b8cadd78c7a0bb8d8c76944f944dc3aa2c05a4",
+  "evidenceRoot": "tmp/swift-crypto-5",
+  "planDocPath": "impl-plans/active/swift-crypto-5.md",
+  "designDocPaths": ["design-docs/specs/kaiba-note.md"],
+  "planPaths": [
+    "impl-plans/active/swift-crypto-5.md",
+    "impl-plans/active/swift-crypto-5-p1-dependency.md",
+    "impl-plans/active/swift-crypto-5-p2-autoaction-clamps.md",
+    "impl-plans/active/swift-crypto-5-p3-version-bump.md"
+  ],
+  "reviewContext": {
+    "issueReference": "workflowInput: kaiba: move to swift-crypto 5.x and clamp AutoAction limit/sleep (no GitHub issue URL or number supplied)",
+    "userProblem": "The owner requires every Swift package in the Riela dependency graph to require and build against apple/swift-crypto 5.x (>= 5.0.3) so Riela resolves a single 5.x version. Two AutoAction safety clamps from Riela f5a26c83 and cf34383d never reached kaiba: a negative retry limit becomes an unbounded SQLite LIMIT, and the heartbeat seconds-to-nanoseconds conversion can trap on overflow.",
+    "requiredOutcomes": [
+      "Package.swift requires swift-crypto from: \"5.0.3\" and Package.resolved pins swift-crypto 5.x >= 5.0.3 via swift package update swift-crypto (K3).",
+      "Hashing/HMAC outputs and existing crypto tests are unchanged; any source edit is a minimal swift-crypto 5 compile fix (K3).",
+      "retryPendingAutoActionDispatches binds max(limit, 0); limit -1 and 0 return 0 and leave pending rows pending; authorization checks still run first (K15).",
+      "autoActionDispatchLeaseHeartbeatIntervalNanos is internal, caps seconds at Double(UInt64.max / 1_000_000_000) before multiplying, returns 0 for non-positive/NaN, 300_000_000_000 for 900 (K15).",
+      "Focused tests in Tests/AppCoreTests/AutoActionRecoveryTests.swift cover the limit and heartbeat clamps.",
+      "Patch version bump 0.1.18 -> 0.1.19 at VERSION, Sources/AppCore/Version.swift, web/src-tauri/Cargo.toml, web/src-tauri/Cargo.lock (kaiba-client), web/src-tauri/tauri.conf.json, matching cf1254b.",
+      "swift build, full swift test, mise run lint and mise run check pass; one commit pushed to origin main; linux-amd64-build.yml conclusion recorded."
+    ],
+    "nonGoals": [
+      "No GitHub releases, Homebrew formulas or casks.",
+      "No workaround for a dependency capping swift-crypto below 5; report a blocker with the exact constraint instead.",
+      "No behavior change to AutoAction dispatch beyond the two clamps; no other refactors.",
+      "No changes to .riela/, node_modules/, tmp/ui-preview-compat/, schema DDL or generated schema Swift."
+    ],
+    "constraints": [
+      "Plans run in wave 1 with disjoint writePaths; no git write operations by workers; per-plan progress files under tmp/swift-crypto-5/<P#>/.",
+      "Every command is teed to tmp/swift-crypto-5/<P#>/logs/NN-name.log ending with exit=<code>; incomplete logs are not passes.",
+      "Swift files stay under 1000 lines (AutoActionTests.swift is ~991 lines, so new tests go in AutoActionRecoveryTests.swift).",
+      "Commit messages carry no AI attribution and no emojis.",
+      "Full gates (swift test, mise run lint, mise run check) run only in serial integration."
+    ],
+    "designDecisionsAndRationale": [
+      "K3: CryptoKit on Apple platforms, swift-crypto only on Linux via .when(platforms: [.linux]); macOS builds never link Crypto, so the Linux compile is verified by a local container build when docker is available and by linux-amd64-build.yml after push.",
+      "K15: the limit is clamped to 0 rather than raised to 1 because LIMIT 0 is safe and a caller asking for zero rows should get zero; no early return so authorization behavior is unchanged.",
+      "K15: the heartbeat helper is made internal (like autoActionDispatchLeaseCutoff) so tests can call it directly; capping before multiplying keeps UInt64 conversion in range."
+    ],
+    "intentionalTradeoffs": [
+      "The Linux compile against swift-crypto 5 may only be proven after the push through linux-amd64-build.yml when docker is unavailable locally.",
+      "P1 and P2 share .build; the SwiftPM lock serializes them, worst case is a rebuild; full serial swift test re-proves everything.",
+      "P2 asserts limit: 1 returns 1 as the positive-path check; a default-call assertion of the remaining pending count is optional (reviewer low finding)."
+    ],
+    "supportedEdgeCases": [
+      "retry limit -1, 0, 1 and default 50",
+      "heartbeat staleness 0, negative, NaN, -infinity, +infinity, greatestFiniteMagnitude, 1e30, 900",
+      "swift-crypto resolution capped below 5 reported as blocked (cap)",
+      "docker unavailable logged as 'linux-local: unavailable (no docker)'"
+    ],
+    "outOfScopeEdgeCases": [
+      "Riela clamp-form parity when /Users/taco/gits/tacogips/riela is unreadable; K15 remains the contract.",
+      "Upgrading other dependencies (anydoc-swift pin stays at 0aa4756d0ce3f97cc94f1de9efe26879808097c8)."
+    ],
+    "sourcePaths": [
+      "Package.swift",
+      "Package.resolved",
+      "Sources/AppCore/AutoActionDispatching.swift",
+      "Tests/AppCoreTests/AutoActionRecoveryTests.swift",
+      "VERSION",
+      "Sources/AppCore/Version.swift",
+      "web/src-tauri/Cargo.toml",
+      "web/src-tauri/Cargo.lock",
+      "web/src-tauri/tauri.conf.json",
+      "design-docs/specs/kaiba-note.md"
+    ]
+  },
+  "acceptedDependencies": [],
+  "plans": [
+    {
+      "planId": "swift-crypto-5-p1-dependency",
+      "planPath": "impl-plans/active/swift-crypto-5-p1-dependency.md",
+      "progressPath": "tmp/swift-crypto-5/P1/progress.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Package.swift",
+        "Package.resolved",
+        "Sources/AppCore/KaibaJWT.swift",
+        "Sources/AppCore/LocalNoteFileStore.swift",
+        "Sources/AppCore/AITranslation.swift",
+        "Sources/AppCore/MeilisearchRequestBodies.swift",
+        "Sources/AppCore/NoteService+APIClients.swift",
+        "Sources/AppCore/S3NoteFileStore.swift",
+        "Sources/AppCore/NoteService+EmailLogin.swift",
+        "tmp/swift-crypto-5/P1/progress.md",
+        "tmp/swift-crypto-5/P1/logs",
+        "tmp/swift-crypto-5/P1/linux-src",
+        ".build"
+      ],
+      "sharedPaths": [],
+      "artifactRoots": ["tmp/swift-crypto-5/P1/logs", "tmp/swift-crypto-5/P1/linux-src", ".build"],
+      "acceptanceCriteria": [
+        "Package.swift requires swift-crypto from: \"5.0.3\", and its git diff --numstat is exactly 1 1.",
+        "Package.resolved, produced by swift package update swift-crypto (exit 0), pins swift-crypto 5.x >= 5.0.3. The anydoc-swift pin is unchanged at 0aa4756d0ce3f97cc94f1de9efe26879808097c8.",
+        "swift build exits 0. swift test --filter 'KaibaJWTTests|NoteFileStoreTests|AITranslationTests' exits 0 with N > 0 tests and 0 failures, and no test file is edited.",
+        "The Linux container build on a copied source tree (never the repo root) exits 0, or the log records 'linux-local: unavailable (no docker)'.",
+        "Any edit to a crypto source is a minimal Linux compile fix that is logged with the compiler message. Otherwise git diff -- Sources is empty for the 7 files.",
+        "If resolution is capped below 5, the plan reports status: blocked (cap) with the exact constraint and makes no workaround."
+      ],
+      "verification": [
+        "swift package update swift-crypto",
+        "jq pin extraction of swift-crypto, swift-asn1 and anydoc-swift from Package.resolved",
+        "git diff --numstat Package.swift",
+        "swift build",
+        "swift test --filter 'KaibaJWTTests|NoteFileStoreTests|AITranslationTests'",
+        "command -v docker, then the linux-amd64-build container script on tmp/swift-crypto-5/P1/linux-src",
+        "git diff --stat -- Sources"
+      ]
+    },
+    {
+      "planId": "swift-crypto-5-p2-autoaction-clamps",
+      "planPath": "impl-plans/active/swift-crypto-5-p2-autoaction-clamps.md",
+      "progressPath": "tmp/swift-crypto-5/P2/progress.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/AutoActionDispatching.swift",
+        "Tests/AppCoreTests/AutoActionRecoveryTests.swift",
+        "tmp/swift-crypto-5/P2/progress.md",
+        "tmp/swift-crypto-5/P2/logs"
+      ],
+      "sharedPaths": [],
+      "artifactRoots": ["tmp/swift-crypto-5/P2/logs"],
+      "acceptanceCriteria": [
+        "retryPendingAutoActionDispatches binds .int(Int64(max(limit, 0))). The authorization checks still run before the query, with no early return.",
+        "autoActionDispatchLeaseHeartbeatIntervalNanos is internal. It returns 0 for 0, negative, NaN and -infinity, and 300_000_000_000 for 900. It returns the finite cap UInt64(Double(UInt64.max / 1_000_000_000) * 1_000_000_000) without trapping for infinity, greatestFiniteMagnitude and 1e30.",
+        "The new limit test fails before the fix (red log) and passes after. limit -1 and 0 return 0 and leave the pending count unchanged. limit 1 returns 1.",
+        "swift test --filter AutoActionRecoveryTests and --filter 'AutoActionTests|AgentChatDispatchSecurityTests' exit 0 with 0 failures. swiftlint on both files exits 0. Both files stay under 1000 lines."
+      ],
+      "verification": [
+        "swift test --filter AutoActionRecoveryTests (red before the fix, green after)",
+        "swift test --filter 'AutoActionTests|AgentChatDispatchSecurityTests'",
+        "swiftlint lint Sources/AppCore/AutoActionDispatching.swift Tests/AppCoreTests/AutoActionRecoveryTests.swift",
+        "wc -l Sources/AppCore/AutoActionDispatching.swift Tests/AppCoreTests/AutoActionRecoveryTests.swift"
+      ]
+    },
+    {
+      "planId": "swift-crypto-5-p3-version-bump",
+      "planPath": "impl-plans/active/swift-crypto-5-p3-version-bump.md",
+      "progressPath": "tmp/swift-crypto-5/P3/progress.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "VERSION",
+        "Sources/AppCore/Version.swift",
+        "web/src-tauri/Cargo.toml",
+        "web/src-tauri/Cargo.lock",
+        "web/src-tauri/tauri.conf.json",
+        "tmp/swift-crypto-5/P3/progress.md",
+        "tmp/swift-crypto-5/P3/logs",
+        "web/dist",
+        "web/node_modules/.vite",
+        "web/src-tauri/target",
+        "web/src-tauri/gen/schemas"
+      ],
+      "sharedPaths": [],
+      "artifactRoots": [
+        "tmp/swift-crypto-5/P3/logs",
+        "web/dist",
+        "web/node_modules/.vite",
+        "web/src-tauri/target",
+        "web/src-tauri/gen/schemas"
+      ],
+      "acceptanceCriteria": [
+        "0.1.19 appears at all five sites. git diff --numstat shows five rows of 1 1, both before and after tauri:check.",
+        "mise run tauri:check and mise run web:check each exit 0."
+      ],
+      "verification": [
+        "grep 0.1.19 across the five sites",
+        "git diff --numstat -- VERSION Sources/AppCore/Version.swift web/src-tauri",
+        "mise run tauri:check",
+        "mise run web:check"
+      ]
+    }
+  ],
+  "policies": {
+    "editProtocol": "See the impl-plans/active/swift-crypto-5.md Edit protocol. Read each file fresh and record pre and post sha256 hashes. Drift means stop with status: blocked (drift). Edit only your own writePaths. No git write operations, branches or worktrees.",
+    "sharedBuildCache": ".build is owned by P1 as an artifact root. P2 also builds into it through SwiftPM, whose lock serializes concurrent invocations. No plan runs mise run anydoc:native, build, test or check. The Linux container never mounts the repository root.",
+    "protectedPaths": ".riela/, node_modules/, tmp/ui-preview-compat/, design-docs/, schema/note-store.sqlite.sql, Sources/AppCore/NoteStoreSchemaDDL.generated.swift, any impl-plans/active/*-dispatch.json.",
+    "evidencePolicy": "Tee every command into tmp/swift-crypto-5/<P#>/logs/NN-name.log, ending with exit=<code>. Record the complete log path and the final exit status. An incomplete log is not a pass.",
+    "integration": "Run serially after acceptance: swift build, swift test (full), mise run lint, mise run check. Then make one commit without AI attribution, push to origin main, and watch linux-amd64-build.yml in the foreground and record its conclusion. No releases, formulas or casks."
+  }
+}
