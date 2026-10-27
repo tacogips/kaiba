@@ -153,6 +153,46 @@ final class AutoActionRecoveryTests: NoteTestCase {
     XCTAssertTrue(attempt.lastError?.contains("final auto-action reconciliation failed") == true)
   }
 
+  func testRetryPendingAutoActionDispatchesClampsNonPositiveLimit() async throws {
+    let service = try makeRecoveryService()
+    _ = try service.createNote(bodyMarkdown: "# First pending action")
+    _ = try service.createNote(bodyMarkdown: "# Second pending action")
+    let pendingBefore = try service.listAutoActionDispatchAttempts().filter { $0.status == .pending }.count
+    XCTAssertGreaterThanOrEqual(pendingBefore, 2)
+
+    let recovered = try NoteService(
+      driver: service.driver,
+      autoActionDispatcher: RecoveryDeferredDispatcher()
+    )
+    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(limit: -1), 0)
+    XCTAssertEqual(
+      try recovered.listAutoActionDispatchAttempts().filter { $0.status == .pending }.count,
+      pendingBefore
+    )
+    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(limit: 0), 0)
+    XCTAssertEqual(
+      try recovered.listAutoActionDispatchAttempts().filter { $0.status == .pending }.count,
+      pendingBefore
+    )
+    XCTAssertEqual(try recovered.retryPendingAutoActionDispatches(limit: 1), 1)
+    await recovered.drainAutoActionDispatches()
+  }
+
+  func testAutoActionDispatchLeaseHeartbeatIntervalClampsExtremeStaleness() {
+    XCTAssertEqual(autoActionDispatchLeaseHeartbeatIntervalNanos(staleness: 900), 300_000_000_000)
+
+    let invalidStalenessValues: [TimeInterval] = [0, -5, .nan, -Double.infinity]
+    for staleness in invalidStalenessValues {
+      XCTAssertEqual(autoActionDispatchLeaseHeartbeatIntervalNanos(staleness: staleness), 0)
+    }
+
+    let cappedNanos = UInt64(Double(UInt64.max / 1_000_000_000) * 1_000_000_000)
+    let extremeStalenessValues: [TimeInterval] = [.infinity, .greatestFiniteMagnitude, 1e30]
+    for staleness in extremeStalenessValues {
+      XCTAssertEqual(autoActionDispatchLeaseHeartbeatIntervalNanos(staleness: staleness), cappedNanos)
+    }
+  }
+
   private func makeRecoveryService() throws -> NoteService {
     let service = try NoteService(driver: try makeNoteDriver(function: #function))
     try enableSeededAutoActions(driver: service.driver)

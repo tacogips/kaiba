@@ -14,13 +14,15 @@ public let defaultAutoActionDispatchLeaseStaleness: TimeInterval = 15 * 60
 /// Interval at which a running dispatch attempt re-stamps its lease, expressed
 /// in nanoseconds. A third of the staleness window keeps the lease comfortably
 /// fresh (two heartbeats are lost before reclamation becomes possible). Returns
-/// 0 for a non-positive staleness, disabling the heartbeat.
-private func autoActionDispatchLeaseHeartbeatIntervalNanos(staleness: TimeInterval) -> UInt64 {
+/// 0 for a non-positive staleness, disabling the heartbeat. Huge or infinite
+/// staleness values are capped rather than trapping during conversion.
+func autoActionDispatchLeaseHeartbeatIntervalNanos(staleness: TimeInterval) -> UInt64 {
   let interval = staleness / 3
   guard interval > 0 else {
     return 0
   }
-  return UInt64(interval * 1_000_000_000)
+  let cappedInterval = min(interval, Double(UInt64.max / 1_000_000_000))
+  return UInt64(cappedInterval * 1_000_000_000)
 }
 
 func autoActionDispatchLeaseCutoff(olderThan staleness: TimeInterval) -> String {
@@ -262,7 +264,7 @@ public extension NoteService {
             .int(Int64(maximumAutoActionDispatchAttempts)),
             .int(Int64(maximumAutoActionDispatchAttempts)),
             .text(finalAutoActionReconciliationMarker),
-            .int(Int64(limit))
+            .int(Int64(max(limit, 0)))
           ]
         )
         var queued: [QueuedAutoActionDispatch] = []

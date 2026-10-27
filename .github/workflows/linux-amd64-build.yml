@@ -25,7 +25,7 @@ jobs:
 
       - name: Build Release CLI In Swift amd64 Container
         env:
-          SWIFT_IMAGE: swift@sha256:4c6af6663ed2316002a3b38ff5505a1fc1f2749ec31e84936c32dd336713c569
+          SWIFT_IMAGE: swift@sha256:c2f3ac2eb806ce43f68859c3d52bd3bb1cfc88672fb3a948b76e136d98e39278
           EXECUTABLE_NAME: "kaiba"
         run: |
           set -euo pipefail
