@@ -27,6 +27,8 @@ temp/
 .cache/
 logs/
 *.log
+.riela/
+/node_modules/
 
 # Web viewer build artifacts
 web/node_modules/
