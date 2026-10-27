@@ -25,7 +25,8 @@
       "autoActionDispatchLeaseHeartbeatIntervalNanos is internal, caps seconds at Double(UInt64.max / 1_000_000_000) before multiplying, returns 0 for non-positive/NaN, 300_000_000_000 for 900 (K15).",
       "Focused tests in Tests/AppCoreTests/AutoActionRecoveryTests.swift cover the limit and heartbeat clamps.",
       "Patch version bump 0.1.18 -> 0.1.19 at VERSION, Sources/AppCore/Version.swift, web/src-tauri/Cargo.toml, web/src-tauri/Cargo.lock (kaiba-client), web/src-tauri/tauri.conf.json, matching cf1254b.",
-      "swift build, full swift test, mise run lint and mise run check pass; one commit pushed to origin main; linux-amd64-build.yml conclusion recorded."
+      "swift build, full swift test, mise run lint and mise run check pass; one commit pushed to origin main; linux-amd64-build.yml conclusion recorded.",
+      "linux-amd64-build.yml SWIFT_IMAGE pins a Swift >= 6.2 image by digest, so the Linux build can resolve swift-crypto 5.0.3 (K3 amendment, IR-001)."
     ],
     "nonGoals": [
       "No GitHub releases, Homebrew formulas or casks.",
@@ -38,12 +39,14 @@
       "Every command is teed to tmp/swift-crypto-5/<P#>/logs/NN-name.log ending with exit=<code>; incomplete logs are not passes.",
       "Swift files stay under 1000 lines (AutoActionTests.swift is ~991 lines, so new tests go in AutoActionRecoveryTests.swift).",
       "Commit messages carry no AI attribution and no emojis.",
-      "Full gates (swift test, mise run lint, mise run check) run only in serial integration."
+      "Full gates (swift test, mise run lint, mise run check) run only in serial integration.",
+      "Accepted P2 and P3 working-tree files must stay byte-identical during the P1 redispatch."
     ],
     "designDecisionsAndRationale": [
       "K3: CryptoKit on Apple platforms, swift-crypto only on Linux via .when(platforms: [.linux]); macOS builds never link Crypto, so the Linux compile is verified by a local container build when docker is available and by linux-amd64-build.yml after push.",
       "K15: the limit is clamped to 0 rather than raised to 1 because LIMIT 0 is safe and a caller asking for zero rows should get zero; no early return so authorization behavior is unchanged.",
-      "K15: the heartbeat helper is made internal (like autoActionDispatchLeaseCutoff) so tests can call it directly; capping before multiplying keeps UInt64 conversion in range."
+      "K15: the heartbeat helper is made internal (like autoActionDispatchLeaseCutoff) so tests can call it directly; capping before multiplying keeps UInt64 conversion in range.",
+      "K3 amendment (IR-001): the Linux build toolchain must be >= the swift-tools-version of the pinned swift-crypto (6.2 for 5.0.3), so linux-amd64-build.yml SWIFT_IMAGE moves to an official Swift >= 6.2 image pinned by sha256 digest. swift-crypto is never downgraded."
     ],
     "intentionalTradeoffs": [
       "The Linux compile against swift-crypto 5 may only be proven after the push through linux-amd64-build.yml when docker is unavailable locally.",
@@ -70,10 +73,36 @@
       "web/src-tauri/Cargo.toml",
       "web/src-tauri/Cargo.lock",
       "web/src-tauri/tauri.conf.json",
-      "design-docs/specs/kaiba-note.md"
+      "design-docs/specs/kaiba-note.md",
+      ".github/workflows/linux-amd64-build.yml"
     ]
   },
-  "acceptedDependencies": [],
+  "acceptedDependencies": [
+    {
+      "planId": "swift-crypto-5-p2-autoaction-clamps",
+      "planPath": "impl-plans/active/swift-crypto-5-p2-autoaction-clamps.md",
+      "commit": "4b833f57a362ffac1efffbdb3b70ebd2f3f7b941",
+      "acceptedInSession": "opus-luna-design-and-implement-review-loop-session-510",
+      "acceptedWave": 1,
+      "progressPath": "tmp/swift-crypto-5/P2/progress.md",
+      "workingTreeFiles": ["Sources/AppCore/AutoActionDispatching.swift", "Tests/AppCoreTests/AutoActionRecoveryTests.swift"],
+      "sha256": {
+        "Sources/AppCore/AutoActionDispatching.swift": "5c15ca8103cc1b48f7cbfe7efcddea3f0d4073a124a4baf76b524f7a008fb1ef",
+        "Tests/AppCoreTests/AutoActionRecoveryTests.swift": "91545c48d0e8b75e7e74f5773cc9a4fc8770b52abb89c4e4308e4d6c4a68e5e1"
+      },
+      "provides": "K15 limit and heartbeat clamps with tests. Accepted by integration review; uncommitted working-tree changes that must stay byte-identical."
+    },
+    {
+      "planId": "swift-crypto-5-p3-version-bump",
+      "planPath": "impl-plans/active/swift-crypto-5-p3-version-bump.md",
+      "commit": "4b833f57a362ffac1efffbdb3b70ebd2f3f7b941",
+      "acceptedInSession": "opus-luna-design-and-implement-review-loop-session-510",
+      "acceptedWave": 1,
+      "progressPath": "tmp/swift-crypto-5/P3/progress.md",
+      "workingTreeFiles": ["VERSION", "Sources/AppCore/Version.swift", "web/src-tauri/Cargo.toml", "web/src-tauri/Cargo.lock", "web/src-tauri/tauri.conf.json"],
+      "provides": "0.1.18 -> 0.1.19 at five sites. Accepted by integration review; uncommitted working-tree changes that must stay byte-identical."
+    }
+  ],
   "plans": [
     {
       "planId": "swift-crypto-5-p1-dependency",
@@ -94,7 +123,8 @@
         "tmp/swift-crypto-5/P1/progress.md",
         "tmp/swift-crypto-5/P1/logs",
         "tmp/swift-crypto-5/P1/linux-src",
-        ".build"
+        ".build",
+        ".github/workflows/linux-amd64-build.yml"
       ],
       "sharedPaths": [],
       "artifactRoots": ["tmp/swift-crypto-5/P1/logs", "tmp/swift-crypto-5/P1/linux-src", ".build"],
@@ -104,7 +134,10 @@
         "swift build exits 0. swift test --filter 'KaibaJWTTests|NoteFileStoreTests|AITranslationTests' exits 0 with N > 0 tests and 0 failures, and no test file is edited.",
         "The Linux container build on a copied source tree (never the repo root) exits 0, or the log records 'linux-local: unavailable (no docker)'.",
         "Any edit to a crypto source is a minimal Linux compile fix that is logged with the compiler message. Otherwise git diff -- Sources is empty for the 7 files.",
-        "If resolution is capped below 5, the plan reports status: blocked (cap) with the exact constraint and makes no workaround."
+        "If resolution is capped below 5, the plan reports status: blocked (cap) with the exact constraint and makes no workaround.",
+        "Amendment 1 (IR-001): .github/workflows/linux-amd64-build.yml SWIFT_IMAGE pins an official Docker Hub swift image by sha256 digest whose toolchain is >= 6.2, the swift-tools-version of swift-crypto 5.0.3. Only that one line of the workflow changes (git diff --numstat 1 1). The tag, digest and lookup source are logged in tmp/swift-crypto-5/P1/logs/30-image-digest.log.",
+        "Amendment 1 (IR-001): either the copied-tree Linux build with the new image exits 0 and prints kaiba --version (logs/31-linux-build.log), or Docker still fails before the container starts (containerd meta.db I/O error, exit 125). In that case progress.md records 'linux-local: unavailable (docker containerd I/O error, exit 125)' and defers the Linux proof to the post-push linux-amd64-build.yml run.",
+        "Amendment 1: Package.swift (03b68e67...) and Package.resolved (93e02bd3...) are unchanged from the reviewed state unless a logged Linux compile fix requires otherwise. No P2 or P3 file changes."
       ],
       "verification": [
         "swift package update swift-crypto",
@@ -113,80 +146,19 @@
         "swift build",
         "swift test --filter 'KaibaJWTTests|NoteFileStoreTests|AITranslationTests'",
         "command -v docker, then the linux-amd64-build container script on tmp/swift-crypto-5/P1/linux-src",
-        "git diff --stat -- Sources"
-      ]
-    },
-    {
-      "planId": "swift-crypto-5-p2-autoaction-clamps",
-      "planPath": "impl-plans/active/swift-crypto-5-p2-autoaction-clamps.md",
-      "progressPath": "tmp/swift-crypto-5/P2/progress.md",
-      "wave": 1,
-      "dependsOn": [],
-      "writePaths": [
-        "Sources/AppCore/AutoActionDispatching.swift",
-        "Tests/AppCoreTests/AutoActionRecoveryTests.swift",
-        "tmp/swift-crypto-5/P2/progress.md",
-        "tmp/swift-crypto-5/P2/logs"
-      ],
-      "sharedPaths": [],
-      "artifactRoots": ["tmp/swift-crypto-5/P2/logs"],
-      "acceptanceCriteria": [
-        "retryPendingAutoActionDispatches binds .int(Int64(max(limit, 0))). The authorization checks still run before the query, with no early return.",
-        "autoActionDispatchLeaseHeartbeatIntervalNanos is internal. It returns 0 for 0, negative, NaN and -infinity, and 300_000_000_000 for 900. It returns the finite cap UInt64(Double(UInt64.max / 1_000_000_000) * 1_000_000_000) without trapping for infinity, greatestFiniteMagnitude and 1e30.",
-        "The new limit test fails before the fix (red log) and passes after. limit -1 and 0 return 0 and leave the pending count unchanged. limit 1 returns 1.",
-        "swift test --filter AutoActionRecoveryTests and --filter 'AutoActionTests|AgentChatDispatchSecurityTests' exit 0 with 0 failures. swiftlint on both files exits 0. Both files stay under 1000 lines."
-      ],
-      "verification": [
-        "swift test --filter AutoActionRecoveryTests (red before the fix, green after)",
-        "swift test --filter 'AutoActionTests|AgentChatDispatchSecurityTests'",
-        "swiftlint lint Sources/AppCore/AutoActionDispatching.swift Tests/AppCoreTests/AutoActionRecoveryTests.swift",
-        "wc -l Sources/AppCore/AutoActionDispatching.swift Tests/AppCoreTests/AutoActionRecoveryTests.swift"
-      ]
-    },
-    {
-      "planId": "swift-crypto-5-p3-version-bump",
-      "planPath": "impl-plans/active/swift-crypto-5-p3-version-bump.md",
-      "progressPath": "tmp/swift-crypto-5/P3/progress.md",
-      "wave": 1,
-      "dependsOn": [],
-      "writePaths": [
-        "VERSION",
-        "Sources/AppCore/Version.swift",
-        "web/src-tauri/Cargo.toml",
-        "web/src-tauri/Cargo.lock",
-        "web/src-tauri/tauri.conf.json",
-        "tmp/swift-crypto-5/P3/progress.md",
-        "tmp/swift-crypto-5/P3/logs",
-        "web/dist",
-        "web/node_modules/.vite",
-        "web/src-tauri/target",
-        "web/src-tauri/gen/schemas"
-      ],
-      "sharedPaths": [],
-      "artifactRoots": [
-        "tmp/swift-crypto-5/P3/logs",
-        "web/dist",
-        "web/node_modules/.vite",
-        "web/src-tauri/target",
-        "web/src-tauri/gen/schemas"
-      ],
-      "acceptanceCriteria": [
-        "0.1.19 appears at all five sites. git diff --numstat shows five rows of 1 1, both before and after tauri:check.",
-        "mise run tauri:check and mise run web:check each exit 0."
-      ],
-      "verification": [
-        "grep 0.1.19 across the five sites",
-        "git diff --numstat -- VERSION Sources/AppCore/Version.swift web/src-tauri",
-        "mise run tauri:check",
-        "mise run web:check"
+        "git diff --stat -- Sources",
+        "grep -n SWIFT_IMAGE .github/workflows/linux-amd64-build.yml; git diff --numstat .github/workflows/linux-amd64-build.yml (1 1)",
+        "docker run --rm --platform linux/amd64 swift@sha256:<new> swift --version (>= 6.2), or the logged exit-125 unavailable case",
+        "shasum -a 256 Package.swift Package.resolved Sources/AppCore/AutoActionDispatching.swift Tests/AppCoreTests/AutoActionRecoveryTests.swift (unchanged)"
       ]
     }
   ],
   "policies": {
     "editProtocol": "See the impl-plans/active/swift-crypto-5.md Edit protocol. Read each file fresh and record pre and post sha256 hashes. Drift means stop with status: blocked (drift). Edit only your own writePaths. No git write operations, branches or worktrees.",
-    "sharedBuildCache": ".build is owned by P1 as an artifact root. P2 also builds into it through SwiftPM, whose lock serializes concurrent invocations. No plan runs mise run anydoc:native, build, test or check. The Linux container never mounts the repository root.",
-    "protectedPaths": ".riela/, node_modules/, tmp/ui-preview-compat/, design-docs/, schema/note-store.sqlite.sql, Sources/AppCore/NoteStoreSchemaDDL.generated.swift, any impl-plans/active/*-dispatch.json.",
+    "sharedBuildCache": ".build is owned by P1 as an artifact root. The Linux container never mounts the repository root. No plan runs mise run anydoc:native, build, test or check.",
+    "protectedPaths": ".riela/, node_modules/, tmp/ui-preview-compat/, design-docs/, schema/note-store.sqlite.sql, Sources/AppCore/NoteStoreSchemaDDL.generated.swift, any impl-plans/active/*-dispatch.json, and the accepted P2/P3 working-tree files.",
     "evidencePolicy": "Tee every command into tmp/swift-crypto-5/<P#>/logs/NN-name.log, ending with exit=<code>. Record the complete log path and the final exit status. An incomplete log is not a pass.",
-    "integration": "Run serially after acceptance: swift build, swift test (full), mise run lint, mise run check. Then make one commit without AI attribution, push to origin main, and watch linux-amd64-build.yml in the foreground and record its conclusion. No releases, formulas or casks."
+    "integration": "Run serially after acceptance: swift build, swift test (full), mise run lint, mise run check. Then make one commit without AI attribution, push to origin main, and watch linux-amd64-build.yml in the foreground and record its conclusion. No releases, formulas or casks.",
+    "checkpointAmendment": "Amendment round 1 (reason integration-paths-outside-writePaths, finding IR-001-linux-toolchain-below-swift-crypto-5-tools-version): .github/workflows/linux-amd64-build.yml is added to swift-crypto-5-p1-dependency writePaths. P2 and P3 move to acceptedDependencies, and only P1 is redispatched."
   }
 }

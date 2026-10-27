@@ -73,7 +73,12 @@ Kaiba ships as:
   add a workaround for a dependency that caps swift-crypto below 5,
   because the only other dependency, `anydoc-swift`, declares none.
   Because macOS builds never link `Crypto`, the Linux compile is
-  verified separately (see Verification). The external SwiftPM
+  verified separately (see Verification). swift-crypto 5.0.3 declares
+  `swift-tools-version:6.2`, so the Linux build toolchain must be at
+  least 6.2. The `SWIFT_IMAGE` digest in
+  `.github/workflows/linux-amd64-build.yml` therefore moves from the
+  Swift 6.1.3 image to an official Swift >= 6.2 image, still pinned by
+  sha256. Downgrading swift-crypto to fit the old image is not allowed. The external SwiftPM
   dependencies are `anydoc-swift` (K9) and `swift-crypto`.
 - **K4 — Note operations are direct library calls.** Riela routed CLI
   note operations through its GraphQL executor because GraphQL was the

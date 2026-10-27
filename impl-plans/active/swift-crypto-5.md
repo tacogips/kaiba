@@ -62,3 +62,7 @@ No plan depends on another. The DAG has a single wave.
 ## Progress Log
 
 - 2026-10-27: Plan set created from the accepted design (Step 3 accepted, needs_revision=false).
+- 2026-10-27: Integration review accepted P2 and P3 (now acceptedDependencies in the manifest).
+  Checkpoint amendment round 1 (IR-001) adds `.github/workflows/linux-amd64-build.yml` to P1.
+  The pinned CI Swift image is 6.1.3, but swift-crypto 5.0.3 needs tools-version 6.2. Only P1 is
+  redispatched. Finalization also includes the workflow file in the single commit.

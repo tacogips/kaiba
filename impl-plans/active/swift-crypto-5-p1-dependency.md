@@ -91,6 +91,80 @@
 - [ ] Logs 01, 04 and 05 end with `exit=0`. Log 06 is a pass or explicitly records unavailable.
 - [ ] `progress.md` lists the swift-crypto version, the swift-asn1 version, the tools version and platforms of swift-crypto 5, the deprecation-grep result, and the Linux status. It ends with `status: done`.
 
+## Amendment 1 (2026-10-27): Linux CI toolchain (integration finding IR-001)
+
+### Context
+
+Wave 1 already did the macOS work, and it stays as it is: `Package.swift` requires `from: "5.0.3"`,
+`Package.resolved` pins 5.0.3 (rev c2cbadd7), and 48/48 crypto tests pass. The integration review
+found that swift-crypto 5.0.3 declares `// swift-tools-version:6.2`
+(`.build/checkouts/swift-crypto/Package.swift:1`). However, `.github/workflows/linux-amd64-build.yml:28`
+pins `SWIFT_IMAGE: swift@sha256:4c6af666...`, and that image runs Swift 6.1.3 (CI run
+40421243109 logs `Swift version 6.1.3`). SwiftPM refuses a dependency whose tools version is newer
+than the toolchain, so the Linux build would fail after the push. Design K3 (amended) requires the
+Linux toolchain to be >= swift-crypto's tools version. The workflow file is now in this plan's writePaths.
+
+### Changes
+
+1. `.github/workflows/linux-amd64-build.yml`: change only the digest on the `SWIFT_IMAGE:` line.
+   It becomes `swift@sha256:<digest>` of an official Docker Hub `swift` Ubuntu image at Swift >= 6.2.
+   Prefer 6.3.3, which matches `mise.toml` `swift = "6.3.3"`. If the current image's Ubuntu codename
+   can be read from a CI log or the image config, use a tag on the same Ubuntu base; otherwise use
+   the version's default Ubuntu tag. Resolve the multi-arch index digest without pulling. Use
+   `docker buildx imagetools inspect swift:<tag>`, which does not use containerd storage, or
+   `curl -s https://hub.docker.com/v2/repositories/library/swift/tags/<tag>` and read its `digest`
+   field. Confirm that a `linux/amd64` manifest exists. Log the tag, digest, source and amd64
+   presence to `tmp/swift-crypto-5/P1/logs/30-image-digest.log`.
+2. Do not edit Package.swift, Package.resolved or the crypto sources unless the Linux build in
+   step 3 shows a compile error in an owned crypto source. In that case apply the minimal fix and
+   log the compiler message.
+
+### Linux verification
+
+3. Probe `docker run --rm --platform linux/amd64 swift@sha256:<new> swift --version`.
+   - If it starts, re-copy the tracked tree into `tmp/swift-crypto-5/P1/linux-src` with the same
+     git ls-files rsync as before, so the copy carries the new workflow and the 5.0.3 pin. Then run
+     the workflow script against the copy, mounting only the copy, and tee it to `logs/31-linux-build.log`.
+     The log must end with exit=0 and contain a `kaiba --version` line and `Swift version 6.x` with x >= 2.
+   - If it fails before the container starts with the containerd `meta.db: input/output error`
+     (exit 125), record `linux-local: unavailable (docker containerd I/O error, exit 125)`. The
+     Linux proof then belongs to the post-push `linux-amd64-build.yml` run, which finalization watches.
+   - A Linux compile failure outside the owned paths is `status: blocked`, never an edit.
+
+### Non-goals and forbidden changes (amendment)
+
+- Never downgrade swift-crypto or loosen `from: "5.0.3"`.
+- No mutable tag such as `swift:6.3`. Keep a sha256 pin (secure-github-action).
+- Do not change triggers, permissions, the `actions/checkout` pin, the rustup toolchain, the apt
+  packages or any script line.
+- Do not delete or recreate the Colima VM or prune Docker storage.
+- Never mount the repository root into a container.
+- Do not touch the accepted P2/P3 files: `Sources/AppCore/AutoActionDispatching.swift`,
+  `Tests/AppCoreTests/AutoActionRecoveryTests.swift`, `VERSION`, `Sources/AppCore/Version.swift`,
+  `web/src-tauri/*`. Their sha256 must stay as recorded in the manifest `acceptedDependencies`.
+
+### Verification (command -> evidence)
+
+- `grep -n SWIFT_IMAGE .github/workflows/linux-amd64-build.yml` and
+  `git diff --numstat .github/workflows/linux-amd64-build.yml` -> new digest; `1	1`
+  (`logs/32-workflow-diff.log`).
+- The step 3 probe and Linux build -> logs 31/33 as described above.
+- `swift build` -> exit 0 (`logs/34-build.log`). This confirms macOS is unaffected.
+- `shasum -a 256 Package.swift Package.resolved Sources/AppCore/AutoActionDispatching.swift Tests/AppCoreTests/AutoActionRecoveryTests.swift`
+  -> `03b68e67...`, `93e02bd3...`, `5c15ca81...`, `91545c48...` (`logs/35-hashes.log`).
+
+### Done criteria (amendment)
+
+- [ ] linux-amd64-build.yml pins a Swift >= 6.2 official image digest, the workflow diff is 1/1,
+      and log 30 records the source.
+- [ ] Log 31 is a passing Linux build, or progress.md records the exit-125 unavailable case.
+- [ ] Hash log 35 matches. `tmp/swift-crypto-5/P1/progress.md` gains an "Amendment 1" section
+      and ends with `status: done`.
+
 ## Progress Log
 
 - 2026-10-27: Plan created.
+- 2026-10-27: Wave 1 macOS work completed. The Linux check was blocked by a Docker containerd
+  I/O error (exit 125).
+- 2026-10-27: Amendment 1 (checkpoint amendment round 1, IR-001). The CI image digest bump is
+  added to this plan's scope.
