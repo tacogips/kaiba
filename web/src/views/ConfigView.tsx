@@ -1,0 +1,75 @@
+import { For, type JSX } from 'solid-js'
+import { useApp } from '../state/appStore'
+import { clampFontScale, fontScaleBounds } from '../notes/settings'
+import { ServerConnectionSettings } from '../components/ServerConnectionSettings'
+import { UserAgentSettings } from '../components/UserAgentSettings'
+import { SearchEngineSettings } from '../components/SearchEngineSettings'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
+
+// The config screen. Settings live in the kaiba store's sqlite
+// (`app_settings`), so they follow the store across browsers and devices;
+// changes apply immediately and persist debounced.
+
+const fontPresets: ReadonlyArray<{ label: string; scale: number }> = [
+  { label: 'Small', scale: 1 },
+  { label: 'Default', scale: 1.15 },
+  { label: 'Large', scale: 1.3 },
+  { label: 'Extra large', scale: 1.5 },
+]
+
+export function ConfigView(): JSX.Element {
+  const app = useApp()
+  const scale = () => app.state.settings.fontScale
+
+  return (
+    <main class="config-view" id="main-content" tabindex="-1">
+      <header class="search-head">
+        <h1>Settings</h1>
+      </header>
+
+      <section class="config-section">
+        <h2>Font size</h2>
+        <div class="config-presets" role="group" aria-label="Font size presets">
+          <For each={fontPresets}>{(preset) =>
+            <button
+              type="button"
+              classList={{ secondary: scale() !== preset.scale }}
+              aria-pressed={scale() === preset.scale}
+              onClick={() => app.updateSettings({ fontScale: preset.scale })}
+            >{preset.label}</button>}
+          </For>
+        </div>
+        <label class="config-slider">
+          <span>Fine tune ({Math.round(scale() * 100)}%)</span>
+          <input
+            type="range"
+            min={fontScaleBounds.minimum}
+            max={fontScaleBounds.maximum}
+            step="0.05"
+            value={scale()}
+            onInput={(event) => {
+              const value = Number.parseFloat(event.currentTarget.value)
+              if (Number.isFinite(value)) app.updateSettings({ fontScale: clampFontScale(value) })
+            }}
+          />
+        </label>
+        <p class="config-preview" aria-hidden="true">
+          The quick brown fox jumps over the lazy dog. — 素早い茶色の狐が怠け者の犬を飛び越える。
+        </p>
+      </section>
+
+      <ServerConnectionSettings />
+
+      <UserAgentSettings />
+
+      <SearchEngineSettings />
+
+      <section class="config-section">
+        <h2>Layout</h2>
+        <button type="button" class="secondary" aria-label="Reset pane widths" title="Reset pane widths" onClick={app.resetPaneWidths}>
+          <WorkspaceIcon name="refresh" />
+        </button>
+      </section>
+    </main>
+  )
+}
