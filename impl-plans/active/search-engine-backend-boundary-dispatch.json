@@ -1,0 +1,415 @@
+{
+  "taskId": "search-engine-backend-boundary",
+  "workflowMode": "issue-resolution",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-272",
+  "implementationBranch": "main",
+  "baseBranch": "main",
+  "remote": "origin",
+  "originalHead": "137c6f7520a9c22b0be736395d3f970da97597eb",
+  "evidenceRoot": "tmp/search-engine-backend-boundary",
+  "planDocPath": "impl-plans/active/search-engine-backend-boundary.md",
+  "designDocPaths": [
+    "design-docs/specs/search-engine-adapter.md",
+    "design-docs/specs/design-search-engine-fusion.md",
+    "design-docs/specs/command.md",
+    "design-docs/user-qa/search-engine-adapter.md"
+  ],
+  "planPaths": [
+    "impl-plans/active/search-engine-backend-boundary.md",
+    "impl-plans/active/search-engine-backend-boundary-p1-descriptor-contract.md",
+    "impl-plans/active/search-engine-backend-boundary-p2-backend-resolution.md",
+    "impl-plans/active/search-engine-backend-boundary-p3-web-server-default.md",
+    "impl-plans/active/search-engine-backend-boundary-p4-readme.md",
+    "impl-plans/active/search-engine-backend-boundary-p5-integration.md"
+  ],
+  "acceptedDependencies": [],
+  "policies": {
+    "acceptance": "Design (B0-B8 delta in design-docs/specs/search-engine-adapter.md) accepted at Step 3 (comm-004126). Plans P1-P5 created at Step 4 (comm-004127) and accepted at Step 5 (comm-004128) with two low residual findings and no revision requested.",
+    "evidencePolicy": "A behavioral record is a test-runner command (swift test ..., bun test ..., vitest run ..., or mise run <task containing test>) with exit code 0 and every count > 0. For XCTest record the 'Executed N tests, with 0 failures' line with N > 0; for swift-testing the 'Test run with N tests passed' line with N > 0 when the filter selects swift-testing tests. mise run web:check is not a behavioral record. bun test src and vitest run are recorded separately. An env-gated skip is never evidence; the live suite records only the XCTest count of the positive run. Every command is teed into the plan's evidence directory and each record gives the complete log path and the final exit status.",
+    "evidenceLayout": "Evidence lives under tmp/search-engine-backend-boundary/<planId-prefix> (P1..P5), gitignored by tmp/. A retry attempt may use an attempt subdirectory inside the plan's own directory. A plan never writes another plan's evidence directory.",
+    "editProtocol": "Index 'Edit protocol': pre/post shasum per edit in tmp/search-engine-backend-boundary/<P#>/hashes.txt, an immutable intent snapshot intent.md written before the first edit, drift handling (re-read, re-apply only own intent, note drift), edit only own writePaths, peer compile/lint failures are not blockers (rerun after peers land; cross-plan fixes go to P5), no git write operations, no worktrees or branches, do not touch .riela/, each plan updates only the Progress Log in its own plan file.",
+    "artifactPolicy": "artifactRoots are copied unchanged from the accepted plans: tmp/search-engine-backend-boundary/<P#> for every plan, web/dist and web/src-tauri/target for P3 and P5 (vite build from mise run web:check and cargo output from mise run tauri:check). All are gitignored. Authored files (sources, tests, README.md, plan files) are never artifact roots.",
+    "protectedPaths": "No plan edits .riela/, any design-docs/ file, impl-plans/active/search-engine-fusion-dispatch.json, impl-plans/active/search-engine-adapter-dispatch.json, mise.toml, docker/meilisearch/compose.yaml, web/src-tauri/tauri.conf.json, web/src-tauri/capabilities/default.json or Sources/AppServer/*. The design-doc edits are committed in this checkpoint, so P5's protected-path guard (git diff --name-only -- design-docs ...) starts empty.",
+    "dockerPolicy": "macOS Docker runs through colima; P5 uses mise run search:docker, search:up, search:test-live, then search:down. If Docker or colima is unavailable, record 'blocked: <exact error>', never passed.",
+    "sanctionedExistingTestEdits": "Only these edits to pre-existing assertions are allowed: P1 removes the two SearchEngineFactory.adapters(environment:)...map(\\.defaultURL) assertions in SearchEngineFactoryTests.testDefaultsSelectMeilisearchAndResolveURLFromEnvironment (the defaultURL(for: \"other\") nil assertion stays); P2 adds environment: [:] to existing resolveSearchEngineSettings(configuration:) calls; P3 replaces the web defaultEngineURL prefill tests and engine-port fixtures. Never weaken any other assertion."
+  },
+  "reviewContext": {
+    "issueReference": "No GitHub issue. Inline workflowInput 'Search engine is backend-only: audit and fix the design so clients never need engine coordinates (server-side default URL resolution, remove client defaultURL prefill)' (workflowExecutionId opus-luna-design-and-implement-review-loop-session-272; base main at 137c6f7; design accepted comm-004126; plans comm-004127; plans accepted comm-004128).",
+    "userProblem": "The search engine (Meilisearch) must only ever be reached by the kaiba backend, but commit 137c6f7 sent the server's default engine URL (KAIBA_MEILISEARCH_URL or the http://127.0.0.1:7700 fallback) to every client through SearchEngineAdapterDescriptor.defaultURL (AppCore, GraphQL, KaibaClient, web prefill), the config-managed settings read returned the resolved URL, and saving or testing settings required the client to supply a URL.",
+    "requiredOutcomes": [
+      "B5: SearchEngineAdapterDescriptor returns to {kind, displayName, authModes}; defaultURL is removed from AppCore, the GraphQL schema contract, executor selection map and DTO, the KaibaClient model and both operation documents; SearchEngineFactory.adapters(environment:) is removed while the backend resolver SearchEngineFactory.defaultURL(for:environment:) stays.",
+      "B2: an omitted, null, empty or whitespace-only URL (settings input for update and test connection, stored record, config section) means server default, resolved only on the backend from the trimmed KAIBA_MEILISEARCH_URL then SearchEngineFactory.fallbackMeilisearchURL, from one environment (searchEngineSlot.environment or the caller's environment), with no ProcessInfo read in the settings paths.",
+      "B3: a server-default save persists no url key; index identity follows the resolved URL so an env change backfills; the secret target is the normalized resolved URL at save and fails closed when the environment retargets.",
+      "B4: the settings read returns the explicit stored or configured URL, else null; never the env or fallback value.",
+      "B6: the web form has no defaultURL or prefill, the URL field is optional with placeholder 'Server default' and the exact note text, the config view shows 'Server default', and a bun guard (engineBoundary.test.ts) keeps web/src free of the engine port, defaultURL and KAIBA_MEILISEARCH_URL.",
+      "B8: README 'Optional search engine' states the Settings server default, the loopback rule's server-host position, and env-change backfill and API-key re-entry; design-doc audit, decisions and Elasticsearch historical markers are already done in the design step.",
+      "Gates: mise run build, full swift test, mise run lint, bun test src, vitest run, mise run web:check, mise run tauri:check and mise run search:test-live pass with positive counts; the four client-boundary guards return nothing."
+    ],
+    "nonGoals": [
+      "No usesServerDefault field, no store migration, no store schema version change (stays 23).",
+      "No URL in the test-connection result.",
+      "No change to web/src-tauri CSP or capabilities (A11: they exist to reach a user-configured kaiba server, not the engine).",
+      "No change to Sources/AppServer, mise.toml or docker/meilisearch/compose.yaml.",
+      "No rename or removal of SearchEngineFactory.defaultURL(for:environment:), meilisearchURLEnvironmentVariable or fallbackMeilisearchURL.",
+      "No change to SearchEngineSettingsResolution case shapes; SearchEngineConnectionSettings.url stays non-optional (the resolved URL).",
+      "No design-doc edits during implementation."
+    ],
+    "constraints": [
+      "Follow AGENTS.md; Swift files under 1000 lines; swiftlint clean.",
+      "Engine stays optional: no searchEngine config and no stored settings means no engine.",
+      "No engine URL or port constant in web code.",
+      "No secrets in code, docs or logs; no machine-local absolute paths.",
+      "Do not touch the untracked .riela/ directory or unrelated files."
+    ],
+    "designDecisionsAndRationale": [
+      "Persist the server-default marker (no url key) instead of the resolved value so an environment change takes effect at the next start (B3).",
+      "The settings read returns explicit-or-null; a non-none kind with url null means server default, which is unambiguous because managedBy default always has kind none, so no extra flag is needed (B4).",
+      "Admin-entered URLs are still returned on the admin-only settings surface because editing and the web secret re-entry rule need them; it echoes the admin's own backend configuration and gives the client nothing it connects to (B0, B4).",
+      "Secret binding fails closed on an env retarget so a stored key is never sent to a host it was not entered for (B3, keeps DR-D5-SECRET-RETARGET).",
+      "Removing defaultURL needs no deprecation shim because it was added after tag v0.1.16 and never released (B5).",
+      "Plain-http-only-on-loopback is evaluated against the backend's network position, not the client device (B2).",
+      "Swift work is split into a first-wave descriptor contract plan (P1) and a dependent backend resolution plan (P2) because both edit NoteService+SearchEngineSettings.swift and AppCore/AppGraphQL/KaibaClient form one compile chain; web (P3) and README (P4) run in parallel; P5 integrates."
+    ],
+    "intentionalTradeoffs": [
+      "An env retarget with an apiKey intentionally fails closed until the key is re-entered in Settings (P2 tests it, P4 documents it).",
+      "Records saved through the 137c6f7 prefill keep their explicit URL until an administrator clears the field and saves; there is no migration.",
+      "The web secret re-entry rule is stricter than the server when switching between explicit and default URLs that resolve to the same target; the server stays authoritative.",
+      "The Tauri http capability wildcard and csp null stay; the premise is enforced by clients never receiving engine coordinates plus the web guard.",
+      "P2 resolves the stored settings and the explicit URL in two reads (storedSearchEngineExplicitURL) instead of extending the .store resolution shape, to avoid breaking CommandSearchEngine.swift:113 pattern matching (low residual finding)."
+    ],
+    "supportedEdgeCases": [
+      "Config url absent, empty or whitespace-only resolves to the trimmed env value, else the fallback; an explicit URL wins over the env and is kept byte-for-byte.",
+      "Update with url nil, empty or whitespace-only persists no url key; the read returns kind meilisearch and url null.",
+      "Config-managed read without url returns url null; with url returns it.",
+      "Store engine identity follows env A then env B, and activation after the change backfills.",
+      "apiKey secret saved under env A is not used under env B: build fails with searchEngine.secret and hasSecret is false.",
+      "Test connection with no URL connects to the env host, and the result detail never contains the resolved URL.",
+      "Invalid env value (plain http, non-loopback) gives invalid-settings with searchEngine.url and persists nothing.",
+      "GraphQL query selecting adapters { defaultURL } is rejected as an invalid selection.",
+      "Choosing an engine in the web form never alters a URL the admin already typed."
+    ],
+    "outOfScopeEdgeCases": [
+      "Narrowing the Tauri CSP or http capability.",
+      "Migrating stored explicit URLs saved through the 137c6f7 prefill.",
+      "Older-client compatibility for unreleased 137c6f7 builds that select defaultURL.",
+      "tauri:check off macOS and the live suite without a running local Docker/colima (recorded as blocked with the exact error, never passed)."
+    ],
+    "residualRisks": [
+      "Low: the live suite needs colima and Meilisearch at P5 time; if unavailable it is recorded as blocked, never as passed.",
+      "Low: P2's two-read explicit-URL approach diverges from the design's 'resolution also tells callers whether the URL was explicit' wording; B4 is still met without URL string comparison.",
+      "Low: P5's protected-path guard requires the design-doc edits to be committed before fanout; they are committed in this checkpoint."
+    ],
+    "sourcePaths": [
+      "design-docs/specs/search-engine-adapter.md",
+      "design-docs/specs/design-search-engine-fusion.md",
+      "design-docs/specs/command.md",
+      "design-docs/user-qa/search-engine-adapter.md",
+      "impl-plans/active/search-engine-backend-boundary.md",
+      "Sources/AppCore/SearchEngineSettingsTypes.swift",
+      "Sources/AppCore/SearchEngineFactory.swift",
+      "Sources/AppCore/KaibaConfiguration.swift",
+      "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+      "Sources/AppCore/SearchEngineSettingsResolver.swift",
+      "Sources/AppCore/CommandSearchEngine.swift",
+      "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+      "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+      "Sources/AppGraphQL/NoteGraphQLService+SearchEngineSettings.swift",
+      "Sources/KaibaClient/KaibaModels+SearchEngine.swift",
+      "Sources/KaibaClient/KaibaOperations+SearchEngine.swift",
+      "Sources/AppServer/KaibaServerRuntime.swift",
+      "web/src/notes/types.ts",
+      "web/src/notes/client.ts",
+      "web/src/notes/searchEngineSettings.ts",
+      "web/src/components/SearchEngineSettings.tsx",
+      "web/src-tauri/tauri.conf.json",
+      "web/src-tauri/capabilities/default.json",
+      "README.md"
+    ]
+  },
+  "plans": [
+    {
+      "planId": "P1-descriptor-contract",
+      "planPath": "impl-plans/active/search-engine-backend-boundary-p1-descriptor-contract.md",
+      "progressPath": "impl-plans/active/search-engine-backend-boundary-p1-descriptor-contract.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngineSettings.swift",
+        "Sources/KaibaClient/KaibaModels+SearchEngine.swift",
+        "Sources/KaibaClient/KaibaOperations+SearchEngine.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineBackendBoundaryGraphQLTests.swift",
+        "Tests/KaibaClientTests/KaibaSearchEngineOperationTests.swift",
+        "impl-plans/active/search-engine-backend-boundary-p1-descriptor-contract.md",
+        "tmp/search-engine-backend-boundary/P1"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/KaibaConfiguration.swift",
+        "Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteService+SearchEngineSettings.swift", "intendedEdit": "change only line 7 (SearchEngineFactory.adapters(environment: environment) -> the static SearchEngineFactory.adapters); everything else is left for P2"},
+        {"path": "Tests/AppGraphQLTests/SearchEngineBackendBoundaryGraphQLTests.swift", "intendedEdit": "new XCTest file: schema line, adapters selection, defaultURL selection rejected, env URL never serialized"},
+        {"path": "Sources/AppCore/KaibaConfiguration.swift", "intendedEdit": "read-only; keeps calling SearchEngineFactory.defaultURL(for:environment:) (P2 owns it)"},
+        {"path": "Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift", "intendedEdit": "read-only (P2 owns it); imitate its makeService/run/serializedResponse helpers"},
+        {"path": "tmp/search-engine-backend-boundary/P1", "intendedEdit": "evidence logs, hashes.txt and intent.md only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-backend-boundary/P1"
+      ],
+      "acceptanceCriteria": [
+        "grep -rn 'defaultURL' Sources/AppGraphQL Sources/KaibaClient is empty.",
+        "grep -n 'defaultURL' Sources/AppCore/SearchEngineSettingsTypes.swift is empty.",
+        "grep -rn 'adapters(environment' Sources Tests is empty.",
+        "SearchEngineFactory.defaultURL(for:environment:) still exists and Sources/AppCore/KaibaConfiguration.swift is unchanged.",
+        "The schema line is exactly 'type SearchEngineAdapterDescriptor { kind: String!, displayName: String!, authModes: [String!]! }'; the new GraphQL test and the updated KaibaClient test pass with XCTest N > 0 and swift-testing M > 0.",
+        "build and lint exit 0; every touched Swift file under 1000 lines; Progress Log records commands, exit codes, counts and log paths."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-backend-boundary/P1",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-backend-boundary/P1/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"SearchEngineFactoryTests|SearchEngineBackendBoundaryGraphQLTests|SearchEngineSettingsGraphQLTests|SearchEngineSettingsTests|KaibaSearchEngineOperationTests|KaibaTypedOperationContractTests|NoteGraphQLSchemaInventoryTests|GraphQLIntrospectionTests\" 2>&1 | tee tmp/search-engine-backend-boundary/P1/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-backend-boundary/P1/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'grep -rn \"defaultURL\" Sources/AppGraphQL Sources/KaibaClient | tee tmp/search-engine-backend-boundary/P1/guard-client.log; test ! -s tmp/search-engine-backend-boundary/P1/guard-client.log'",
+        "bash -c 'grep -n \"defaultURL\" Sources/AppCore/SearchEngineSettingsTypes.swift | tee tmp/search-engine-backend-boundary/P1/guard-descriptor.log; test ! -s tmp/search-engine-backend-boundary/P1/guard-descriptor.log'",
+        "bash -c 'grep -rn \"adapters(environment\" Sources Tests | tee tmp/search-engine-backend-boundary/P1/guard-adapters.log; test ! -s tmp/search-engine-backend-boundary/P1/guard-adapters.log'",
+        "wc -l Sources/AppCore/SearchEngineSettingsTypes.swift Sources/AppCore/SearchEngineFactory.swift Sources/AppGraphQL/GraphQLNoteSchemaContract.swift Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift Sources/AppGraphQL/NoteGraphQLService+SearchEngineSettings.swift Sources/KaibaClient/KaibaModels+SearchEngine.swift Sources/KaibaClient/KaibaOperations+SearchEngine.swift Tests/AppGraphQLTests/SearchEngineBackendBoundaryGraphQLTests.swift"
+      ]
+    },
+    {
+      "planId": "P3-web-server-default",
+      "planPath": "impl-plans/active/search-engine-backend-boundary-p3-web-server-default.md",
+      "progressPath": "impl-plans/active/search-engine-backend-boundary-p3-web-server-default.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "web/src/notes/types.ts",
+        "web/src/notes/client.ts",
+        "web/src/notes/searchEngineSettings.ts",
+        "web/src/notes/searchEngineSettings.test.ts",
+        "web/src/notes/engineBoundary.test.ts",
+        "web/src/components/SearchEngineSettings.tsx",
+        "web/src/components/SearchEngineSettings.integration.tsx",
+        "web/dist",
+        "web/src-tauri/target",
+        "impl-plans/active/search-engine-backend-boundary-p3-web-server-default.md",
+        "tmp/search-engine-backend-boundary/P3"
+      ],
+      "sharedPaths": [
+        "web/src/notes/searchEngineClient.test.ts",
+        "web/vitest.config.ts",
+        "web/package.json"
+      ],
+      "sharedPathNotes": [
+        {"path": "web/src/notes/engineBoundary.test.ts", "intendedEdit": "new bun guard test; builds its needles at run time so its own source contains none of them"},
+        {"path": "web/src/notes/searchEngineClient.test.ts", "intendedEdit": "read-only; must keep passing unchanged"},
+        {"path": "web/dist", "intendedEdit": "generated vite build output from mise run web:check only (gitignored)"},
+        {"path": "web/src-tauri/target", "intendedEdit": "generated cargo output from mise run tauri:check only (gitignored); never edited by hand"},
+        {"path": "tmp/search-engine-backend-boundary/P3", "intendedEdit": "evidence logs, hashes.txt and intent.md only"}
+      ],
+      "artifactRoots": [
+        "web/dist",
+        "web/src-tauri/target",
+        "tmp/search-engine-backend-boundary/P3"
+      ],
+      "acceptanceCriteria": [
+        "grep -rn '7700' web/src, grep -rn 'defaultURL' web/src and grep -rn 'KAIBA_MEILISEARCH_URL' web/src are all empty.",
+        "defaultEngineURL no longer exists; the engine select no longer sets the URL.",
+        "The URL input has placeholder 'Server default', the exact note 'Leave empty to use the server default. Only the Kaiba server connects to the search engine.' is rendered, and the config view shows 'Server default'; all are tested.",
+        "A blank URL produces no searchEngine.url error; non-blank URLs keep every current rule; verifyTLS false with a blank URL still errors.",
+        "bun test src exit 0 with N pass > 0 and vitest run exit 0 with Tests M passed > 0, recorded separately; web:check exit 0; tauri:check exit 0 or recorded as blocked with the exact error.",
+        "Progress Log records commands, exit codes, counts and log paths."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-backend-boundary/P3",
+        "bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-backend-boundary/P3/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-backend-boundary/P3/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run web:check 2>&1 | tee tmp/search-engine-backend-boundary/P3/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run tauri:check 2>&1 | tee tmp/search-engine-backend-boundary/P3/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'grep -rn \"7700\" web/src | tee tmp/search-engine-backend-boundary/P3/guard-port.log; test ! -s tmp/search-engine-backend-boundary/P3/guard-port.log'",
+        "bash -c 'grep -rn \"defaultURL\" web/src | tee tmp/search-engine-backend-boundary/P3/guard-defaulturl.log; test ! -s tmp/search-engine-backend-boundary/P3/guard-defaulturl.log'",
+        "bash -c 'grep -rn \"KAIBA_MEILISEARCH_URL\" web/src | tee tmp/search-engine-backend-boundary/P3/guard-env.log; test ! -s tmp/search-engine-backend-boundary/P3/guard-env.log'"
+      ]
+    },
+    {
+      "planId": "P4-readme",
+      "planPath": "impl-plans/active/search-engine-backend-boundary-p4-readme.md",
+      "progressPath": "impl-plans/active/search-engine-backend-boundary-p4-readme.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "README.md",
+        "impl-plans/active/search-engine-backend-boundary-p4-readme.md",
+        "tmp/search-engine-backend-boundary/P4"
+      ],
+      "sharedPaths": [
+        "design-docs/specs/search-engine-adapter.md"
+      ],
+      "sharedPathNotes": [
+        {"path": "README.md", "intendedEdit": "two small additions in 'Optional search engine': the empty-counts-as-omitted config-url sentence and the Settings server-default paragraph (server-host loopback, env change backfill, API key re-entry)"},
+        {"path": "design-docs/specs/search-engine-adapter.md", "intendedEdit": "read-only; B8 source of the README facts"},
+        {"path": "tmp/search-engine-backend-boundary/P4", "intendedEdit": "evidence logs, hashes.txt and intent.md only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-backend-boundary/P4"
+      ],
+      "acceptanceCriteria": [
+        "Both README additions are present in 'Optional search engine'; no other README text changed.",
+        "README contains no defaultURL, no machine-local path and no emoji.",
+        "Docs-only plan: no behavioral record required; P5 runs the full gate set. Progress Log records commands, exit codes and log paths."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-backend-boundary/P4",
+        "bash -c 'git diff --stat -- README.md | tee tmp/search-engine-backend-boundary/P4/diff-stat.log'",
+        "bash -c 'grep -n \"Server default\\|server default\" README.md | tee tmp/search-engine-backend-boundary/P4/grep-default.log; test -s tmp/search-engine-backend-boundary/P4/grep-default.log'",
+        "bash -c 'grep -n \"defaultURL\\|/Users/\" README.md | tee tmp/search-engine-backend-boundary/P4/guard.log; test ! -s tmp/search-engine-backend-boundary/P4/guard.log'"
+      ]
+    },
+    {
+      "planId": "P2-backend-resolution",
+      "planPath": "impl-plans/active/search-engine-backend-boundary-p2-backend-resolution.md",
+      "progressPath": "impl-plans/active/search-engine-backend-boundary-p2-backend-resolution.md",
+      "wave": 2,
+      "dependsOn": ["P1-descriptor-contract"],
+      "writePaths": [
+        "Sources/AppCore/KaibaConfiguration.swift",
+        "Sources/AppCore/SearchEngineSettingsResolver.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppCore/CommandSearchEngine.swift",
+        "Tests/AppCoreTests/KaibaSearchEngineConfigurationDecodingTests.swift",
+        "Tests/AppCoreTests/SearchEngineSettingsTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift",
+        "Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift",
+        "impl-plans/active/search-engine-backend-boundary-p2-backend-resolution.md",
+        "tmp/search-engine-backend-boundary/P2"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/SearchEngineSlot.swift",
+        "Sources/AppCore/SearchEngineSyncOutbox.swift",
+        "Sources/AppServer/KaibaServerRuntime.swift",
+        "Sources/AppServer/SearchEngineRuntimeController.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteService+SearchEngineSettings.swift", "intendedEdit": "P1 already changed line 7 to the static adapters list; P2 rewrites the environment source (searchEngineSlot.environment), the read's url/hasSecret, and URL handling in validatedSettings and persistence (StoredSettingsForEncoding.url becomes String?)"},
+        {"path": "Sources/AppCore/SearchEngineFactory.swift", "intendedEdit": "read-only (P1 owns it); call defaultURL(for:environment:) and normalizedTarget(_:) only"},
+        {"path": "Sources/AppCore/SearchEngineSettingsTypes.swift", "intendedEdit": "read-only (P1 owns it); do not change type shapes"},
+        {"path": "Sources/AppServer/KaibaServerRuntime.swift", "intendedEdit": "read-only; confirm it already sets the slot environment and passes config.environment"},
+        {"path": "tmp/search-engine-backend-boundary/P2", "intendedEdit": "evidence logs, hashes.txt and intent.md only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-backend-boundary/P2"
+      ],
+      "acceptanceCriteria": [
+        "All B7 Swift cases listed in the plan exist and pass (config resolution, settings persistence and read, identity/backfill on env change, secret fail-closed, test connection, invalid env, GraphQL no-url input, AppServer runtime reload).",
+        "A server-default save leaves no url key in auth.search-engine.settings (raw-row assertion).",
+        "The view's url is never the env or fallback value (config and store cases tested).",
+        "resolveSearchEngineSettings requires environment; the CLI passes its environment; no ProcessInfo read in NoteService+SearchEngineSettings.swift or SearchEngineSettingsResolver.swift.",
+        "swift test exit 0 with XCTest N > 0; build and lint exit 0; every touched Swift file under 1000 lines; Progress Log records commands, exit codes, counts and log paths."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-backend-boundary/P2",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-backend-boundary/P2/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"SearchEngine|Meilisearch|KaibaSearchEngine\" 2>&1 | tee tmp/search-engine-backend-boundary/P2/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-backend-boundary/P2/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'grep -rn \"ProcessInfo\" Sources/AppCore/NoteService+SearchEngineSettings.swift Sources/AppCore/SearchEngineSettingsResolver.swift | tee tmp/search-engine-backend-boundary/P2/guard-processinfo.log; test ! -s tmp/search-engine-backend-boundary/P2/guard-processinfo.log'",
+        "wc -l Sources/AppCore/KaibaConfiguration.swift Sources/AppCore/SearchEngineSettingsResolver.swift Sources/AppCore/NoteService+SearchEngineSettings.swift Sources/AppCore/CommandSearchEngine.swift Tests/AppCoreTests/SearchEngineSettingsTests.swift Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift"
+      ]
+    },
+    {
+      "planId": "P5-integration",
+      "planPath": "impl-plans/active/search-engine-backend-boundary-p5-integration.md",
+      "progressPath": "impl-plans/active/search-engine-backend-boundary-p5-integration.md",
+      "wave": 3,
+      "dependsOn": ["P1-descriptor-contract", "P2-backend-resolution", "P3-web-server-default", "P4-readme"],
+      "writePaths": [
+        "impl-plans/active/search-engine-backend-boundary.md",
+        "impl-plans/active/search-engine-backend-boundary-p5-integration.md",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppCore/SearchEngineSettingsResolver.swift",
+        "Sources/AppCore/KaibaConfiguration.swift",
+        "Sources/AppCore/CommandSearchEngine.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+SearchEngineSettings.swift",
+        "Sources/KaibaClient/KaibaModels+SearchEngine.swift",
+        "Sources/KaibaClient/KaibaOperations+SearchEngine.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "Tests/AppCoreTests/KaibaSearchEngineConfigurationDecodingTests.swift",
+        "Tests/AppCoreTests/SearchEngineSettingsTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineBackendBoundaryGraphQLTests.swift",
+        "Tests/AppGraphQLTests/SearchEngineSettingsGraphQLTests.swift",
+        "Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift",
+        "Tests/KaibaClientTests/KaibaSearchEngineOperationTests.swift",
+        "web/src/notes/types.ts",
+        "web/src/notes/client.ts",
+        "web/src/notes/searchEngineSettings.ts",
+        "web/src/notes/searchEngineSettings.test.ts",
+        "web/src/notes/engineBoundary.test.ts",
+        "web/src/components/SearchEngineSettings.tsx",
+        "web/src/components/SearchEngineSettings.integration.tsx",
+        "README.md",
+        "web/dist",
+        "web/src-tauri/target",
+        "tmp/search-engine-backend-boundary/P5"
+      ],
+      "sharedPaths": [
+        "design-docs/specs/search-engine-adapter.md",
+        "design-docs/user-qa/search-engine-adapter.md",
+        "Sources/AppServer/KaibaServerRuntime.swift",
+        "Tests/AppCoreTests/MeilisearchLiveTests.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "impl-plans/active/search-engine-backend-boundary.md", "intendedEdit": "fill the 'Final integration evidence' table and set the index status line"},
+        {"path": "README.md", "intendedEdit": "fact corrections only, checked against the final code"},
+        {"path": "Sources/AppCore/NoteService+SearchEngineSettings.swift", "intendedEdit": "integration repairs only; every P1-P4 source path is edited only to fix cross-plan defects, each recorded with owning plan, file, pre/post hash and reason"},
+        {"path": "Tests/AppCoreTests/MeilisearchLiveTests.swift", "intendedEdit": "read-only; the live suite must pass unmodified"},
+        {"path": "web/dist", "intendedEdit": "generated vite build output from mise run web:check only"},
+        {"path": "web/src-tauri/target", "intendedEdit": "generated cargo output from mise run tauri:check only"},
+        {"path": "tmp/search-engine-backend-boundary/P5", "intendedEdit": "evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-backend-boundary/P5",
+        "web/dist",
+        "web/src-tauri/target"
+      ],
+      "acceptanceCriteria": [
+        "Every gate in the index table is filled with exit status, counts and log path: build, full swift test (XCTest N > 0 and swift-testing M > 0), lint, bun test src (N pass > 0), vitest run (Tests M passed > 0), web:check, tauri:check, search:test-live (XCTest Executed N > 0 only), client-boundary guards.",
+        "The four client-boundary guards are empty; protected paths (design-docs, mise.toml, docker, web/src-tauri, Sources/AppServer) are unchanged; no machine-local paths in the diff.",
+        "Every integration repair is recorded (owning plan, file, pre/post hash, reason); no assertion weakened.",
+        "Every changed Swift file is under 1000 lines; changed files are only P1-P4 paths, plan files and the pre-existing untracked .riela/ entry (untouched).",
+        "No unresolved high or mid finding; any blocker (for example Docker/colima unavailable) is reported explicitly, never as passed."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-backend-boundary/P5",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-backend-boundary/P5/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test 2>&1 | tee tmp/search-engine-backend-boundary/P5/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-backend-boundary/P5/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-backend-boundary/P5/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-backend-boundary/P5/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run web:check 2>&1 | tee tmp/search-engine-backend-boundary/P5/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run tauri:check 2>&1 | tee tmp/search-engine-backend-boundary/P5/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:docker 2>&1 | tee tmp/search-engine-backend-boundary/P5/search-docker.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:up 2>&1 | tee tmp/search-engine-backend-boundary/P5/search-up.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:test-live 2>&1 | tee tmp/search-engine-backend-boundary/P5/live.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:down 2>&1 | tee tmp/search-engine-backend-boundary/P5/search-down.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'grep -rn \"7700\" web/src | tee tmp/search-engine-backend-boundary/P5/guard-port.log; test ! -s tmp/search-engine-backend-boundary/P5/guard-port.log'",
+        "bash -c 'grep -rn \"defaultURL\" web/src Sources/AppGraphQL Sources/KaibaClient | tee tmp/search-engine-backend-boundary/P5/guard-client.log; test ! -s tmp/search-engine-backend-boundary/P5/guard-client.log'",
+        "bash -c 'grep -n \"defaultURL\" Sources/AppCore/SearchEngineSettingsTypes.swift | tee tmp/search-engine-backend-boundary/P5/guard-descriptor.log; test ! -s tmp/search-engine-backend-boundary/P5/guard-descriptor.log'",
+        "bash -c 'grep -rn \"adapters(environment\" Sources Tests | tee tmp/search-engine-backend-boundary/P5/guard-adapters.log; test ! -s tmp/search-engine-backend-boundary/P5/guard-adapters.log'",
+        "bash -c 'git status --porcelain | tee tmp/search-engine-backend-boundary/P5/changed-files.log'",
+        "bash -c 'git diff | grep -n \"/Users/\" | tee tmp/search-engine-backend-boundary/P5/guard-local-paths.log; test ! -s tmp/search-engine-backend-boundary/P5/guard-local-paths.log'",
+        "bash -c 'git diff --name-only -- design-docs mise.toml docker web/src-tauri Sources/AppServer | tee tmp/search-engine-backend-boundary/P5/guard-protected.log; test ! -s tmp/search-engine-backend-boundary/P5/guard-protected.log'",
+        "bash -c '{ git diff --name-only -- \"*.swift\"; git ls-files --others --exclude-standard -- \"*.swift\"; } | xargs wc -l | tee tmp/search-engine-backend-boundary/P5/wc.log'"
+      ]
+    }
+  ]
+}

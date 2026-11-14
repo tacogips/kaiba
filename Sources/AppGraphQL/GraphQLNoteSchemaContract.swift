@@ -1,0 +1,297 @@
+// Pagination bounds enforced by NoteGraphQLDocumentExecutor for every list and
+// search field (notebooks, notes, searchNotes): `limit` must be an integer in
+// 0...200 (0 returns an empty list) and `offset` an integer in 0...1_000_000.
+// engineSearchNotes uses limit 0...200 and offset 0...1000; relatedNotes uses
+// limit 0...20.
+// Graph fields (noteGraphNeighbors, proposeNoteLinks) accept `limit` only in
+// 0...20 — the bounded traversal's node cap. Any other value (out of range,
+// non-integral, or the wrong type) is rejected with an invalidVariable error
+// rather than silently clamped.
+let graphQLNoteSchemaContract = """
+type NoteTag { tagId: String!, name: String!, classId: String, parentTagId: String, isSystem: Boolean!, createdAt: String! }
+type NoteTagClass { classId: String!, label: String!, description: String, isSystem: Boolean!, createdAt: String! }
+type NoteTagAssignment { tag: NoteTag!, provenance: String!, assignedBy: String, deletable: Boolean!, createdAt: String! }
+enum NotebookType { DOCUMENT AGENT_CHAT }
+type Notebook {
+  type: NotebookType!
+  notebookId: String!, title: String!, readOnly: Boolean!
+  createdAt: String!, updatedAt: String!, metaJSON: String
+  tags: [NoteTagAssignment!]!, firstNotePreview: String, noteCount: Int
+  libraryId: String, ownerUserId: String, createdBy: String, updatedBy: String
+}
+type NoteLibrary {
+  libraryId: String!, name: String!, title: String!
+  authRequired: Boolean!, isDefault: Boolean!, createdAt: String!, notebookCount: Int
+}
+type Note {
+  noteId: String!, notebookId: String!, noteNumber: Int!, title: String
+  bodyMarkdown: String!, readOnly: Boolean!, createdAt: String!, updatedAt: String!
+  metaJSON: String, tags: [NoteTagAssignment!]!, createdBy: String, updatedBy: String
+}
+type NoteFile {
+  fileId: String!
+  storageKind: String!
+  localPath: String
+  s3Profile: String
+  s3Bucket: String
+  s3Key: String
+  mediaType: String!
+  byteSize: Int!
+  sha256: String!
+  originalFilename: String
+  createdAt: String!
+  migratedAt: String
+}
+type NoteFileAttachment { noteId: String!, file: NoteFile!, role: String!, position: Int! }
+type NotebookFileAttachment { notebookId: String!, file: NoteFile!, role: String! }
+type NoteComment { commentId: String!, noteId: String, notebookId: String, bodyMarkdown: String!, author: String!, createdAt: String! }
+type NoteLink { fromNoteId: String!, toNoteId: String!, linkKind: String!, provenance: String!, createdAt: String! }
+type NoteSearchResult { note: Note!, snippet: String!, rank: Float!, matchedTags: [NoteTag!]!, isLinkedNeighbor: Boolean!, termCoverage: Float!, provenance: NoteRetrievalProvenance! }
+type NoteRetrievalProvenance { sources: [String!]!, reasons: [String!]! }
+type SearchEngineCapabilityPayload { result: ControlPlaneResult!, enabled: Boolean! }
+type EngineNoteHit { note: Note!, snippet: String!, score: Float!, reasons: [EngineHitReason!]! }
+type EngineHitReason { kind: String!, tags: [String!]! }
+type EngineSearchFacets { tagClasses: [EngineFacetBucket!]!, tags: [EngineTagFacetBucket!]! }
+type EngineFacetBucket { value: String!, count: Int! }
+type EngineTagFacetBucket { tagId: String!, name: String!, tagClass: String, count: Int! }
+type EngineNoteSearchQueryPayload { result: ControlPlaneResult!, value: [EngineNoteHit!], facets: EngineSearchFacets }
+type SearchEngineAdapterDescriptor { kind: String!, displayName: String!, authModes: [String!]! }
+type SearchEngineSettings {
+  managedBy: String!, kind: String!, url: String, indexPrefix: String
+  authMode: String!, username: String, hasSecret: Boolean!, verifyTLS: Boolean!
+  requestTimeoutSeconds: Int!, adapters: [SearchEngineAdapterDescriptor!]!, active: Boolean!
+}
+type SearchEngineSettingsPayload { result: ControlPlaneResult!, value: SearchEngineSettings }
+input SearchEngineSettingsInput { kind: String!, url: String, indexPrefix: String, authMode: String, username: String, secret: String, clearSecret: Boolean, verifyTLS: Boolean, requestTimeoutSeconds: Int }
+type SearchEngineConnectionTestResult { available: Boolean!, status: String!, detail: String! }
+type SearchEngineConnectionTestPayload { result: ControlPlaneResult!, value: SearchEngineConnectionTestResult }
+type NoteGraphNeighbor { seedNoteId: String!, note: Note!, edgeKind: String!, weight: Float!, hopCount: Int!, pathNoteIds: [String!]! }
+type NoteLinkProposal { targetNote: Note!, targetNoteId: String!, linkKind: String!, reason: String!, source: String! }
+type NoteAutoAction { actionId: String!, trigger: String!, workflowId: String!, filterJSON: String, enabled: Boolean!, position: Int!, createdAt: String! }
+enum NoteListSort { createdAtDesc createdAtAsc updatedAtDesc title }
+type NoteQueryPayload { result: ControlPlaneResult!, value: Note }
+type NotebookQueryPayload { result: ControlPlaneResult!, value: Notebook }
+type NotebooksQueryPayload { result: ControlPlaneResult!, value: [Notebook!] }
+type NoteLibrariesQueryPayload { result: ControlPlaneResult!, value: [NoteLibrary!] }
+type NotesQueryPayload { result: ControlPlaneResult!, value: [Note!] }
+type NoteSearchQueryPayload { result: ControlPlaneResult!, value: [NoteSearchResult!] }
+type NoteGraphNeighborsQueryPayload { result: ControlPlaneResult!, value: [NoteGraphNeighbor!] }
+type NoteLinkProposalQueryPayload { result: ControlPlaneResult!, value: [NoteLinkProposal!] }
+type NoteTagsQueryPayload { result: ControlPlaneResult!, value: [NoteTag!] }
+type NoteTagClassesQueryPayload { result: ControlPlaneResult!, value: [NoteTagClass!] }
+type NoteFileQueryPayload { result: ControlPlaneResult!, value: NoteFile }
+type NoteFilesQueryPayload { result: ControlPlaneResult!, value: [NoteFileAttachment!] }
+type NotebookFilesQueryPayload { result: ControlPlaneResult!, value: [NotebookFileAttachment!] }
+type NoteLinksQueryPayload { result: ControlPlaneResult!, value: [NoteLink!] }
+type LongTermMemoryAppendPayload { result: ControlPlaneResult!, notes: [Note!]!, idempotentReplay: Boolean! }
+type LongTermMemoryRecallHit { note: Note!, snippet: String!, rank: Float!, isAssociation: Boolean!, edgeKind: String, weight: Float, hopCount: Int, pathNoteIds: [String!]! }
+type LongTermMemoryRecallPayload { result: ControlPlaneResult!, value: [LongTermMemoryRecallHit!]! }
+type NoteAutoActionsQueryPayload { result: ControlPlaneResult!, value: [NoteAutoAction!] }
+type NoteCommentsQueryPayload { result: ControlPlaneResult!, value: [NoteComment!] }
+# Cross-notebook tag detail surface (design-docs/specs/tag-detail-pane.md).
+# tagComments aggregates memos of notes/notebooks carrying the tag (descendant
+# tags included), newest first; ensureTagMemoNotebook (a NoteMutationPayload
+# mutation) lazily finds or creates the tag's memo/chat notebook.
+#
+# The tag entity page (design-docs/specs/note-capture-and-entity-pages.md,
+# E1/E2/E4/E6) adds two fields. canonicalNote is the note designated as the
+# tag's description, null when nothing is bound AND when the bound note lies
+# outside the caller's reach -- an entity header must not disclose a note the
+# caller could not open. coOccurringTags lists the tags sharing notes with this
+# one, most shared notes first, excluding system, folder-class and
+# document-kind tags because those are organizational rather than subjects.
+# Its size comes from the root field's coOccurringTagLimit argument: this
+# engine resolves a payload eagerly and then projects it, so no nested field
+# accepts arguments.
+#
+# Reach asymmetry, deliberate and load-bearing for callers of promoteTagNote:
+# reading canonicalNote and calling unpromoteTagNote are BOTH reach-aware, so a
+# binding to an unreachable note reads as unbound and unpromoting it is a no-op
+# success. promoteTagNote is NOT reach-aware -- it issues an unconditional
+# update, so a caller told the tag is unbound can still replace a binding it
+# cannot see. That is E2's last-promote-wins rule applied to a store-global
+# tag table, and it leaks nothing: the caller learns nothing about the note it
+# overwrote. Do not re-derive a different rule at any surface.
+type TagCoOccurrence { tag: NoteTag!, noteCount: Int! }
+type TagDetail { tag: NoteTag!, tagClass: NoteTagClass, noteCount: Int!, notebookCount: Int!, memoNotebookId: String, canonicalNote: Note, coOccurringTags: [TagCoOccurrence!]! }
+type TagDetailQueryPayload { result: ControlPlaneResult!, value: TagDetail }
+type TagComment { comment: NoteComment!, noteTitle: String, notebookTitle: String }
+type TagCommentsQueryPayload { result: ControlPlaneResult!, value: [TagComment!] }
+# promoteTagNote designates an existing note as the tag's canonical description
+# and replaces any previous binding (E2, last promote wins). It creates no tag
+# assignment: the canonical note is rendered in the entity header, not as an
+# occurrence (E3). Folder-class and document-kind tags are refused -- they are
+# organizational, not subjects. unpromoteTagNote clears the binding and is a
+# no-op success when nothing is bound, in which case note is null. Both carry
+# the affected note; re-read tagDetail for the tag itself. Neither is recorded
+# as an undoable action.
+input PromoteTagNoteInput { tagId: String!, noteId: String! }
+input UnpromoteTagNoteInput { tagId: String! }
+input NoteTagInput { name: String!, classId: String }
+input CreateNoteInput {
+  notebookId: String
+  notebookTitle: String
+  title: String
+  bodyMarkdown: String!
+  readOnly: Boolean
+  tags: [NoteTagInput!]
+  provenance: String
+  assignedBy: String
+  metaJSON: String
+  originatingActionId: String
+}
+input CreateNotebookInput { title: String!, kindTagName: String, folderPath: [String!], metaJSON: String, originatingActionId: String }
+input DefineNoteTagClassInput { classId: String!, label: String!, description: String }
+input DefineNoteTagInput { name: String!, classId: String, parentTagId: String, createOnly: Boolean }
+# updateNote re-derives the stored title from bodyMarkdown, replacing any previously explicit title.
+input UpdateNoteInput { noteId: String!, bodyMarkdown: String!, originatingActionId: String }
+input ApplyNoteTagsInput { noteId: String!, tags: [NoteTagInput!]!, provenance: String, assignedBy: String }
+input ApplyNotebookTagsInput { notebookId: String!, tags: [String!]!, provenance: String, assignedBy: String }
+input ApplyNotebookTagIdsInput { notebookId: String!, tagIds: [String!]!, provenance: String, assignedBy: String }
+input AddNoteCommentInput { noteId: String!, bodyMarkdown: String!, author: String }
+input AddNotebookCommentInput { notebookId: String!, bodyMarkdown: String!, author: String }
+input LinkNotesInput { fromNoteId: String!, toNoteId: String!, linkKind: String, provenance: String }
+input AttachNoteFileInput { noteId: String!, contentBase64: String!, role: String, mediaType: String!, originalFilename: String, position: Int }
+input AttachNotebookFileInput { notebookId: String!, contentBase64: String!, role: String, mediaType: String!, originalFilename: String }
+input IngestAttachmentInput { contentBase64: String!, mediaType: String!, originalFilename: String, role: String }
+input IngestNotebookPageInput {
+  bodyMarkdown: String!
+  readOnly: Boolean
+  tags: [NoteTagInput!]
+  metaJSON: String
+  noteNumber: Int
+  pageImage: IngestAttachmentInput
+}
+input ImportDocumentInput { filename: String!, contentBase64: String!, title: String, maximumOCRPages: String }
+input IngestNotebookPagesInput {
+  idempotencyKey: String!
+  title: String!
+  kindTagName: String
+  metaJSON: String
+  pages: [IngestNotebookPageInput!]!
+  sourceDocument: IngestAttachmentInput
+  originatingActionId: String
+}
+input LongTermMemoryEntryInput { bodyMarkdown: String!, topicTags: [String!], sourceNoteIds: [String!], relatedNoteIds: [String!], periodStart: String, periodEnd: String, metaJSON: String }
+input AppendLongTermMemoryInput { idempotencyKey: String!, entries: [LongTermMemoryEntryInput!]! }
+input RecallLongTermMemoryInput { query: String!, limit: Int, includeAssociations: Boolean, associationDepth: Int, recencyWeight: Float }
+input ConfigureNoteAutoActionInput { actionId: String!, trigger: String!, workflowId: String!, filterJSON: String, enabled: Boolean, position: Int }
+input NoteConversationTurnInput { userMarkdown: String!, assistantMarkdown: String!, sourceNoteIds: [String!] }
+input SaveNoteConversationInput { title: String!, transcript: [NoteConversationTurnInput!]!, assignedBy: String, originatingActionId: String }
+type AgentConversation { notebookId: String!, title: String!, updatedAt: String!, turnCount: Int!, subjectNoteId: String, subjectNotebookId: String }
+# App settings are JSON documents keyed by name (e.g. "web"), stored in the
+# note store's sqlite so preferences follow the store across clients.
+type AppSettingPayload { result: ControlPlaneResult!, key: String!, valueJSON: String }
+input SetAppSettingInput { key: String!, valueJSON: String! }
+# Personal agent credential (design-docs/specs/user-agent-tools.md). The key
+# is write-only; the summary carries its last four characters as keyHint.
+type UserAgentCredentialSummary { provider: String!, keyHint: String!, baseURL: String, defaultModel: String!, enabled: Boolean!, updatedAt: String! }
+type UserAgentCredentialPayload { result: ControlPlaneResult!, featureEnabled: Boolean!, customBaseURLAllowed: Boolean!, providers: [String!]!, credential: UserAgentCredentialSummary }
+input SetUserAgentCredentialInput { provider: String!, apiKey: String!, defaultModel: String!, baseURL: String, enabled: Boolean }
+# Per-actor action history and undo/redo
+# (design-docs/specs/action-history-undo.md). Entries are delta-only on the
+# server; clients see the recorded display title, never the payload.
+type NoteActionLogEntry {
+  seq: Int!
+  occurredAt: String!
+  actorUserId: String!
+  provenance: String!
+  entityType: String!
+  entityId: String!
+  notebookId: String
+  action: String!
+  title: String
+  undoable: Boolean!
+  undoOfSeq: Int
+  undoneBySeq: Int
+}
+type ActionHistoryPayload { result: ControlPlaneResult!, entries: [NoteActionLogEntry!]! }
+type UndoStatePayload { result: ControlPlaneResult!, undo: NoteActionLogEntry, redo: NoteActionLogEntry }
+# status: "ok", "nothing-to-undo" / "nothing-to-redo" (empty answer, not an
+# error); a "conflict" result means the store changed since the entry was
+# recorded and nothing was applied.
+type UndoRedoPayload { result: ControlPlaneResult!, status: String!, applied: NoteActionLogEntry, target: NoteActionLogEntry }
+# agenticSearch answers a search question with the configured agent runtime;
+# the agent receives the kaiba CLI search usage plus a grep pass as context.
+# status "agent-unavailable" means no runtime is configured.
+type AgenticSearchPayload { result: ControlPlaneResult!, status: String!, answerMarkdown: String }
+type AgentConversationsQueryPayload { result: ControlPlaneResult!, value: [AgentConversation!] }
+type AgentModel { modelId: String!, displayName: String, description: String }
+type AgentModelsPayload { result: ControlPlaneResult!, models: [AgentModel!]!, discoveryAvailable: Boolean!, configuredModel: String, providers: [String!]!, configuredProvider: String }
+# sendAgentChatMessage persists the user turn even when no agent runtime is
+# available (agentStatus "agent-unavailable"); replies arrive asynchronously via
+# the note change feed once the chat-reply auto-action completes the turn.
+# mode "memo" (default) answers in the conversation only; "edit" has the agent
+# rewrite the subject note, so it requires a writable note subject.
+input AgentChatAttachmentInput { contentBase64: String!, mediaType: String!, originalFilename: String! }
+input SendAgentChatMessageInput {
+  subjectNoteId: String
+  subjectNotebookId: String
+  conversationNotebookId: String
+  userMarkdown: String!
+  idempotencyKey: String
+  provider: String
+  model: String
+  mode: String
+  attachments: [AgentChatAttachmentInput!]
+}
+type AgentChatMessagePayload { result: ControlPlaneResult!, conversationNotebookId: String, turnNoteId: String, agentStatus: String! }
+input RequestTagExtractionInput { noteId: String, notebookId: String }
+type TagExtractionRequestPayload { result: ControlPlaneResult!, status: String! }
+# requestNotebookTranslation creates a pending notebook-kind:translation
+# notebook and queues the run; translated notes arrive asynchronously via the
+# note change feed. status "agent-unavailable" means nothing was created.
+input RequestNotebookTranslationInput { notebookId: String!, targetLanguage: String!, title: String }
+type NotebookTranslationRequestPayload { result: ControlPlaneResult!, translationNotebookId: String, status: String! }
+input MigrateNoteFileStorageInput {
+  fileId: String!
+  s3ProfileName: String!
+}
+input MigrateAllNoteFilesInput {
+  s3ProfileName: String!
+}
+type NoteFileMigrationFailure { fileId: String!, message: String! }
+type NoteFileMigrationPayload { result: ControlPlaneResult!, migrated: [NoteFile!]!, failures: [NoteFileMigrationFailure!]!, cleanupFailures: [NoteFileMigrationFailure!]! }
+# reclaimNoteFileStorage garbage-collects unreferenced file rows/blobs. graceHours
+# (default 24) keeps blobs and stray temp files younger than that window; s3ProfileName
+# names an allowlisted profile so orphaned S3 objects can be deleted (optional).
+input ReclaimNoteFileStorageInput { graceHours: Int, s3ProfileName: String }
+type NoteFileReclamationPayload { result: ControlPlaneResult!, deletedFileIds: [String!]!, sweptPaths: [String!]! }
+# checkNoteStore audits store integrity (sqlite quick_check, foreign keys, search
+# index); repair rebuilds a drifted search index. optimizeNoteStore refreshes
+# planner statistics; vacuum compacts the database file. Operator/admin only.
+type NoteStoreCheckPayload {
+  result: ControlPlaneResult!
+  schemaVersion: Int!
+  healthy: Boolean!
+  integrityMessages: [String!]!
+  foreignKeyViolations: [String!]!
+  searchIndexHealthy: Boolean!
+  notesMissingFromSearchIndex: [String!]!
+  orphanedSearchIndexRows: Int!
+  unreferencedFiles: Int!
+  searchIndexRepaired: Boolean!
+}
+type NoteStoreOptimizationPayload {
+  result: ControlPlaneResult!
+  vacuumed: Boolean!
+  bytesBefore: Int!
+  bytesAfter: Int!
+  freelistPagesBefore: Int!
+  freelistPagesAfter: Int!
+}
+type NoteMutationPayload {
+  result: ControlPlaneResult!
+  note: Note
+  notebook: Notebook
+  notes: [Note!]!
+  tag: NoteTag
+  tagClass: NoteTagClass
+  file: NoteFile
+  noteFiles: [NoteFileAttachment!]!
+  notebookFiles: [NotebookFileAttachment!]!
+  comment: NoteComment
+  link: NoteLink
+  autoAction: NoteAutoAction
+}
+"""
