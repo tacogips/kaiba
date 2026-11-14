@@ -1,0 +1,15 @@
+{
+  "template": {
+    "url": "https://github.com/tacogips/ign-template/swift-v1",
+    "path": "swift-v1",
+    "ref": "main"
+  },
+  "hash": "2b1856dd13c12af367d773c0b73f0d63316024bf2a3e3088c41b6824cf06dba2",
+  "metadata": {
+    "generated_at": "2026-08-07T00:56:10.149762+09:00",
+    "generated_by": "ign checkout",
+    "template_name": "swift-v1",
+    "template_version": "1.0.0",
+    "ign_version": "0.1.20"
+  }
+}
