@@ -1,0 +1,291 @@
+# Command
+
+## Status
+
+Accepted
+
+## Current CLI
+
+```bash
+kaiba [--note-root <dir>] [--config <path>] <command> ...
+```
+
+Global options: `--note-root <dir>` (default `~/.kaiba`, env
+`KAIBA_NOTE_ROOT`) and `--config <path>` (default
+`~/.config/kaiba/config.json`, env `KAIBA_CONFIG_PATH`), plus `--help` and
+`--version`. Commands that render
+entities accept `--output json|text` (default `text`).
+
+`kaiba graphql schema` is endpoint-only: it is routed before note-root and
+Kaiba configuration loading, so ambient local configuration cannot affect
+schema discovery.
+
+### Notes
+
+```bash
+kaiba add    [--notebook <id>] [--title <t>] (--body <md>|--body-file <path>|-)
+             [--tag <name>]... [--read-only]
+kaiba edit   <note-id> (--body <md>|--body-file <path>) [--append]
+kaiba show   <note-id>
+kaiba list   [--notebook <id>] [--tag <name>]... [--limit N] [--offset N]
+kaiba search <query> [--tag <name>]... [--class <id>] [--include-linked]
+             [--sort created-desc|created-asc|updated-desc|title]
+             [--created-after <iso8601>] [--created-before <iso8601>]
+             [--limit N] [--offset N]
+kaiba readonly <note-id> (--on|--off)
+kaiba delete <note-id>
+```
+
+`add` creates a single-note notebook when `--notebook` is omitted. `-`
+reads the body from stdin. Tag filters expand to the requested tag plus
+all descendant tags.
+
+### Tags and ontology
+
+```bash
+kaiba tag        <note-id> (--add <name>... | --remove <name>...)
+kaiba tags       [--class <id>]
+kaiba classes
+kaiba tag-define <name> [--class <id>] [--parent <tag-name>]
+kaiba class-define <class-id> --label <label> [--description <text>]
+```
+
+### Relations and files
+
+```bash
+kaiba comment <note-id> --body <text>
+kaiba link    <from-note-id> <to-note-id> [--kind <kind>]
+kaiba attach  <note-id> <file-path> [--role related|embedded|source-page-image]
+              [--media-type <mime>]
+kaiba file    <file-id> [--out <path>]
+```
+
+### Notebooks
+
+```bash
+kaiba notebook list     [--tag <name>]... [--sort <order>]
+                        [--created-after <t>] [--created-before <t>]
+                        [--limit N] [--offset N]
+kaiba notebook show     <notebook-id>
+kaiba notebook create   --title <t> [--kind <kind-tag>]
+kaiba notebook delete   <notebook-id>
+kaiba notebook readonly <notebook-id> (--on|--off)
+```
+
+Notebook read-only blocks note creation, body edits, attachments, and
+deletion inside the notebook while still allowing comments, tags,
+and links.
+
+### Libraries
+
+```bash
+kaiba library list    [--output json|text]
+kaiba library show    <name> [--output json|text]
+kaiba library create  <name> [--title <t>] [--auth required|none]
+kaiba library update  <name> [--title <t>] [--auth required|none]
+kaiba library delete  <name>
+kaiba library move    <notebook-id> --to <name>
+kaiba library env     <name> [--output json|text]
+```
+
+A library is a named set of notebooks (`design-docs/specs/library.md`). Every
+notebook belongs to exactly one, and `--library <name>` (or `KAIBA_LIBRARY`)
+selects the one a command reads and writes; without a selection writes land in
+the `default` library.
+
+`--auth required` hides a library from callers that present no credential —
+an `--allow-unauthenticated` note-API request. The local CLI is the operator
+view and always spans every library, and so does any account with the admin
+role. `create` defaults to `required`.
+
+### Accounts
+
+```bash
+kaiba user add          --email <address> [--name <n>] [--admin] [--output json|text]
+kaiba user list         [--all] [--output json|text]
+kaiba user disable      <user-id>
+kaiba user enable       <user-id>
+kaiba user grant-admin  <user-id> [--output json|text]
+kaiba user revoke-admin <user-id> [--output json|text]
+```
+
+A store is created with one default user, seeded as an admin, so an
+unauthenticated host still has a real principal to own its writes
+(`design-docs/specs/multi-user.md`). An admin reaches every library; it does
+not gain access to another account's notebooks. Demoting or disabling the last
+enabled admin is refused, so a store always has one.
+
+`delete` refuses a non-empty library and refuses the default library; it never
+cascades into notebooks. `env` reports the kinko scope and the environment
+variable names a library's storage reads from, never a secret value.
+
+### GraphQL from the CLI
+
+```bash
+kaiba graphql (<document>|--file <path>|-) [--variables <json>]
+              [--operation <name>]
+```
+
+Executes a note GraphQL document against the local store and prints the
+JSON response (`data`/`errors`). Exit code is non-zero when the
+response carries GraphQL errors.
+
+Remote document mode remains compatible with `--endpoint <url>` and optional
+`--api-key-env <VAR>`. The schema-discovery branch is selected only when
+`schema` is the first token after `graphql`:
+
+```bash
+kaiba graphql schema --endpoint <url> \
+  (--api-key-env <VAR>|--allow-unauthenticated) \
+  [--allow-remote-unauthenticated] [--allow-insecure-http] \
+  [--filter <icu-regex>] [--output text|json]
+```
+
+Discovery always queries the endpoint with standard authenticated
+introspection; it has no compiled-schema or local-store fallback. Filtering is
+case-sensitive substring matching against simple and qualified root/type names.
+The result includes forward type dependencies, is deterministically sorted, and
+treats a valid no-match as success. Invalid usage, endpoint policy, credential,
+and regular expression errors exit 2 without a request. Authentication,
+connection, HTTP, response, and schema failures exit 1 with redacted diagnostics
+on stderr; success writes only to stdout.
+
+### API keys
+
+```bash
+kaiba client issue --name <display-name> [--user <user-id>]
+                  [--expires-at YYYY-MM-DD | --never] # prints the key once
+kaiba client list [--all]
+kaiba client revoke <client-id>
+```
+
+Issued keys are stored hashed in the `api_clients` table and are
+accepted by `kaiba serve` as `Authorization: Bearer <api-key>` —
+the same registry the QR registration flow uses. Revocation takes
+effect immediately.
+
+These are server administration commands, run against the server's store.
+Expiration dates are inclusive UTC calendar dates. `--never` or no expiration
+option preserves permanent access; invalid dates or combining both options
+are rejected. Issue/list output includes `expiresAt` (date or null in JSON,
+`never` in text). Expired keys are refused by server authentication. Replace
+an issued key by issuing a new one and revoking the old credential.
+
+### Serve (HTTP note API + web viewer)
+
+```bash
+kaiba serve [--note-root <dir>] [--host <h>] [--port <p>]
+            [--web-root <dir>] [--allow-unauthenticated] [--as-admin]
+```
+
+Long-running local server (default `127.0.0.1:8787`): `POST /graphql`
+(note GraphQL API), `GET|POST /note/register` (QR client registration;
+a registration URL and terminal QR code are printed at startup),
+`GET /note/events` (long-poll change feed), and `GET /healthz`.
+`--web-root web/dist` additionally serves the built SolidJS note
+viewer with SPA fallback. `--allow-unauthenticated` disables bearer
+auth for trusted local use; on its own it still answers only from
+libraries that require no authentication. `--as-admin` (only with
+`--allow-unauthenticated`) binds credential-less requests to the seeded
+admin account, so an operator's own machine reaches every library —
+including the `/files/<id>` byte route. Serve refuses to start when that
+account is no longer an enabled admin.
+
+### Import
+
+```bash
+kaiba import <file-path> [--title <t>] [--kind-tag <tag>]
+             [--output json|text]
+```
+
+Converts a source document (doc/docx, ppt/pptx, excel, odt/ods/odp, rtf,
+epub, csv) to markdown in-process with the SwiftPM `AnydocKit` library,
+then stores an imported-material notebook with one note
+per top-level markdown section and the original file attached with the
+`source-document` role. Document conversion requires no runtime path
+configuration.
+
+PDF and standalone PNG, JPEG, GIF, and WebP inputs become page-image
+notebooks instead: one note per physical page with a deterministically
+rendered origin image (PDFKit/CoreGraphics, never an AI provider). OCR text
+of the first `--max-ocr-pages` pages (default 3, `0`, N or `all`) is stored
+as hidden search/RAG text, not as the page body; `kaiba page-ocr <note-id>`
+recognizes a pending page later. Page bodies are not editable; annotate pages
+with comments. See `document-import.md` and `design-document-page-images.md`.
+
+### AI
+
+```bash
+kaiba ai tag (--note <id> | --notebook <id>) [--dry-run]
+kaiba ai translate (--notebook <id> [--to <language>] | --resume <id>)
+                   [--provider <vendor>] [--model <model>] [--title <title>]
+kaiba ai models [--output text|json]
+kaiba ai status
+```
+
+`ai tag` extracts ontology tags with the configured agent backend
+(`agent-gateway`, spawned per invocation) and applies them with
+provenance `ai` (never overwriting human tags or redefining existing
+tags); `--dry-run` prints proposals without applying. `ai translate`
+translates a whole notebook into a new `notebook-kind:translation`
+notebook, one agent invocation per note; `--to` falls back to
+`ai.translate.defaultTargetLanguage`, and the AI vendor resolves
+`--provider`/`--model`, then `ai.translate`, then `ai.agent`. On
+failure the pending notebook is kept and `--resume <id>` continues from
+the first untranslated note. `ai models`
+delegates vendor model discovery to `agent-gateway models` using the
+configured provider and credential environment-variable name. It does not
+require `ai.agent.model`, allowing users to discover a model before selecting
+one. `ai status`
+reports the `ai` configuration section and runtime availability. When
+the backend, vendor, model, or binary is missing, `ai tag` exits `1`
+with the specific reason. See `ai-agent-integration.md`.
+
+### Storage
+
+```bash
+kaiba storage migrate (<file-id>|--all) --profile <name> --endpoint <url>
+              --region <r> --bucket <b> --access-key-env <VAR>
+              --secret-key-env <VAR> [--key-prefix <prefix>]
+kaiba storage gc [--grace-hours N]
+```
+
+`migrate` moves local file content to S3-compatible storage; credentials
+are read from the named environment variables. The endpoint, region, bucket,
+credential environment-variable names, and key prefix may instead come from a
+named `storageProfiles` entry in the Kaiba configuration. `file --out` uses the
+same configured profile to retrieve S3-backed content. `gc` reclaims file
+records no note or notebook references anymore and sweeps stray blobs,
+with a grace window (default 24 hours) protecting recent files.
+
+### Search engine
+
+```bash
+kaiba search-engine status [--output json|text]
+kaiba search-engine sync [--output json|text]
+kaiba search-engine reindex [--output json|text]
+```
+
+Operates the optional external search engine. Every subcommand requires a
+store administrator and resolves the engine the same way the server does:
+from the `searchEngine` config section first, then from the administrator
+settings stored in the note store. When neither selects an engine, it exits
+`2` with `search engine is not configured`. The CLI never writes engine
+settings. `status` prints the adapter kind, the index identity, the health
+result and the outbox progress. It never prints credentials, and it exits
+`0` even when the engine is unhealthy. `sync` ensures the index, activates
+it and drains pending note changes. It exits `1` if any rows failed.
+`reindex` re-enqueues every note first, then behaves like `sync`; it does
+not delete stale documents. The only adapter kind is `meilisearch`, the
+default. The Elasticsearch adapter was removed in 137c6f7; a configured or
+stored `elasticsearch` kind is rejected with `searchEngine.kind`. When
+neither the config section nor the stored settings give a URL, the command
+uses the server default resolved from its own environment
+(`KAIBA_MEILISEARCH_URL`, then `http://127.0.0.1:7700` on the host that
+runs the command). The commands run on the backend host; clients never
+connect to the engine. See `search-engine-adapter.md` (SE6, D0, D5, B2)
+and `design-search-engine-fusion.md` (F3, F4).
+
+## Exit Codes
+
+`0` success, `1` domain or IO error, `2` unknown argument.
