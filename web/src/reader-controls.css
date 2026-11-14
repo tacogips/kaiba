@@ -1,0 +1,94 @@
+/* Reader controls keep the same shape even when a document title or tag is long. */
+.reader button.reader-control.reader-control {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  min-inline-size: 2rem;
+  block-size: 2rem;
+  min-block-size: 2rem;
+  padding: .3rem;
+  white-space: nowrap;
+  line-height: 1;
+}
+.reader .reader-control svg { display: block; flex: none; }
+.reader .reader-control:focus-visible, .reader .page-tag-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.reader .reader-control-error { color: #a16207; }
+.reader .document-title-editor > h1 { min-inline-size: 0; }
+.reader .document-title-editor form.reader-title-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: .4rem;
+  inline-size: min(28rem, calc(100vw - 2rem));
+  max-inline-size: calc(100vw - 2rem);
+  box-shadow: 0 4px 14px #0002;
+  border-radius: .4rem;
+}
+.reader .reader-title-form label { min-inline-size: 0; }
+.reader .reader-title-form input { inline-size: 100%; min-inline-size: 0; box-sizing: border-box; }
+.reader .reader-title-form [role="alert"], .reader .page-tag-popover [role="alert"] {
+  grid-column: 1 / -1;
+  margin: .2rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: .85rem;
+}
+.reader .page-tag-popover {
+  inline-size: min(22rem, calc(100vw - 2rem));
+  max-inline-size: calc(100vw - 2rem);
+  box-sizing: border-box;
+  border-radius: .4rem;
+}
+.reader .page-tag-popover form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .4rem;
+}
+.reader .page-tag-popover input { inline-size: 100%; min-inline-size: 0; box-sizing: border-box; }
+.reader .page-tag-chip .tag-chip-open {
+  min-inline-size: 0;
+  max-inline-size: 12rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.reader .document-page-navigation { gap: .25rem; }
+.reader .pdf-controls-footer .pdf-viewer-zoom { gap: .25rem; }
+.reader .pdf-footer-position { gap: .5rem; min-inline-size: 0; font-variant-numeric: tabular-nums; }
+.reader .pdf-footer-position > span { font-size: .85rem; }
+.reader .document-reader-footer form { flex-wrap: nowrap; gap: .25rem; }
+.reader .document-reader-footer input { inline-size: 4rem; min-inline-size: 0; box-sizing: border-box; }
+.reader .reader-page-go svg { transform: rotate(180deg); }
+.reader .pdf-viewer-stage { scrollbar-gutter: stable; }
+@media (max-width: 600px) {
+  .reader .reader-head.document-reader-head { position: relative; }
+  .reader .document-reader-head .document-title-editor,
+  .reader .document-reader-head .page-tags-editor { position: static; }
+  .reader .document-reader-head .reader-title-form,
+  .reader .document-reader-head .page-tag-popover {
+    inset-inline: .75rem;
+    top: calc(100% + .25rem);
+    inline-size: auto;
+    max-inline-size: none;
+  }
+  .reader .pdf-controls-footer { justify-content: flex-start; }
+  .reader .pdf-footer-position { margin-inline-start: auto; }
+}
+.tag-notes-popup { max-block-size: min(38rem, calc(100dvh - 2rem)); overflow-y: auto; }
+.tag-notes-popup > header { display: flex; gap: 1rem; align-items: center; justify-content: space-between; }
+.tag-notes-popup > header h2 { min-inline-size: 0; overflow-wrap: anywhere; margin: 0; }
+.tag-notes-popup > header button { flex: none; }
+.reader .page-tag-class-field { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: .5rem; font-size: .85rem; }
+.reader .page-tag-class-field select { flex: 1; min-inline-size: 0; }
+.reader .page-tag-popover form > button { grid-row: 1; }
+.reader .page-tag-ontology-hint { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.reader .document-reader-footer input {
+  flex: none;
+  border: 1px solid var(--chatbook-border, #80808060);
+  border-radius: .25rem;
+  padding: .3rem .4rem;
+}

@@ -1,0 +1,54 @@
+.chatbook .agent-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.chatbook .agent-footer-launcher {
+  align-self: flex-end;
+  flex: none;
+}
+
+.chatbook .footer-agent-composer {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.chatbook .footer-contextual-chat {
+  min-height: 0;
+  max-height: min(55dvh, 540px);
+  overflow: auto;
+}
+
+.chatbook .footer-conversation-history {
+  display: grid;
+  gap: 4px;
+  max-height: min(55dvh, 540px);
+  overflow: auto;
+}
+
+.chatbook .agent-footer[data-large="true"] :is(.footer-contextual-chat, .footer-conversation-history) {
+  max-height: 80dvh;
+}
+
+.chatbook .footer-chat-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.chatbook button.footer-history-entry {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  overflow-wrap: anywhere;
+}
+
+.chatbook .footer-context-label {
+  margin: 4px 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}

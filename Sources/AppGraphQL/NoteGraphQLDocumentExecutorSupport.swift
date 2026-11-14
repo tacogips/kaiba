@@ -1,0 +1,834 @@
+import Foundation
+
+import AppCore
+
+/// Validation, projection, and attribution helpers behind
+/// `NoteGraphQLDocumentExecutor`, split out to keep the executor itself
+/// focused on operation dispatch.
+
+/// Resolves caller-visible attribution (`assignedBy`/`author`) for a note
+/// mutation.
+///
+/// On the authenticated HTTP note API (`authenticatedClientId` non-nil) the
+/// server supplies the bearer-verified `client:<id>` when the caller omits an
+/// attribution. Explicit Riela labels remain caller-visible, but the reserved
+/// `client:` namespace cannot be supplied by a bearer client, so it cannot be
+/// confused with verified identity. Database audit ownership remains scoped to
+/// the authenticated user independently of this display attribution. On the
+/// local operator path (`authenticatedClientId` nil) the explicit value is
+/// honored.
+func noteAPIAssignedBy(
+  _ explicit: String?,
+  field: String,
+  request: GraphQLDocumentRequest
+) throws -> String? {
+  guard let clientId = request.authenticatedClientId else {
+    return explicit
+  }
+  guard let explicit else {
+    return "client:\(clientId)"
+  }
+  guard !explicit.trimmingCharacters(in: .whitespacesAndNewlines)
+    .lowercased().hasPrefix("client:") else {
+    throw NoteGraphQLDocumentExecutorError.invalidVariable(
+      "\(field) cannot use the reserved client identity namespace"
+    )
+  }
+  return explicit
+}
+
+public func noteGraphQLRootFieldName(in query: String, operationName: String? = nil) -> String? {
+  guard
+    let fieldName = try? parseNoteGraphQLRootFields(
+      in: query,
+      operationName: operationName,
+      variables: [:],
+      parseArguments: false
+    )?.first(where: { supportedNoteGraphQLFields.contains($0.fieldName) })?.fieldName
+  else {
+    return nil
+  }
+  return fieldName
+}
+
+public func noteGraphQLRootFieldNames(in query: String, operationName: String? = nil) throws -> [String] {
+  try parseNoteGraphQLRootFields(
+    in: query,
+    operationName: operationName,
+    variables: [:],
+    parseArguments: false
+  )?.map(\.fieldName) ?? []
+}
+
+public func noteGraphQLRequiresAuthentication(in query: String, operationName: String? = nil) -> Bool {
+  do {
+    return try noteGraphQLRootFieldNames(in: query, operationName: operationName)
+      .contains { supportedNoteGraphQLFields.contains($0) || introspectionAuthenticationFields.contains($0) }
+  } catch {
+    return true
+  }
+}
+
+private let introspectionAuthenticationFields: Set<String> = ["__schema", "__type"]
+
+public func noteGraphQLOperationTypeName(in query: String, operationName: String? = nil) -> String {
+  guard
+    let operationType = try? parseNoteGraphQLRootFields(
+      in: query,
+      operationName: operationName,
+      variables: [:],
+      parseArguments: false
+    )?.first?.operationType
+  else {
+    return "unknown"
+  }
+  switch operationType {
+  case .query:
+    return "query"
+  case .mutation:
+    return "mutation"
+  }
+}
+
+let supportedNoteGraphQLFields: Set<String> = [
+  "note",
+  "notebook",
+  "notebooks",
+  "libraries",
+  "notes",
+  "searchNotes",
+  "noteGraphNeighbors",
+  "proposeNoteLinks",
+  "tags",
+  "tagClasses",
+  "noteFile",
+  "noteFiles",
+  "noteTranslations",
+  "translationJobs",
+  "documentPageText",
+  "notebookFiles",
+  "noteLinks",
+  "longTermMemoryNotebook",
+  "autoActions",
+  "createNote",
+  "createNotebook",
+  "defineNoteTagClass",
+  "defineNoteTag",
+  "updateNote",
+  "deleteNote",
+  "deleteNotebook",
+  "applyNotebookTags",
+  "applyNotebookTagIds",
+  "removeNotebookTag",
+  "removeNotebookTagById",
+  "setNotebookReadOnly",
+  "renameNotebook",
+  "setNoteReadOnly",
+  "importDocument",
+  "recognizeDocumentPage",
+  "applyNoteTags",
+  "removeNoteTag",
+  "addNoteComment",
+  "addNotebookComment",
+  "openMemoNotebook",
+  "setAppSetting",
+  "setUserAgentCredential",
+  "setUserAgentCredentialEnabled",
+  "clearUserAgentCredential",
+  "userAgentCredential",
+  "linkNotes",
+  "attachNoteFile",
+  "attachNotebookFile",
+  "ingestNotebookPages",
+  "appendLongTermMemory",
+  "recallLongTermMemory",
+  "linkLongTermMemoryAssociations",
+  "configureNoteAutoAction",
+  "deleteNoteAutoAction",
+  "saveNoteConversation",
+  "sendAgentChatMessage",
+  "requestTagExtraction",
+  "requestNotebookTranslation",
+  "noteConversations",
+  "notebookConversations",
+  "agentModels",
+  "noteComments",
+  "notebookComments",
+  "tagDetail",
+  "tagComments",
+  "ensureTagMemoNotebook",
+  "promoteTagNote",
+  "unpromoteTagNote",
+  "agenticSearch",
+  "searchEngineCapability",
+  "engineSearchNotes",
+  "searchEngineSettings",
+  "updateSearchEngineSettings",
+  "testSearchEngineConnection",
+  "relatedNotes",
+  "appSetting",
+  "actionHistory",
+  "undoState",
+  "undoAction",
+  "redoAction",
+  "migrateNoteFileStorage",
+  "migrateAllNoteFiles",
+  "reclaimNoteFileStorage",
+  "checkNoteStore",
+  "optimizeNoteStore"
+]
+
+let noteGraphQLQueryFields: Set<String> = [
+  "note",
+  "notebook",
+  "notebooks",
+  "libraries",
+  "notes",
+  "searchNotes",
+  "noteGraphNeighbors",
+  "proposeNoteLinks",
+  "tags",
+  "tagClasses",
+  "noteFile",
+  "noteFiles",
+  "noteTranslations",
+  "translationJobs",
+  "documentPageText",
+  "notebookFiles",
+  "noteLinks",
+  "longTermMemoryNotebook",
+  "autoActions",
+  "noteConversations",
+  "notebookConversations",
+  "noteComments",
+  "notebookComments",
+  "tagDetail",
+  "tagComments",
+  "agentModels",
+  "agenticSearch",
+  "searchEngineCapability",
+  "engineSearchNotes",
+  "searchEngineSettings",
+  "relatedNotes",
+  "appSetting",
+  "userAgentCredential",
+  "actionHistory",
+  "undoState"
+]
+
+let noteGraphQLMutationFields = supportedNoteGraphQLFields.subtracting(noteGraphQLQueryFields)
+
+func validateOperationType(_ operationType: GraphQLDocumentOperationType, fieldName: String) throws {
+  switch operationType {
+  case .query:
+    guard noteGraphQLQueryFields.contains(fieldName) else {
+      throw NoteGraphQLDocumentExecutorError.operationFieldMismatch(operation: "query", fieldName: fieldName)
+    }
+  case .mutation:
+    guard noteGraphQLMutationFields.contains(fieldName) else {
+      throw NoteGraphQLDocumentExecutorError.operationFieldMismatch(operation: "mutation", fieldName: fieldName)
+    }
+  }
+}
+
+func validateSelections(
+  _ selections: [ParsedNoteGraphQLSelectionField],
+  rootFieldName: String
+) throws {
+  guard !selections.isEmpty else {
+    return
+  }
+  let rootType = noteGraphQLRootSelectionTypes[rootFieldName] ?? "NoteMutationPayload"
+  try validateSelections(selections, typeName: rootType, path: rootFieldName)
+}
+
+func validateSelections(
+  _ selections: [ParsedNoteGraphQLSelectionField],
+  typeName: String,
+  path: String
+) throws {
+  guard let fields = noteGraphQLSelectionFields[typeName] else {
+    guard selections.isEmpty else {
+      throw NoteGraphQLDocumentExecutorError.invalidSelection("\(path) does not support nested selections")
+    }
+    return
+  }
+  guard !selections.isEmpty else {
+    throw NoteGraphQLDocumentExecutorError.invalidSelection("\(path) requires nested selections")
+  }
+  for selection in selections {
+    guard selection.fragmentTypeConditions.allSatisfy({ $0 == typeName }) else {
+      throw NoteGraphQLDocumentExecutorError.invalidSelection(
+        "fragment type condition is incompatible with '\(typeName)' at \(path)"
+      )
+    }
+    guard selection.arguments.isEmpty else {
+      throw NoteGraphQLDocumentExecutorError.invalidSelection(
+        "\(path).\(selection.fieldName) does not accept arguments"
+      )
+    }
+    if selection.fieldName == "__typename" {
+      guard selection.selections.isEmpty else {
+        throw NoteGraphQLDocumentExecutorError.invalidSelection("\(path).__typename does not support nested selections")
+      }
+      continue
+    }
+    guard let childType = fields[selection.fieldName] else {
+      throw NoteGraphQLDocumentExecutorError.invalidSelection("unsupported field '\(path).\(selection.fieldName)'")
+    }
+    if let childType {
+      try validateSelections(selection.selections, typeName: childType, path: "\(path).\(selection.fieldName)")
+    } else if !selection.selections.isEmpty {
+      throw NoteGraphQLDocumentExecutorError.invalidSelection("\(path).\(selection.fieldName) does not support nested selections")
+    }
+  }
+}
+
+func projectGraphQLValue(
+  _ value: JSONValue,
+  selections: [ParsedNoteGraphQLSelectionField],
+  typeName: String
+) throws -> JSONValue {
+  switch value {
+  case let .array(values):
+    return .array(try values.map { try projectGraphQLValue($0, selections: selections, typeName: typeName) })
+  case let .object(object):
+    guard let fields = noteGraphQLSelectionFields[typeName] else {
+      return value
+    }
+    var projected: JSONObject = [:]
+    for selection in selections {
+      if selection.fieldName == "__typename" {
+        guard projected[selection.responseKey] == nil else {
+          throw NoteGraphQLDocumentExecutorError.invalidSelection("duplicate response key '\(selection.responseKey)'")
+        }
+        projected[selection.responseKey] = .string(typeName)
+        continue
+      }
+      guard let childType = fields[selection.fieldName] else {
+        continue
+      }
+      guard projected[selection.responseKey] == nil else {
+        throw NoteGraphQLDocumentExecutorError.invalidSelection("duplicate response key '\(selection.responseKey)'")
+      }
+      let childValue = object[selection.fieldName] ?? .null
+      if let childType {
+        projected[selection.responseKey] = try projectGraphQLValue(
+          childValue,
+          selections: selection.selections,
+          typeName: childType
+        )
+      } else {
+        projected[selection.responseKey] = childValue
+      }
+    }
+    return .object(projected)
+  case .null:
+    return .null
+  case .bool, .integer, .number, .string:
+    return value
+  }
+}
+
+let noteGraphQLRootSelectionTypes: [String: String] = [
+  "note": "NoteQueryPayload",
+  "notebook": "NotebookQueryPayload",
+  "notebooks": "NotebooksQueryPayload",
+  "libraries": "NoteLibrariesQueryPayload",
+  "notes": "NotesQueryPayload",
+  "searchNotes": "NoteSearchQueryPayload",
+  "noteGraphNeighbors": "NoteGraphNeighborsQueryPayload",
+  "proposeNoteLinks": "NoteLinkProposalQueryPayload",
+  "tags": "NoteTagsQueryPayload",
+  "tagClasses": "NoteTagClassesQueryPayload",
+  "noteFile": "NoteFileQueryPayload",
+  "noteFiles": "NoteFilesQueryPayload",
+  "noteTranslations": "NoteTranslationsQueryPayload",
+  "translationJobs": "TranslationJobsQueryPayload",
+  "documentPageText": "DocumentPageTextQueryPayload",
+  "renameNotebook": "NoteMutationPayload",
+  "notebookFiles": "NotebookFilesQueryPayload",
+  "noteLinks": "NoteLinksQueryPayload",
+  "longTermMemoryNotebook": "NotebookQueryPayload",
+  "appendLongTermMemory": "LongTermMemoryAppendPayload",
+  "recallLongTermMemory": "LongTermMemoryRecallPayload",
+  "linkLongTermMemoryAssociations": "NoteLinksQueryPayload",
+  "autoActions": "NoteAutoActionsQueryPayload",
+  "noteConversations": "AgentConversationsQueryPayload",
+  "notebookConversations": "AgentConversationsQueryPayload",
+  "agentModels": "AgentModelsPayload",
+  "noteComments": "NoteCommentsQueryPayload",
+  "notebookComments": "NoteCommentsQueryPayload",
+  "tagDetail": "TagDetailQueryPayload",
+  "tagComments": "TagCommentsQueryPayload",
+  "agenticSearch": "AgenticSearchPayload",
+  "searchEngineCapability": "SearchEngineCapabilityPayload",
+  "engineSearchNotes": "EngineNoteSearchQueryPayload",
+  "searchEngineSettings": "SearchEngineSettingsPayload",
+  "updateSearchEngineSettings": "SearchEngineSettingsPayload",
+  "testSearchEngineConnection": "SearchEngineConnectionTestPayload",
+  "relatedNotes": "EngineNoteSearchQueryPayload",
+  "appSetting": "AppSettingPayload",
+  "setAppSetting": "AppSettingPayload",
+  "userAgentCredential": "UserAgentCredentialPayload",
+  "setUserAgentCredential": "UserAgentCredentialPayload",
+  "setUserAgentCredentialEnabled": "UserAgentCredentialPayload",
+  "clearUserAgentCredential": "UserAgentCredentialPayload",
+  "actionHistory": "ActionHistoryPayload",
+  "undoState": "UndoStatePayload",
+  "undoAction": "UndoRedoPayload",
+  "redoAction": "UndoRedoPayload",
+  "sendAgentChatMessage": "AgentChatMessagePayload",
+  "importDocument": "NoteMutationPayload",
+  "recognizeDocumentPage": "NoteMutationPayload",
+  "requestTagExtraction": "TagExtractionRequestPayload",
+  "requestNotebookTranslation": "NotebookTranslationRequestPayload",
+  "deleteNote": "ControlPlaneResult",
+  "deleteNotebook": "ControlPlaneResult",
+  "deleteNoteAutoAction": "ControlPlaneResult",
+  "migrateNoteFileStorage": "NoteFileMigrationPayload",
+  "migrateAllNoteFiles": "NoteFileMigrationPayload",
+  "reclaimNoteFileStorage": "NoteFileReclamationPayload",
+  "checkNoteStore": "NoteStoreCheckPayload",
+  "optimizeNoteStore": "NoteStoreOptimizationPayload"
+]
+
+let noteGraphQLSelectionFields: [String: [String: String?]] = [
+  "ControlPlaneResult": [
+    "accepted": nil,
+    "status": nil,
+    "diagnostics": nil
+  ],
+  "NoteTranslationsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteTranslation"),
+  "NoteTranslation": ["noteId": nil, "language": nil, "body": nil, "isCurrent": nil, "updatedAt": nil],
+  "TranslationJobsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "TranslationJob"),
+  "TranslationJob": [
+    "jobId": nil, "notebookId": nil, "targetLanguage": nil, "pageStart": nil, "pageEnd": nil,
+    "status": nil, "errorMessage": nil, "createdAt": nil, "updatedAt": nil
+  ],
+  "DocumentPageTextQueryPayload": noteGraphQLQueryPayloadFields(valueType: "DocumentPageText"),
+  "DocumentPageText": ["pageNumber": nil, "text": nil, "textSource": nil, "textStatus": nil],
+  "DocumentPage": [
+    "pageNumber": nil, "originFileId": nil, "originMediaType": nil, "textExtractionMode": nil,
+    "textStatus": nil, "textSource": nil, "analysis": "DocumentPageAnalysis"
+  ],
+  "DocumentPageAnalysis": ["isDocument": nil, "language": nil, "writingMode": nil, "binding": nil, "title": nil],
+  "NoteQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Note"),
+  "NotebookQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Notebook"),
+  "NotebooksQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Notebook"),
+  "NoteLibrariesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteLibrary"),
+  "NotesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "Note"),
+  "NoteSearchQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteSearchResult"),
+  "SearchEngineCapabilityPayload": [
+    "result": "ControlPlaneResult",
+    "enabled": nil
+  ],
+  "EngineNoteSearchQueryPayload": [
+    "result": "ControlPlaneResult",
+    "value": "EngineNoteHit",
+    "facets": "EngineSearchFacets"
+  ],
+  "EngineNoteHit": [
+    "note": "Note",
+    "snippet": nil,
+    "score": nil,
+    "reasons": "EngineHitReason"
+  ],
+  "EngineHitReason": [
+    "kind": nil,
+    "tags": nil
+  ],
+  "NoteRetrievalProvenance": [
+    "sources": nil,
+    "reasons": nil
+  ],
+  "EngineSearchFacets": [
+    "tagClasses": "EngineFacetBucket",
+    "tags": "EngineTagFacetBucket"
+  ],
+  "EngineFacetBucket": ["value": nil, "count": nil],
+  "EngineTagFacetBucket": ["tagId": nil, "name": nil, "tagClass": nil, "count": nil],
+  "SearchEngineAdapterDescriptor": [
+    "kind": nil,
+    "displayName": nil,
+    "authModes": nil
+  ],
+  "SearchEngineSettingsPayload": noteGraphQLQueryPayloadFields(valueType: "SearchEngineSettings"),
+  "SearchEngineSettings": [
+    "managedBy": nil,
+    "kind": nil,
+    "url": nil,
+    "indexPrefix": nil,
+    "authMode": nil,
+    "username": nil,
+    "hasSecret": nil,
+    "verifyTLS": nil,
+    "requestTimeoutSeconds": nil,
+    "adapters": "SearchEngineAdapterDescriptor",
+    "active": nil
+  ],
+  "SearchEngineConnectionTestPayload": noteGraphQLQueryPayloadFields(valueType: "SearchEngineConnectionTestResult"),
+  "SearchEngineConnectionTestResult": [
+    "available": nil,
+    "status": nil,
+    "detail": nil
+  ],
+  "NoteGraphNeighborsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteGraphNeighbor"),
+  "NoteLinkProposalQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteLinkProposal"),
+  "NoteTagsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteTag"),
+  "NoteTagClassesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteTagClass"),
+  "NoteFileQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFile"),
+  "NoteFilesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteFileAttachment"),
+  "NotebookFilesQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NotebookFileAttachment"),
+  "NoteLinksQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteLink"),
+  "LongTermMemoryAppendPayload": [
+    "result": "ControlPlaneResult",
+    "notes": "Note",
+    "idempotentReplay": nil
+  ],
+  "LongTermMemoryRecallPayload": noteGraphQLQueryPayloadFields(valueType: "LongTermMemoryRecallHit"),
+  "LongTermMemoryRecallHit": [
+    "note": "Note",
+    "snippet": nil,
+    "rank": nil,
+    "isAssociation": nil,
+    "edgeKind": nil,
+    "weight": nil,
+    "hopCount": nil,
+    "pathNoteIds": nil
+  ],
+  "NoteAutoActionsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteAutoAction"),
+  "AgentConversationsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "AgentConversation"),
+  "AgentModelsPayload": [
+    "result": "ControlPlaneResult",
+    "models": "AgentModel",
+    "discoveryAvailable": nil,
+    "configuredModel": nil,
+    "providers": nil,
+    "configuredProvider": nil
+  ],
+  "AgentModel": [
+    "modelId": nil,
+    "displayName": nil,
+    "description": nil
+  ],
+  "NoteCommentsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "NoteComment"),
+  "TagDetailQueryPayload": noteGraphQLQueryPayloadFields(valueType: "TagDetail"),
+  "TagDetail": [
+    "tag": "NoteTag",
+    "tagClass": "NoteTagClass",
+    "noteCount": nil,
+    "notebookCount": nil,
+    "memoNotebookId": nil,
+    "canonicalNote": "Note",
+    "coOccurringTags": "TagCoOccurrence"
+  ],
+  "TagCoOccurrence": [
+    "tag": "NoteTag",
+    "noteCount": nil
+  ],
+  "TagCommentsQueryPayload": noteGraphQLQueryPayloadFields(valueType: "TagComment"),
+  "TagComment": [
+    "comment": "NoteComment",
+    "noteTitle": nil,
+    "notebookTitle": nil
+  ],
+  "AgentConversation": [
+    "notebookId": nil,
+    "title": nil,
+    "updatedAt": nil,
+    "turnCount": nil,
+    "subjectNoteId": nil,
+    "subjectNotebookId": nil
+  ],
+  "AgentChatMessagePayload": [
+    "result": "ControlPlaneResult",
+    "conversationNotebookId": nil,
+    "turnNoteId": nil,
+    "agentStatus": nil
+  ],
+  "AgenticSearchPayload": [
+    "result": "ControlPlaneResult",
+    "status": nil,
+    "answerMarkdown": nil
+  ],
+  "AppSettingPayload": [
+    "result": "ControlPlaneResult",
+    "key": nil,
+    "valueJSON": nil
+  ],
+  "UserAgentCredentialPayload": [
+    "result": "ControlPlaneResult",
+    "featureEnabled": nil,
+    "customBaseURLAllowed": nil,
+    "providers": nil,
+    "credential": "UserAgentCredentialSummary"
+  ],
+  "UserAgentCredentialSummary": [
+    "provider": nil,
+    "keyHint": nil,
+    "baseURL": nil,
+    "defaultModel": nil,
+    "enabled": nil,
+    "updatedAt": nil
+  ],
+  "ActionHistoryPayload": [
+    "result": "ControlPlaneResult",
+    "entries": "NoteActionLogEntry"
+  ],
+  "UndoStatePayload": [
+    "result": "ControlPlaneResult",
+    "undo": "NoteActionLogEntry",
+    "redo": "NoteActionLogEntry"
+  ],
+  "UndoRedoPayload": [
+    "result": "ControlPlaneResult",
+    "status": nil,
+    "applied": "NoteActionLogEntry",
+    "target": "NoteActionLogEntry"
+  ],
+  "NoteActionLogEntry": [
+    "seq": nil,
+    "occurredAt": nil,
+    "actorUserId": nil,
+    "provenance": nil,
+    "entityType": nil,
+    "entityId": nil,
+    "notebookId": nil,
+    "action": nil,
+    "title": nil,
+    "undoable": nil,
+    "undoOfSeq": nil,
+    "undoneBySeq": nil
+  ],
+  "TagExtractionRequestPayload": [
+    "result": "ControlPlaneResult",
+    "status": nil
+  ],
+  "NotebookTranslationRequestPayload": [
+    "result": "ControlPlaneResult",
+    "translationJobId": nil,
+    "status": nil
+  ],
+  "NoteMutationPayload": [
+    "result": "ControlPlaneResult",
+    "note": "Note",
+    "notebook": "Notebook",
+    "notes": "Note",
+    "tag": "NoteTag",
+    "tagClass": "NoteTagClass",
+    "file": "NoteFile",
+    "noteFiles": "NoteFileAttachment",
+    "notebookFiles": "NotebookFileAttachment",
+    "comment": "NoteComment",
+    "link": "NoteLink",
+    "autoAction": "NoteAutoAction"
+  ],
+  "NoteFileMigrationPayload": [
+    "result": "ControlPlaneResult",
+    "migrated": "NoteFile",
+    "failures": "NoteFileMigrationFailure",
+    "cleanupFailures": "NoteFileMigrationFailure"
+  ],
+  "NoteFileReclamationPayload": [
+    "result": "ControlPlaneResult",
+    "deletedFileIds": nil,
+    "sweptPaths": nil
+  ],
+  "NoteStoreCheckPayload": [
+    "result": "ControlPlaneResult",
+    "schemaVersion": nil,
+    "healthy": nil,
+    "integrityMessages": nil,
+    "foreignKeyViolations": nil,
+    "searchIndexHealthy": nil,
+    "notesMissingFromSearchIndex": nil,
+    "orphanedSearchIndexRows": nil,
+    "unreferencedFiles": nil,
+    "searchIndexRepaired": nil
+  ],
+  "NoteStoreOptimizationPayload": [
+    "result": "ControlPlaneResult",
+    "vacuumed": nil,
+    "bytesBefore": nil,
+    "bytesAfter": nil,
+    "freelistPagesBefore": nil,
+    "freelistPagesAfter": nil
+  ],
+  "Note": [
+    "noteId": nil,
+    "notebookId": nil,
+    "noteNumber": nil,
+    "title": nil,
+    "bodyMarkdown": nil,
+    "readOnly": nil,
+    "createdAt": nil,
+    "updatedAt": nil,
+    "metaJSON": nil,
+    "tags": "NoteTagAssignment",
+    "createdBy": nil,
+    "updatedBy": nil,
+    "documentPage": "DocumentPage"
+  ],
+  "Notebook": [
+    "type": nil,
+    "notebookId": nil,
+    "title": nil,
+    "readOnly": nil,
+    "createdAt": nil,
+    "updatedAt": nil,
+    "metaJSON": nil,
+    "tags": "NoteTagAssignment",
+    "firstNotePreview": nil,
+    "noteCount": nil,
+    "libraryId": nil,
+    "ownerUserId": nil,
+    "createdBy": nil,
+    "updatedBy": nil
+  ],
+  "NoteLibrary": [
+    "libraryId": nil,
+    "name": nil,
+    "title": nil,
+    "authRequired": nil,
+    "isDefault": nil,
+    "createdAt": nil,
+    "notebookCount": nil
+  ],
+  "NoteTagAssignment": [
+    "tag": "NoteTag",
+    "provenance": nil,
+    "assignedBy": nil,
+    "deletable": nil,
+    "createdAt": nil
+  ],
+  "NoteTag": [
+    "tagId": nil,
+    "name": nil,
+    "classId": nil,
+    "parentTagId": nil,
+    "isSystem": nil,
+    "createdAt": nil
+  ],
+  "NoteTagClass": [
+    "classId": nil,
+    "label": nil,
+    "description": nil,
+    "isSystem": nil,
+    "createdAt": nil
+  ],
+  "NoteFile": [
+    "fileId": nil,
+    "storageKind": nil,
+    "localPath": nil,
+    "s3Profile": nil,
+    "s3Bucket": nil,
+    "s3Key": nil,
+    "mediaType": nil,
+    "byteSize": nil,
+    "sha256": nil,
+    "originalFilename": nil,
+    "createdAt": nil,
+    "migratedAt": nil
+  ],
+  "NoteFileAttachment": [
+    "noteId": nil,
+    "file": "NoteFile",
+    "role": nil,
+    "position": nil
+  ],
+  "NotebookFileAttachment": [
+    "notebookId": nil,
+    "file": "NoteFile",
+    "role": nil
+  ],
+  "NoteComment": [
+    "commentId": nil,
+    "noteId": nil,
+    "notebookId": nil,
+    "bodyMarkdown": nil,
+    "author": nil,
+    "createdAt": nil
+  ],
+  "NoteLink": [
+    "fromNoteId": nil,
+    "toNoteId": nil,
+    "linkKind": nil,
+    "provenance": nil,
+    "createdAt": nil
+  ],
+  "NoteSearchResult": [
+    "note": "Note",
+    "snippet": nil,
+    "rank": nil,
+    "matchedTags": "NoteTag",
+    "isLinkedNeighbor": nil,
+    "termCoverage": nil,
+    "provenance": "NoteRetrievalProvenance"
+  ],
+  "NoteGraphNeighbor": [
+    "seedNoteId": nil,
+    "note": "Note",
+    "edgeKind": nil,
+    "weight": nil,
+    "hopCount": nil,
+    "pathNoteIds": nil
+  ],
+  "NoteLinkProposal": [
+    "targetNote": "Note",
+    "targetNoteId": nil,
+    "linkKind": nil,
+    "reason": nil,
+    "source": nil
+  ],
+  "NoteAutoAction": [
+    "actionId": nil,
+    "trigger": nil,
+    "workflowId": nil,
+    "filterJSON": nil,
+    "enabled": nil,
+    "position": nil,
+    "createdAt": nil
+  ],
+  "NoteFileMigrationFailure": [
+    "fileId": nil,
+    "message": nil
+  ]
+]
+
+func noteGraphQLQueryPayloadFields(valueType: String) -> [String: String?] {
+  [
+    "result": "ControlPlaneResult",
+    "value": valueType
+  ]
+}
+
+func noteFileMigrationControlResult(_ result: NoteFileMigrationResult) -> GraphQLControlPlaneResult {
+  guard !result.failures.isEmpty else {
+    return GraphQLControlPlaneResult(accepted: true, status: "ok")
+  }
+  return GraphQLControlPlaneResult(
+    accepted: false,
+    status: result.migrated.isEmpty ? "failed" : "partial",
+    // Redact per-file diagnostics with the same fixed message as the `failures`
+    // list; `$0.message` is raw `String(describing: error)` and would otherwise
+    // disclose paths, SQL, or S3 endpoints in a client-selectable field.
+    diagnostics: result.failures.map { "\($0.fileId): \(noteFileMigrationFailureMessage)" }
+  )
+}
+
+/// Fixed, redacted message reported for every note file migration failure in
+/// the `failures` list so that raw storage errors (paths, SQL, S3 endpoints)
+/// never reach a response body.
+let noteFileMigrationFailureMessage = "note file migration failed"
+
+func noteFileMigrationControlResult(
+  for error: Error,
+  hasMigratedFiles: Bool
+) -> GraphQLControlPlaneResult {
+  GraphQLControlPlaneResult(
+    accepted: false,
+    status: hasMigratedFiles ? "partial" : "failed",
+    diagnostics: [graphQLNotePublicDiagnostic(for: error)]
+  )
+}

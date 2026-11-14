@@ -1,0 +1,37 @@
+/* Keep familiar actions usable inside narrow panes without wrapping captions. */
+button.form-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0.4rem;
+  white-space: nowrap;
+}
+button.form-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.form-icon-button svg,
+.form-action-button svg { flex-shrink: 0; }
+.config-presets button { white-space: nowrap; }
+.config-section form,
+.config-section label,
+.document-import-form label,
+.source-analyses-body label { min-width: 0; }
+.config-section input:not([type="checkbox"]):not([type="range"]),
+.config-section select,
+.document-import-form input,
+.document-import-form select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.pane-right .info-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); }
+.pane-right .info-grid dd { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.pane-right .source-analyses { padding-inline: 0; }
+.pane-right .source-analyses-body { max-height: none; overflow: visible; }
+.source-analyses fieldset { min-width: 0; }
+.source-analyses fieldset > button + button { margin-left: 0.4rem; }

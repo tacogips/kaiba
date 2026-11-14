@@ -1,0 +1,366 @@
+import { notebookId as asNotebookId, noteId as asNoteId, tagId as asTagId } from './ids'
+import { describe, expect, test } from 'bun:test'
+import {
+  NoteGraphQLClient,
+  NoteTransportError,
+  notebookPageLimit,
+  type NoteClientEnvironment,
+} from './client'
+import { currentServerCredentialKey } from './serverEndpoint'
+
+function environment(
+  responses: unknown[],
+  href = 'http://127.0.0.1:8787/',
+): { value: NoteClientEnvironment; requests: Array<{ input: string; init?: RequestInit }>; storage: Map<string, string>; replacements: string[] } {
+  const requests: Array<{ input: string; init?: RequestInit }> = []
+  const storage = new Map<string, string>()
+  const replacements: string[] = []
+  return {
+    requests,
+    storage,
+    replacements,
+    value: {
+      request: async (input, init) => {
+        requests.push({ input: String(input), init })
+        return new Response(JSON.stringify(responses.shift()), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      },
+      getStoredItem: (key) => storage.get(key) ?? null,
+      setStoredItem: (key, value) => storage.set(key, value),
+      removeStoredItem: (key) => { storage.delete(key) },
+      currentURL: () => href,
+      replaceURL: (value) => replacements.push(value),
+    },
+  }
+}
+
+describe('Note GraphQL transport', () => {
+  test('transmits the selected subscription provider and model for chat dispatch', async () => {
+    const harness = environment([{ data: { sendAgentChatMessage: {
+      result: { accepted: true, status: 'ok', diagnostics: [] },
+      conversationNotebookId: 'conversation', turnNoteId: 'turn', agentStatus: 'pending',
+    } } }])
+    await new NoteGraphQLClient(harness.value).sendAgentChatMessage({
+      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-5.6-luna',
+    })
+    expect(requestBody(harness.requests[0]).variables).toEqual({ input: {
+      userMarkdown: 'Hello', provider: 'codex', model: 'gpt-5.6-luna',
+    } })
+  })
+
+  test('creates learning material in the canonical store and rejects failed saves', async () => {
+    const notebook = { notebookId: asNotebookId('learning'), type: 'DOCUMENT', title: 'Learning', readOnly: false, tags: [] }
+    const note = { noteId: asNoteId('note-1'), notebookId: notebook.notebookId, bodyMarkdown: 'My understanding',
+      noteNumber: 1, title: 'My understanding', readOnly: false, createdAt: '', updatedAt: '' }
+    const result = { accepted: true, status: 'ok', diagnostics: [] }
+    const harness = environment([
+      { data: { createNotebook: { result, notebook } } },
+      { data: { createNote: { result, note } } },
+      { data: { createNote: { result: { accepted: false, status: 'rejected', diagnostics: ['Notebook is read-only'] } } } },
+    ])
+    const client = new NoteGraphQLClient(harness.value)
+    expect((await client.createNotebook(' Learning ')).notebookId).toBe(notebook.notebookId)
+    expect(await client.createNote(notebook.notebookId, note.bodyMarkdown)).toEqual(note)
+    expect(requestBody(harness.requests[0]).variables).toEqual({ input: { title: 'Learning' } })
+    expect(requestBody(harness.requests[1]).variables).toEqual({ input: {
+      notebookId: notebook.notebookId, bodyMarkdown: note.bodyMarkdown, provenance: 'human', assignedBy: 'kaiba-web',
+    } })
+    await expect(client.createNote(notebook.notebookId, 'Keep this draft')).rejects.toThrow('Notebook is read-only')
+  })
+
+  test('sends bounded scope variables and notebook metadata selections', async () => {
+    const harness = environment([{ data: { notebooks: { result: { accepted: true, status: 'ok', diagnostics: [] }, value: [] } } }])
+    const client = new NoteGraphQLClient(harness.value)
+    await client.notebooks(200, 'updatedAtDesc', [['folder-work'], ['topic-launch']])
+    const body = requestBody(harness.requests[0])
+    expect(body.variables).toEqual({
+      limit: 200,
+      offset: 200,
+      sort: 'updatedAtDesc',
+      tagFilterIdGroups: [['folder-work'], ['topic-launch']],
+    })
+    expect(body.query).toContain('$tagFilterIdGroups: [[String!]!]')
+    expect(body.query).toContain('firstNotePreview noteCount')
+    expect(body.query).toContain('title readOnly')
+    expect(body.query).toContain('classId parentTagId')
+    expect(harness.requests[0]?.init?.credentials).toBe('same-origin')
+  })
+
+  test('adopts the canonical notebook lock mutation response', async () => {
+    const canonical = {
+      type: 'DOCUMENT' as const,
+      notebookId: asNotebookId('notebook-system-memory'),
+      title: 'System Memory',
+      readOnly: false,
+      createdAt: '',
+      updatedAt: '',
+      tags: [],
+    }
+    const harness = environment([{ data: { setNotebookReadOnly: {
+      result: { accepted: true, status: 'ok', diagnostics: [] },
+      notebook: canonical,
+    } } }])
+    const client = new NoteGraphQLClient(harness.value)
+
+    expect(await client.setNotebookReadOnly(canonical.notebookId, false)).toEqual(canonical)
+    const body = requestBody(harness.requests[0])
+    expect(body.variables).toEqual({ notebookId: canonical.notebookId, readOnly: false })
+    expect(body.query).toContain('setNotebookReadOnly')
+  })
+
+  test('projects notebook read-only state and persists explicit unlocks', async () => {
+    const notebook = {
+      notebookId: asNotebookId('system-memory'),
+      title: 'Riela System Memory',
+      readOnly: true,
+      createdAt: '',
+      updatedAt: '',
+      tags: [],
+    }
+    const harness = environment([
+      { data: { notebooks: {
+        result: { accepted: true, status: 'ok', diagnostics: [] },
+        value: [notebook],
+      } } },
+      { data: { setNotebookReadOnly: {
+        result: { accepted: true, status: 'ok', diagnostics: [] },
+        notebook: { ...notebook, readOnly: false },
+      } } },
+    ])
+    const client = new NoteGraphQLClient(harness.value)
+
+    expect(await client.notebooks(0, 'updatedAtDesc', [])).toMatchObject([{ readOnly: true }])
+    expect(await client.setNotebookReadOnly(asNotebookId('system-memory'), false)).toMatchObject({ readOnly: false })
+    const body = requestBody(harness.requests[1])
+    expect(body.operationName).toBe('SetNotebookReadOnly')
+    expect(body.variables).toEqual({ notebookId: asNotebookId('system-memory'), readOnly: false })
+  })
+
+  test('uses the shared notebook page limit for note previews', async () => {
+    const harness = environment([
+      { data: { notes: {
+        result: { accepted: true, status: 'ok', diagnostics: [] },
+        value: [],
+      } } },
+    ])
+    const client = new NoteGraphQLClient(harness.value)
+
+    await client.notes(asNotebookId('book'), notebookPageLimit)
+
+    expect(requestBody(harness.requests[0]).variables).toEqual({
+      notebookId: asNotebookId('book'),
+      limit: notebookPageLimit,
+      offset: notebookPageLimit,
+    })
+  })
+
+  test('redeems CLI code, removes it from the URL, and keeps bearer in session scope', async () => {
+    const harness = environment([
+      { credential: { bearerToken: 'rn_session' } },
+      { data: { tags: { result: { accepted: true, status: 'ok', diagnostics: [] }, value: [] } } },
+    ], 'http://127.0.0.1:8787/note/register?code=once')
+    const client = new NoteGraphQLClient(harness.value)
+    await client.initialize()
+    await client.tags()
+    expect(harness.replacements).toEqual(['/note/register'])
+    expect(harness.storage.get(currentServerCredentialKey())).toBe('rn_session')
+    expect(new Headers(harness.requests[1]?.init?.headers).get('Authorization')).toBe('Bearer rn_session')
+    expect(JSON.parse(String(harness.requests[0]?.init?.body))).toEqual({ code: 'once', displayName: 'Kaiba Web' })
+  })
+
+  test('sends explicit human provenance for catalog-selected tag membership', async () => {
+    const harness = environment([{ data: { applyNotebookTagIds: {
+      result: { accepted: true, status: 'ok', diagnostics: [] },
+      notebook: { notebookId: asNotebookId('book'), title: 'Book', createdAt: '', updatedAt: '', tags: [] },
+    } } }])
+    const client = new NoteGraphQLClient(harness.value)
+    await client.applyTagById(asNotebookId('book'), asTagId('tag-urgent'))
+    const body = JSON.parse(String(harness.requests[0]?.init?.body)) as { variables: { input: Record<string, unknown> } }
+    expect(body.variables.input).toEqual({
+      notebookId: asNotebookId('book'),
+      tagIds: [asTagId('tag-urgent')],
+      provenance: 'human',
+      assignedBy: 'kaiba-web',
+    })
+    expect(requestBody(harness.requests[0]).operationName).toBe('ApplyNotebookTagIds')
+    expect(requestBody(harness.requests[0]).query).toContain('firstNotePreview noteCount')
+  })
+
+  test('sends human remove provenance for notebook tag removal', async () => {
+    const notebook = {
+      notebookId: asNotebookId('book'),
+      title: 'Book',
+      createdAt: '',
+      updatedAt: '',
+      tags: [],
+    }
+    const harness = environment([
+      { data: { removeNotebookTagById: {
+        result: { accepted: true, status: 'ok', diagnostics: [] },
+        notebook,
+      } } },
+    ])
+    const client = new NoteGraphQLClient(harness.value)
+
+    await client.removeTagById(asNotebookId('book'), asTagId('folder-child'))
+    const removeBody = requestBody(harness.requests[0])
+    expect(removeBody.variables).toEqual({
+      notebookId: asNotebookId('book'),
+      tagId: asTagId('folder-child'),
+      provenance: 'human',
+    })
+    expect(removeBody.operationName).toBe('RemoveNotebookTagById')
+    expect(removeBody.query).toContain('firstNotePreview noteCount')
+  })
+
+  test('queues notebook translation and surfaces the pending job id', async () => {
+    const harness = environment([{ data: { requestNotebookTranslation: {
+      result: { accepted: true, status: 'ok', diagnostics: [] },
+      translationJobId: 'translation-job-1',
+      status: 'queued',
+    } } }])
+    const client = new NoteGraphQLClient(harness.value)
+
+    expect(await client.requestNotebookTranslation({
+      notebookId: asNotebookId('notebook-source'),
+      targetLanguage: 'English',
+    })).toEqual({ translationJobId: 'translation-job-1', status: 'queued' })
+    const body = requestBody(harness.requests[0])
+    expect(body.variables).toEqual({
+      input: { notebookId: asNotebookId('notebook-source'), targetLanguage: 'English' },
+    })
+    expect(body.query).toContain('requestNotebookTranslation')
+  })
+
+  test('distinguishes rejected results and GraphQL envelope failures', async () => {
+    const rejected = environment([
+      { data: { tags: {
+        result: { accepted: false, status: 'invalid_request', diagnostics: ['tag collision'] },
+        value: [],
+      } } },
+    ])
+    await expectErrorKind(new NoteGraphQLClient(rejected.value).tags(), 'result')
+
+    const graphQL = environment([{ errors: [{ message: 'schema mismatch' }] }])
+    await expectErrorKind(new NoteGraphQLClient(graphQL.value).tags(), 'graphql')
+  })
+
+  test('distinguishes HTTP failures and clears only the CLI session bearer on 401', async () => {
+    const harness = environment([])
+    harness.storage.set(currentServerCredentialKey(), 'rn_expired')
+    const client = new NoteGraphQLClient({
+      ...harness.value,
+      request: async () => new Response(JSON.stringify({ error: 'expired' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    })
+
+    await expectErrorKind(client.tags(), 'http', 401)
+    expect(harness.storage.has(currentServerCredentialKey())).toBe(false)
+  })
+
+  test('captures a quick memo over plain HTTP with the stored bearer', async () => {
+    const harness = environment([])
+    harness.storage.set(currentServerCredentialKey(), 'rn_live')
+    const requests: Array<{ input: string; init?: RequestInit }> = []
+    const client = new NoteGraphQLClient({
+      ...harness.value,
+      request: async (input, init) => {
+        requests.push({ input: String(input), init })
+        return new Response(
+          JSON.stringify({ noteId: 'note-9', notebookId: 'notebook-quick', noteNumber: 3 }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
+        )
+      },
+    })
+
+    expect(await client.captureNote('A thought')).toEqual({
+      noteId: asNoteId('note-9'), notebookId: asNotebookId('notebook-quick'), noteNumber: 3,
+    })
+    expect(requests[0]?.input).toBe('/note/capture')
+    expect(requests[0]?.init?.method).toBe('POST')
+    expect((requests[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer rn_live')
+    // The route derives a title from the body, so a blank one is never sent.
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ text: 'A thought' })
+
+    await client.captureNote('A thought', '  Titled  ')
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({ text: 'A thought', title: 'Titled' })
+    await client.captureNote('A thought', '   ')
+    expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({ text: 'A thought' })
+  })
+
+  test('reports the capture route error body and drops a rejected capture bearer', async () => {
+    const invalid = environment([])
+    const invalidClient = new NoteGraphQLClient({
+      ...invalid.value,
+      request: async () => new Response(
+        JSON.stringify({ error: 'capture request body must be a JSON object with a non-empty text string' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      ),
+    })
+    await expect(invalidClient.captureNote(' ')).rejects.toThrow(
+      'capture request body must be a JSON object with a non-empty text string',
+    )
+
+    const rejected = environment([])
+    rejected.storage.set(currentServerCredentialKey(), 'rn_revoked')
+    const rejectedClient = new NoteGraphQLClient({
+      ...rejected.value,
+      request: async () => new Response(JSON.stringify({ error: 'note API bearer token is invalid or revoked' }), {
+        status: 401, headers: { 'Content-Type': 'application/json' },
+      }),
+    })
+    await expectErrorKind(rejectedClient.captureNote('A thought'), 'http', 401)
+    expect(rejected.storage.has(currentServerCredentialKey())).toBe(false)
+
+    const truncated = environment([])
+    const truncatedClient = new NoteGraphQLClient({
+      ...truncated.value,
+      request: async () => new Response(JSON.stringify({ notebookId: 'notebook-quick' }), {
+        status: 201, headers: { 'Content-Type': 'application/json' },
+      }),
+    })
+    await expectErrorKind(truncatedClient.captureNote('A thought'), 'result')
+  })
+})
+
+function requestBody(request?: { init?: RequestInit }): {
+  variables: Record<string, unknown>
+  query: string
+  operationName: string
+} {
+  return JSON.parse(String(request?.init?.body)) as {
+    variables: Record<string, unknown>
+    query: string
+    operationName: string
+  }
+}
+
+async function expectErrorKind(
+  promise: Promise<unknown>,
+  kind: NoteTransportError['kind'],
+  status?: number,
+): Promise<void> {
+  try {
+    await promise
+    throw new Error(`expected ${kind} error`)
+  } catch (error) {
+    expect(error).toBeInstanceOf(NoteTransportError)
+    expect((error as NoteTransportError).kind).toBe(kind)
+    if (status !== undefined) expect((error as NoteTransportError).status).toBe(status)
+  }
+}
+
+test('manual document OCR sends only the note ID and retains returned page metadata', async () => {
+  const note = { noteId: asNoteId('page-1'), notebookId: asNotebookId('book'), noteNumber: 1, title: null,
+    bodyMarkdown: 'Recognized text', readOnly: false, createdAt: '', updatedAt: '', metaJSON: '{"documentPage":{"textStatus":"complete"}}' }
+  const harness = environment([{ data: { recognizeDocumentPage: { result: { accepted: true, status: 'ok', diagnostics: [] }, note } } }])
+  const result = await new NoteGraphQLClient(harness.value).recognizeDocumentPage(note.noteId)
+  expect(result).toEqual(note)
+  const request = JSON.parse(String(harness.requests[0]?.init?.body))
+  expect(request.variables).toEqual({ noteId: 'page-1' })
+  expect(request.query).toContain('metaJSON')
+})
