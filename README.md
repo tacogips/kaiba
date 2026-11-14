@@ -1,0 +1,390 @@
+# kaiba
+
+A local-first, ontology-oriented note app for the command line, extracted
+from the Riela Note subsystem. Notes live in notebooks, carry markdown
+bodies (the first `# ` heading is the title), and are organized through
+tags with world-model classes (`person`, `year`, `event`, `topic`, ...),
+tag hierarchies, and provenance tracking (human vs AI vs system). Notes
+can be linked to each other, commented on, marked read-only, and carry
+content-addressed file attachments (local by default, migratable to
+S3-compatible storage). Search is SQLite FTS5 with tag/class filters,
+contextual indexing, relaxed multi-term matching with rank fusion, and
+graph expansion ranked by personalized PageRank
+(`design-docs/specs/note-retrieval-fusion.md`).
+
+## Quick Start
+
+```bash
+kaiba add --body '# My first note
+Anything markdown.' --tag idea
+
+kaiba list                      # newest first
+kaiba search idea               # FTS + snippet
+kaiba show <note-id>            # body, tags, links, files, comments
+kaiba notebook list
+kaiba --help                    # full command surface
+```
+
+The local note store lives at `~/.kaiba/note-store.sqlite`, with attachments
+under `~/.kaiba/files/` (override the root with `--note-root` or
+`KAIBA_NOTE_ROOT`). Kaiba configuration lives at
+`~/.config/kaiba/config.json` (override with `--config` or
+`KAIBA_CONFIG_PATH`).
+See `design-docs/specs/command.md` for the full CLI
+and `design-docs/specs/kaiba-note.md` for the design.
+
+## Libraries
+
+Notebooks are grouped into named libraries, and each library decides whether a
+caller that presented no credential may see it at all:
+
+```bash
+kaiba library create shared --title "Shared" --auth required
+kaiba library list
+kaiba --library shared add --body '# Only for signed-in callers'
+kaiba library move <notebook-id> --to shared
+```
+
+`--library <name>` (or `KAIBA_LIBRARY`) selects the library a command reads
+and writes; without a selection writes land in the `default` library, which is
+seeded open so a store behaves exactly as it did before libraries existed.
+
+Access to a library that requires authentication is granted per account:
+
+```bash
+kaiba library grant shared --user <user-id>
+kaiba library members shared
+kaiba library revoke shared --user <user-id>
+```
+
+An `--allow-unauthenticated` note-API request reaches only the open libraries,
+whatever grants exist. An authenticated account reaches the open libraries plus
+the ones it was granted. The local CLI is the operator view and spans every
+library. Holding a note, notebook, or file id does not get past this: fetch by
+id, search, graph traversal, and `GET /files/<id>` all answer "not found" for a
+library the caller cannot reach.
+
+A library can name its own credential scope. Policy stays in the store and the
+config holds only names, never values:
+
+```json
+{
+  "libraries": [
+    { "name": "shared", "kinkoPath": "logical:kaiba/shared", "storageProfile": "gateway" }
+  ]
+}
+```
+
+`kaiba library env shared` prints that scope and the environment variables it
+supplies, so the invocation is ready to paste:
+
+```bash
+kinko --path logical:kaiba/shared exec -- kaiba --library shared serve
+```
+
+See `design-docs/specs/library.md` for the design.
+
+## External database and file storage
+
+The default configuration is local SQLite. A Turso or libSQL SQL-over-HTTP
+database can be selected without putting its token in the configuration file:
+
+```json
+{
+  "database": {
+    "kind": "turso",
+    "url": "libsql://my-kaiba-database.turso.io",
+    "authTokenEnvironmentVariable": "KAIBA_TURSO_TOKEN",
+    "allowInsecureLoopbackHTTP": false
+  },
+  "storageProfiles": []
+}
+```
+
+The remote database must provide the SQLite features Kaiba uses: JSONB, FTS5,
+and the FTS5 trigram tokenizer. `libsql://` and `turso://` URLs are sent over
+HTTPS. Plain HTTP is accepted only when explicitly enabled for a loopback test
+server.
+
+Named S3-compatible profiles let all CLI, GraphQL, and server paths use the
+same external file storage. Credentials remain in environment variables:
+
+```json
+{
+  "database": { "kind": "sqlite" },
+  "storageProfiles": [{
+    "name": "gateway",
+    "endpoint": "http://127.0.0.1:8443",
+    "region": "us-east-1",
+    "bucket": "kaiba-files",
+    "accessKeyIdEnvironmentVariable": "KAIBA_S3_ACCESS_KEY",
+    "secretAccessKeyEnvironmentVariable": "KAIBA_S3_SECRET_KEY",
+    "keyPrefix": "attachments"
+  }]
+}
+```
+
+`s3-gateway` can expose either a local filesystem or an upstream S3
+service through that profile. The integration gates exercise Kaiba upload and
+download through its POSIX backend and through its MinIO-backed S3 backend:
+
+```bash
+mise run test:turso
+mise run test:s3-gateway
+```
+
+The S3 gateway test expects a sibling checkout at `../s3-gateway` by
+default and uses Docker (Colima is supported) for MinIO. Override the checkout
+with `S3_GATEWAY_REPOSITORY`.
+
+## Learning notebook
+
+Kaiba includes a SolidJS learning notebook and a local HTTP note API (GraphQL).
+Create a notebook in **My notebooks**, save your notes, then choose **Study this
+note** to ask AI for an explanation, a quiz, or connections between ideas.
+Choose **Memo only** to save a thought without an AI reply. Writable notes can
+also be edited directly. Saved notes and discussions use the same knowledge
+store as the CLI and Riela; unsaved drafts stay only in the current app session.
+
+Start the web client:
+
+```bash
+cd web && bun install && bun run build && cd ..
+kaiba serve --web-root web/dist
+```
+
+`kaiba serve` prints the endpoint plus a registration URL / terminal QR
+code; open the URL to register the browser (bearer token, stored
+hashed). Use `--allow-unauthenticated` to skip auth on a trusted
+machine. The server exposes `POST /graphql`, `GET /note/events`
+(long-poll live updates), `GET|POST /note/register`, and serves the
+viewer SPA.
+
+The local listener requires Apple's Network framework, so `kaiba serve` is
+unavailable on Linux. The Linux CLI and `KaibaClient` SDK can still access a
+remote server; local GraphQL execution does not require the listener.
+
+The viewer treats attached tags as navigation subjects. Click an underlined
+tag term or tag chip to open its Memo, History, and Links tabs across every
+notebook. Tag memo creation is safe under concurrent submissions, agent context
+respects its UTF-8 byte budget, and Links loads the complete paginated occurrence
+set while clearing results immediately when the selected tag changes.
+
+## API Access
+
+```bash
+# machine access: issue an API key (printed once), use it as a bearer
+kaiba client issue --name my-tool
+curl -X POST http://127.0.0.1:8787/graphql \
+  -H "Authorization: Bearer <api-key>" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"query Tags { tags { result { accepted } value { name } } }"}'
+
+# or execute GraphQL locally without a server
+kaiba graphql 'query Tags { tags { result { accepted } value { name } } }'
+
+# discover the authenticated endpoint schema; the token stays in the environment
+kaiba graphql schema --endpoint http://127.0.0.1:8787 \
+  --api-key-env KAIBA_API_KEY --filter '^(notes|Note)$' --output text
+```
+
+`kaiba graphql schema` retrieves standard authenticated introspection from the
+endpoint. Its optional ICU regular expression matches root-field and type names;
+output includes the forward transitive type dependencies needed to understand
+each match. Use `--allow-unauthenticated` only for a trusted loopback server.
+Remote unauthenticated access additionally requires
+`--allow-remote-unauthenticated`; non-loopback HTTP additionally requires
+`--allow-insecure-http`. Text and stable sorted JSON output are supported.
+
+Swift clients can depend on the standalone `KaibaClient` library product. It
+normalizes the endpoint, requires an explicit bearer or unauthenticated choice,
+executes arbitrary GraphQL, exposes readiness/schema APIs and typed common note
+operations, and never opens a Kaiba store or falls back to in-process services:
+
+```swift
+import KaibaClient
+
+let client = try KaibaClient(
+  endpoint: URL(string: "https://kaiba.example.com")!,
+  authentication: .bearer(try KaibaBearerToken(
+    ProcessInfo.processInfo.environment["KAIBA_API_KEY"] ?? ""
+  ))
+)
+let readiness = try await client.probeReadiness()
+let schema = try await client.fetchSchema()
+```
+
+Requests default to a 2 MiB encoded limit, responses to 8 MiB, and a ten-second
+timeout; configurable timeouts are capped at 24 hours. Redirects are refused,
+caller cancellation remains cancellation, and diagnostics do not retain
+request bodies, response bodies, or bearer values. Typed conveniences cover
+notes, notebooks, tags, attachments, comments, notebook/document ingest,
+conversations, and long-term memory. Ingest and long-term-memory append calls
+require caller-provided idempotency keys; the client does not retry
+automatically. Long-term-memory operations require an authenticated, enabled
+administrator, except for the server's explicit loopback operator mode.
+
+Transport, authentication, HTTP, GraphQL, decoding, and schema failures remain
+distinct `KaibaClientError` categories. Schema discovery is intentionally
+bounded to the SDK's canonical introspection document rather than providing a
+general-purpose GraphQL introspection engine.
+
+## Personal AI agent (your own API key)
+
+Any user can chat with an agent that runs on their **own** provider key and
+acts on their notes through tools executed inside the kaiba server
+(`design-docs/specs/user-agent-tools.md`). The tools are kaiba's own note
+operations (search, read, create, edit, comment, tag, link, delete, undo),
+bound to the signed-in user's permissions, so the agent can do what that user
+could do through the API and nothing more.
+
+```bash
+# operator: store a key for a user (the key is read from the environment or
+# stdin, never from an argument); provider is anthropic, openai, openrouter,
+# or openai-compatible (the last needs ai.userAgent.allowCustomBaseURL)
+export MY_KEY=sk-...
+kaiba ai credential set --provider anthropic --model claude-opus-5 \
+  --api-key-env MY_KEY --user <user-id>
+kaiba ai credential show --user <user-id>      # provider, model, key hint only
+kaiba ai credential disable --user <user-id>   # fall back to the server runtime
+```
+
+In the web viewer the same lives under Settings > "Personal AI agent"
+(GraphQL `userAgentCredential`, `setUserAgentCredential`,
+`setUserAgentCredentialEnabled`, `clearUserAgentCredential`). Once a user has
+an enabled credential, their chat turns run through it; tag extraction,
+translation, and agentic search still use the server's `ai.agent` runtime.
+Server policy lives in `config.json`:
+
+```json
+{ "ai": { "userAgent": { "enabled": true, "allowCustomBaseURL": false, "maxToolRounds": 24 } } }
+```
+
+## macOS and iPhone clients
+
+The same SolidJS client is packaged with Tauri 2 for macOS and iPhone. Start a
+Kaiba server first, then run or build the native client:
+
+```bash
+kaiba serve --web-root web/dist
+mise run tauri:dev
+mise run tauri:build
+
+# One-time generation, then iPhone development/build:
+mise run tauri:ios:init
+mise run tauri:ios:dev
+mise run tauri:ios:build
+```
+
+The macOS app defaults to `http://127.0.0.1:8787`. In the native app's Config
+screen, set the Kaiba server URL and reconnect. A physical iPhone must use an
+HTTPS or LAN address reachable from the phone; its loopback address does not
+refer to the Mac. That Server connection form is native-only: the browser
+client always talks to the origin that served it, so its Config screen shows no
+such card.
+
+Authentication uses the same API key or registration flow as the browser
+client, and the credential is stored per server origin. Pointing the native
+client at a different server therefore starts unauthenticated rather than
+carrying the previous server's bearer to a new host, and correcting a mistyped
+URL reads the earlier session back. A native request whose target does not
+resolve to the configured server origin is refused before it is sent.
+
+`mise run tauri:build` emits `Kaiba.app`, which is the same installed name the
+Homebrew Cask uses for the resident menu-bar app. The bundle identifiers differ
+-- the client is `com.tacogips.kaiba` and the Cask app is `dev.kaiba.Kaiba` --
+so neither overwrites the other's preferences or state, but the file names
+collide. The client bundle is build output only: do not copy it into
+`/Applications` under the current name. See
+`design-docs/specs/tauri-client-apps.md` for the unresolved naming decision.
+
+## Development
+
+```bash
+mise install
+mise run build
+mise run test
+swift run kaiba --help
+```
+
+`mise run check` runs every verification gate: Swift tests, SwiftLint,
+`web:check` (typecheck, test, lint, and build of the shared web/native client)
+and `tauri:check` (`cargo fmt --check`, `check`, and `clippy` on the Tauri Rust
+shell). `web:check` is a thin wrapper around `bun run check` in `web/`, the same
+script the "Web client check" GitHub Actions workflow runs, so the local gate
+and CI cannot drift. `tauri:check` needs a macOS toolchain and runs locally
+only.
+
+The package uses Swift Package Manager with:
+
+- System library target: `CKaibaSQLite3` (sqlite3)
+- Library targets: `AppCore` (note domain + command logic),
+  `AppGraphQL` (note GraphQL executor), `AppServer` (local HTTP server)
+- Executable target: `AppCLI`
+- Installed executable: `kaiba`
+- Shared web/native client: `web/` (SolidJS + Vite + Tauri 2; `bun run build`)
+
+Document conversion is consumed exclusively through `anydoc-swift`'s
+`AnydocKit` product. macOS development and release builds use its published
+XCFramework automatically and do not require a local Cargo build or
+`PKG_CONFIG_PATH`.
+
+## Homebrew Formula
+
+Build local formula archives:
+
+```bash
+mise run build:homebrew -- darwin-arm64 darwin-x64
+```
+
+Render a formula after both platform archives exist:
+
+```bash
+mise run homebrew:formula -- 0.1.0
+```
+
+Render directly into the default sibling tap checkout:
+
+```bash
+mise run homebrew:tap-formula -- 0.1.0
+```
+
+Install from the tap after the formula is published:
+
+```bash
+brew tap tacogips/tap
+brew install kaiba
+```
+
+## Homebrew Cask
+
+The Cask workflow builds signed, notarized, and stapled macOS DMG artifacts.
+Apple signing credentials must stay local and must not be committed.
+
+Check the build plan:
+
+```bash
+mise run build:homebrew-cask -- --dry-run darwin-arm64 darwin-x64
+```
+
+Build with local signing credentials:
+
+```bash
+kinko exec --env APPLE_SIGNING_IDENTITY,APPLE_ID,APPLE_PASSWORD,APPLE_TEAM_ID -- \
+  mise run build:homebrew-cask -- darwin-arm64 darwin-x64
+```
+
+Render a Cask:
+
+```bash
+mise run homebrew:cask -- 0.1.0
+```
+
+For a tagged release, build, upload, and render the tap Cask:
+
+```bash
+kinko exec --env APPLE_SIGNING_IDENTITY,APPLE_ID,APPLE_PASSWORD,APPLE_TEAM_ID -- \
+  mise run release:homebrew-cask-local -- v0.1.0
+```
+
+See `packaging/homebrew/README.md` and `.agents/skills/` for release workflows.
