@@ -1,0 +1,111 @@
+import type { NotebookId } from './ids'
+import { serverRequest } from './serverEndpoint'
+export interface NoteChangeEvent {
+  kind: string
+  notebookId?: NotebookId | null
+  tagNames?: string[] | null
+}
+
+export interface NoteEventStreamOptions {
+  /** Returns headers for the poll request (bearer / app headers). */
+  headers(): Record<string, string>
+  /** Called for every decoded note-change event. */
+  onEvent(event: NoteChangeEvent): void
+  /** Called on (re)connect; the subscriber should refresh once. */
+  onConnect(): void
+  /** Called when the feed is unavailable and retries are exhausted for now. */
+  onUnavailable?(): void
+  fetchImpl?: typeof fetch
+  /** Base reconnect delay in ms (doubles up to 30s). */
+  reconnectDelayMs?: number
+}
+
+interface NoteEventPollResponse {
+  /** Opaque, principal-bound cursor; never a global store revision. */
+  revision: string
+  /** True when the server issued a new cursor and a refresh is required. */
+  resync?: boolean
+  events: NoteChangeEvent[]
+}
+
+const POLL_TIMEOUT_MS = 25_000
+const FAILURES_BEFORE_UNAVAILABLE = 5
+
+/**
+ * Subscribes to the `/note/events` long-poll feed. Browser deployments use
+ * same-origin fetch; native apps resolve the path against their configured
+ * server. The server holds
+ * each request open until an event visible to the caller arrives, so updates
+ * arrive with push latency over a plain request/response transport without
+ * exposing global store activity through a shared revision or wake timing.
+ * Events only schedule refreshes on the caller's side; an unavailable feed
+ * degrades to the caller's manual refresh behavior.
+ */
+export function subscribeNoteEvents(options: NoteEventStreamOptions): () => void {
+  const fetchImpl = options.fetchImpl ?? serverRequest
+  const baseDelay = options.reconnectDelayMs ?? 1000
+  let closed = false
+  let connected = false
+  let failures = 0
+  let reportedUnavailable = false
+  let revision = '0'
+  let abort = new AbortController()
+
+  const run = async (): Promise<void> => {
+    while (!closed) {
+      abort = new AbortController()
+      try {
+        const response = await fetchImpl(
+          `/note/events?since=${revision}&timeoutMs=${POLL_TIMEOUT_MS}`,
+          {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json', ...options.headers() },
+            signal: abort.signal,
+          },
+        )
+        if (!response.ok) {
+          throw new Error(`note event feed unavailable (${response.status})`)
+        }
+        const payload = (await response.json()) as Partial<NoteEventPollResponse>
+        if (typeof payload.revision !== 'string') {
+          throw new Error('note event feed returned a malformed payload')
+        }
+        if (closed) return
+        // Only on (re)connect or a server cursor reset, never per ordinary
+        // poll: the subscriber treats onConnect as "refresh once".
+        const shouldConnect = !connected || payload.resync === true
+        if (shouldConnect) {
+          options.onConnect()
+        }
+        for (const event of payload.events ?? []) {
+          if (typeof event?.kind === 'string') options.onEvent(event)
+        }
+        // A server cursor is acknowledged only after every callback accepts
+        // the complete batch. If a callback throws, retry the old cursor so
+        // the server can replay its retained events rather than dropping one.
+        revision = payload.revision
+        connected = true
+        failures = 0
+        reportedUnavailable = false
+        continue
+      } catch {
+        if (closed) return
+      }
+      connected = false
+      failures += 1
+      if (failures >= FAILURES_BEFORE_UNAVAILABLE && !reportedUnavailable) {
+        reportedUnavailable = true
+        options.onUnavailable?.()
+      }
+      const delay = Math.min(baseDelay * 2 ** Math.min(failures, 5), 30_000)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
+  void run()
+
+  return () => {
+    closed = true
+    abort.abort()
+  }
+}

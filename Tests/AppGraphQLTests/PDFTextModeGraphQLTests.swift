@@ -1,0 +1,52 @@
+import AppCore
+import Foundation
+import XCTest
+@testable import AppGraphQL
+
+final class PDFTextModeGraphQLTests: XCTestCase {
+  func testStoredDefaultImportOverrideAndPlainTextQuery() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try NoteService(driver: SQLiteNoteDatabaseDriver(noteRoot: root.path))
+    _ = try store.setAppSetting(key: "web", valueJSON: #"{"pdfTextMode":"ocr-only"}"#)
+    let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+      .appendingPathComponent("AppCoreTests/Fixtures/sample.pdf")
+    let recognizer = ModeOCRRecognizer()
+    let api = GraphQLNoteGraphQLService(service: store, documentPageRecognizer: recognizer)
+    let encoded = try Data(contentsOf: source).base64EncodedString()
+    let forced = await api.importDocument(.init(filename: "forced.pdf", contentBase64: encoded, maximumOCRPages: "all"))
+    XCTAssertTrue(forced.result.accepted)
+    XCTAssertEqual(recognizer.calls, 2)
+    let native = await api.importDocument(.init(filename: "native.pdf", contentBase64: encoded, maximumOCRPages: "0", textExtractionMode: "prefer-pdf-text"))
+    XCTAssertTrue(native.result.accepted)
+    XCTAssertEqual(recognizer.calls, 2)
+    let notebook = try XCTUnwrap(native.notebook)
+    let page = try XCTUnwrap(store.listNotes(notebookId: notebook.notebookId).first)
+    let executor = NoteGraphQLDocumentExecutor(service: api)
+    let response = await executor.execute(GraphQLDocumentRequest(query: """
+      query($id:String!){documentPageText(noteId:$id){result{accepted} value{pageNumber text textSource textStatus}}}
+      """, variables: ["id": .string(page.noteId.rawValue)]))
+    let payload = try XCTUnwrap(response.body["data"]?.asObject?["documentPageText"]?.asObject)
+    XCTAssertEqual(payload["result"]?.asObject?["accepted"], .bool(true))
+    XCTAssertEqual(payload["value"]?.asObject?["textSource"], .string("pdf-text"))
+    XCTAssertEqual(payload["value"]?.asObject?["textStatus"], .string("complete"))
+    XCTAssertTrue(try XCTUnwrap(payload["value"]?.asObject?["text"]?.asString).contains("Fixture Document"))
+    for _ in 0..<2 {
+      let repeated = await executor.execute(GraphQLDocumentRequest(query: """
+        mutation($id:String!,$force:Boolean!){recognizeDocumentPage(noteId:$id,forceOCR:$force){result{accepted} note{documentPage{textSource}}}}
+        """, variables: ["id": .id(page.noteId), "force": .bool(true)]))
+      let result = repeated.body["data"]?.asObject?["recognizeDocumentPage"]?.asObject
+      XCTAssertEqual(result?["result"]?.asObject?["accepted"], .bool(true))
+      XCTAssertEqual(result?["note"]?.asObject?["documentPage"]?.asObject?["textSource"], .string("ocr"))
+      XCTAssertEqual(try store.documentPageText(noteId: page.noteId).text, "Forced OCR\n\nSearch text")
+    }
+    XCTAssertEqual(recognizer.calls, 4)
+    let invalid = await api.importDocument(.init(filename: "invalid.pdf", contentBase64: encoded, textExtractionMode: "invalid"))
+    XCTAssertFalse(invalid.result.accepted)
+  }
+}
+
+private final class ModeOCRRecognizer: DocumentPageRecognizing, @unchecked Sendable {
+  var calls = 0
+  func recognize(imageURL: URL) throws -> String { calls += 1; return "Forced OCR\n\nSearch text" }
+}

@@ -1,0 +1,677 @@
+{
+  "taskId": "search-engine-fusion",
+  "workflowMode": "issue-resolution",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-268",
+  "implementationBranch": "main",
+  "baseBranch": "main",
+  "remote": "origin",
+  "originalHead": "c30e745ffd084ca38ad9cb0707d81af3804237e0",
+  "evidenceRoot": "tmp/search-engine-fusion",
+  "planDocPath": "impl-plans/active/search-engine-fusion.md",
+  "designDocPaths": [
+    "design-docs/specs/design-search-engine-fusion.md",
+    "design-docs/specs/search-engine-adapter.md",
+    "design-docs/specs/note-retrieval-fusion.md",
+    "design-docs/user-qa/search-engine-adapter.md",
+    "design-docs/specs/command.md"
+  ],
+  "planPaths": [
+    "impl-plans/active/search-engine-fusion.md",
+    "impl-plans/active/search-engine-fusion-p1-contract.md",
+    "impl-plans/active/search-engine-fusion-p2-engine-seeded-retrieval.md",
+    "impl-plans/active/search-engine-fusion-p3-meilisearch-adapter.md",
+    "impl-plans/active/search-engine-fusion-p4-agent-search-notes.md",
+    "impl-plans/active/search-engine-fusion-p5-agentic-grounding.md",
+    "impl-plans/active/search-engine-fusion-p6-graphql-client-provenance.md",
+    "impl-plans/active/search-engine-fusion-p7-docs.md",
+    "impl-plans/active/search-engine-fusion-p8-web-settings-test.md",
+    "impl-plans/active/search-engine-fusion-p9-meilisearch-tooling-live.md",
+    "impl-plans/active/search-engine-fusion-p10-integration.md"
+  ],
+  "acceptedDependencies": [],
+  "policies": {
+    "acceptance": "Design accepted at Step 3 (comm-003999). Plans P1-P10 accepted at Step 5 (comm-004003) with SEF-PLAN-001 (high), SEF-PLAN-002 (mid) and SEF-PLAN-003 (mid) resolved and no open findings.",
+    "evidencePolicy": "A behavioral record is a test-runner command (swift test ..., bun test ..., vitest run ..., or mise run <task containing test>) with exit code 0 and every count > 0. For XCTest record the 'Executed N tests, 0 failures' line with N > 0. mise run web:check is not a behavioral record. bun test src and vitest run are recorded separately. An env-gated skip is never evidence; live suites record only the XCTest count of the positive run. Every command is teed into the plan's evidence directory and each record gives the complete log path and the final exit status.",
+    "evidenceLayout": "Evidence lives under tmp/search-engine-fusion/<planId-prefix> (P1..P10), gitignored by tmp/. A retry attempt may use an attempt subdirectory inside the plan's own directory. A plan never writes another plan's evidence directory.",
+    "editProtocol": "Index 'Edit protocol': pre/post shasum per edit in tmp/search-engine-fusion/<P#>/hashes.txt, an immutable intent snapshot intent.md, drift handling, edit only own writePaths, peer compile/lint failures are not blockers (retry after peers land, cross-plan fixes go to P10), no git write operations, no worktrees or branches, do not touch .riela/, each plan updates only its own progress log in its own plan file.",
+    "artifactPolicy": "artifactRoots are copied unchanged from the accepted plans: tmp/search-engine-fusion/<P#> for every plan, web/dist for P8 and P10 (vite build from mise run web:check), and web/src-tauri/target for P10 (mise run tauri:check). All are gitignored. Authored files (sources, tests, compose files, mise.toml, README.md, plan files) are never artifact roots.",
+    "dockerPolicy": "macOS Docker runs through colima; use mise run search:meilisearch:up and search:up (both depend on search:docker) rather than raw docker compose. P9 pins a getmeili/meilisearch v1.x.y tag (v1.10 or later) and records the tag, RepoDigest, pull command and exit code in its Progress Log. If Docker is unavailable, record 'blocked: docker unavailable' with the exact error, never passed.",
+    "japaneseGate": "If the live Japanese query fails on the pinned stock Meilisearch image, P9 records the failure, tag and response as a blocker for P10 and user-qa; no plan switches engines or tokenizer settings ad hoc (design F3).",
+    "sanctionedExistingTestEdits": "Only three existing-test edits are allowed: P3 the adapters expectation in SearchEngineFactoryTests.testSettingsValidationAndNormalizedTargets; P4 removal of AgentSearchNotesRoutingTests.testIncludeLinkedKeepsFullTextRouting; P6 the searchNotes selection expectation (and optional fixture) in KaibaTypedOperationContractTests. NoteRetrievalFusionTests, KaibaAgentToolboxTests, ElasticsearchSearchEngineTests and ElasticsearchLiveTests stay unmodified."
+  },
+  "reviewContext": {
+    "issueReference": "No GitHub issue. Inline workflowInput 'Search engine: engine-seeded graph search and search_notes, unified reranking across agent/engine/FTS/graph results, and a lightweight non-JVM engine adapter (Meilisearch first)' (workflowExecutionId opus-luna-design-and-implement-review-loop-session-268; design accepted comm-003999; plans accepted comm-004003).",
+    "userProblem": "The optional search engine is only reachable through engineSearchNotes, relatedNotes and the agent search_notes tool with include_linked=false. Graph search, the agent's graph search and agentic grounding rank FTS hits only, each path fuses differently, and the only adapter (Elasticsearch) needs a JVM, which is heavy for a single-user desktop setup.",
+    "requiredOutcomes": [
+      "F1: with an engine attached, GraphQL searchNotes with includeLinked true, the agent search_notes tool (both include_linked values) and AIAgenticSearch grounding use engine hits fused with FTS hits as seeds (PPR expansion seeded from fused hits) through NoteService.retrieveNotes; with no engine, an engine error, or any short-cut condition the results equal today's searchNotes / FTS output exactly.",
+      "F2: one deterministic engine-neutral reranker NoteRetrievalReranker.fuse (weighted RRF, k=60, ties by noteId ascending, direct tier before neighbor tier, dedupe by noteId, per-list cap 1000, 16 lists, 200 engine candidates, fused window 1000) with provenance (sources and reasons), used by graph search, the agent tool, agentic grounding and the Meilisearch adapter's sub-query fusion; no LLM call.",
+      "Access: every engine candidate is re-checked against the store with today's scope predicates (eligibleSearchCandidateIds) before it enters the reranker.",
+      "Provenance exposed additively: GraphQL NoteSearchResult.provenance: NoteRetrievalProvenance! (derived full-text/graph-neighbor for FTS results), KaibaClient optional provenance, and per-result provenance plus retrieval=search-engine in agent search_notes output only when the engine was used.",
+      "F3/F4: a Meilisearch adapter behind the unchanged SearchEngine protocol (index <prefix>-notes-v1, identity meilisearch:<target>/<uid>, task-based writes with bounded waits, multi-search ontology expansion and related-notes composition fused in-adapter, jpn locale, maxTotalHits 2000, sanitized errors), registered in SearchEngineFactory with auth modes none/apiKey and a new descriptor auth-mode rule; settings, hot-swap, test connection, config lock, outbox and backfill reused unchanged.",
+      "F5: docker/meilisearch/compose.yaml (pinned tag, 127.0.0.1:7700, no master key), mise tasks search:meilisearch:up/down/status/test-live reusing search:docker, an env-gated MeilisearchLive suite including a Japanese query, and an AppServer runtime hot-swap test.",
+      "F6: README engine choice and resource profile, Meilisearch config and tasks, restricted API key advice, engine-seeded search with FTS fallback; command.md and base design pointers (already updated in the design step).",
+      "Gates: mise run build, full swift test, mise run lint, bun test src, vitest run, mise run web:check, mise run tauri:check, mise run search:test-live and mise run search:meilisearch:test-live all pass with positive counts."
+    ],
+    "nonGoals": [
+      "LLM rerank, embeddings or vector search.",
+      "Fusion for searchNotes with includeLinked false, the NoteSearchPopup link picker, kaiba search, memo search and long-term-memory recall (stay on FTS).",
+      "Changes to engineSearchNotes or relatedNotes service behavior.",
+      "Typesense and Manticore adapters (compared in design F3, not built).",
+      "Web display of provenance.",
+      "Engine capability flags on the SearchEngine protocol."
+    ],
+    "constraints": [
+      "Follow AGENTS.md; Swift files under 1000 lines; swiftlint clean on touched files.",
+      "Extend the existing adapter and retrieval fusion; do not redesign accepted parts.",
+      "Engine disabled means identical behavior and results to today; existing tests keep passing unchanged except the three sanctioned edits.",
+      "No LLM call in retrieval; boundary grep over search-engine, reranker and Meilisearch files returns nothing.",
+      "Callers depend only on the engine-neutral protocol; Meilisearch specifics stay in Sources/AppCore/Meilisearch*.swift.",
+      "Elasticsearch adapter requests, index name and indexIdentity unchanged; the transport moves to SearchEngineHTTPTransport.swift behind type aliases.",
+      "No secrets in config, docs, logs or commits; no machine-local absolute paths.",
+      "Do not touch the untracked .riela/ directory or unrelated files."
+    ],
+    "designDecisionsAndRationale": [
+      "Single async entry point retrieveNotes with an all-or-nothing FTS fallback: a thrown engine error is the unhealthy signal, so there is no per-call health probe and no partial engine contribution.",
+      "The reranker is skipped on single-source paths and its tie-break is noteId ascending, so FTS-only grounding produces exactly today's order (F2 rule 5).",
+      "Weights: engine 1.0 and FTS 1.0 per query; grounding full query 2.0 and terms 1.0; graph-neighbor 1.0 in the neighbor tier; RRF k stays 60; coverage is reported, not a cross-source sort key.",
+      "Meilisearch chosen over Typesense (full index in RAM, mandatory API key) and Manticore (n-gram-only CJK) for built-in Japanese segmentation in the stock image; the live Japanese query is the acceptance gate.",
+      "Capability gaps (no more_like_this, no clause boosts) are closed inside the adapter with multi-search sub-queries fused by the shared reranker, so the protocol and Elasticsearch adapter stay unchanged.",
+      "Factory enforces descriptor authModes, so Meilisearch rejects basic with searchEngine.authMode before any network call."
+    ],
+    "intentionalTradeoffs": [
+      "Fused paging with offset > 0 is not prefix-stable (accepted at design review; no in-repo caller pages includeLinked=true).",
+      "Agent search_notes reports retrieval=full-text when an engine is attached but the tag filter does not resolve or no library is reachable (results empty either way).",
+      "KaibaClient provenance selection may fail against an older server; client and server ship together and the client field is optional.",
+      "Meilisearch facets come from the text query only and are refinement hints.",
+      "Switching back to a previously used adapter re-backfills it; orphaned documents are harmless because of the store re-check."
+    ],
+    "supportedEdgeCases": [
+      "No engine, engine error, empty query, limit <= 0, or window above 1000: retrieveNotes returns exactly searchNotes(...) with provenance nil.",
+      "Engine hits in an unreachable library, another owner's notebook, the long-term-memory notebook, a pending ingest, outside tag/class/created-at filters, or deleted are dropped by the store re-check.",
+      "Engine-only seed with includeLinked true yields its linked neighbor with graph-neighbor provenance.",
+      "Agentic grounding falls back to full FTS grounding after the first engine failure, with an identical context document.",
+      "Meilisearch: index_already_exists counts as success, invalid_document upsert batches are resubmitted per document, pending tasks time out as unavailable, note ids outside [A-Za-z0-9_-] map to x-<sha256>, filter values are escaped, secrets never appear in error text.",
+      "Hot-swap from Elasticsearch to Meilisearch through settings reload changes the slot identity and is seen by scoped service copies."
+    ],
+    "outOfScopeEdgeCases": [
+      "Japanese segmentation failure on the stock Meilisearch image: recorded as a blocker in user-qa, not worked around.",
+      "Prefix-stable fused pagination for offset > 0.",
+      "Older-server compatibility for the KaibaClient provenance selection.",
+      "tauri:check off macOS and live suites without a running local Docker (recorded as blocked with the exact error, never passed)."
+    ],
+    "residualRisks": [
+      "Low: Meilisearch Japanese segmentation and _formatted/attributesToRetrieve behavior are unproven until the P9 live run; a blocker path is defined.",
+      "Low: P1 places NoteRetrievalOutcome in NoteRetrievalReranker.swift while the design text names NoteService+EngineSeededRetrieval.swift; the public shape is identical.",
+      "Low: P7's wave-3 factory test record may hit transient compile failures from peers editing AppCore; Edit protocol rule 5 covers retry."
+    ],
+    "sourcePaths": [
+      "design-docs/specs/design-search-engine-fusion.md",
+      "design-docs/specs/search-engine-adapter.md",
+      "design-docs/specs/note-retrieval-fusion.md",
+      "design-docs/user-qa/search-engine-adapter.md",
+      "design-docs/specs/command.md",
+      "impl-plans/active/search-engine-fusion.md",
+      "Sources/AppCore/NoteSearch.swift",
+      "Sources/AppCore/NoteSearchLexicalFusion.swift",
+      "Sources/AppCore/AIAgenticSearch.swift",
+      "Sources/AppCore/KaibaAgentToolbox.swift",
+      "Sources/AppCore/SearchEngine.swift",
+      "Sources/AppCore/SearchEngineFactory.swift",
+      "Sources/AppCore/ElasticsearchHTTPTransport.swift",
+      "Sources/AppGraphQL/NoteGraphQLService.swift",
+      "Sources/KaibaClient/KaibaOperations.swift",
+      "docker/elasticsearch/compose.yaml",
+      "mise.toml"
+    ]
+  },
+  "plans": [
+    {
+      "planId": "P1-fusion-contract",
+      "planPath": "impl-plans/active/search-engine-fusion-p1-contract.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p1-contract.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "Sources/AppCore/NoteRetrievalReranker.swift",
+        "Sources/AppCore/NoteModels.swift",
+        "Sources/AppCore/NoteSearch.swift",
+        "Sources/AppCore/SearchEngineHTTPTransport.swift",
+        "Sources/AppCore/ElasticsearchHTTPTransport.swift",
+        "Tests/AppCoreTests/NoteRetrievalRerankerTests.swift",
+        "impl-plans/active/search-engine-fusion-p1-contract.md",
+        "tmp/search-engine-fusion/P1"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteSearchLexicalFusion.swift",
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/SearchEngineFactory.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteRetrievalReranker.swift", "intendedEdit": "new file holding the reranker types, policy and fuse"},
+        {"path": "Sources/AppCore/SearchEngineHTTPTransport.swift", "intendedEdit": "new file holding the moved transport"},
+        {"path": "Tests/AppCoreTests/NoteRetrievalRerankerTests.swift", "intendedEdit": "new test file"},
+        {"path": "Sources/AppCore/NoteSearchLexicalFusion.swift", "intendedEdit": "read-only; reuse reciprocalRankFusion and NoteSearchFusionPolicy"},
+        {"path": "Sources/AppCore/SearchEngine.swift", "intendedEdit": "read-only; use SearchEngineHitReasonKind"},
+        {"path": "Sources/AppCore/SearchEngineFactory.swift", "intendedEdit": "read-only; must keep compiling through the transport aliases"},
+        {"path": "tmp/search-engine-fusion/P1", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P1"
+      ],
+      "acceptanceCriteria": [
+        "NoteRetrievalSource, NoteRetrievalProvenance, NoteRetrievalOutcome, candidate/fused types, NoteRetrievalFusionPolicy and NoteRetrievalReranker.fuse exist with the pinned signatures and F2 rules.",
+        "NoteSearchResult.provenance exists with a nil default; existing results have provenance == nil.",
+        "appendLinkedNeighborResults is internal; NoteSearch.swift diff is the single private removal.",
+        "The transport is moved to SearchEngineHTTPTransport.swift behind type aliases; Elasticsearch sources and tests are unchanged.",
+        "NoteRetrievalRerankerTests: exit 0 and XCTest Executed N >= 9; regression filter exit 0 with N > 0; strict swiftlint clean; every touched file under 1000 lines."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P1",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P1/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter NoteRetrievalRerankerTests 2>&1 | tee tmp/search-engine-fusion/P1/reranker.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"NoteRetrievalFusionTests|ElasticsearchSearchEngineTests|SearchEngineFactoryTests|NoteServiceTests\" 2>&1 | tee tmp/search-engine-fusion/P1/regression.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P1/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "swiftlint lint --strict --quiet --no-cache Sources/AppCore/NoteRetrievalReranker.swift Sources/AppCore/SearchEngineHTTPTransport.swift Sources/AppCore/ElasticsearchHTTPTransport.swift Sources/AppCore/NoteModels.swift Sources/AppCore/NoteSearch.swift Tests/AppCoreTests/NoteRetrievalRerankerTests.swift",
+        "git diff --stat -- Tests/AppCoreTests Sources/AppCore/SearchEngine.swift Sources/AppCore/SearchEngineFactory.swift Sources/AppCore/ElasticsearchSearchEngine.swift Sources/AppCore/ElasticsearchRequestBodies.swift",
+        "git diff -- Sources/AppCore/NoteSearch.swift",
+        "wc -l Sources/AppCore/NoteRetrievalReranker.swift Sources/AppCore/NoteModels.swift Sources/AppCore/NoteSearch.swift"
+      ]
+    },
+    {
+      "planId": "P8-web-settings-test",
+      "planPath": "impl-plans/active/search-engine-fusion-p8-web-settings-test.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p8-web-settings-test.md",
+      "wave": 1,
+      "dependsOn": [],
+      "writePaths": [
+        "web/src/components/SearchEngineSettings.integration.tsx",
+        "web/dist",
+        "impl-plans/active/search-engine-fusion-p8-web-settings-test.md",
+        "tmp/search-engine-fusion/P8"
+      ],
+      "sharedPaths": [
+        "web/src/components/SearchEngineSettings.tsx",
+        "web/src/notes/searchEngineSettings.ts"
+      ],
+      "sharedPathNotes": [
+        {"path": "web/src/components/SearchEngineSettings.integration.tsx", "intendedEdit": "add one Meilisearch-descriptor test case; existing cases unchanged"},
+        {"path": "web/dist", "intendedEdit": "generated vite build output from mise run web:check only"},
+        {"path": "web/src/components/SearchEngineSettings.tsx", "intendedEdit": "read-only; no source change"},
+        {"path": "web/src/notes/searchEngineSettings.ts", "intendedEdit": "read-only; no source change"},
+        {"path": "tmp/search-engine-fusion/P8", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "web/dist",
+        "tmp/search-engine-fusion/P8"
+      ],
+      "acceptanceCriteria": [
+        "A Meilisearch descriptor case ([none, apiKey]) shows exactly none and apiKey auth options, a secret field and no username for apiKey, and saves kind meilisearch with authMode apiKey and no username.",
+        "bun test src exit 0 with N pass > 0 and vitest run exit 0 with Tests N passed > 0, recorded separately; mise run web:check exit 0 (non-behavioral).",
+        "The web/src diff lists only the integration test file; a real UI defect is recorded for P10, not fixed silently."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P8",
+        "bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-fusion/P8/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-fusion/P8/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run web:check 2>&1 | tee tmp/search-engine-fusion/P8/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "git diff --stat -- web/src"
+      ]
+    },
+    {
+      "planId": "P2-engine-seeded-retrieval",
+      "planPath": "impl-plans/active/search-engine-fusion-p2-engine-seeded-retrieval.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p2-engine-seeded-retrieval.md",
+      "wave": 2,
+      "dependsOn": ["P1-fusion-contract"],
+      "writePaths": [
+        "Sources/AppCore/NoteService+EngineSeededRetrieval.swift",
+        "Tests/AppCoreTests/EngineSeededRetrievalTests.swift",
+        "impl-plans/active/search-engine-fusion-p2-engine-seeded-retrieval.md",
+        "tmp/search-engine-fusion/P2"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteRetrievalReranker.swift",
+        "Sources/AppCore/NoteSearch.swift",
+        "Sources/AppCore/NoteService+Search.swift",
+        "Sources/AppCore/NoteService+SearchEngine.swift",
+        "Sources/AppCore/NoteService+SearchEngineOntology.swift",
+        "Sources/AppCore/SearchEngineScope.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Sources/AppCore/NoteService+EngineSeededRetrieval.swift", "intendedEdit": "new file with retrieveNotes and eligibleSearchCandidateIds"},
+        {"path": "Tests/AppCoreTests/EngineSeededRetrievalTests.swift", "intendedEdit": "new test file"},
+        {"path": "Sources/AppCore/NoteRetrievalReranker.swift", "intendedEdit": "read-only; written by P1"},
+        {"path": "Sources/AppCore/NoteSearch.swift", "intendedEdit": "read-only; P1 owns it; call appendLinkedNeighborResults and searchNotesInDatabase without modifying them"},
+        {"path": "Tests/AppCoreTests/FakeSearchEngine.swift", "intendedEdit": "read-only; use the knobs scriptedHits, failure and recordedSearches"},
+        {"path": "tmp/search-engine-fusion/P2", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P2"
+      ],
+      "acceptanceCriteria": [
+        "retrieveNotes exists with the pinned signature and F1 semantics (prepare, engine call outside any database closure, store re-check, FTS list, fuse, optional PPR from fused seeds).",
+        "No engine, engine failure, empty query, limit 0 and window > 1000 return results equal to searchNotes(...) with usedSearchEngine false.",
+        "Re-check, PPR seeding, provenance, engine size min(offset+limit+20, 200) and reachableLibraryIds == [] are tested.",
+        "EngineSeededRetrievalTests exit 0 with XCTest N >= 9; regression filter exit 0 with N > 0; strict swiftlint clean; boundary grep empty; new file under 400 lines."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P2",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P2/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter EngineSeededRetrievalTests 2>&1 | tee tmp/search-engine-fusion/P2/retrieval.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"NoteRetrievalFusionTests|SearchEngineAccessTests|SearchEngineQueryTests|NoteServiceTests\" 2>&1 | tee tmp/search-engine-fusion/P2/regression.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P2/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "swiftlint lint --strict --quiet --no-cache Sources/AppCore/NoteService+EngineSeededRetrieval.swift Tests/AppCoreTests/EngineSeededRetrievalTests.swift",
+        "grep -nE \"AIAgenticSearch|AgentInvok|AgentGateway|AgentReply|ClaudeSubscription\" Sources/AppCore/NoteService+EngineSeededRetrieval.swift",
+        "wc -l Sources/AppCore/NoteService+EngineSeededRetrieval.swift"
+      ]
+    },
+    {
+      "planId": "P3-meilisearch-adapter",
+      "planPath": "impl-plans/active/search-engine-fusion-p3-meilisearch-adapter.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p3-meilisearch-adapter.md",
+      "wave": 2,
+      "dependsOn": ["P1-fusion-contract"],
+      "writePaths": [
+        "Sources/AppCore/MeilisearchSearchEngine.swift",
+        "Sources/AppCore/MeilisearchRequestBodies.swift",
+        "Sources/AppCore/MeilisearchResponses.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Tests/AppCoreTests/MeilisearchSearchEngineTests.swift",
+        "Tests/AppCoreTests/MeilisearchFactoryTests.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "impl-plans/active/search-engine-fusion-p3-meilisearch-adapter.md",
+        "tmp/search-engine-fusion/P3"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/SearchEngine.swift",
+        "Sources/AppCore/SearchEngineHTTPTransport.swift",
+        "Sources/AppCore/NoteRetrievalReranker.swift",
+        "Sources/AppCore/ElasticsearchSearchEngine.swift",
+        "Sources/AppCore/ElasticsearchRequestBodies.swift",
+        "Sources/AppCore/SearchEngineSettingsTypes.swift",
+        "Sources/AppCore/NoteService+SearchEngineSettings.swift",
+        "Sources/AppCore/NoteSearch.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Tests/AppCoreTests/SearchEngineFactoryTests.swift", "intendedEdit": "change only the expected SearchEngineFactory.adapters array in testSettingsValidationAndNormalizedTargets to list Elasticsearch, then Meilisearch; no other assertion"},
+        {"path": "Sources/AppCore/MeilisearchSearchEngine.swift", "intendedEdit": "new adapter file"},
+        {"path": "Sources/AppCore/MeilisearchRequestBodies.swift", "intendedEdit": "new file for request bodies, filters and salient terms"},
+        {"path": "Sources/AppCore/MeilisearchResponses.swift", "intendedEdit": "new file for response and error parsing"},
+        {"path": "Tests/AppCoreTests/MeilisearchSearchEngineTests.swift", "intendedEdit": "new mock-transport tests"},
+        {"path": "Tests/AppCoreTests/MeilisearchFactoryTests.swift", "intendedEdit": "new factory and settings tests"},
+        {"path": "Sources/AppCore/SearchEngineHTTPTransport.swift", "intendedEdit": "read-only; the transport written by P1"},
+        {"path": "Sources/AppCore/NoteRetrievalReranker.swift", "intendedEdit": "read-only; use fuse, written by P1"},
+        {"path": "Sources/AppCore/NoteSearch.swift", "intendedEdit": "read-only; reuse ftsTerms(from:)"},
+        {"path": "tmp/search-engine-fusion/P3", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P3"
+      ],
+      "acceptanceCriteria": [
+        "MeilisearchSearchEngine conforms to SearchEngine with the F3 behavior (health, ensureIndex with settings, task waits with the internal-only taskWaitTimeout/initialTaskPollInterval seam never passed by the factory, apply, searchPage with multi-search expansion fusion, relatedNotes composition, facets, id mapping, sanitized errors).",
+        "SearchEngineFactory registers Meilisearch with [none, apiKey], enforces the descriptor auth-mode rule, rejects username/password env vars for meilisearch, and leaves Elasticsearch unchanged.",
+        "Meilisearch tests exit 0 with XCTest N >= 20; regression filter exit 0 with N > 0; strict swiftlint clean; Elasticsearch/protocol diff stat empty; factory-test diff touches only the adapters expectation; boundary grep empty; files within budgets and under 1000 lines."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P3",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P3/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"MeilisearchSearchEngineTests|MeilisearchFactoryTests\" 2>&1 | tee tmp/search-engine-fusion/P3/meili.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"ElasticsearchSearchEngineTests|SearchEngineFactoryTests|SearchEngineSettingsTests|KaibaSearchEngineConfiguration\" 2>&1 | tee tmp/search-engine-fusion/P3/regression.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P3/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "swiftlint lint --strict --quiet --no-cache Sources/AppCore/MeilisearchSearchEngine.swift Sources/AppCore/MeilisearchRequestBodies.swift Sources/AppCore/MeilisearchResponses.swift Sources/AppCore/SearchEngineFactory.swift Tests/AppCoreTests/MeilisearchSearchEngineTests.swift Tests/AppCoreTests/MeilisearchFactoryTests.swift",
+        "git diff --stat -- Sources/AppCore/ElasticsearchSearchEngine.swift Sources/AppCore/ElasticsearchRequestBodies.swift Sources/AppCore/SearchEngine.swift",
+        "git diff -- Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "grep -nE \"AIAgenticSearch|AgentInvok|AgentGateway|AgentReply|ClaudeSubscription\" Sources/AppCore/Meilisearch*.swift",
+        "wc -l Sources/AppCore/Meilisearch*.swift Sources/AppCore/SearchEngineFactory.swift"
+      ]
+    },
+    {
+      "planId": "P4-agent-search-notes",
+      "planPath": "impl-plans/active/search-engine-fusion-p4-agent-search-notes.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p4-agent-search-notes.md",
+      "wave": 3,
+      "dependsOn": ["P2-engine-seeded-retrieval"],
+      "writePaths": [
+        "Sources/AppCore/KaibaAgentToolbox.swift",
+        "Tests/AppCoreTests/AgentSearchNotesFusionTests.swift",
+        "Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift",
+        "impl-plans/active/search-engine-fusion-p4-agent-search-notes.md",
+        "tmp/search-engine-fusion/P4"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteService+EngineSeededRetrieval.swift",
+        "Sources/AppCore/NoteRetrievalReranker.swift",
+        "Sources/AppCore/KaibaAgentToolSchema.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift", "intendedEdit": "remove only testIncludeLinkedKeepsFullTextRouting (replaced D4 rule); keep every other test byte-identical"},
+        {"path": "Tests/AppCoreTests/AgentSearchNotesFusionTests.swift", "intendedEdit": "new test file"},
+        {"path": "Sources/AppCore/NoteService+EngineSeededRetrieval.swift", "intendedEdit": "read-only; written by P2 (retrieveNotes)"},
+        {"path": "Sources/AppCore/NoteRetrievalReranker.swift", "intendedEdit": "read-only; written by P1 (provenance types)"},
+        {"path": "Sources/AppCore/KaibaAgentToolSchema.swift", "intendedEdit": "read-only; the tool schema text must not change"},
+        {"path": "tmp/search-engine-fusion/P4", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P4"
+      ],
+      "acceptanceCriteria": [
+        "search_notes uses retrieveNotes for both include_linked values with depth 1.",
+        "Without an engine or after an engine error the JSON is byte-identical to today's FTS output (shared per-result builder, retrieval full-text, no provenance); engine-mode output adds only retrieval search-engine and per-result provenance.",
+        "Agent filter exit 0 with XCTest N > 0 covering 4 new tests, the kept routing tests and KaibaAgentToolboxTests; routing-test diff removes exactly one function; schema and toolbox-test diff stat empty; toolbox file under 600 lines."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P4",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P4/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"AgentSearchNotesFusionTests|AgentSearchNotesRoutingTests|KaibaAgentToolboxTests\" 2>&1 | tee tmp/search-engine-fusion/P4/agent.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P4/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "swiftlint lint --strict --quiet --no-cache Sources/AppCore/KaibaAgentToolbox.swift Tests/AppCoreTests/AgentSearchNotesFusionTests.swift Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift",
+        "git diff -- Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift",
+        "git diff --stat -- Sources/AppCore/KaibaAgentToolSchema.swift Tests/AppCoreTests/KaibaAgentToolboxTests.swift",
+        "wc -l Sources/AppCore/KaibaAgentToolbox.swift"
+      ]
+    },
+    {
+      "planId": "P5-agentic-grounding",
+      "planPath": "impl-plans/active/search-engine-fusion-p5-agentic-grounding.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p5-agentic-grounding.md",
+      "wave": 3,
+      "dependsOn": ["P2-engine-seeded-retrieval"],
+      "writePaths": [
+        "Sources/AppCore/AIAgenticSearch.swift",
+        "Tests/AppCoreTests/AgenticGroundingEngineTests.swift",
+        "impl-plans/active/search-engine-fusion-p5-agentic-grounding.md",
+        "tmp/search-engine-fusion/P5"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteService+EngineSeededRetrieval.swift",
+        "Sources/AppCore/NoteRetrievalReranker.swift",
+        "Tests/AppCoreTests/NoteRetrievalFusionTests.swift",
+        "Tests/AppCoreTests/FakeSearchEngine.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Tests/AppCoreTests/AgenticGroundingEngineTests.swift", "intendedEdit": "new test file"},
+        {"path": "Sources/AppCore/NoteService+EngineSeededRetrieval.swift", "intendedEdit": "read-only; written by P2"},
+        {"path": "Sources/AppCore/NoteRetrievalReranker.swift", "intendedEdit": "read-only; written by P1"},
+        {"path": "Tests/AppCoreTests/NoteRetrievalFusionTests.swift", "intendedEdit": "read-only and protected; the grounding test must pass unchanged"},
+        {"path": "tmp/search-engine-fusion/P5", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P5"
+      ],
+      "acceptanceCriteria": [
+        "groundingResults keeps its signature and exact output while using NoteRetrievalReranker.fuse.",
+        "engineGroundingResults runs per-term retrieveNotes (full query includeLinked) with an all-or-nothing fallback, at most terms.count engine requests, and fuses with weights 2/1 and agent-query labels.",
+        "The provenance suffix appears only on engine-mode context lines; FTS-only lines are byte-identical.",
+        "Grounding filter exit 0 with XCTest N > 0 including the existing grounding test and >= 5 new tests; NoteRetrievalFusionTests diff stat empty; file under 400 lines."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P5",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P5/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"AgenticGroundingEngineTests|NoteRetrievalFusionTests\" 2>&1 | tee tmp/search-engine-fusion/P5/grounding.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P5/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "swiftlint lint --strict --quiet --no-cache Sources/AppCore/AIAgenticSearch.swift Tests/AppCoreTests/AgenticGroundingEngineTests.swift",
+        "git diff --stat -- Tests/AppCoreTests/NoteRetrievalFusionTests.swift",
+        "wc -l Sources/AppCore/AIAgenticSearch.swift"
+      ]
+    },
+    {
+      "planId": "P6-graphql-client-provenance",
+      "planPath": "impl-plans/active/search-engine-fusion-p6-graphql-client-provenance.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p6-graphql-client-provenance.md",
+      "wave": 3,
+      "dependsOn": ["P2-engine-seeded-retrieval"],
+      "writePaths": [
+        "Sources/AppGraphQL/NoteGraphQLService.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+EngineSeededSearch.swift",
+        "Sources/AppGraphQL/NoteGraphQLContracts.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/KaibaClient/KaibaModels.swift",
+        "Sources/KaibaClient/KaibaOperations.swift",
+        "Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift",
+        "Tests/AppGraphQLTests/EngineSeededSearchGraphQLTests.swift",
+        "impl-plans/active/search-engine-fusion-p6-graphql-client-provenance.md",
+        "tmp/search-engine-fusion/P6"
+      ],
+      "sharedPaths": [
+        "Sources/AppCore/NoteService+EngineSeededRetrieval.swift",
+        "Sources/AppCore/NoteRetrievalReranker.swift",
+        "Sources/AppCore/NoteModels.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift", "intendedEdit": "update only the expected searchNotes document (append provenance { sources reasons } after termCoverage); optionally add provenance to the search-result decode fixture; no other expectation"},
+        {"path": "Sources/AppGraphQL/NoteGraphQLService+EngineSeededSearch.swift", "intendedEdit": "new file created only if NoteGraphQLService.swift would exceed about 975 lines; holds the async includeLinked branch helper"},
+        {"path": "Tests/AppGraphQLTests/EngineSeededSearchGraphQLTests.swift", "intendedEdit": "new test file"},
+        {"path": "Sources/AppCore/NoteService+EngineSeededRetrieval.swift", "intendedEdit": "read-only; written by P2"},
+        {"path": "Sources/AppCore/NoteRetrievalReranker.swift", "intendedEdit": "read-only; written by P1"},
+        {"path": "Sources/AppCore/NoteModels.swift", "intendedEdit": "read-only; NoteSearchResult.provenance, written by P1"},
+        {"path": "Sources/AppGraphQL/NoteGraphQLDocumentExecutor.swift", "intendedEdit": "read-only; confirm it calls NoteGraphQLService.searchNotes"},
+        {"path": "tmp/search-engine-fusion/P6", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P6"
+      ],
+      "acceptanceCriteria": [
+        "GraphQL searchNotes with includeLinked true routes through retrieveNotes; without includeLinked it never calls the engine and is unchanged.",
+        "NoteRetrievalProvenance type and NoteSearchResult.provenance (non-null, derived for FTS results) are in the schema contract, the selection-field map, the DTO, and KaibaClient (optional field plus selection).",
+        "GraphQL and client filters exit 0 with XCTest N > 0 (or swift-testing passed count > 0 for swift-testing-only suites); contract-test diff shows only the selection plus optional fixture; all files under 1000 lines."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P6",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P6/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"EngineSeededSearchGraphQLTests|NoteGraphQLSchemaInventoryTests|GraphQLIntrospectionTests|NoteGraphQLTests|SearchEngineGraphQLTests|NoteGraphQLSearchPaginationTests\" 2>&1 | tee tmp/search-engine-fusion/P6/graphql.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"KaibaTypedOperationContractTests|KaibaSchemaTests|KaibaClientTests\" 2>&1 | tee tmp/search-engine-fusion/P6/client.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P6/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "swiftlint lint --strict --quiet --no-cache Sources/AppGraphQL/NoteGraphQLService.swift Sources/AppGraphQL/NoteGraphQLContracts.swift Sources/AppGraphQL/GraphQLNoteSchemaContract.swift Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift Sources/KaibaClient/KaibaModels.swift Sources/KaibaClient/KaibaOperations.swift Tests/AppGraphQLTests/EngineSeededSearchGraphQLTests.swift Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift",
+        "git diff -- Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift",
+        "wc -l Sources/AppGraphQL/NoteGraphQLService.swift Sources/AppGraphQL/NoteGraphQLContracts.swift Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift Sources/KaibaClient/KaibaOperations.swift"
+      ]
+    },
+    {
+      "planId": "P7-docs",
+      "planPath": "impl-plans/active/search-engine-fusion-p7-docs.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p7-docs.md",
+      "wave": 3,
+      "dependsOn": ["P3-meilisearch-adapter"],
+      "writePaths": [
+        "README.md",
+        "impl-plans/active/search-engine-fusion-p7-docs.md",
+        "tmp/search-engine-fusion/P7"
+      ],
+      "sharedPaths": [
+        "design-docs/specs/design-search-engine-fusion.md",
+        "design-docs/specs/search-engine-adapter.md",
+        "Sources/AppCore/SearchEngineFactory.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "README.md", "intendedEdit": "extend the existing Optional search engine section and the line-13 mention (plan items 1-7)"},
+        {"path": "Sources/AppCore/SearchEngineFactory.swift", "intendedEdit": "read-only; the source of the documented adapter kinds and auth modes (written by P3)"},
+        {"path": "tmp/search-engine-fusion/P7", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P7"
+      ],
+      "acceptanceCriteria": [
+        "README items 1-7 are present: engine choice table, Meilisearch config sample, local search:meilisearch:* tasks, restricted API key advice, switching engines and backfill, engine-seeded search with FTS fallback, and the line-13 mention; no secrets and no machine-local paths.",
+        "Behavioral record: swift test --filter \"MeilisearchFactoryTests|SearchEngineFactoryTests\" exit 0 with XCTest N > 0; the task-name and config greps match and the absolute-path grep prints nothing."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P7",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"MeilisearchFactoryTests|SearchEngineFactoryTests\" 2>&1 | tee tmp/search-engine-fusion/P7/factory.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "grep -nE \"search:meilisearch:(up|down|status|test-live)\" README.md | tee tmp/search-engine-fusion/P7/tasks.txt",
+        "grep -n \"\\\"kind\\\": \\\"meilisearch\\\"\" README.md | tee tmp/search-engine-fusion/P7/config.txt",
+        "grep -nE \"/Users/|/home/\" README.md; echo exit=$?",
+        "wc -l README.md"
+      ]
+    },
+    {
+      "planId": "P9-meilisearch-tooling-live",
+      "planPath": "impl-plans/active/search-engine-fusion-p9-meilisearch-tooling-live.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p9-meilisearch-tooling-live.md",
+      "wave": 3,
+      "dependsOn": ["P2-engine-seeded-retrieval", "P3-meilisearch-adapter"],
+      "writePaths": [
+        "docker/meilisearch/compose.yaml",
+        "mise.toml",
+        "Tests/AppCoreTests/MeilisearchLiveTests.swift",
+        "Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift",
+        "impl-plans/active/search-engine-fusion-p9-meilisearch-tooling-live.md",
+        "tmp/search-engine-fusion/P9"
+      ],
+      "sharedPaths": [
+        "docker/elasticsearch/compose.yaml",
+        "Sources/AppCore/MeilisearchSearchEngine.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/NoteService+EngineSeededRetrieval.swift",
+        "Sources/AppServer/SearchEngineRuntimeController.swift",
+        "Sources/AppServer/KaibaServerRuntime.swift",
+        "Tests/AppCoreTests/ElasticsearchLiveTests.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "mise.toml", "intendedEdit": "append the four search:meilisearch:* tasks after the existing search:test-live env table; do not modify any existing task"},
+        {"path": "docker/meilisearch/compose.yaml", "intendedEdit": "new authored compose file (not an artifact)"},
+        {"path": "Tests/AppCoreTests/MeilisearchLiveTests.swift", "intendedEdit": "new env-gated live suite"},
+        {"path": "Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift", "intendedEdit": "new runtime hot-swap test"},
+        {"path": "Sources/AppCore/MeilisearchSearchEngine.swift", "intendedEdit": "read-only; written by P3"},
+        {"path": "Sources/AppCore/SearchEngineFactory.swift", "intendedEdit": "read-only; written by P3"},
+        {"path": "Sources/AppCore/NoteService+EngineSeededRetrieval.swift", "intendedEdit": "read-only; written by P2"},
+        {"path": "tmp/search-engine-fusion/P9", "intendedEdit": "generated evidence logs only (pull, digest, up, live and runtime logs)"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P9"
+      ],
+      "acceptanceCriteria": [
+        "docker/meilisearch/compose.yaml pins a getmeili/meilisearch v1.x.y tag (v1.10 or later), binds 127.0.0.1:7700, uses no master key, a named volume and a working healthcheck; the Progress Log records the tag, RepoDigest, pull command and exit code.",
+        "mise tasks search:meilisearch:up/down/status/test-live exist, up depends on search:docker, test-live depends on anydoc:native and search:meilisearch:up with the PKG_CONFIG_PATH env; existing search:* tasks unchanged.",
+        "mise run search:meilisearch:test-live exit 0 with XCTest Executed N >= 4, 0 failures, including the Japanese query and the service-level engine-seeded retrieval; an env-gated skip is never evidence.",
+        "SearchEngineRuntimeMeilisearchTests and SearchEngineRuntimeControllerTests exit 0 with N > 0; strict swiftlint clean."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P9",
+        "bash -c 'docker pull getmeili/meilisearch:<pinned-tag> 2>&1 | tee tmp/search-engine-fusion/P9/pull.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c \"docker image inspect --format '{{index .RepoDigests 0}}' getmeili/meilisearch:<pinned-tag> 2>&1 | tee tmp/search-engine-fusion/P9/image-digest.log; echo exit=\\${PIPESTATUS[0]}\"",
+        "bash -c 'mise run search:meilisearch:up 2>&1 | tee tmp/search-engine-fusion/P9/up.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:meilisearch:status 2>&1 | tee tmp/search-engine-fusion/P9/status.log; echo exit=${PIPESTATUS[0]}'",
+        "bash -c 'mise run search:meilisearch:test-live 2>&1 | tee tmp/search-engine-fusion/P9/live.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test --filter \"SearchEngineRuntimeMeilisearchTests|SearchEngineRuntimeControllerTests\" 2>&1 | tee tmp/search-engine-fusion/P9/runtime.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P9/lint.log; echo exit=${PIPESTATUS[0]}'",
+        "swiftlint lint --strict --quiet --no-cache Tests/AppCoreTests/MeilisearchLiveTests.swift Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift",
+        "grep -n \"127.0.0.1:7700:7700\" docker/meilisearch/compose.yaml",
+        "grep -n \"image:\" docker/meilisearch/compose.yaml"
+      ]
+    },
+    {
+      "planId": "P10-integration",
+      "planPath": "impl-plans/active/search-engine-fusion-p10-integration.md",
+      "progressPath": "impl-plans/active/search-engine-fusion-p10-integration.md",
+      "wave": 4,
+      "dependsOn": [
+        "P1-fusion-contract",
+        "P2-engine-seeded-retrieval",
+        "P3-meilisearch-adapter",
+        "P4-agent-search-notes",
+        "P5-agentic-grounding",
+        "P6-graphql-client-provenance",
+        "P7-docs",
+        "P8-web-settings-test",
+        "P9-meilisearch-tooling-live"
+      ],
+      "writePaths": [
+        "impl-plans/active/search-engine-fusion.md",
+        "impl-plans/active/search-engine-fusion-p10-integration.md",
+        "Sources/AppCore/NoteRetrievalReranker.swift",
+        "Sources/AppCore/NoteModels.swift",
+        "Sources/AppCore/NoteSearch.swift",
+        "Sources/AppCore/SearchEngineHTTPTransport.swift",
+        "Sources/AppCore/ElasticsearchHTTPTransport.swift",
+        "Sources/AppCore/NoteService+EngineSeededRetrieval.swift",
+        "Sources/AppCore/MeilisearchSearchEngine.swift",
+        "Sources/AppCore/MeilisearchRequestBodies.swift",
+        "Sources/AppCore/MeilisearchResponses.swift",
+        "Sources/AppCore/SearchEngineFactory.swift",
+        "Sources/AppCore/KaibaAgentToolbox.swift",
+        "Sources/AppCore/AIAgenticSearch.swift",
+        "Sources/AppGraphQL/NoteGraphQLService.swift",
+        "Sources/AppGraphQL/NoteGraphQLService+EngineSeededSearch.swift",
+        "Sources/AppGraphQL/NoteGraphQLContracts.swift",
+        "Sources/AppGraphQL/GraphQLNoteSchemaContract.swift",
+        "Sources/AppGraphQL/NoteGraphQLDocumentExecutorSupport.swift",
+        "Sources/KaibaClient/KaibaModels.swift",
+        "Sources/KaibaClient/KaibaOperations.swift",
+        "Tests/AppCoreTests/NoteRetrievalRerankerTests.swift",
+        "Tests/AppCoreTests/EngineSeededRetrievalTests.swift",
+        "Tests/AppCoreTests/MeilisearchSearchEngineTests.swift",
+        "Tests/AppCoreTests/MeilisearchFactoryTests.swift",
+        "Tests/AppCoreTests/SearchEngineFactoryTests.swift",
+        "Tests/AppCoreTests/AgentSearchNotesFusionTests.swift",
+        "Tests/AppCoreTests/AgentSearchNotesRoutingTests.swift",
+        "Tests/AppCoreTests/AgenticGroundingEngineTests.swift",
+        "Tests/AppCoreTests/MeilisearchLiveTests.swift",
+        "Tests/AppGraphQLTests/EngineSeededSearchGraphQLTests.swift",
+        "Tests/AppServerTests/SearchEngineRuntimeMeilisearchTests.swift",
+        "Tests/KaibaClientTests/KaibaTypedOperationContractTests.swift",
+        "web/src/components/SearchEngineSettings.integration.tsx",
+        "web/dist",
+        "web/src-tauri/target",
+        "README.md",
+        "mise.toml",
+        "docker/meilisearch/compose.yaml",
+        "tmp/search-engine-fusion/P10"
+      ],
+      "sharedPaths": [
+        "design-docs/specs/design-search-engine-fusion.md",
+        "design-docs/user-qa/search-engine-adapter.md",
+        "Tests/AppCoreTests/NoteRetrievalFusionTests.swift",
+        "Tests/AppCoreTests/KaibaAgentToolboxTests.swift",
+        "Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift",
+        "Tests/AppCoreTests/ElasticsearchLiveTests.swift"
+      ],
+      "sharedPathNotes": [
+        {"path": "impl-plans/active/search-engine-fusion.md", "intendedEdit": "index status and final summary with evidence paths only"},
+        {"path": "README.md", "intendedEdit": "fact corrections only (task names, compose port, adapter kinds and auth modes checked against mise.toml and code)"},
+        {"path": "Sources/AppCore/MeilisearchRequestBodies.swift", "intendedEdit": "repair only; narrow attributesToRetrieve only if P9 recorded live evidence that _formatted includes cropped attributes without retrieval"},
+        {"path": "Sources/AppGraphQL/NoteGraphQLService+EngineSeededSearch.swift", "intendedEdit": "exists only if P6 created it; repair only"},
+        {"path": "Tests/AppCoreTests/NoteRetrievalFusionTests.swift", "intendedEdit": "read-only and protected; must stay unmodified"},
+        {"path": "Tests/AppCoreTests/KaibaAgentToolboxTests.swift", "intendedEdit": "read-only and protected; must stay unmodified"},
+        {"path": "Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift", "intendedEdit": "read-only and protected; must stay unmodified"},
+        {"path": "Tests/AppCoreTests/ElasticsearchLiveTests.swift", "intendedEdit": "read-only and protected; must stay unmodified"},
+        {"path": "design-docs/user-qa/search-engine-adapter.md", "intendedEdit": "read-only; a Japanese-segmentation blocker is reported as unresolved and routed through the workflow design step, not edited here"},
+        {"path": "web/dist", "intendedEdit": "generated vite build output from mise run web:check only"},
+        {"path": "web/src-tauri/target", "intendedEdit": "generated cargo build output from mise run tauri:check only (gitignored); never edited by hand"},
+        {"path": "tmp/search-engine-fusion/P10", "intendedEdit": "generated evidence logs only"}
+      ],
+      "artifactRoots": [
+        "tmp/search-engine-fusion/P10",
+        "web/dist",
+        "web/src-tauri/target"
+      ],
+      "acceptanceCriteria": [
+        "Cross-plan compile, test and lint defects are repaired serially only in listed writePaths, each recorded with owner plan, file, pre/post hashes and reason; no existing assertion is weakened beyond the three sanctioned edits.",
+        "mise run build, full swift test (XCTest N > 0 and swift-testing pass count > 0), mise run lint, bun test src (N pass > 0), vitest run (Tests N passed > 0), mise run web:check, mise run tauri:check, mise run search:test-live and mise run search:meilisearch:test-live (each XCTest N > 0) all exit 0.",
+        "Boundary grep prints nothing; Elasticsearch/protocol and protected-test diff stats are empty; every changed Swift file under 1000 lines; git status shows only intended files plus the untouched .riela/; no machine-local paths.",
+        "README facts match mise.toml and code; the index status is updated; any unresolved blocker (for example Japanese segmentation) is reported explicitly."
+      ],
+      "verification": [
+        "mkdir -p tmp/search-engine-fusion/P10",
+        "bash -c 'mise run build 2>&1 | tee tmp/search-engine-fusion/P10/build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'PKG_CONFIG_PATH=$PWD/.build/anydoc-native/host/pkgconfig mise exec -- swift test 2>&1 | tee tmp/search-engine-fusion/P10/swift-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run lint 2>&1 | tee tmp/search-engine-fusion/P10/lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bun test src 2>&1 | tee ../tmp/search-engine-fusion/P10/bun-test.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && mise exec -- bunx vitest run 2>&1 | tee ../tmp/search-engine-fusion/P10/vitest.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run web:check 2>&1 | tee tmp/search-engine-fusion/P10/web-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run tauri:check 2>&1 | tee tmp/search-engine-fusion/P10/tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:test-live 2>&1 | tee tmp/search-engine-fusion/P10/es-live.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run search:meilisearch:test-live 2>&1 | tee tmp/search-engine-fusion/P10/meili-live.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "grep -nE \"AIAgenticSearch|AgentInvok|AgentGateway|AgentReply|ClaudeSubscription\" Sources/AppCore/NoteService+SearchEngine*.swift Sources/AppCore/NoteService+EngineSeededRetrieval.swift Sources/AppCore/NoteRetrievalReranker.swift Sources/AppCore/SearchEngine*.swift Sources/AppCore/Elasticsearch*.swift Sources/AppCore/Meilisearch*.swift; echo boundary-exit=$?",
+        "git diff --stat -- Sources/AppCore/ElasticsearchSearchEngine.swift Sources/AppCore/ElasticsearchRequestBodies.swift Sources/AppCore/SearchEngine.swift",
+        "git diff --stat -- Tests/AppCoreTests/NoteRetrievalFusionTests.swift Tests/AppCoreTests/KaibaAgentToolboxTests.swift Tests/AppCoreTests/ElasticsearchSearchEngineTests.swift Tests/AppCoreTests/ElasticsearchLiveTests.swift",
+        "{ git diff --name-only; git ls-files --others --exclude-standard; } | grep -E \"\\.swift$\" | xargs wc -l | sort -n | tail -20",
+        "git status --porcelain",
+        "grep -rnE \"/Users/|/home/\" README.md docker/meilisearch impl-plans/active/search-engine-fusion*.md design-docs/specs/design-search-engine-fusion.md; echo path-exit=$?"
+      ]
+    }
+  ]
+}

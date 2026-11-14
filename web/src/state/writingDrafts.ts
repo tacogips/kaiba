@@ -1,0 +1,44 @@
+import { createSignal } from 'solid-js'
+import type { AgentChatAttachmentInput } from '../notes/types'
+
+/** Session-only drafts belong to one app store. They never enter shared settings. */
+export function createWritingDrafts() {
+  const drafts = new Map<string, ReturnType<typeof createWritingDraft>>()
+  return {
+    get(key: string) {
+      let draft = drafts.get(key)
+      if (!draft) {
+        draft = createWritingDraft()
+        drafts.set(key, draft)
+      }
+      return draft
+    },
+    clear() {
+      for (const draft of drafts.values()) draft.setText('')
+      for (const draft of drafts.values()) draft.setFiles([])
+      for (const draft of drafts.values()) draft.setBaseText(undefined)
+      for (const draft of drafts.values()) draft.setSubmission(undefined)
+      drafts.clear()
+    },
+    /** True only for user-authored content that would be lost on reload. An
+     * editor seeded with the unchanged server text is not a draft yet. */
+    hasUnsavedChanges() {
+      return [...drafts.values()].some((draft) => {
+        if (draft.files().length > 0) return true
+        const base = draft.baseText()
+        return base === undefined ? draft.text().length > 0 : draft.text() !== base
+      })
+    },
+  }
+}
+
+function createWritingDraft() {
+  const [text, setText] = createSignal('')
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal('')
+  const [files, setFiles] = createSignal<File[]>([])
+  const [memoOnly, setMemoOnly] = createSignal(false)
+  const [baseText, setBaseText] = createSignal<string>()
+  const [submission, setSubmission] = createSignal<{ key: string; body: string; model?: string; provider?: string; attachments?: AgentChatAttachmentInput[] }>()
+  return { text, setText, busy, setBusy, error, setError, files, setFiles, memoOnly, setMemoOnly, baseText, setBaseText, submission, setSubmission }
+}
