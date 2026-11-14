@@ -1,0 +1,337 @@
+/* Riela's compact, flat light surfaces, adapted to Kaiba's green workspace.
+   Loaded after feature styles so layout, pane sizing, and mobile behavior
+   remain owned by their existing stylesheets. */
+:root {
+  color-scheme: light;
+  --ink: #242529;
+  --muted: #777980;
+  --line: #e5e5e8;
+  --surface: #ffffff;
+  --surface-subtle: #f9f9fa;
+  --green-soft: #f5f5f7;
+  --green-selected: #eaeaf0;
+  --green-primary: #eeeef1;
+  --green-hover: #e4e4e9;
+  --green-line: #d5d5dc;
+  --green-ink: #565a91;
+  --green-focus: #6967bb;
+  --warning-ink: #805b17;
+  --warning-line: #dec996;
+  --danger-ink: #a3313c;
+  --danger-surface: #fff5f5;
+  --danger-line: #e4b9bd;
+  color: var(--ink);
+  background: var(--surface-subtle);
+}
+
+body { color: var(--ink); background: var(--surface-subtle); }
+::selection { color: var(--ink); background: var(--green-selected); }
+:focus-visible, .chatbook :focus-visible, .reader-tools summary:focus-visible {
+  outline: 2px solid var(--green-focus); outline-offset: 2px;
+}
+.skip-link { color: var(--ink); background: var(--green-primary); border-radius: 3px; }
+button:not(nav button) {
+  border-color: var(--green-line); border-radius: 4px;
+  color: var(--ink); background: var(--green-primary); box-shadow: none;
+}
+button:not(nav button):hover:not(:disabled) { background-color: var(--green-hover); }
+button.secondary, .chatbook button.secondary {
+  color: var(--ink); border-color: var(--line); background: var(--surface);
+}
+button.secondary:hover:not(:disabled), .chatbook button.secondary:hover:not(:disabled) {
+  color: var(--green-ink); border-color: var(--green-line); background: var(--green-soft);
+}
+input, textarea, select, .chatbook input, .chatbook textarea, .chatbook select,
+.user-agent-form input, .user-agent-form select, .server-connection-row input, .login-input {
+  color: var(--ink); border-color: var(--line); border-radius: 4px;
+  background: var(--surface); accent-color: var(--green-focus);
+}
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
+
+/* White document surface framed by soft green navigation. */
+.chatbook { --chatbook-border: var(--line); background: var(--surface-subtle); }
+.chatbook-head { min-height: 52px; border-color: var(--line); background: var(--surface); }
+.pane, .center-tabs-head, .mobile-pane-nav { background: var(--green-soft); }
+.reader, .reader-head { background: var(--surface); }
+.pane-head, .pane-right .pane-head, .center-tabs-head, .reader-head,
+.notebook-outline, .reader-note-head, .note-capture, .note-editor, .learning-context,
+.server-connection.compact, .new-conversation-boundary { border-color: var(--line); }
+.chatbook button.workspace-icon { color: var(--muted); }
+.chatbook button.workspace-icon:hover { color: var(--green-ink); background: var(--green-selected); }
+.pane-splitter:hover, .pane-splitter:active { background: var(--green-selected); }
+.pane-tab, .pane-fold, .rail-button, .mobile-pane-button { color: var(--muted) !important; }
+.pane-tab.active { color: var(--green-ink) !important; border-bottom-color: var(--green-focus) !important; }
+.pane-fold:hover, .rail-button:hover { background: var(--green-selected) !important; }
+.mobile-pane-button.active { color: var(--green-ink) !important; background: var(--green-selected) !important; }
+.brand-button .brand-mark, .login-brand .brand-mark {
+  border-color: var(--green-line); border-radius: 4px;
+  color: var(--green-ink); background: var(--green-primary);
+  font-family: inherit; font-weight: 700;
+}
+.dot { background: var(--muted); box-shadow: none; }
+.dot.live { background: var(--green-focus); box-shadow: none; }
+
+/* Consistent legible text on every light surface. */
+.brand-copy span, .server-status, .eyebrow, .rail-label, .pane-empty, .pane-note,
+.notebook-outline summary, .tree-static, .reader-position, .reader-note-page,
+.reader-note-head, .reader-tools summary, .notebook-card-preview, .notebook-card-meta,
+.notebook-list-head p, .notebook-list-count, .note-carousel-loading, .note-carousel-bar,
+.memo > header span, .info-grid dt, .info-tags h3, .link-group h3, .info-tag-class,
+.tag-provenance, .link-meta, .tag-pane-meta, .chat-role, .composer-help,
+.new-conversation-boundary, .search-snippet, .server-connection > p,
+.login-lead, .login-label, .login-help, .loading-state, .empty-state,
+.note-search-empty, .note-search-snippet, .note-search-meta,
+.learning-welcome, .learning-starters .pane-empty { color: var(--muted); }
+.reader-title h1, .notebook-list-head h1, .search-head h1, .config-section h2,
+.note-modal h2, .empty-state strong, .markdown-body .md-heading {
+  color: var(--ink); font-family: inherit; font-weight: 650; letter-spacing: -.02em;
+}
+.notebook-list-head h1 { font-size: clamp(22px, 3vw, 30px); }
+.notebook-card-main strong, .notebook-tree-title, .reader-note-title,
+.learning-context strong, .learning-welcome h2, .info-grid dd, .config-preview,
+.notebook-create-form label, .note-capture label, .user-agent-form label,
+.user-agent-status, .server-connection > label, .markdown-body { color: var(--ink); }
+.empty-state > span, .tree-icon, .tag-pane-name { color: var(--green-ink); }
+.loader { border-color: var(--line); border-top-color: var(--green-focus); }
+
+.tree-row, .tree-group { color: var(--muted); }
+.tree-row.selected { color: var(--green-ink); background: var(--green-selected); }
+.tree-label:hover, .toc-entry:hover, .toc-disclosure:hover { background: var(--green-selected) !important; }
+.tree-twisty, .toc-entry, .toc-disclosure { color: var(--muted) !important; }
+.toc-notebook { color: var(--ink) !important; }
+.toc-entry.active {
+  color: var(--green-ink) !important; border-left-color: var(--green-focus) !important;
+  background: var(--green-selected) !important;
+}
+.tree-count { color: var(--muted); background: var(--green-selected); }
+.chatbook .notebook-card { border-bottom-color: var(--line) !important; }
+.chatbook .notebook-card:hover, .chatbook .notebook-card:focus-visible { background: var(--green-soft) !important; }
+.reader-note { border-color: var(--line); }
+.reader-note:hover { border-color: var(--green-line); background: var(--surface-subtle); }
+.reader-note.selected { border-color: var(--green-line); background: transparent; box-shadow: none; }
+.reader-note-selected, .folder-chip, .tag-pane-meta em, .chat-badge {
+  border-color: var(--line); border-radius: 3px; color: var(--green-ink); background: var(--green-soft);
+}
+.folder-chip button { color: var(--green-ink) !important; }
+.category-filter { border-color: var(--line) !important; color: var(--muted) !important; background: var(--surface) !important; }
+.category-filter.active { border-color: var(--green-line) !important; color: var(--green-ink) !important; background: var(--green-selected) !important; }
+.reader-onboarding .notebook-create > button, .notebook-create > button {
+  color: var(--ink); border-color: var(--green-line); background: var(--green-primary);
+}
+.reader-onboarding .notebook-create > button:hover { background: var(--green-hover); }
+.study-note-button[aria-pressed="true"] { color: var(--green-ink); border-color: var(--green-focus); background: var(--green-selected); }
+
+/* Notes, chat, forms, and supporting dialogs use the same surface palette. */
+.memo, .chat-message, .info-grid div, .config-section, .login-card,
+.note-modal, .tag-select-popover, .chat.chat-expanded {
+  color: var(--ink); border-color: var(--line); border-radius: 4px; background: var(--surface);
+}
+.chat-user { background: var(--green-soft); }
+.memo-composer { border-color: var(--green-line); border-radius: 4px; background: var(--surface); }
+.chatbook .composer-main textarea, .chatbook .composer-model,
+.chatbook .note-capture textarea, .chatbook .note-editor textarea { background: transparent; }
+.composer-icon.selected, .composer-submit {
+  color: var(--ink) !important; background: var(--green-primary) !important;
+}
+.composer-icon.selected:hover:not(:disabled), .composer-submit:hover:not(:disabled) { background: var(--green-hover) !important; }
+.memo-note-ref { color: var(--green-ink) !important; border-color: var(--green-line) !important; }
+.memo-note-ref:disabled { color: var(--muted) !important; }
+.config-preview { border-color: var(--line); }
+.search-result, .note-search-results button, .link-list button {
+  color: var(--ink) !important; border-color: var(--line) !important; background: var(--surface) !important;
+}
+.search-result:hover:not(:disabled), .note-search-results button:hover:not(:disabled), .link-list button:hover:not(:disabled) {
+  border-color: var(--green-line) !important; background: var(--green-soft) !important;
+}
+.markdown-body .md-quote { border-color: var(--green-line); color: var(--muted); }
+.markdown-body .md-code, .markdown-body .md-inline-code, .login-help pre {
+  color: var(--ink); border-color: var(--line); background: var(--surface-subtle);
+}
+.markdown-body a { color: var(--green-ink); }
+.markdown-body .tag-term { color: var(--green-ink) !important; text-decoration-color: var(--green-focus); }
+.markdown-body .tag-term:hover, .markdown-body .tag-term:focus-visible, .tag-chip-open:hover { color: var(--ink) !important; }
+.markdown-body hr { background: var(--line); }
+.note-carousel-stage { border-color: var(--line); background: var(--surface-subtle); }
+.note-images-arrow, .note-carousel-arrow { color: var(--green-ink) !important; background: var(--green-soft) !important; }
+.note-images-arrow:hover, .note-carousel-arrow:hover:not(:disabled) { color: var(--ink) !important; background: var(--green-selected) !important; }
+.note-modal-backdrop { background: rgb(32 53 41 / 30%); }
+.note-modal { box-shadow: 0 20px 60px rgb(32 53 41 / 16%); }
+.tag-select-popover { box-shadow: 0 8px 24px rgb(32 53 41 / 14%); }
+.notes-message { color: var(--green-ink); border-color: var(--green-line); background: var(--green-soft); }
+.error-banner { color: var(--danger-ink); border-color: var(--danger-line); background: var(--danger-surface); }
+.note-inline-error, .login-failure { color: var(--danger-ink); }
+.chat-badge.status-failed { color: var(--danger-ink); border-color: #e4b9bd; background: #fff5f5; }
+.chat-banner, .note-readonly-badge, .chat-badge.status-unavailable {
+  color: var(--warning-ink); border-color: var(--warning-line); background: #fff8e7;
+}
+.lock-toggle[aria-pressed="true"] { color: var(--warning-ink) !important; border-color: var(--warning-line) !important; }
+
+@media (max-width: 800px) {
+  .note-modal { border-radius: 8px 8px 0 0; }
+}
+
+/* Compact workspace chrome, with document space taking priority. */
+.chatbook { --pane-left: 216px; --pane-right: 280px; --rail: 32px; }
+.chatbook .workspace-menu { min-height: 34px; padding: 2px 10px; background: var(--surface-subtle); }
+.chatbook button { font-weight: 450; box-shadow: none; }
+.chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card) {
+  min-height: 26px; padding: 3px 8px; font-size: calc(11px * var(--fs, 1)); border-radius: 3px !important;
+}
+.chatbook button.workspace-icon, .chatbook .pane-fold, .chatbook .tree-twisty {
+  width: 26px; min-width: 26px; height: 26px; padding: 0; background: transparent; border: 0;
+}
+.chatbook .workspace-icon svg { width: 15px; height: 15px; }
+.pane-head, .pane-right .pane-head { min-height: 34px; padding: 0 8px; }
+.pane-body { padding: 8px; }
+.notebook-tree-title { padding: 8px 4px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.tree-row, .tree-group { min-height: 28px; border-radius: 3px; }
+.tree-label { min-height: 26px; font-size: calc(11px * var(--fs, 1)); }
+.pane-tab { min-height: 32px; padding: 5px 9px !important; font-size: calc(11px * var(--fs, 1)); }
+.pane-tab.active { color: var(--ink) !important; border-bottom-color: var(--ink) !important; }
+.pane-right { background: var(--surface-subtle); }
+.reader-head { padding: 8px 24px; min-height: 42px; }
+.reader-title h1 { font-size: calc(14px * var(--fs, 1)); font-weight: 550; }
+.reader-title .eyebrow { display: none; }
+.reader-body { padding: 8px 12px 12px; }
+.reader-onboarding, .reader-empty-selection { color: var(--muted); font-size: 13px; }
+.chatbook .notebook-create { margin: 0 0 8px; }
+.chatbook .notebook-create > button { min-width: 26px; min-height: 26px; padding: 0 7px; background: transparent; border: 0; color: var(--muted); }
+.chatbook .notebook-create-form input { min-height: 28px; padding: 5px 7px; }
+.chatbook .note-capture { padding: 0 0 6px; margin: 0 0 8px; max-width: none; }
+.chatbook .note-editor { margin-top: 8px; padding-top: 6px; }
+.chatbook .note-editor form, .chatbook .note-editor label,
+.chatbook .note-capture form, .chatbook .note-capture label { gap: 4px; }
+/* Writing surfaces stay flat on focus; keyboard controls keep their focus rings. */
+.chatbook :is(.note-capture, .note-editor, .memo-composer, .footer-agent-composer),
+.chatbook :is(.note-capture, .note-editor, .memo-composer, .footer-agent-composer) textarea {
+  border-radius: 0 !important;
+}
+.chatbook :is(.note-capture, .note-editor) textarea { padding: 4px 0; margin: 0; }
+.chatbook :is(.note-capture, .note-editor, .memo-composer, .footer-agent-composer) textarea:focus {
+  outline: none; box-shadow: none; border-color: var(--line);
+}
+.chatbook .memo-composer { padding: 4px; gap: 4px; border-radius: 0; }
+.chatbook .composer-mode, .chatbook .composer-submit { min-height: 26px; padding: 3px 7px !important; }
+.chatbook .composer-main textarea { min-height: 54px; padding: 4px; font-size: calc(12px * var(--fs, 1)); }
+.composer-model { max-width: 145px; font-size: 11px; }
+.learning-context { padding: 4px 0 8px; }
+.learning-context strong { font-size: 11px; font-weight: 450; color: var(--muted); }
+.chat-actions { align-self: flex-end; position: relative; }
+.chat-actions > summary { cursor: pointer; list-style: none; padding: 2px 8px; color: var(--muted); }
+.chat-actions > summary::-webkit-details-marker { display: none; }
+.chat-actions[open] { padding: 4px; border: 1px solid var(--line); background: var(--surface); }
+.chat-actions button { display: block; width: 100%; text-align: left; border: 0; background: transparent; }
+.learning-starters > summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.memo, .chat-message, .info-grid div { border: 0; padding: 4px 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.config-view { max-width: 760px; width: 100%; margin: 0 auto; }
+.config-section { padding: 16px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
+.config-section h2 { font-size: 13px; }
+.config-section p { font-size: 12px; }
+.search-head h1 { font-size: 18px; }
+.chatbook .server-connection select { width: 100%; margin: 6px 0; padding: 6px 8px; }
+.chatbook .pane-right .pane-head { padding: 0 3px; gap: 0; }
+.chatbook .pane-right .pane-tab { padding: 5px 6px !important; font-size: 11px; }
+.chatbook .pane-right .pane-fold { min-width: 22px; width: 22px; }
+.chatbook .pane-left .pane-head { gap: 0; }
+.chatbook .notebook-tree-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chatbook .learning-actions button:has(svg), .chatbook .note-editor button:has(svg),
+.chatbook .reader-actions button:has(svg), .chatbook .composer-submit {
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  padding: 3px !important; border: 0; background: transparent;
+}
+.chatbook button svg { flex: none; width: 15px; height: 15px; }
+.chatbook .composer-main { min-width: 0; flex-basis: 100%; }
+.agent-footer { flex: none; border-top: 1px solid var(--line); padding: 3px 10px; background: var(--surface-subtle); }
+.footer-agent-composer { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px 0; margin: 0; }
+.footer-agent-composer textarea { flex: 1; min-width: 0; padding: 4px; resize: vertical; font: inherit; font-size: 13px; }
+.footer-agent-composer [role="alert"] { flex-basis: 100%; }
+.agent-history { display: grid; gap: 3px; }
+.chatbook .agent-history button { text-align: left; border: 0; background: transparent; width: 100%; }
+.chatbook .pane-right .pane-tab { padding: 5px 3px !important; font-size: 10px; }
+.new-notebook-editor .note-capture { border: 0; }
+.chatbook .new-notebook-editor textarea { width: 100%; min-height: 45vh; resize: vertical; }
+.chatbook .composer-model { min-width: 0; max-width: 100%; flex: 1; }
+@media (min-width: 601px) and (max-width: 900px) {
+  .chatbook { --pane-left: 170px; --pane-right: 240px; }
+}
+@media (pointer: coarse) {
+  .chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card),
+  .chatbook .tree-label, .chatbook .pane-tab { min-height: 36px; }
+}
+
+/* Square corners throughout the app, including portalled dialogs and chat. */
+:is(#kaiba-square-surfaces, body) *,
+:is(#kaiba-square-surfaces, body) *::before,
+:is(#kaiba-square-surfaces, body) *::after { border-radius: 0 !important; }
+
+/* Shared conversational composer: text first, compact controls beneath it. */
+.chatbook .memo-composer {
+  display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 4px;
+  padding: 6px; min-width: 0; width: 100%; border: 1px solid var(--line);
+  background: var(--surface-subtle); position: sticky; bottom: 0; z-index: 2;
+}
+.chatbook .memo-composer.composer-dragging { background: var(--green-selected); border-style: dashed; }
+.chatbook .composer-main { flex: none; width: 100%; }
+.chatbook .composer-main textarea {
+  display: block; width: 100%; min-height: 44px; max-height: 180px; margin: 0;
+  padding: 4px; resize: none; line-height: 1.5; font-family: inherit; border: 0;
+}
+.chatbook .composer-toolbar { display: flex; align-items: center; gap: 3px; min-width: 0; width: 100%; max-width: 100%; }
+.chatbook .composer-toolbar .composer-icon,
+.chatbook .composer-toolbar .composer-submit {
+  display: inline-grid; place-items: center; flex: none; width: 28px; min-width: 28px;
+  height: 28px; min-height: 28px; padding: 0 !important; border: 0;
+}
+.chatbook .composer-toolbar .composer-icon { color: var(--ink); background: transparent; }
+.chatbook .composer-toolbar .composer-submit { color: white !important; background: var(--ink) !important; margin-left: auto; }
+.chatbook .composer-toolbar .composer-submit:disabled { opacity: .3; }
+.chatbook .composer-toolbar .composer-submit svg { width: 18px; height: 18px; stroke-width: 2; }
+.chatbook .composer-model { flex: 1; width: 0; min-width: 0; max-width: 220px; height: 28px; padding: 0 2px; font-size: 11px; background: transparent; border: 0; text-overflow: ellipsis; }
+.composer-options { position: relative; flex: none; }
+.composer-options > summary { display: grid; place-items: center; cursor: pointer; width: 22px; height: 28px; list-style: none; }
+.composer-options > summary::-webkit-details-marker { display: none; }
+.composer-options-menu { position: absolute; bottom: 32px; right: 0; min-width: 140px; padding: 4px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 4px 12px #0001; }
+.chatbook .composer-options-menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; }
+.chatbook .composer-options-menu button[aria-pressed="true"] { background: var(--green-selected); }
+.composer-active-mode { font-size: 10px; color: var(--muted); padding: 0 4px; }
+.chatbook .attachment-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 0; }
+.attachment-card { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 5px; background: var(--surface); border: 1px solid var(--line); }
+.attachment-card > svg { flex: none; }
+.attachment-description { display: grid; min-width: 0; }
+.attachment-description strong { font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-description small { font-size: 9px; color: var(--muted); }
+.chatbook .attachment-card button { padding: 0 !important; min-width: 22px; width: 22px; height: 22px; border: 0; background: transparent; }
+.footer-agent-composer { display: block; width: 100%; padding: 4px 0; }
+.footer-agent-composer .memo-composer { position: static; }
+.chat-transcript { gap: 18px; overflow-wrap: anywhere; }
+.chat-turn { gap: 8px; min-width: 0; }
+.chatbook .chat-message { border: 0; min-width: 0; font-size: 13px; }
+.chatbook .chat-user { justify-self: end; max-width: 92%; padding: 8px 10px; background: var(--green-soft); }
+.chatbook .chat-agent { padding: 4px 0; background: transparent; }
+.chat-turn-actions { display: flex; gap: 2px; order: 3; opacity: .5; }
+.chat-turn:hover .chat-turn-actions, .chat-turn:focus-within .chat-turn-actions { opacity: 1; }
+.chat-message .markdown-body > :first-child { margin-top: 0; }
+.chat-message .markdown-body > :last-child { margin-bottom: 0; }
+.chat-message .markdown-body pre { max-width: 100%; overflow-x: auto; }
+.chat-message .chat-role { min-height: 0; }
+.composer-working { display: inline-block; width: 8px; height: 8px; background: currentColor; animation: chat-pulse 1s ease-in-out infinite alternate; }
+@keyframes chat-pulse { to { opacity: .25; } }
+.chat.chat-expanded { padding: 12px max(12px, calc((100vw - 760px) / 2)); }
+.pane-right #right-panel-memo:not([hidden]) { height: 100%; }
+.chatbook .chat { display: flex; flex-direction: column; min-height: 0; gap: 8px; }
+.pane-right .chat { height: 100%; }
+.chatbook .chat > :not(.chat-transcript) { flex-shrink: 0; }
+.chatbook .chat-transcript { flex: 1; min-height: 80px; overflow-y: auto; align-content: start; }
+
+/* Settings primary/selected buttons (W16): override the legacy dark button cascade. */
+.chatbook .config-section button:not(.secondary) {
+  color: var(--ink); border-color: var(--green-line); background: var(--green-primary);
+}
+.chatbook .config-section button:not(.secondary):hover:not(:disabled) { background: var(--green-hover); }
+.chatbook .config-section button[aria-pressed="true"] {
+  color: var(--green-ink); border-color: var(--green-focus); background: var(--green-selected);
+}
+
+.chatbook .pane-right .pane-tabs { min-width: 0; scrollbar-width: thin; }
+.chatbook .pane-right .pane-tab { flex: none; white-space: nowrap; }

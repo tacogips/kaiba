@@ -1,0 +1,580 @@
+import { onGotoPage, scrollReader } from '../notes/readerKeyboard'
+import { parseNotebookDraft } from '../notes/notebookDraft'
+import { noteId as asNoteId } from '../notes/ids'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
+import { MarkdownBody } from '../components/Markdown'
+import { MemoTab } from '../components/MemoTab'
+import { DocumentNotebookReader } from '../components/DocumentNotebookReader'
+import { NotebookTitleEditor } from '../components/NotebookTitleEditor'
+import { DocumentVersionsControl, type DocumentDisplayMode, type DocumentTranslationVersion } from '../components/DocumentVersionsControl'
+import { JumpBackControl } from '../components/JumpBackControl'
+import { PageTagsEditor } from '../components/PageTagsEditor'
+import { documentPageMetadata } from '../notes/documentPages'
+import { NoteImageCarousel } from '../components/NoteImageCarousel'
+import { NoteCapture } from '../components/NoteCapture'
+import { NotebookWritingView } from '../components/NotebookWritingView'
+import { NewNotebookEditor } from '../components/NewNotebookEditor'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
+import { noteDisplayTitle, noteExportFilename } from '../notes/noteText'
+import { noteImageEntries, type NoteImageEntry } from '../notes/noteImages'
+import { normalizeSelectionTagName, tagTermsFromAssignments } from '../notes/tagMatch'
+import { noteHeadingPrefix } from '../notes/toc'
+import { errorMessage, useApp, type AppStore } from '../state/appStore'
+import type { Note } from '../notes/types'
+import type { NoteId } from '../notes/ids'
+
+// Center reader: the open notebook's notes as one continuous scroll. Notes lazy-
+// render as they approach the viewport, an explicit Study action selects a note
+// for the right pane, and a goto-page control jumps within the notebook.
+// In-body occurrences of a note's attached tag names render underlined and open
+// the tag detail pane; drag-selecting text offers to register it as a tag.
+
+/** Notes this close to the start always render eagerly so the first paint has
+ * content without waiting for the observer. */
+const eagerNoteCount = 6
+
+export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: () => void; onCaptureRegion?: (note: Note, file: File) => Promise<void> | void } = {}): JSX.Element {
+  const app = useApp()
+  const chatNotebook = () => app.notebook()?.type === 'AGENT_CHAT'
+  const savedView = () => app.state.notebookId ? app.documentViews.get(app.state.notebookId) : undefined
+  const [documentDisplay, setDocumentDisplay] = createSignal<DocumentDisplayMode>(savedView()?.mode ?? 'original')
+  const [selectedTranslation, setSelectedTranslation] = createSignal<DocumentTranslationVersion | undefined>(savedView()?.translation)
+  createEffect(() => {
+    const saved = savedView()
+    setDocumentDisplay(saved?.mode ?? 'original')
+    setSelectedTranslation(saved?.translation)
+  })
+  const notebookModes = new Map<string, boolean>()
+  type Writer = Awaited<ReturnType<AppStore['notebookWriter']>>
+  const writers = new Map<string, Writer>()
+  const [writer, setWriter] = createSignal<Writer>()
+  const [writerLoading, setWriterLoading] = createSignal(false)
+  const [writing, setWriting] = createSignal(false)
+  createEffect(() => {
+    setWriting(!app.notebook()?.readOnly && (notebookModes.get(app.state.notebookId ?? '') ?? false))
+    setWriter(writers.get(app.state.notebookId ?? ''))
+  })
+  const setNotebookWriting = async (value: boolean) => {
+    const id = app.state.notebookId
+    if (!id) return
+    if (value && !writer()) {
+      setWriterLoading(true)
+      try {
+        const loaded = await app.notebookWriter(id)
+        writers.set(id, loaded)
+        if (app.state.notebookId !== id) return
+        setWriter(loaded)
+      } catch (error) { app.setMessage(errorMessage(error), 'error'); return }
+      finally { setWriterLoading(false) }
+    }
+    notebookModes.set(id, value)
+    setWriting(value)
+  }
+  const [copied, setCopied] = createSignal(false)
+  const [gotoDraft, setGotoDraft] = createSignal('')
+  const [accessBusy, setAccessBusy] = createSignal(false)
+  const [body, setBody] = createSignal<HTMLElement>()
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined
+  // Set when the selection change came from a click inside the reader; the
+  // scroll-to-selected effect then skips scrolling (the note is already visible).
+  let selectionFromClick = false
+
+  const notes = createMemo(() => app.notes())
+  onMount(() => {
+    /** Places the Writing caret at a note's first line, in normal mode. */
+    const placeCaret = (number: number | 'last') => {
+      const source = document.querySelector<HTMLTextAreaElement>('main .notebook-source')
+      if (!source) return undefined
+      const parts = parseNotebookDraft(source.value).notes
+      const note = parts[number === 'last' ? parts.length - 1 : Math.min(Math.max(0, number - 1), parts.length - 1)]
+      const boundary = note?.startOffset ?? 0
+      const blankLines = source.value.slice(boundary, note?.endOffset).match(/^(?:[\t ]*\r?\n)+/)?.[0].length ?? 0
+      const caret = boundary + blankLines
+      source.focus()
+      source.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      source.setSelectionRange(caret, caret)
+      source.dispatchEvent(new Event('select', { bubbles: true }))
+      return source
+    }
+    const beginWriting = async (insert: boolean) => {
+      const id = app.state.notebookId
+      if (!id || app.notebook()?.readOnly || notes().some((note) => documentPageMetadata(note))) return
+      const number = writer()?.currentNote() ?? app.state.note?.noteNumber ?? 1
+      await setNotebookWriting(true)
+      if (app.state.notebookId !== id || !writer()) return
+      queueMicrotask(() => {
+        const source = placeCaret(number)
+        if (insert) source?.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', bubbles: true, cancelable: true }))
+      })
+    }
+    const writingShortcut = () => { void beginWriting(true) }
+    const toggleWriting = () => {
+      if (!writing()) { void beginWriting(false); return }
+      void setNotebookWriting(false).then(() => queueMicrotask(() => document.querySelector<HTMLElement>('main.reader')?.focus()))
+    }
+    const stopGoto = onGotoPage((target) => {
+      if (notes().some((note) => documentPageMetadata(note) !== undefined)) return
+      if (writing()) { placeCaret(target === 'first' ? 1 : target); return }
+      const all = notes()
+      const note = target === 'first' ? all[0] : target === 'last' ? all[all.length - 1] : all.find((candidate) => candidate.noteNumber === target) ?? all[target - 1]
+      const container = body()
+      if (!note || !container) return
+      app.openNote(note.noteId, note.notebookId)
+      queueMicrotask(() => scrollToNote(container, note.noteId))
+    })
+    window.addEventListener('kaiba-write-notebook', writingShortcut)
+    window.addEventListener('kaiba-toggle-writing', toggleWriting)
+    const keydown = (event: KeyboardEvent) => {
+      // DocumentNotebookReader owns physical-page navigation and its inner viewport.
+      if (!writing() && !notes().some((note) => documentPageMetadata(note) !== undefined)) scrollReader(event, body())
+    }
+    window.addEventListener('keydown', keydown)
+    onCleanup(() => { window.removeEventListener('keydown', keydown); window.removeEventListener('kaiba-write-notebook', writingShortcut); window.removeEventListener('kaiba-toggle-writing', toggleWriting); stopGoto() })
+  })
+  const selectedDocumentPage = createMemo(() => documentPageMetadata(notes().find((note) => note.noteId === app.state.noteId)
+    ?? (app.state.note?.noteId === app.state.noteId ? app.state.note : undefined)))
+  const index = createMemo(() => notes().findIndex((note) => note.noteId === app.state.noteId))
+  const [selectionTag, setSelectionTag] =
+    createSignal<{ noteId: NoteId; name: string; x: number; y: number }>()
+  const [selectionBusy, setSelectionBusy] = createSignal(false)
+
+  // A completed drag selection inside one note offers registration as a tag
+  // (design T8). The microtask lets the browser finalize the selection first.
+  const offerSelectionTag = (event: MouseEvent) => {
+    const { clientX, clientY } = event
+    queueMicrotask(() => {
+      const selection = window.getSelection()
+      if (!selection || selection.isCollapsed) return
+      const name = normalizeSelectionTagName(selection.toString())
+      if (!name) return
+      const anchorSection = selectionElement(selection.anchorNode)?.closest('[data-note-id]')
+      const focusSection = selectionElement(selection.focusNode)?.closest('[data-note-id]')
+      if (!anchorSection || anchorSection !== focusSection) return
+      const rawNoteId = anchorSection.getAttribute('data-note-id')
+      if (!rawNoteId) return
+      setSelectionTag({ noteId: asNoteId(rawNoteId), name, x: clientX, y: clientY })
+    })
+  }
+
+  const registerSelectionTag = async () => {
+    const staged = selectionTag()
+    if (!staged || selectionBusy()) return
+    setSelectionBusy(true)
+    try {
+      await app.client.applyNoteTag(staged.noteId, staged.name)
+      setSelectionTag(undefined)
+      window.getSelection()?.removeAllRanges()
+      app.setMessage(`Tagged “${staged.name}”.`)
+      // The catalog refresh makes the (possibly new) tag known store-wide and
+      // refetches the open notebook's notes, so underlines and the Info tab's
+      // qualified labels update immediately instead of waiting for the events
+      // feed round trip.
+      void app.refreshCatalog()
+    } catch (error) {
+      app.setMessage(`Could not register the tag: ${errorMessage(error)}`)
+    } finally {
+      setSelectionBusy(false)
+    }
+  }
+
+  // The heading observer feeds the Contents tab. Every mounted note's headings
+  // carry per-note-prefixed ids; notes mount lazily, so a MutationObserver
+  // keeps newly rendered headings observed.
+  createEffect(() => {
+    const container = body()
+    if (!container) return
+    const visible = new Map<string, boolean>()
+    const observed = new Set<Element>()
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const id = entry.target.id
+        if (id) visible.set(id, entry.isIntersecting)
+      }
+      const headings = [...container.querySelectorAll<HTMLElement>('[data-md-heading][id]')]
+      const active = headings.find((heading) => visible.get(heading.id))
+        ?? [...headings].reverse().find((heading) => heading.getBoundingClientRect().top < 0)
+      if (active?.id) app.setActiveHeading(active.id)
+    }, { rootMargin: '0px 0px -70% 0px', threshold: [0, 1] })
+    const observeHeadings = () => {
+      for (const heading of container.querySelectorAll<HTMLElement>('[data-md-heading][id]')) {
+        if (observed.has(heading)) continue
+        observed.add(heading)
+        observer.observe(heading)
+      }
+    }
+    const mounts = new MutationObserver(observeHeadings)
+    mounts.observe(container, { childList: true, subtree: true })
+    queueMicrotask(observeHeadings)
+    onCleanup(() => {
+      observer.disconnect()
+      mounts.disconnect()
+    })
+  })
+
+  // Selection arriving from outside the reader (tree, contents, search, deep
+  // link) scrolls the note into view; a click inside the reader does not.
+  createEffect(() => {
+    const noteId = app.state.noteId
+    const container = body()
+    if (!noteId || !container) return
+    if (selectionFromClick) {
+      selectionFromClick = false
+      return
+    }
+    queueMicrotask(() => scrollToNote(container, noteId))
+  })
+
+  const select = (note: Note) => {
+    selectionFromClick = note.noteId !== app.state.noteId
+    app.openNote(note.noteId, note.notebookId)
+    app.setRightTab('memo')
+    props.onStudy?.()
+  }
+
+  const gotoPage = (event: Event) => {
+    event.preventDefault()
+    const container = body()
+    const page = Number.parseInt(gotoDraft(), 10)
+    if (!container || Number.isNaN(page)) return
+    const all = notes()
+    const target = all.find((note) => note.noteNumber === page) ?? all[page - 1]
+    if (!target) return
+    app.openNote(target.noteId, target.notebookId)
+    queueMicrotask(() => scrollToNote(container, target.noteId))
+  }
+
+  const copy = async () => {
+    const note = app.state.note
+    if (!note) return
+    try {
+      await navigator.clipboard.writeText(note.bodyMarkdown)
+      setCopied(true)
+      if (copiedTimer) clearTimeout(copiedTimer)
+      copiedTimer = setTimeout(() => setCopied(false), 1500)
+    } catch {
+      app.setMessage('Could not copy to the clipboard.')
+    }
+  }
+
+  const download = () => {
+    const note = app.state.note
+    if (!note) return
+    const blob = new Blob([note.bodyMarkdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = noteExportFilename(noteDisplayTitle(note))
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const toggleNotebookAccess = async () => {
+    const notebook = app.notebook()
+    if (!notebook || accessBusy()) return
+    setAccessBusy(true)
+    try {
+      await app.setNotebookReadOnly(notebook.notebookId, !notebook.readOnly)
+    } finally {
+      setAccessBusy(false)
+    }
+  }
+
+  onCleanup(() => { if (copiedTimer) clearTimeout(copiedTimer) })
+
+  return (
+    <main class="reader" id="main-content" tabindex="-1">
+      <Show when={app.state.noteLoading && !app.state.notebookId && notes().length === 0}>
+        <div class="loading-state"><span class="loader" />Loading note…</div>
+      </Show>
+      <Show
+        when={Boolean((app.state.notebookId || notes().length > 0) && app.state.notebookId !== app.notebookAutosave.notebook()?.notebookId)}
+        fallback={
+          <Show when={!app.state.noteLoading}>
+            <NewNotebookEditor />
+          </Show>
+        }
+      >
+        <header class="reader-head" classList={{ 'document-reader-head': notes().some((note) => documentPageMetadata(note) !== undefined) }}>
+          <div class="reader-title">
+            <Show when={notes().some((note) => documentPageMetadata(note) !== undefined)} fallback={<>
+            <span class="eyebrow">{app.notebook()?.title ?? 'NOTEBOOK'}</span>
+            <h1>{app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</h1>
+            </>}>
+              <Show when={app.notebook()}>{(notebook) => <NotebookTitleEditor notebook={notebook()} />}</Show>
+            </Show>
+          </div>
+          <div class="reader-actions">
+            <Show when={selectedDocumentPage()}>{(metadata) => <button
+              type="button" class="secondary page-status-icon"
+              aria-label={metadata().textStatus === 'pending' ? 'Page text is not searchable. Open Analysis' : 'Page is searchable. Open Analysis'}
+              title={metadata().textStatus === 'pending' ? 'This page has no searchable text yet. Open Analysis to recognize it.' : 'Page text is searchable. Open Analysis for details.'}
+              onClick={() => { app.setRightTab('analysis'); props.onStudy?.() }}>
+              <WorkspaceIcon name={metadata().textStatus === 'pending' ? 'warning' : 'check'} />
+            </button>}</Show>
+            <JumpBackControl />
+            <Show when={!chatNotebook() && !notes().some((note) => documentPageMetadata(note) !== undefined)}>
+              <div class="notebook-display-mode" role="group" aria-label="Notebook display mode">
+                <button type="button" class="secondary" title="Render Markdown for the entire notebook" aria-pressed={!writing()} onClick={() => setNotebookWriting(false)}>Preview</button>
+                <button type="button" class="secondary" title={app.notebook()?.readOnly ? 'Make this notebook writable to edit its notes' : 'Edit this notebook as one Markdown file'} aria-pressed={writing()} disabled={Boolean(app.notebook()?.readOnly) || writerLoading()} onClick={() => void setNotebookWriting(true)}>{writerLoading() ? 'Loading…' : 'Writing'}</button>
+              </div>
+            </Show>
+            <Show when={!notes().some((note) => documentPageMetadata(note) !== undefined)}>
+              <span class="reader-position">{pageLabel(index(), notes().length)}</span>
+            </Show>
+            <Show when={app.state.note}>
+              <button type="button" class="secondary" aria-label="Notebook context" title="Notebook context" onClick={app.deselectNote}><WorkspaceIcon name="files" /></button>
+            </Show>
+            <details class="reader-tools">
+              <summary aria-label="Notebook tools" title="Notebook tools: access, copy, download, and delete"><WorkspaceIcon name="more" /></summary>
+              <div class="reader-tools-body">
+              <Show when={app.notebook() && !app.notebook()!.readOnly}>
+                <button type="button" onClick={async () => {
+                  const notebook = app.notebook()
+                  if (!notebook) return
+                  try {
+                    await app.client.deleteNotebook(notebook.notebookId)
+                    app.openHome()
+                    await app.refreshCatalog()
+                  } catch (error) { app.setMessage(`Could not delete notebook: ${errorMessage(error)}`) }
+                }}>Delete notebook</button>
+              </Show>
+            <Show when={app.notebook()}>{(notebook) => <>
+              <span class="note-readonly-badge">
+                {notebook().readOnly ? 'Notebook: Read-only' : 'Notebook: Writable'}
+              </span>
+              <button
+                type="button"
+                class="secondary lock-toggle"
+                aria-pressed={notebook().readOnly}
+                disabled={accessBusy()}
+                onClick={() => void toggleNotebookAccess()}
+              >
+                {accessBusy()
+                  ? 'Saving…'
+                  : notebook().readOnly ? 'Make writable' : 'Make read-only'}
+              </button>
+            </>}</Show>
+            <Show when={app.state.note?.readOnly}>
+              <span class="note-readonly-badge">Note: Read-only</span>
+            </Show>
+            <form class="reader-goto" onSubmit={gotoPage}>
+              <label>
+                <span class="sr-only">Go to page</span>
+                <input
+                  type="number"
+                  min="1"
+                  inputmode="numeric"
+                  placeholder="p."
+                  value={gotoDraft()}
+                  onInput={(event) => setGotoDraft(event.currentTarget.value)}
+                />
+              </label>
+              <button type="submit" class="secondary">Go</button>
+            </form>
+            <Show when={app.state.note}>
+              <button type="button" class="secondary" onClick={() => void copy()}>
+                {copied() ? 'Copied' : 'Copy'}
+              </button>
+              <button type="button" class="secondary" onClick={download}>Download</button>
+            </Show>
+              </div>
+            </details>
+          </div>
+          <PageTagsEditor />
+          <Show when={notes().some((note) => documentPageMetadata(note) !== undefined)}>
+            <Show when={selectedDocumentPage() && app.state.noteId && app.state.notebookId}>
+              <DocumentVersionsControl notebookId={app.state.notebookId!} sourceNoteId={app.state.noteId!}
+                pageNumber={selectedDocumentPage()!.pageNumber} totalPages={app.notebook()?.noteCount ?? notes().length}
+                displayMode={documentDisplay()} selectedLanguage={selectedTranslation()?.targetLanguage}
+                onSelect={(mode, version) => {
+                  if (app.state.notebookId) app.documentViews.set(app.state.notebookId, { mode, translation: version })
+                  setDocumentDisplay(mode); setSelectedTranslation(version)
+                }} />
+            </Show>
+          </Show>
+        </header>
+        <Show when={writer()} fallback={<Show when={chatNotebook() && !app.state.noteId} fallback={<article
+          class="reader-body"
+          classList={{ 'document-notebook-body': notes().some((note) => documentPageMetadata(note) !== undefined) }}
+          ref={setBody}
+          onMouseDown={() => setSelectionTag(undefined)}
+          onMouseUp={offerSelectionTag}
+          onScroll={() => setSelectionTag(undefined)}
+        >
+          <Show when={app.notebook() && !app.notebook()?.readOnly && !chatNotebook()}>
+            <Show keyed when={app.state.notebookId}>{(notebookId) =>
+              <NoteCapture notebookId={notebookId} empty={notes().length === 0} />
+            }</Show>
+          </Show>
+          <Show when={notes().length === 0 && app.notebook()?.readOnly}>
+            <p class="pane-empty">This notebook has no notes. Make it writable to add your own.</p>
+          </Show>
+          <Show when={notes().some((note) => documentPageMetadata(note) !== undefined)} fallback={<>
+          <For each={notes()}>{(note, noteIndex) => (
+            <NoteSection
+              note={note}
+              selected={note.noteId === app.state.noteId}
+              eager={noteIndex() < eagerNoteCount}
+              onSelect={() => select(note)}
+            />
+          )}</For>
+          <LoadMoreSentinel />
+          </>}>
+            <Show when={app.state.notebookId} keyed>{(notebookId) => <DocumentNotebookReader
+              onCaptureRegion={props.onCaptureRegion}
+              notes={notes()} selectedNoteId={app.state.noteId} displayMode={documentDisplay()}
+              translatedVersion={selectedTranslation()?.sourceNoteId === app.state.noteId && selectedTranslation()
+                ? { noteId: app.state.noteId!, text: selectedTranslation()!.text, targetLanguage: selectedTranslation()!.targetLanguage } : undefined}
+              onOpenAnalysis={() => { app.setRightTab('analysis'); props.onStudy?.() }} totalCount={app.notebook()?.noteCount}
+              notebookTags={app.notebook()?.tags} onTagClick={(tagId) => app.openTagPane(tagId)}
+              onSelect={(note) => app.openNote(note.noteId, notebookId)} onLoadMore={() => app.loadMoreNotes(notebookId)}
+
+            />}</Show>
+          </Show>
+        </article>}>
+          <div class="reader-body reader-conversation">
+            <MemoTab conversationNotebookId={app.state.notebookId} />
+          </div>
+        </Show>}>{(current) => <NotebookWritingView writer={current()} writing={writing()} readOnly={Boolean(app.notebook()?.readOnly)} onViewport={setBody} />}</Show>
+        <Show when={selectionTag()}>{(staged) => (
+          <div
+            class="tag-select-popover"
+            role="dialog"
+            aria-label="Register the selection as a tag"
+            style={{
+              left: `${Math.max(8, Math.min(staged().x, window.innerWidth - 336))}px`,
+              top: `${Math.min(staged().y + 12, window.innerHeight - 60)}px`,
+            }}
+          >
+            <button
+              type="button"
+              disabled={selectionBusy()}
+              onClick={() => void registerSelectionTag()}
+            >{selectionBusy() ? 'Registering…' : `Add tag “${staged().name}”`}</button>
+          </div>
+        )}</Show>
+      </Show>
+    </main>
+  )
+}
+
+function selectionElement(node: Node | null): Element | null {
+  if (!node) return null
+  return node instanceof Element ? node : node.parentElement
+}
+
+/** One note in the continuous scroll. The section element always exists (so
+ * goto/scroll targets resolve), but the markdown mounts only once the section
+ * nears the viewport. */
+function NoteSection(props: {
+  note: Note
+  selected: boolean
+  eager: boolean
+  onSelect: () => void
+}): JSX.Element {
+  const app = useApp()
+  const draft = app.writingDrafts.get(`edit:${props.note.noteId}`)
+  const displayMarkdown = () => draft.baseText() !== undefined && draft.text() !== draft.baseText()
+    ? draft.text() : props.note.bodyMarkdown
+  const [mounted, setMounted] = createSignal(props.eager)
+  const [images, setImages] = createSignal<NoteImageEntry[]>([])
+  const [imagesOpen, setImagesOpen] = createSignal(false)
+  let imagesFetched = false
+  let element: HTMLElement | undefined
+
+  onMount(() => {
+    if (mounted() || !element) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setMounted(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '1200px 0px' })
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  })
+
+  // Attachment discovery waits for the section to mount so a long notebook
+  // does not fire hundreds of queries up front; a failed lookup leaves the
+  // note without an image arrow.
+  createEffect(() => {
+    if (!mounted() || imagesFetched) return
+    imagesFetched = true
+    void app.client.noteFiles(props.note.noteId)
+      .then((attachments) => setImages(noteImageEntries(attachments)))
+      .catch(() => setImages([]))
+  })
+
+  // Underline terms come from the note's own tags plus the open notebook's.
+  const tagTerms = createMemo(() =>
+    tagTermsFromAssignments([props.note.tags, app.notebook()?.tags]))
+
+  return (
+    <section
+      ref={element}
+      classList={{ 'reader-note': true, selected: props.selected, 'has-images': images().length > 0 }}
+      data-note-id={props.note.noteId}
+      aria-current={props.selected ? 'true' : undefined}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest('button, a, input, textarea, select') || (window.getSelection() && !window.getSelection()!.isCollapsed)) return
+        props.onSelect()
+      }}
+    >
+      <Show when={props.note.title?.trim()}>{(title) => <header class="reader-note-head"><span class="reader-note-title">{title()}</span></header>}</Show>
+      <Show when={images().length > 0 && !imagesOpen()}>
+        <button
+          type="button"
+          class="note-images-arrow"
+          aria-label={`Show ${images().length} source image${images().length === 1 ? '' : 's'}`}
+          title="Show source images"
+          onClick={() => setImagesOpen(true)}
+        >‹</button>
+      </Show>
+      <Show when={mounted()} fallback={<div class="reader-note-placeholder" aria-hidden="true" />}>
+        <Show
+          when={!imagesOpen()}
+          fallback={<NoteImageCarousel entries={images()} onClose={() => setImagesOpen(false)} />}
+        >
+          <MarkdownBody markdown={displayMarkdown()} anchorPrefix={noteHeadingPrefix(props.note.noteId)}
+            tagTerms={tagTerms()} onTagClick={(tagId) => app.openTagPane(tagId)} />
+        </Show>
+      </Show>
+    </section>
+  )
+}
+
+/** Fetches the next page of notes once the end of the scroll comes near. */
+function LoadMoreSentinel(): JSX.Element {
+  const app = useApp()
+  let element: HTMLElement | undefined
+  onMount(() => {
+    if (!element) return
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      const notebookId = app.state.notebookId
+      if (notebookId) void app.loadMoreNotes(notebookId)
+    }, { rootMargin: '800px 0px' })
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  })
+  return <div ref={(el) => { element = el }} class="reader-load-more" aria-hidden="true" />
+}
+
+function scrollToNote(container: HTMLElement, noteId: NoteId): void {
+  const target = container.querySelector<HTMLElement>(`[data-note-id="${cssEscape(noteId)}"]`)
+  if (!target) return
+  const containerBox = container.getBoundingClientRect()
+  const box = target.getBoundingClientRect()
+  const alreadyVisible = box.top >= containerBox.top - 4 && box.top < containerBox.bottom - 80
+  if (!alreadyVisible) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function cssEscape(value: string): string {
+  return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(value) : value.replace(/"/g, '\\"')
+}
+
+function pageLabel(index: number, total: number): string {
+  if (total === 0) return ''
+  if (index < 0) return `${total} page${total === 1 ? '' : 's'}`
+  return `${index + 1} / ${total}`
+}

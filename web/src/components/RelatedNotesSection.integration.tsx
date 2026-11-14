@@ -1,0 +1,114 @@
+import { noteId as asNoteId, notebookId as asNotebookId } from '../notes/ids'
+import type { NoteId, NotebookId } from '../notes/ids'
+import { render } from 'solid-js/web'
+import { createStore } from 'solid-js/store'
+import { describe, expect, test, vi } from 'vitest'
+import { NoteTransportError, type NoteGraphQLClient } from '../notes/client'
+import type { EngineNoteHit, Note } from '../notes/types'
+import type { AppStore } from '../state/appStore'
+import { RelatedNotesSection } from './RelatedNotesSection'
+
+const sourceId = asNoteId('source')
+const notebook = asNotebookId('book')
+const hits: EngineNoteHit[] = [
+  { note: makeNote('related-1', 'Related one'), snippet: 'first snippet', score: 2, reasons: [
+    { kind: 'linked', tags: [] }, { kind: 'shared-tag', tags: ['A', 'B'] },
+    { kind: 'shared-entity', tags: ['C'] }, { kind: 'related-tag', tags: [] },
+    { kind: 'text-similarity', tags: [] },
+  ] },
+  { note: makeNote('related-2', 'Related two'), snippet: 'second snippet', score: 1, reasons: [] },
+]
+
+function makeNote(id: string, title: string): Note {
+  return {
+    noteId: asNoteId(id), notebookId: notebook, noteNumber: 1, title,
+    bodyMarkdown: '', readOnly: false, createdAt: '', updatedAt: '',
+  }
+}
+
+function testStore(
+  enabled: boolean,
+  relatedNotes: (noteId: NoteId, limit?: number) => Promise<EngineNoteHit[]> = vi.fn(async () => hits),
+  openNote: (noteId: NoteId, notebookId?: NotebookId) => void = vi.fn(),
+): AppStore {
+  const [state, setState] = createStore({
+    searchEngineEnabled: enabled,
+    noteId: sourceId,
+    notebookId: notebook,
+    notebookRevisions: {} as Record<string, number>,
+  })
+  return {
+    state,
+    client: { relatedNotes } as unknown as NoteGraphQLClient,
+    openNote,
+    setSearchEngineEnabled: (next: boolean) => setState('searchEngineEnabled', next),
+  } as unknown as AppStore
+}
+
+async function settle(): Promise<void> {
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
+}
+
+describe('RelatedNotesSection', () => {
+  test('stays hidden and does not fetch when the capability is disabled', async () => {
+    const relatedNotes = vi.fn(async () => hits)
+    const host = document.createElement('div')
+    const dispose = render(() => <RelatedNotesSection app={testStore(false, relatedNotes)} />, host)
+    try {
+      await settle()
+      expect(host.querySelector('[aria-label="Related notes"]')).toBeNull()
+      expect(relatedNotes).not.toHaveBeenCalled()
+    } finally { dispose(); host.remove() }
+  })
+
+  test('renders related titles and opens the selected note', async () => {
+    const openNote = vi.fn()
+    const host = document.createElement('div')
+    document.body.append(host)
+    const dispose = render(() => <RelatedNotesSection app={testStore(true, async () => hits, openNote)} />, host)
+    try {
+      await settle()
+      const buttons = host.querySelectorAll<HTMLButtonElement>('[aria-label="Related notes"] .note-destination-open')
+      expect(buttons).toHaveLength(2)
+      expect(buttons[0]?.textContent).toContain('Related one')
+      expect(buttons[1]?.textContent).toContain('Related two')
+      expect(host.querySelectorAll('.link-meta')[0]?.textContent)
+        .toBe('Saved link · Shared tags: A, B · Shared entities: C · Related tags · Similar text')
+      expect(host.querySelectorAll('.link-meta')).toHaveLength(2)
+      expect(host.querySelectorAll('.link-meta')[1]?.textContent).toBe('Suggested by search relevance')
+      buttons[0]?.click()
+      expect(openNote).toHaveBeenCalledWith(hits[0]?.note.noteId, hits[0]?.note.notebookId)
+    } finally { dispose(); host.remove() }
+  })
+
+  test('reports unavailable related notes', async () => {
+    const host = document.createElement('div')
+    const dispose = render(() => <RelatedNotesSection app={testStore(true, async () => { throw new Error('offline') })} />, host)
+    try {
+      await settle()
+      expect(host.textContent).toContain('Related notes unavailable')
+    } finally { dispose(); host.remove() }
+  })
+
+  test('reports when no related notes are found', async () => {
+    const host = document.createElement('div')
+    const dispose = render(() => <RelatedNotesSection app={testStore(true, async () => [])} />, host)
+    try {
+      await settle()
+      expect(host.textContent).toContain('No related notes')
+    } finally { dispose(); host.remove() }
+  })
+
+  test('hides the section when the engine reports feature-disabled', async () => {
+    const app = testStore(true, async () => {
+      throw new NoteTransportError('disabled', 'result', undefined, 'feature-disabled')
+    })
+    const host = document.createElement('div')
+    const dispose = render(() => <RelatedNotesSection app={app} />, host)
+    try {
+      await settle()
+      expect(host.querySelector('[aria-label="Related notes"]')).toBeNull()
+      expect(app.state.searchEngineEnabled).toBe(false)
+    } finally { dispose(); host.remove() }
+  })
+})
