@@ -1,0 +1,10 @@
+.chatbook .pane-tabs-overflow { position: relative; display: flex; min-width: 0; overflow: visible; gap: 2px; }
+.pane-tabs-visible { display: flex; flex: 1; min-width: 0; gap: 2px; overflow: hidden; }
+.chatbook .pane-tabs-overflow .pane-tab { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatbook .pane-tabs-overflow .pane-tab[hidden] { display: none; }
+.pane-tabs-measure { position: absolute; visibility: hidden; pointer-events: none; display: flex; width: max-content; top: 0; left: 0; }
+.pane-tabs-measure .pane-tab { display: inline-block; flex: none !important; box-sizing: border-box; }
+.chatbook .pane-tabs-more { flex: none; width: 28px; padding-inline: 3px; }
+.pane-tabs-menu { z-index: 80; display: flex; flex-direction: column; min-width: 10rem; max-height: min(24rem, 70dvh); overflow: auto; padding: 4px; background: var(--surface, white); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 4px 16px #0002; }
+.pane-tabs-menu button { border: 0; background: transparent; color: inherit; text-align: left; padding: 7px 10px; white-space: nowrap; }
+.pane-tabs-menu button:hover, .pane-tabs-menu button:focus-visible { background: var(--green-selected); }

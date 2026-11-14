@@ -1,0 +1,48 @@
+import { fileId, type FileId } from './ids'
+import type { Note } from './types'
+
+export interface DocumentPageMetadata {
+  pageNumber: number
+  textStatus: 'pending' | 'complete'
+  originFileId: FileId
+  originMediaType?: string
+  analysis: {
+    isDocument?: boolean
+    language?: string
+    writingMode: 'horizontal' | 'vertical' | 'unknown'
+    binding: 'left' | 'right' | 'unknown'
+    title?: string
+  }
+}
+
+/** The page descriptor of an imported document page (`Note.documentPage`),
+ * normalized for the reader; undefined for ordinary notes. */
+export function documentPageMetadata(note?: Pick<Note, 'documentPage'>): DocumentPageMetadata | undefined {
+  const page = note?.documentPage
+  if (!page || !Number.isSafeInteger(page.pageNumber) || page.pageNumber < 1
+    || !['pending', 'complete'].includes(page.textStatus)
+    || typeof page.originFileId !== 'string' || !/^file-[a-zA-Z0-9-]+$/.test(page.originFileId)) return undefined
+  const analysis = page.analysis
+  return {
+    pageNumber: page.pageNumber, textStatus: page.textStatus, originFileId: fileId(page.originFileId),
+    originMediaType: page.originMediaType,
+    analysis: {
+      isDocument: typeof analysis?.isDocument === 'boolean' ? analysis.isDocument : undefined,
+      language: typeof analysis?.language === 'string' ? analysis.language : undefined,
+      title: typeof analysis?.title === 'string' ? analysis.title : undefined,
+      writingMode: analysis?.writingMode === 'horizontal' || analysis?.writingMode === 'vertical' ? analysis.writingMode : 'unknown',
+      binding: analysis?.binding === 'left' || analysis?.binding === 'right' ? analysis.binding : 'unknown',
+    },
+  }
+}
+
+export function storedImageFileId(href: string): FileId | undefined {
+  const match = /^\/files\/(file-[a-zA-Z0-9-]+)$/.exec(href)
+  return match?.[1] ? fileId(match[1]) : undefined
+}
+
+export function pageStepForArrow(key: string, binding: 'left' | 'right' | 'unknown'): number {
+  if (key !== 'ArrowLeft' && key !== 'ArrowRight') return 0
+  const nextKey = binding === 'right' ? 'ArrowLeft' : 'ArrowRight'
+  return key === nextKey ? 1 : -1
+}

@@ -1,0 +1,28 @@
+.chatbook .chatbook-head-actions { flex-wrap: nowrap; min-width: 0; }
+.workspace-task-link { flex: 0 1 auto; display: inline-flex; align-items: center; gap: .35rem; min-width: 0; max-width: 24rem; padding: .3rem .45rem; color: var(--green-ink); text-decoration: none; font-size: .75rem; }
+.workspace-task-link:hover { background: var(--green-selected); }
+.workspace-task-link > .workspace-task-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-task-count { flex: none; padding: .15rem .3rem; border-radius: .25rem; background: var(--green-selected); font-size: .65rem; white-space: nowrap; }
+.workspace-task-link > svg { flex-shrink: 0; }
+.tasks-view { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--surface); }
+.tasks-head { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--line); }
+.tasks-head h1 { margin: 0; font-size: 1.2rem; }
+.tasks-head p { margin: .25rem 0 0; color: var(--muted); font-size: .75rem; }
+.tasks-body { min-height: 0; overflow-y: auto; padding: 1rem 1.5rem; }
+.task-list { list-style: none; padding: 0; margin: 0; }
+.task-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--line); }
+.task-row > div:first-child { min-width: 0; }
+.task-row h2 { margin: 0 0 .35rem; overflow-wrap: anywhere; font-size: .9rem; font-weight: 600; }
+.task-row p { margin: .25rem 0; font-size: .75rem; }
+.task-status { font-weight: 600; color: var(--green-ink); }
+.task-status[data-status="failed"] { color: var(--danger-ink); }
+.task-actions { display: flex; flex-wrap: wrap; flex-shrink: 0; gap: .4rem; }
+.chatbook .task-actions button { white-space: nowrap; font-size: .75rem; }
+.page-ocr-action { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.document-page-text-empty { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.document-page-text-empty > p { margin: 0; }
+@media (max-width: 600px) {
+  .workspace-task-link { max-width: min(11rem, 25vw); font-size: .65rem; }
+  .tasks-head, .tasks-body { padding: 1rem; }
+  .task-row { flex-direction: column; }
+}
