@@ -1,0 +1,226 @@
+{
+  "taskId": "tauri-client-connection",
+  "workflowMode": "issue-resolution",
+  "workflowExecutionId": "opus-luna-design-and-implement-review-loop-session-483",
+  "implementationBranch": "main",
+  "baseBranch": "main",
+  "remote": "origin",
+  "originalHead": "83a02f10231450692343b2a7218eeda8c73a6d12",
+  "evidenceRoot": "tmp/tauri-client-connection",
+  "planDocPath": "impl-plans/active/tauri-client-connection.md",
+  "designDocPaths": [
+    "design-docs/specs/tauri-client-apps.md",
+    "design-docs/user-qa/tauri-client-connection-20261025.md",
+    "design-docs/user-qa/tauri-client-apps.md"
+  ],
+  "planPaths": [
+    "impl-plans/active/tauri-client-connection.md",
+    "impl-plans/active/tauri-client-connection-p1-endpoint-store.md",
+    "impl-plans/active/tauri-client-connection-p2-connection-probe.md",
+    "impl-plans/active/tauri-client-connection-p3-settings-ui.md",
+    "impl-plans/active/tauri-client-connection-p4-docs.md",
+    "impl-plans/active/tauri-client-connection-p5-bundle-build.md"
+  ],
+  "acceptedDependencies": [
+    {
+      "planId": "tauri-client-connection-p1-endpoint-store",
+      "planPath": "impl-plans/active/tauri-client-connection-p1-endpoint-store.md",
+      "commit": "83a02f10231450692343b2a7218eeda8c73a6d12",
+      "provides": "Accepted in session 481; uncommitted working-tree changes to web/src/notes/serverEndpoint.ts and web/src/notes/serverEndpoint.test.ts (recent endpoints bound 5, isUnencryptedRemoteEndpoint, activeConnectionLabel)."
+    },
+    {
+      "planId": "tauri-client-connection-p2-connection-probe",
+      "planPath": "impl-plans/active/tauri-client-connection-p2-connection-probe.md",
+      "commit": "83a02f10231450692343b2a7218eeda8c73a6d12",
+      "provides": "Accepted in session 481; untracked web/src/notes/serverProbe.ts and web/src/notes/serverProbe.test.ts (testServerConnection, describeServerProbe)."
+    },
+    {
+      "planId": "tauri-client-connection-p3-settings-ui",
+      "planPath": "impl-plans/active/tauri-client-connection-p3-settings-ui.md",
+      "commit": "83a02f10231450692343b2a7218eeda8c73a6d12",
+      "provides": "Accepted in session 481; working-tree changes to web/src/components/ServerConnectionSettings.tsx, web/src/components/ServerConnectionSettings.integration.tsx and untracked web/src/views/ConnectionReachability.integration.tsx."
+    },
+    {
+      "planId": "tauri-client-connection-p4-docs",
+      "planPath": "impl-plans/active/tauri-client-connection-p4-docs.md",
+      "commit": "83a02f10231450692343b2a7218eeda8c73a6d12",
+      "provides": "Accepted in session 481; README.md 'macOS and iPhone clients' update and design-docs/specs/tauri-client-apps.md fix."
+    }
+  ],
+  "acceptedDependencyRecords": [
+    {
+      "planId": "tauri-client-connection-p1-endpoint-store",
+      "planPath": "impl-plans/active/tauri-client-connection-p1-endpoint-store.md",
+      "acceptedInSession": "opus-luna-design-and-implement-review-loop-session-481",
+      "acceptedWave": 2,
+      "workingTreeFiles": ["web/src/notes/serverEndpoint.ts", "web/src/notes/serverEndpoint.test.ts"],
+      "progressPath": "tmp/tauri-client-connection/P1/progress.md"
+    },
+    {
+      "planId": "tauri-client-connection-p2-connection-probe",
+      "planPath": "impl-plans/active/tauri-client-connection-p2-connection-probe.md",
+      "acceptedInSession": "opus-luna-design-and-implement-review-loop-session-481",
+      "acceptedWave": 1,
+      "workingTreeFiles": ["web/src/notes/serverProbe.ts", "web/src/notes/serverProbe.test.ts"],
+      "progressPath": "tmp/tauri-client-connection/P2/progress.md"
+    },
+    {
+      "planId": "tauri-client-connection-p3-settings-ui",
+      "planPath": "impl-plans/active/tauri-client-connection-p3-settings-ui.md",
+      "acceptedInSession": "opus-luna-design-and-implement-review-loop-session-481",
+      "acceptedWave": 3,
+      "workingTreeFiles": ["web/src/components/ServerConnectionSettings.tsx", "web/src/components/ServerConnectionSettings.integration.tsx", "web/src/views/ConnectionReachability.integration.tsx"],
+      "progressPath": "tmp/tauri-client-connection/P3/progress.md"
+    },
+    {
+      "planId": "tauri-client-connection-p4-docs",
+      "planPath": "impl-plans/active/tauri-client-connection-p4-docs.md",
+      "acceptedInSession": "opus-luna-design-and-implement-review-loop-session-481",
+      "acceptedWave": 1,
+      "workingTreeFiles": ["README.md", "design-docs/specs/tauri-client-apps.md"],
+      "progressPath": "tmp/tauri-client-connection/P4/progress.md"
+    }
+  ],
+  "policies": {
+    "acceptance": "Design and plans were committed in 83a02f1 (session 481). Session 481 accepted P1-P4 by test-integrity and adversarial review; they are acceptedDependencies and are not redispatched. Session 483 reused the design unchanged (Step 3 accepted, needs_revision=false) and checkpointed the plans: P1-P4 are marked accepted, the invalid gate `bunx tsc --noEmit -p web` is replaced by `cd web && bun run typecheck` everywhere, and only P5 is dispatched.",
+    "verificationGateCorrection": "Never use `bunx tsc --noEmit -p web` from the repository root as a gate. It cannot resolve bun:test types (34 baseline errors at 83a02f1, all in *.test.ts). The typecheck gate is `cd web && bun run typecheck`.",
+    "preservation": "The accepted P1-P4 working-tree changes (README.md, design-docs/specs/tauri-client-apps.md, web/src/components/ServerConnectionSettings.tsx, web/src/components/ServerConnectionSettings.integration.tsx, web/src/notes/serverEndpoint.ts, web/src/notes/serverEndpoint.test.ts, web/src/notes/serverProbe.ts, web/src/notes/serverProbe.test.ts, web/src/views/ConnectionReachability.integration.tsx) must stay byte-identical; P5 proves it with shasum -c. Never stage .riela/ or node_modules/.",
+    "evidencePolicy": "A behavioral record is a test-runner command (bun test ... or vitest run ...) with exit code 0 and a test count greater than 0. cd web && bun test src and cd web && bunx vitest run are recorded separately. mise run web:check is never the recorded test command, though it may be run as an extra record. Tee every command into the plan's evidence directory and record the complete log path and the final exit status. An incomplete log is not a pass.",
+    "evidenceLayout": "Evidence lives under tmp/tauri-client-connection/<P#>, gitignored through tmp/. P5 writes command logs under tmp/tauri-client-connection/P5/logs/ and its summary in tmp/tauri-client-connection/P5/evidence.md, and appends a 'Session 483 rerun' section to tmp/tauri-client-connection/P5/progress.md. P5 never writes P1-P4 evidence directories.",
+    "editProtocol": "Follow the index 'Edit protocol'. P5 edits no source; it writes only its own evidence and build artifacts. A gate failure is recorded as status: blocked with the step, exit code and log path for serial reconciliation. No git write operations, no branches or worktrees, and no edits to .riela/ or node_modules/ beyond the declared vitest cache artifact root.",
+    "artifactPolicy": "P5 declares artifact roots tmp/tauri-client-connection/P5/logs, web/src-tauri/target, web/src-tauri/local-service, web/src-tauri/gen/schemas, web/dist, .build and web/node_modules/.vite. All are gitignored.",
+    "protectedPaths": "No plan edits Sources/, Package.swift, Package.resolved, web/src-tauri/src/, web/src-tauri/capabilities/, web/src-tauri/tauri*.conf.json, scripts/, mise.toml, any CSS file, schema/note-store.sqlite.sql, Sources/AppCore/NoteStoreSchemaDDL.generated.swift, .riela/, any impl-plans/active/*-dispatch.json, or the accepted P1-P4 files.",
+    "storePolicy": "Never read, open or launch against the real macOS app store (Application Support/com.tacogips.kaiba/local under the user's home) or the default kaiba store. Do not launch Kaiba.app, its binaries, or kaiba serve with default paths.",
+    "releasePolicy": "No signing, notarization, release publishing, tag, cask, tap or git push. The deliverable is an unsigned local Kaiba.app build output."
+  },
+  "reviewContext": {
+    "issueReference": "workflowInput:tauri-client-connection (no GitHub issue URL/number): 'Tauri client app with configurable connection target' (user request 2026-10-25); resumes blocked session opus-luna-design-and-implement-review-loop-session-481 in session 483",
+    "userProblem": "The user wants the macOS Kaiba Tauri client built from current main, and wants its connection target (Local bundled server or a remote URL) easy to configure, testable before switching, remembered across recent servers, and reachable even when the current server is unreachable, erroring or requires sign-in.",
+    "requiredOutcomes": [
+      "(accepted in session 481) P1: serverEndpoint.ts gains readRecentServerEndpoints, recordRecentServerEndpoint (bound 5, normalized origins, defensive read, never touches credential keys), isUnencryptedRemoteEndpoint and activeConnectionLabel, with bun tests.",
+      "(accepted in session 481) P2: new serverProbe.ts with testServerConnection (GET /healthz then POST /graphql, 5 s abort, no Authorization header, assertServerOrigin on both targets, savedCredential as presence check only) and describeServerProbe with pinned sentences, with bun tests.",
+      "(accepted in session 481) P3: ServerConnectionSettings shows the active connection line, a Test connection button, a Recent servers picker and a plain-http warning; a successful Remote save records the recent entry; ConnectionReachability.integration.tsx proves the form is reachable from network-error and 401 states.",
+      "(accepted in session 481) P4: README 'macOS and iPhone clients' describes the new controls; the dangling 'An' in the spec is removed.",
+      "P5: cd web && bun test src and cd web && bunx vitest run pass with positive counts; cd web && bun run typecheck, cd web && bun run lint and mise run tauri:check exit 0; mise run tauri:build produces web/src-tauri/target/release/bundle/macos/Kaiba.app whose Contents/MacOS/kaiba is byte-identical to the freshly built web/src-tauri/local-service/kaiba-aarch64-apple-darwin and newer than the new build-start marker; the Swift diff against f02c4fe is empty; the accepted P1-P4 files are unchanged (shasum -c)."
+    ],
+    "nonGoals": [
+      "No Swift, Rust, capability, tauri config, scripts or mise.toml change (D11).",
+      "No redispatch or re-implementation of P1-P4; no edits to their files.",
+      "No first-run modal, no in-place state reset, no credential pruning, no delete button for recent entries, no CSS edits.",
+      "No signing, notarization, release, git push or git write operations.",
+      "No runtime launch of Kaiba.app."
+    ],
+    "constraints": [
+      "Do not touch the real store under the user's Application Support com.tacogips.kaiba/local directory; use tmp/ scratch directories for any runtime check.",
+      "Keep per-origin bearer scoping: a bearer under kaiba-note-bearer:<origin> is only sent to that origin; Local mode and the probe send no Authorization.",
+      "Existing tests keep passing unmodified; serverCredentialKey, currentServerCredentialKey, saveServerEndpoint, assertServerOrigin, serverRequest, normalizeServerEndpoint and readConnectionMode keep their behavior and signatures.",
+      "Never use `bunx tsc --noEmit -p web` from the repository root as a gate; use `cd web && bun run typecheck`.",
+      "Files stay under 1000 lines; terse Solid/TS style; no emojis; do not modify unrelated files."
+    ],
+    "designDecisionsAndRationale": [
+      "Five recent remote origins, most recent first, stored under kaiba-recent-server-endpoints; only a successful Remote save adds one, so tests and typos do not pollute the list.",
+      "Test connection checks /healthz for the kaiba service marker, then /graphql status only, and sends no bearer to any origin so it cannot leak credentials.",
+      "Test connection is advisory; saving an unreachable server is allowed because per-origin scoping makes a mistyped origin harmless.",
+      "Every save reloads the WebView to reset per-account in-memory state, as before.",
+      "No first-run chooser: the shell still renders on failure and the header Settings button and the login screen's compact form reach the connection settings.",
+      "Plain http to a non-loopback host warns but is not blocked, so LAN servers from iPhone keep working (D9).",
+      "No Swift or Rust change: /healthz, GraphQL 401 and the http/https capability already exist, and tauri:build already rebuilds the sidecar via beforeBuildCommand (D11, D12)."
+    ],
+    "intentionalTradeoffs": [
+      "Plain-http LAN endpoints remain allowed with a warning.",
+      "Credentials of origins evicted from the recent list are not pruned (pre-existing behavior).",
+      "The active connection line is computed at mount and only changes after the save reload.",
+      "Recent entries cannot be deleted individually."
+    ],
+    "supportedEdgeCases": [
+      "Corrupt, non-array or non-string recent-list storage reads as [] without throwing; invalid entries are dropped and duplicates collapsed.",
+      "Re-recording an existing origin moves it to the front without duplication.",
+      "Loopback detection covers localhost, 127.x.x.x (including normalized 127.1) and [::1].",
+      "Probe maps network failure and timeout to unreachable, non-200 or non-kaiba healthz to not-kaiba, graphql 401 to auth-required, other statuses to server-error; validator errors propagate without any fetch.",
+      "Connection settings stay reachable when every client call fails with a network error and when the server answers 401."
+    ],
+    "outOfScopeEdgeCases": [
+      "Kaiba.app naming collision and distribution (pending in design-docs/user-qa/tauri-client-apps.md).",
+      "Redirect handling, retries or a third probe request.",
+      "Signed or notarized bundles."
+    ],
+    "sourcePaths": [
+      "web/src/notes/serverEndpoint.ts",
+      "web/src/notes/serverEndpoint.test.ts",
+      "web/src/notes/serverProbe.ts",
+      "web/src/notes/serverProbe.test.ts",
+      "web/src/components/ServerConnectionSettings.tsx",
+      "web/src/components/ServerConnectionSettings.integration.tsx",
+      "web/src/views/ConnectionReachability.integration.tsx",
+      "web/src/views/ConfigView.tsx",
+      "web/src/views/LoginView.tsx",
+      "web/src-tauri/tauri.conf.json",
+      "web/src-tauri/tauri.macos.conf.json",
+      "web/package.json",
+      "scripts/build-tauri-local-service.sh",
+      "README.md",
+      "design-docs/specs/tauri-client-apps.md",
+      "design-docs/user-qa/tauri-client-connection-20261025.md",
+      "design-docs/user-qa/tauri-client-apps.md"
+    ]
+  },
+  "plans": [
+    {
+      "planId": "tauri-client-connection-p5-bundle-build",
+      "planPath": "impl-plans/active/tauri-client-connection-p5-bundle-build.md",
+      "progressPath": "tmp/tauri-client-connection/P5/progress.md",
+      "wave": 1,
+      "dependsOn": [
+        "tauri-client-connection-p1-endpoint-store",
+        "tauri-client-connection-p2-connection-probe",
+        "tauri-client-connection-p3-settings-ui",
+        "tauri-client-connection-p4-docs"
+      ],
+      "writePaths": [
+        "tmp/tauri-client-connection/P5/evidence.md",
+        "tmp/tauri-client-connection/P5/progress.md",
+        "tmp/tauri-client-connection/P5/logs",
+        "web/src-tauri/target",
+        "web/src-tauri/local-service",
+        "web/src-tauri/gen/schemas",
+        "web/dist",
+        ".build",
+        "web/node_modules/.vite"
+      ],
+      "sharedPaths": [],
+      "artifactRoots": [
+        "tmp/tauri-client-connection/P5/logs",
+        "web/src-tauri/target",
+        "web/src-tauri/local-service",
+        "web/src-tauri/gen/schemas",
+        "web/dist",
+        ".build",
+        "web/node_modules/.vite"
+      ],
+      "acceptanceCriteria": [
+        "git diff --stat f02c4fe -- Sources Package.swift Package.resolved is empty; a non-empty result or a rewritten Package.resolved is recorded as a blocker.",
+        "cd web && bun test src exits 0 with pass > 0 and fail 0; cd web && bunx vitest run exits 0 with positive test-file and test counts; each is its own record.",
+        "cd web && bun run typecheck, cd web && bun run lint and mise run tauri:check exit 0, each as its own record.",
+        "mise run tauri:build (signing variables unset) exits 0 and produces web/src-tauri/target/release/bundle/macos/Kaiba.app; Contents/MacOS/kaiba is executable, cmp-identical to web/src-tauri/local-service/kaiba-aarch64-apple-darwin, and both binaries plus web/dist/index.html are newer than build-start.marker (and therefore newer than the session-481 artifacts dated 2026-10-25 13:02:44).",
+        "shasum -a 256 -c tmp/tauri-client-connection/P5/logs/00-accepted-pre.sha256 exits 0 after the build (accepted P1-P4 files unchanged); the user-qa note exists and the spec mentions Test connection.",
+        "No source edits, no launch of Kaiba.app or kaiba serve with default paths; evidence.md records every command, exit code, full log path, counts, HEAD and the bundle path; progress.md gains a 'Session 483 rerun' section and ends with status: done."
+      ],
+      "verification": [
+        "mkdir -p tmp/tauri-client-connection/P5/logs",
+        "bash -c '{ git rev-parse HEAD; git status --short; } 2>&1 | tee tmp/tauri-client-connection/P5/logs/01-git-state.log'",
+        "bash -c 'git diff --stat f02c4fe -- Sources Package.swift Package.resolved 2>&1 | tee tmp/tauri-client-connection/P5/logs/01-swift-diff.log; test ! -s tmp/tauri-client-connection/P5/logs/01-swift-diff.log'",
+        "bash -c 'shasum -a 256 README.md design-docs/specs/tauri-client-apps.md web/src/components/ServerConnectionSettings.tsx web/src/components/ServerConnectionSettings.integration.tsx web/src/notes/serverEndpoint.ts web/src/notes/serverEndpoint.test.ts web/src/notes/serverProbe.ts web/src/notes/serverProbe.test.ts web/src/views/ConnectionReachability.integration.tsx > tmp/tauri-client-connection/P5/logs/00-accepted-pre.sha256; code=$?; cat tmp/tauri-client-connection/P5/logs/00-accepted-pre.sha256; echo exit=$code; exit $code'",
+        "bash -c '{ test -s design-docs/user-qa/tauri-client-connection-20261025.md && grep -c \"Test connection\" design-docs/specs/tauri-client-apps.md; code=$?; echo exit=$code; exit $code; } 2>&1 | tee tmp/tauri-client-connection/P5/logs/01-design-docs.log; exit ${PIPESTATUS[0]}'",
+        "bash -c 'cd web && bun test src 2>&1 | tee ../tmp/tauri-client-connection/P5/logs/02-bun-test-src.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && bunx vitest run 2>&1 | tee ../tmp/tauri-client-connection/P5/logs/03-vitest-run.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && bun run typecheck 2>&1 | tee ../tmp/tauri-client-connection/P5/logs/04-typecheck.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'cd web && bun run lint 2>&1 | tee ../tmp/tauri-client-connection/P5/logs/05-lint.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'mise run tauri:check 2>&1 | tee tmp/tauri-client-connection/P5/logs/06-tauri-check.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'touch tmp/tauri-client-connection/P5/logs/build-start.marker && date -u | tee tmp/tauri-client-connection/P5/logs/07-build-start.log'",
+        "bash -c 'env -u APPLE_SIGNING_IDENTITY -u APPLE_CERTIFICATE -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID -u TAURI_SIGNING_PRIVATE_KEY mise run tauri:build 2>&1 | tee tmp/tauri-client-connection/P5/logs/08-tauri-build.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'",
+        "bash -c 'APP=web/src-tauri/target/release/bundle/macos/Kaiba.app; M=tmp/tauri-client-connection/P5/logs/build-start.marker; S=web/src-tauri/local-service/kaiba-aarch64-apple-darwin; { test -d \"$APP\" && test -x \"$APP/Contents/MacOS/kaiba\" && cmp \"$APP/Contents/MacOS/kaiba\" \"$S\" && test \"$APP/Contents/MacOS/kaiba\" -nt \"$M\" && test \"$S\" -nt \"$M\" && test web/dist/index.html -nt \"$M\"; code=$?; stat -f \"%Sm %z %N\" \"$APP/Contents/MacOS/kaiba\" \"$S\" web/dist/index.html; shasum -a 256 \"$APP/Contents/MacOS/kaiba\" \"$S\"; echo exit=$code; exit $code; } 2>&1 | tee tmp/tauri-client-connection/P5/logs/09-freshness.log; exit ${PIPESTATUS[0]}'",
+        "bash -c 'shasum -a 256 -c tmp/tauri-client-connection/P5/logs/00-accepted-pre.sha256 2>&1 | tee tmp/tauri-client-connection/P5/logs/10-accepted-post.log; code=${PIPESTATUS[0]}; echo exit=$code; exit $code'"
+      ]
+    }
+  ]
+}
