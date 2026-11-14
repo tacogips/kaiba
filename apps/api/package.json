@@ -1,0 +1,23 @@
+{
+  "name": "@kaiba/api",
+  "version": "0.2.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "dry-run": "wrangler deploy --dry-run --outdir dist",
+    "typecheck": "tsc -p tsconfig.json",
+    "db:migrate:local": "wrangler d1 migrations apply kaiba --local"
+  },
+  "dependencies": {
+    "@kaiba/adapter": "workspace:*",
+    "@kaiba/application": "workspace:*",
+    "@kaiba/domain": "workspace:*",
+    "graphql": "latest",
+    "graphql-yoga": "latest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "wrangler": "latest"
+  }
+}

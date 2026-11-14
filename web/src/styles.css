@@ -1,0 +1,179 @@
+:root {
+  color: #e6edf6;
+  background: #071018;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  background: #0d1a26;
+  border: 1px solid #263b4c;
+  border-radius: 8px;
+  padding: 0.65rem 0.8rem;
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: #12364a;
+}
+
+button:hover,
+button.selected {
+  border-color: #49b8d7;
+  background: #164e67;
+}
+
+main {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: 2.4rem;
+}
+
+.eyebrow {
+  color: #72c7dc;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.status {
+  color: #a9bbc8;
+  max-width: 55ch;
+}
+
+.card {
+  background: #0a1620;
+  border: 1px solid #1d3140;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.connection {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  gap: 0.8rem;
+  align-items: end;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  color: #a9bbc8;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.7fr) 2fr;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notes button {
+  display: grid;
+  gap: 0.3rem;
+  text-align: left;
+}
+
+.notes small {
+  color: #8fa6b7;
+}
+
+.editor pre {
+  min-height: 13rem;
+  padding: 1rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #071018;
+  border-radius: 8px;
+}
+
+.editor textarea {
+  width: 100%;
+  min-height: 10rem;
+  resize: vertical;
+}
+
+.actions,
+.agent-search {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.routes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.8rem;
+}
+
+fieldset {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid #263b4c;
+  border-radius: 10px;
+}
+
+legend {
+  color: #72c7dc;
+  padding: 0 0.4rem;
+}
+
+.agent-search input {
+  flex: 1;
+  min-width: 240px;
+}
+
+@media (max-width: 760px) {
+  main {
+    padding: 1rem;
+  }
+
+  .connection,
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  header {
+    align-items: start;
+    flex-direction: column;
+  }
+}

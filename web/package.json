@@ -1,0 +1,22 @@
+{
+  "name": "@kaiba/web",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --environment node",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@kaiba/ai": "workspace:*",
+    "solid-js": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "vite": "latest",
+    "vite-plugin-solid": "latest",
+    "vitest": "latest"
+  }
+}

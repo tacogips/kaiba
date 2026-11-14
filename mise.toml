@@ -1,0 +1,84 @@
+min_version = "2026.8.3"
+
+[[hooks.enter]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko --path "$MISE_PROJECT_ROOT" hook enter bash)"
+fi
+'''
+
+[[hooks.leave]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko hook leave bash)"
+fi
+'''
+
+[tools]
+bun = "latest"
+biome = "latest"
+gitleaks = "latest"
+pre-commit = "latest"
+
+[tasks.default]
+description = "Show available tasks"
+run = "mise tasks ls"
+
+[tasks.install]
+description = "Install workspace dependencies"
+run = "bun install"
+
+[tasks.dev]
+description = "Run the Cloudflare Worker locally"
+run = "bun run dev"
+
+[tasks.build]
+description = "Build the Worker and web client"
+run = "bun run build"
+
+[tasks.test]
+description = "Run unit and integration tests"
+run = "bun run test"
+
+[tasks.test-web]
+description = "Run the web client tests"
+run = "bun run test:web"
+
+[tasks.typecheck]
+description = "Type-check all TypeScript workspaces"
+run = "bun run typecheck"
+
+[tasks.lint]
+description = "Run Biome and TypeScript checks"
+run = "bun run lint"
+
+[tasks.fmt]
+description = "Format TypeScript and JSON"
+run = "bun run format"
+
+[tasks.fmt-check]
+description = "Check formatting"
+run = "bun run format:check"
+
+[tasks.db-migrate-local]
+description = "Apply D1 migrations to the local Worker database"
+run = "bun run db:migrate:local"
+
+[tasks.workflow]
+description = "Run Fable/Codex Riela workflow with a Codex-only fallback"
+run = '''
+bun run workflow:run -- "$@"
+'''
+
+[tasks.ci]
+description = "Run all verification gates"
+run = "mise run lint && mise run test && mise run build"
+
+[tasks.install-git-hooks]
+description = "Install mise tools and the repository pre-commit hook"
+run = '''
+mise install
+mise exec -- pre-commit install
+'''

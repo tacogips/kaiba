@@ -1,0 +1,34 @@
+{
+  "name": "kaiba",
+  "version": "0.2.0",
+  "description": "Ontology-oriented notes on Cloudflare Workers with user-key AI tooling",
+  "type": "module",
+  "private": true,
+  "workspaces": ["packages/*", "apps/*", "web"],
+  "scripts": {
+    "dev": "bun run --cwd apps/api dev",
+    "build": "bun run --cwd web build && bun run build:api",
+    "build:api": "bun run --cwd apps/api dry-run",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:web": "bun run --cwd web test",
+    "typecheck": "tsc -p packages/domain/tsconfig.json && tsc -p packages/application/tsconfig.json && tsc -p packages/adapter/tsconfig.json && tsc -p packages/ai/tsconfig.json && tsc -p apps/api/tsconfig.json && tsc -p tsconfig.tools.json && bun run --cwd web typecheck",
+    "lint:biome": "biome check . --diagnostic-level=warn",
+    "lint": "bun run lint:biome && bun run typecheck",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "db:migrate:local": "bun run --cwd apps/api db:migrate:local",
+    "workflow:run": "bun run tools/run-riela-with-fallback.ts",
+    "clean": "rm -rf apps/api/dist web/dist packages/*/dist"
+  },
+  "homepage": "https://github.com/tacogips/kaiba",
+  "repository": { "type": "git", "url": "https://github.com/tacogips/kaiba" },
+  "license": "MIT",
+  "trustedDependencies": [],
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@types/bun": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
