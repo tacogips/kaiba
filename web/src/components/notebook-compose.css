@@ -1,0 +1,58 @@
+.reader-body.notebook-compose { display: flex; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; background: var(--surface); }
+.notebook-compose .compose-form { display: flex; flex-direction: column; min-height: 0; flex: 1; margin: 0; }
+.compose-topbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .75rem 1.25rem; border-bottom: 1px solid var(--line); }
+.compose-breadcrumb { display: flex; align-items: center; gap: .5rem; min-width: 0; color: var(--muted); font-size: .8rem; }
+.compose-top-actions { display: flex; align-items: center; gap: .8rem; }
+.compose-save-status { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); font-size: .7rem; white-space: nowrap; }
+.compose-save-status svg { width: 14px; height: 14px; color: var(--green-ink); }
+.compose-tools .reader-tools-body { z-index: 20; min-width: 11rem; }
+.compose-tools summary { display: flex; align-items: center; cursor: pointer; padding: .3rem; }
+.compose-workspace { display: flex; flex: 1; min-height: 0; }
+.compose-outline { flex: 0 0 11rem; min-width: 0; padding: .8rem .6rem; border-right: 1px solid var(--line); background: var(--surface-subtle); overflow-y: auto; }
+.compose-outline > header { display: flex; justify-content: space-between; align-items: center; padding-inline: .45rem; color: var(--muted); font-size: .75rem; font-weight: 600; }
+.compose-outline small { padding-inline-start: .35rem; font-weight: 400; }
+.chatbook .compose-outline button.compose-icon { display: inline-flex; justify-content: center; align-items: center; width: 1.6rem; height: 1.6rem; padding: .2rem; border: 0; color: var(--muted); background: transparent; }
+.compose-outline ol { list-style: none; padding: 0; margin: .6rem 0 0; }
+.chatbook .compose-outline button.compose-note-entry { display: flex; align-items: center; gap: .55rem; width: 100%; min-width: 0; padding: .55rem .45rem; margin-block: .15rem; border: 0; text-align: left; color: var(--muted); background: transparent; font-size: .75rem; font-weight: 450; }
+.chatbook .compose-outline button.compose-note-entry > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatbook .compose-outline button.compose-note-entry.active { color: var(--green-ink); background: var(--green-selected); }
+.compose-note-number { flex: none; width: 1rem; font-variant-numeric: tabular-nums; color: var(--muted); font-size: .65rem; }
+.compose-outline-hint { margin: 1rem .45rem; color: var(--muted); font-size: .65rem; line-height: 1.6; }
+.compose-document { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.compose-document-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1.4rem 2rem .85rem; }
+.compose-document-head h1 { min-width: 0; margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.compose-title-empty { color: var(--muted); font-weight: 450 !important; }
+.compose-modes { display: flex; flex: none; gap: .2rem; padding: .15rem; border: 1px solid var(--line); border-radius: .35rem; }
+.chatbook .compose-modes button { display: inline-flex; align-items: center; gap: .3rem; padding: .3rem .45rem; border: 0; background: transparent; color: var(--muted); font-size: .7rem; white-space: nowrap; }
+.chatbook .compose-modes button[aria-pressed="true"] { color: var(--green-ink); background: var(--green-selected); }
+.compose-modes svg { width: 14px; height: 14px; }
+.compose-source { flex: 1; min-height: 0; position: relative; }
+.chatbook .notebook-compose .compose-source textarea { display: block; width: 100%; height: 100%; min-height: 100%; max-height: none; margin: 0; padding: 1rem 2rem 2rem; box-sizing: border-box; border: 0; border-radius: 0; outline: 0; box-shadow: none; background: transparent; color: var(--ink); resize: none; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9rem; line-height: 1.85; tab-size: 2; }
+.compose-source textarea:focus-visible { outline: 0; }
+.compose-empty-guide { position: absolute; top: 1.3rem; left: 2rem; right: 2rem; max-width: 30rem; pointer-events: none; color: var(--muted); line-height: 1.7; }
+.compose-empty-guide strong { font-size: 1rem; font-weight: 450; }
+.compose-empty-guide p { margin: .65rem 0 0; font-size: .8rem; }
+.compose-empty-guide code, .compose-statusbar kbd { padding: .1rem .3rem; border: 1px solid var(--line); border-radius: .2rem; font: inherit; background: var(--surface-subtle); }
+.compose-preview { flex: 1; min-height: 0; padding: 1rem 2rem 2rem; overflow-y: auto; }
+.compose-preview-note { max-width: 44rem; margin-inline: auto; padding: .5rem 0 2rem; scroll-margin-top: .5rem; }
+.compose-preview-note + .compose-preview-note { border-top: 1px solid var(--line); padding-top: 1.25rem; }
+.compose-preview-label { margin-bottom: .75rem; color: var(--green-ink); font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; }
+.compose-preview-note .markdown-body > :first-child { margin-top: 0; }
+.compose-empty-note { color: var(--muted); font-style: italic; }
+.compose-statusbar { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .35rem 1rem; padding: .65rem 1.25rem; border-top: 1px solid var(--line); color: var(--muted); background: var(--surface-subtle); font-size: .65rem; }
+.compose-status-dot { padding-inline: .3rem; }
+.compose-error { margin: 0; padding: .65rem 1.25rem; color: var(--danger-ink); font-size: .8rem; background: var(--surface-subtle); }
+@media (max-width: 760px) {
+  .compose-outline { flex-basis: 8rem; }
+  .compose-document-head { flex-wrap: wrap; padding: 1rem 1rem .5rem; gap: .5rem; }
+  .chatbook .notebook-compose .compose-source textarea, .compose-preview { padding-inline: 1rem; }
+  .compose-empty-guide { left: 1rem; right: 1rem; }
+}
+@media (max-width: 480px) {
+  .compose-outline { flex-basis: 3rem; padding-inline: .2rem; }
+  .compose-outline > header > span, .compose-note-entry > span:last-child, .compose-outline-hint { display: none; }
+  .compose-outline > header { padding-inline: 0; justify-content: center; }
+  .compose-note-entry { justify-content: center; }
+  .compose-note-number { width: auto; }
+  .compose-topbar, .compose-statusbar { padding-inline: .75rem; }
+}

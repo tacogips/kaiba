@@ -1,0 +1,1266 @@
+import type { FileId, NoteId, NotebookId, TagClassId, TagId } from './ids'
+import { parseNotebookDraft } from './notebookDraft'
+import type {
+  AgentChatMessageResult,
+  AgentChatAttachmentInput,
+  AgentModelsResult,
+  AgentConversation,
+  AgenticSearchResult,
+  AgentReplyStreamPoll,
+  ControlResult,
+  EngineNoteHit,
+  EngineSearchPage,
+  SearchEngineConnectionTestResult,
+  SearchEngineSettings,
+  SearchEngineSettingsInput,
+  GraphQLEnvelope,
+  MutationPayload,
+  Note,
+  Notebook,
+  NoteCaptureResult,
+  NoteComment,
+  NoteFileAttachment,
+  NotebookFileAttachment,
+  NoteGraphNeighbor,
+  NoteListSort,
+  NoteSearchResult,
+  NoteTag,
+  NoteTagClass,
+  NoteTranslation,
+  QueryPayload,
+  SetUserAgentCredentialInput,
+  UserAgentCredentialState,
+  TagComment,
+  TagDetail,
+} from './types'
+import {
+  currentServerCredentialKey,
+  isTauriRuntime,
+  serverCredentialStorageKey,
+  serverRequest,
+  usesLocalService,
+} from './serverEndpoint'
+export const notebookPageLimit = 200
+
+export interface NoteClientEnvironment {
+  request(input: RequestInfo | URL, init?: RequestInit): Promise<Response>
+  getStoredItem(key: string): string | null
+  setStoredItem(key: string, value: string): void
+  removeStoredItem(key: string): void
+  currentURL(): string
+  replaceURL(value: string): void
+}
+
+export class NoteTransportError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'network' | 'http' | 'graphql' | 'result' | 'registration',
+    readonly status?: number,
+    readonly resultStatus?: string,
+  ) {
+    super(message)
+  }
+}
+
+export class NoteGraphQLClient {
+  private readonly environment: NoteClientEnvironment
+
+  constructor(environment?: NoteClientEnvironment) {
+    this.environment = environment ?? browserEnvironment()
+  }
+
+  async initialize(): Promise<void> {
+    const url = new URL(this.environment.currentURL())
+    const code = url.searchParams.get('code')
+    if (!code) return
+    url.searchParams.delete('code')
+    this.environment.replaceURL(`${url.pathname}${url.search}${url.hash}`)
+    const response = await this.environment.request('/note/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, displayName: isTauriRuntime() ? 'Kaiba App' : 'Kaiba Web' }),
+    })
+    const value = await parseJSON<{ credential?: { bearerToken?: string }; error?: string }>(response)
+    const bearer = value.credential?.bearerToken
+    if (!response.ok || !bearer) {
+      throw new NoteTransportError(value.error ?? 'Registration failed.', 'registration', response.status)
+    }
+    this.storeBearer(bearer)
+  }
+
+  /** Credentials are stored per server origin, so a bearer is only ever
+   * readable for the host that issued it and repointing the client at another
+   * origin cannot present it there. An install created before scoping holds
+   * one unscoped value; it belongs to the endpoint in effect, so it is filed
+   * under that origin on first read rather than discarded. */
+  private readBearer(): string | null {
+    if (usesLocalService()) return null
+    const key = currentServerCredentialKey()
+    const scoped = this.environment.getStoredItem(key)
+    if (scoped) return scoped
+    const unscoped = this.environment.getStoredItem(serverCredentialStorageKey)
+    if (!unscoped) return null
+    this.environment.setStoredItem(key, unscoped)
+    this.environment.removeStoredItem(serverCredentialStorageKey)
+    return unscoped
+  }
+
+  private storeBearer(value: string): void {
+    this.environment.setStoredItem(currentServerCredentialKey(), value)
+    this.environment.removeStoredItem(serverCredentialStorageKey)
+  }
+
+  private dropBearer(): void {
+    this.environment.removeStoredItem(currentServerCredentialKey())
+    this.environment.removeStoredItem(serverCredentialStorageKey)
+  }
+
+  /** True once a credential is held, whether it came from a registration code
+   * or was pasted into the login view. */
+  hasCredential(): boolean {
+    return Boolean(this.readBearer())
+  }
+
+  /** Adopts a key issued by `kaiba client issue`. The server is the only
+   * judge of validity, so this stores the value and lets the next request
+   * answer 401 if it was wrong. */
+  useCredential(token: string): void {
+    const trimmed = token.trim()
+    if (!trimmed) throw new NoteTransportError('An API key is required.', 'registration')
+    this.storeBearer(trimmed)
+  }
+
+  clearCredential(): void {
+    this.dropBearer()
+  }
+
+  /** Headers for the streaming note-events request (EventSource cannot send
+   * an Authorization header, so the stream uses fetch with these). */
+  streamHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {}
+    const bearer = this.readBearer()
+    if (bearer) headers.Authorization = `Bearer ${bearer}`
+    return headers
+  }
+
+  /** Anywhere capture (design-docs/specs/note-capture-and-entity-pages.md,
+   * C6): `POST /note/capture` is plain HTTP, not GraphQL, so that a phone can
+   * hold one thought and send it before the SPA has any catalog loaded. The
+   * server resolves the account's singleton Quick Memos notebook itself, so
+   * the request carries nothing but the text. Error bodies are a single
+   * `error` string for every status the route answers (400/401/503/500). */
+  async captureNote(text: string, title?: string): Promise<NoteCaptureResult> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...this.streamHeaders() }
+    const trimmedTitle = title?.trim()
+    let response: Response
+    try {
+      response = await this.environment.request('/note/capture', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers,
+        body: JSON.stringify(trimmedTitle ? { text, title: trimmedTitle } : { text }),
+      })
+    } catch (error) {
+      throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
+    }
+    const body = await parseJSON<Partial<NoteCaptureResult> & { error?: string }>(response)
+    // A rejected bearer is dropped here exactly as the GraphQL transport does
+    // it, so the capture page falls back to the registration surface instead
+    // of resending a credential the server has revoked.
+    if (response.status === 401) this.dropBearer()
+    if (!response.ok) {
+      throw new NoteTransportError(body.error ?? `Capture failed (${response.status}).`, 'http', response.status)
+    }
+    if (!body.noteId || !body.notebookId || typeof body.noteNumber !== 'number') {
+      throw new NoteTransportError('The server did not return the captured note.', 'result')
+    }
+    return { noteId: body.noteId, notebookId: body.notebookId, noteNumber: body.noteNumber }
+  }
+
+  async tags(): Promise<NoteTag[]> {
+    return this.queryValue<{ tags: QueryPayload<NoteTag[]> }, NoteTag[]>('Tags', `
+      query Tags { tags { result { accepted status diagnostics } value { tagId name classId parentTagId isSystem createdAt } } }
+    `, {}, (data) => data.tags)
+  }
+
+  async tagClasses(): Promise<NoteTagClass[]> {
+    return this.queryValue<{ tagClasses: QueryPayload<NoteTagClass[]> }, NoteTagClass[]>('TagClasses', `
+      query TagClasses { tagClasses { result { accepted status diagnostics } value { classId label description } } }
+    `, {}, (data) => data.tagClasses)
+  }
+
+  async notebooks(
+    offset: number,
+    sort: NoteListSort,
+    tagFilterIdGroups: string[][],
+    limit = notebookPageLimit,
+    created: { createdAfter?: string; createdBefore?: string } = {},
+  ): Promise<Notebook[]> {
+    const values = await this.queryValue<{ notebooks: QueryPayload<Notebook[]> }, Notebook[]>('Notebooks', `
+      query Notebooks($limit: Int, $offset: Int, $sort: NoteListSort, $tagFilterIdGroups: [[String!]!], $createdAfter: String, $createdBefore: String) {
+        notebooks(limit: $limit, offset: $offset, sort: $sort, tagFilterIdGroups: $tagFilterIdGroups, createdAfter: $createdAfter, createdBefore: $createdBefore) {
+          result { accepted status diagnostics }
+          value { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, {
+      limit,
+      offset,
+      sort,
+      tagFilterIdGroups,
+      ...(created.createdAfter ? { createdAfter: created.createdAfter } : {}),
+      ...(created.createdBefore ? { createdBefore: created.createdBefore } : {}),
+    }, (data) => data.notebooks)
+    return values.map(normalizeNotebook)
+  }
+
+  async notebook(notebookId: NotebookId): Promise<Notebook> {
+    const value = await this.queryValue<{ notebook: QueryPayload<Notebook> }, Notebook>('Notebook', `
+      query Notebook($notebookId: String!) {
+        notebook(notebookId: $notebookId) {
+          result { accepted status diagnostics }
+          value { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, { notebookId }, (data) => data.notebook)
+    return normalizeNotebook(value)
+  }
+
+  /** Notebook page listing. Carries each note's tag assignments so the right
+   * pane can aggregate deduped tags across the notebook without extra reads. */
+  async notes(notebookId: NotebookId, offset: number): Promise<Note[]> {
+    return this.queryValue<{ notes: QueryPayload<Note[]> }, Note[]>('Notes', `
+      query Notes($notebookId: String!, $limit: Int, $offset: Int) {
+        notes(notebookId: $notebookId, limit: $limit, offset: $offset) {
+          result { accepted status diagnostics }
+          value {
+            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection}
+            tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
+          }
+        }
+      }
+    `, { notebookId, limit: notebookPageLimit, offset }, (data) => data.notes)
+  }
+
+  /** The single-note read the reader and the Info tab share: unlike the list
+   * query it carries the note's own tag assignments. */
+  async note(noteId: NoteId): Promise<Note> {
+    return this.queryValue<{ note: QueryPayload<Note> }, Note>('Note', `
+      query Note($noteId: String!) {
+        note(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value {
+            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection}
+            tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
+          }
+        }
+      }
+    `, { noteId }, (data) => data.note)
+  }
+
+  async fastNotes(query = '', offset = 0, limit = 50): Promise<Note[]> {
+    return this.queryValue<{ fastNotes: QueryPayload<Note[]> }, Note[]>('FastNotes', `
+      query FastNotes($query: String, $offset: Int, $limit: Int) {
+        fastNotes(query: $query, offset: $offset, limit: $limit) {
+          result { accepted status diagnostics }
+          value { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt
+            tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
+          }
+        }
+      }
+    `, { ...(query.trim() ? { query } : {}), offset, limit }, (data) => data.fastNotes)
+  }
+
+  async noteLinks(noteId: NoteId): Promise<import('./types').NoteLink[]> {
+    type Link = import('./types').NoteLink
+    return this.queryValue<{ noteLinks: QueryPayload<Link[]> }, Link[]>('NoteLinks', `
+      query NoteLinks($noteId: String!) {
+        noteLinks(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value { fromNoteId toNoteId linkKind provenance createdAt }
+        }
+      }
+    `, { noteId }, (data) => data.noteLinks)
+  }
+
+  /** Linked documents for the Links tab; `edgeKind` is the link kind the tab
+   * groups by. Depth stays at one hop so the list is the note's own links. */
+  async noteGraphNeighbors(noteId: NoteId, limit = 20): Promise<NoteGraphNeighbor[]> {
+    return this.noteGraphNeighborsMany([noteId], limit)
+  }
+
+  /** Same one-hop link read for several seed notes at once (the notebook-wide
+   * links aggregate). The graph traversal caps `limit` at 20 per request, so
+   * callers chunk the seeds and merge. */
+  async noteGraphNeighborsMany(noteIds: NoteId[], limit = 20): Promise<NoteGraphNeighbor[]> {
+    if (noteIds.length === 0) return []
+    return this.queryValue<{ noteGraphNeighbors: QueryPayload<NoteGraphNeighbor[]> }, NoteGraphNeighbor[]>('NoteGraphNeighbors', `
+      query NoteGraphNeighbors($noteIds: [String!]!, $depth: Int, $limit: Int) {
+        noteGraphNeighbors(noteIds: $noteIds, depth: $depth, limit: $limit) {
+          result { accepted status diagnostics }
+          value {
+            seedNoteId edgeKind weight hopCount pathNoteIds
+            note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+          }
+        }
+      }
+    `, { noteIds, depth: 1, limit }, (data) => data.noteGraphNeighbors)
+  }
+
+  /** Stored memos for a note, oldest first (the server's own ordering). */
+  async noteComments(noteId: NoteId): Promise<NoteComment[]> {
+    return this.queryValue<{ noteComments: QueryPayload<NoteComment[]> }, NoteComment[]>('NoteComments', `
+      query NoteComments($noteId: String!) {
+        noteComments(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value { commentId noteId notebookId bodyMarkdown author createdAt }
+        }
+      }
+    `, { noteId }, (data) => data.noteComments)
+  }
+
+  /** The Translated versions of a note, one per language. `isCurrent` is
+   * false once the source text changed after the translation was made. */
+  async noteTranslations(noteId: NoteId): Promise<NoteTranslation[]> {
+    return this.queryValue<{ noteTranslations: QueryPayload<NoteTranslation[]> }, NoteTranslation[]>('NoteTranslations', `
+      query NoteTranslations($noteId: String!) {
+        noteTranslations(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value { noteId language body isCurrent updatedAt }
+        }
+      }
+    `, { noteId }, (data) => data.noteTranslations)
+  }
+
+  /** The OCR version of a document page: its extracted text. */
+  async documentPageText(noteId: NoteId): Promise<{ pageNumber: number; text: string; textSource: string | null; textStatus: string }> {
+    type PageText = { pageNumber: number; text: string; textSource: string | null; textStatus: string }
+    return this.queryValue<{ documentPageText: QueryPayload<PageText> }, PageText>('DocumentPageText', `
+      query DocumentPageText($noteId: String!) {
+        documentPageText(noteId: $noteId) { result { accepted status diagnostics } value { pageNumber text textSource textStatus } }
+      }
+    `, { noteId }, (data) => data.documentPageText)
+  }
+
+  async notebookFiles(notebookId: NotebookId): Promise<NotebookFileAttachment[]> {
+    return this.queryValue<{ notebookFiles: QueryPayload<NotebookFileAttachment[]> }, NotebookFileAttachment[]>('NotebookFiles', `
+      query NotebookFiles($notebookId: String!) {
+        notebookFiles(notebookId: $notebookId) {
+          result { accepted status diagnostics }
+          value { notebookId role file { fileId storageKind mediaType byteSize sha256 originalFilename createdAt } }
+        }
+      }
+    `, { notebookId }, (data) => data.notebookFiles)
+  }
+
+  async noteFiles(noteId: NoteId): Promise<NoteFileAttachment[]> {
+    return this.queryValue<{ noteFiles: QueryPayload<NoteFileAttachment[]> }, NoteFileAttachment[]>('NoteFiles', `
+      query NoteFiles($noteId: String!) {
+        noteFiles(noteId: $noteId) {
+          result { accepted status diagnostics }
+          value { noteId role position file { fileId storageKind mediaType byteSize sha256 originalFilename createdAt } }
+        }
+      }
+    `, { noteId }, (data) => data.noteFiles)
+  }
+
+  /** Raw bytes of an attached file. `<img src>` cannot send the bearer
+   * header, so callers fetch a Blob and show it through an object URL. */
+  async noteFileBlob(fileId: FileId): Promise<Blob> {
+    let response: Response
+    try {
+      response = await this.environment.request(`/files/${encodeURIComponent(fileId)}`, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: this.streamHeaders(),
+      })
+    } catch (error) {
+      throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
+    }
+    if (!response.ok) {
+      throw new NoteTransportError(`File request failed (${response.status}).`, 'http', response.status)
+    }
+    return response.blob()
+  }
+
+  /** Cross-notebook tag detail: the tag, its class, aggregate counts, its memo
+   * notebook id (null until one is created) and the entity-page fields — the
+   * canonical note and the tags it co-occurs with. The co-occurrence size is
+   * the root field's `coOccurringTagLimit` argument (E6); the viewer takes the
+   * server default. */
+  async tagDetail(tagId: TagId): Promise<TagDetail> {
+    return this.queryValue<{ tagDetail: QueryPayload<TagDetail> }, TagDetail>('TagDetail', `
+      query TagDetail($tagId: String!) {
+        tagDetail(tagId: $tagId) {
+          result { accepted status diagnostics }
+          value {
+            tag { tagId name classId parentTagId isSystem createdAt }
+            tagClass { classId label description }
+            noteCount notebookCount memoNotebookId
+            canonicalNote { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt }
+            coOccurringTags { tag { tagId name classId parentTagId isSystem createdAt } noteCount }
+          }
+        }
+      }
+    `, { tagId }, (data) => data.tagDetail)
+  }
+
+  /** Designates an existing note as the tag's description, replacing any
+   * previous binding (E2, last promote wins). It creates no tag assignment:
+   * the canonical note is rendered in the entity header, not as an
+   * occurrence. */
+  async promoteTagNote(tagId: TagId, noteId: NoteId): Promise<void> {
+    await this.mutation('PromoteTagNote', `
+      mutation PromoteTagNote($input: PromoteTagNoteInput!) {
+        promoteTagNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
+        }
+      }
+    `, { input: { tagId, noteId } }, 'promoteTagNote')
+  }
+
+  /** Clears the tag's canonical binding. A tag with nothing bound is a no-op
+   * success, so the header never has to ask first. */
+  async unpromoteTagNote(tagId: TagId): Promise<void> {
+    await this.mutation('UnpromoteTagNote', `
+      mutation UnpromoteTagNote($input: UnpromoteTagNoteInput!) {
+        unpromoteTagNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
+        }
+      }
+    `, { input: { tagId } }, 'unpromoteTagNote')
+  }
+
+  /** The tag's memo history: memos of notes/notebooks carrying the tag
+   * (descendants included), across all notebooks, newest first. */
+  async tagComments(tagId: TagId, offset = 0, limit = 50): Promise<TagComment[]> {
+    return this.queryValue<{ tagComments: QueryPayload<TagComment[]> }, TagComment[]>('TagComments', `
+      query TagComments($tagId: String!, $limit: Int, $offset: Int) {
+        tagComments(tagId: $tagId, limit: $limit, offset: $offset) {
+          result { accepted status diagnostics }
+          value {
+            comment { commentId noteId notebookId bodyMarkdown author createdAt }
+            noteTitle notebookTitle
+          }
+        }
+      }
+    `, { tagId, limit, offset }, (data) => data.tagComments)
+  }
+
+  /** Cross-notebook occurrences: every note carrying the tag (or a
+   * descendant), newest first. */
+  async notesByTag(tagName: string, offset = 0, limit = notebookPageLimit): Promise<Note[]> {
+    return this.queryValue<{ notes: QueryPayload<Note[]> }, Note[]>('NotesByTag', `
+      query NotesByTag($tagFilter: [String!], $limit: Int, $offset: Int) {
+        notes(tagFilter: $tagFilter, limit: $limit, offset: $offset) {
+          result { accepted status diagnostics }
+          value {
+            noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt
+            tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } }
+          }
+        }
+      }
+    `, { tagFilter: [tagName], limit, offset }, (data) => data.notes)
+  }
+
+  /** Finds or creates the tag's memo/chat notebook. */
+  async ensureTagMemoNotebook(tagId: TagId): Promise<Notebook> {
+    return this.notebookMutation('EnsureTagMemoNotebook', `
+      mutation EnsureTagMemoNotebook($tagId: String!) {
+        ensureTagMemoNotebook(tagId: $tagId) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, { tagId }, 'ensureTagMemoNotebook')
+  }
+
+  /** Every memo in the notebook — note-anchored and notebook-level alike. */
+  async notebookComments(notebookId: NotebookId): Promise<NoteComment[]> {
+    return this.queryValue<{ notebookComments: QueryPayload<NoteComment[]> }, NoteComment[]>('NotebookComments', `
+      query NotebookComments($notebookId: String!) {
+        notebookComments(notebookId: $notebookId) {
+          result { accepted status diagnostics }
+          value { commentId noteId notebookId bodyMarkdown author createdAt }
+        }
+      }
+    `, { notebookId }, (data) => data.notebookComments)
+  }
+
+  async addNoteComment(noteId: NoteId, bodyMarkdown: string): Promise<NoteComment> {
+    const payload = await this.mutation('AddNoteComment', `
+      mutation AddNoteComment($input: AddNoteCommentInput!) {
+        addNoteComment(input: $input) {
+          result { accepted status diagnostics }
+          comment { commentId noteId bodyMarkdown author createdAt }
+        }
+      }
+    `, { input: { noteId, bodyMarkdown, author: 'kaiba-web' } }, 'addNoteComment')
+    if (!payload.comment) throw new NoteTransportError('The server did not return the memo.', 'result')
+    return payload.comment
+  }
+
+  async openMemoNotebook(commentId: NoteComment['commentId']): Promise<Notebook> {
+    const payload = await this.mutation('OpenMemoNotebook', `
+      mutation OpenMemoNotebook($commentId: String!) {
+        openMemoNotebook(commentId: $commentId) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { commentId }, 'openMemoNotebook')
+    if (!payload.notebook) throw new NoteTransportError('The server did not return the memo notebook.', 'result')
+    return payload.notebook
+  }
+
+  /** A notebook-level memo (no note selected). */
+  async addNotebookComment(notebookId: NotebookId, bodyMarkdown: string): Promise<NoteComment> {
+    const payload = await this.mutation('AddNotebookComment', `
+      mutation AddNotebookComment($input: AddNotebookCommentInput!) {
+        addNotebookComment(input: $input) {
+          result { accepted status diagnostics }
+          comment { commentId noteId notebookId bodyMarkdown author createdAt }
+        }
+      }
+    `, { input: { notebookId, bodyMarkdown, author: 'kaiba-web' } }, 'addNotebookComment')
+    if (!payload.comment) throw new NoteTransportError('The server did not return the memo.', 'result')
+    return payload.comment
+  }
+
+  async noteConversations(noteId: NoteId, limit = 50): Promise<AgentConversation[]> {
+    return this.queryValue<{ noteConversations: QueryPayload<AgentConversation[]> }, AgentConversation[]>('NoteConversations', `
+      query NoteConversations($noteId: String!, $limit: Int) {
+        noteConversations(noteId: $noteId, limit: $limit) {
+          result { accepted status diagnostics }
+          value { notebookId title updatedAt turnCount subjectNoteId subjectNotebookId }
+        }
+      }
+    `, { noteId, limit }, (data) => data.noteConversations)
+  }
+
+  /** Conversations whose subject is the whole notebook (no note selected). */
+  async notebookConversations(notebookId: NotebookId, limit = 50): Promise<AgentConversation[]> {
+    return this.queryValue<{ notebookConversations: QueryPayload<AgentConversation[]> }, AgentConversation[]>('NotebookConversations', `
+      query NotebookConversations($notebookId: String!, $limit: Int) {
+        notebookConversations(notebookId: $notebookId, limit: $limit) {
+          result { accepted status diagnostics }
+          value { notebookId title updatedAt turnCount subjectNoteId subjectNotebookId }
+        }
+      }
+    `, { notebookId, limit }, (data) => data.notebookConversations)
+  }
+
+  /** Persists the user turn. The subject is a note or a whole notebook (a memo
+   * thread with no note selected). The reply is asynchronous: `agentStatus`
+   * reports whether an agent runtime accepted it, and the note events feed
+   * (plus the agent reply stream) delivers the completion. */
+  async sendAgentChatMessage(input: {
+    subjectNoteId?: NoteId
+    subjectNotebookId?: NotebookId
+    conversationNotebookId?: NotebookId
+    userMarkdown: string
+    idempotencyKey?: string
+    model?: string
+    provider?: string
+    mode?: 'edit'
+    attachments?: AgentChatAttachmentInput[]
+  }): Promise<AgentChatMessageResult> {
+    const data = await this.request<{ sendAgentChatMessage: AgentChatMessageResult & { result: ControlResult } }>('SendAgentChatMessage', `
+      mutation SendAgentChatMessage($input: SendAgentChatMessageInput!) {
+        sendAgentChatMessage(input: $input) {
+          result { accepted status diagnostics }
+          conversationNotebookId
+          turnNoteId
+          agentStatus
+        }
+      }
+    `, {
+      input: {
+        ...(input.subjectNoteId ? { subjectNoteId: input.subjectNoteId } : {}),
+        ...(input.subjectNotebookId ? { subjectNotebookId: input.subjectNotebookId } : {}),
+        ...(input.conversationNotebookId ? { conversationNotebookId: input.conversationNotebookId } : {}),
+        userMarkdown: input.userMarkdown,
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.provider ? { provider: input.provider } : {}),
+        ...(input.mode ? { mode: input.mode } : {}),
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      },
+    })
+    const payload = data.sendAgentChatMessage
+    if (!payload) throw new NoteTransportError('GraphQL response omitted sendAgentChatMessage.', 'graphql')
+    ensureAccepted(payload.result)
+    return {
+      conversationNotebookId: payload.conversationNotebookId ?? null,
+      turnNoteId: payload.turnNoteId ?? null,
+      agentStatus: payload.agentStatus,
+    }
+  }
+
+  async agentModels(provider?: string): Promise<AgentModelsResult> {
+    const data = await this.request<{ agentModels: AgentModelsResult & { result: ControlResult } }>('AgentModels', `
+      query AgentModels($provider: String) {
+        agentModels(provider: $provider) {
+          result { accepted status diagnostics }
+          models { modelId displayName description }
+          discoveryAvailable
+          configuredModel
+          providers
+          configuredProvider
+        }
+      }
+    `, { provider: provider ?? null })
+    if (!data.agentModels) throw new NoteTransportError('GraphQL response omitted agentModels.', 'graphql')
+    ensureAccepted(data.agentModels.result)
+    return {
+      models: data.agentModels.models,
+      providers: data.agentModels.providers,
+      configuredProvider: data.agentModels.configuredProvider,
+      discoveryAvailable: data.agentModels.discoveryAvailable,
+      configuredModel: data.agentModels.configuredModel ?? null,
+    }
+  }
+
+  /** The signed-in user's personal-agent credential state. `credential` is
+   * null when none is stored; `featureEnabled` false means the server has
+   * turned personal agents off. */
+  async userAgentCredential(): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ userAgentCredential: UserAgentCredentialState & { result: ControlResult } }>(
+      'UserAgentCredential', `
+      query UserAgentCredential {
+        userAgentCredential {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, {})
+    return unwrapUserAgentCredential(data.userAgentCredential, 'userAgentCredential')
+  }
+
+  async setUserAgentCredential(input: SetUserAgentCredentialInput): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ setUserAgentCredential: UserAgentCredentialState & { result: ControlResult } }>(
+      'SetUserAgentCredential', `
+      mutation SetUserAgentCredential($input: SetUserAgentCredentialInput!) {
+        setUserAgentCredential(input: $input) {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, { input })
+    return unwrapUserAgentCredential(data.setUserAgentCredential, 'setUserAgentCredential')
+  }
+
+  async setUserAgentCredentialEnabled(enabled: boolean): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ setUserAgentCredentialEnabled: UserAgentCredentialState & { result: ControlResult } }>(
+      'SetUserAgentCredentialEnabled', `
+      mutation SetUserAgentCredentialEnabled($enabled: Boolean!) {
+        setUserAgentCredentialEnabled(enabled: $enabled) {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, { enabled })
+    return unwrapUserAgentCredential(data.setUserAgentCredentialEnabled, 'setUserAgentCredentialEnabled')
+  }
+
+  async clearUserAgentCredential(): Promise<UserAgentCredentialState> {
+    const data = await this.request<{ clearUserAgentCredential: UserAgentCredentialState & { result: ControlResult } }>(
+      'ClearUserAgentCredential', `
+      mutation ClearUserAgentCredential {
+        clearUserAgentCredential {
+          ${userAgentCredentialSelection}
+        }
+      }
+    `, {})
+    return unwrapUserAgentCredential(data.clearUserAgentCredential, 'clearUserAgentCredential')
+  }
+
+  /** Queues AI tag extraction for one note or a whole notebook; the returned
+   * status is "queued" or "agent-unavailable". */
+  async requestTagExtraction(subject: { noteId: NoteId } | { notebookId: NotebookId }): Promise<string> {
+    const data = await this.request<{ requestTagExtraction: { result: ControlResult; status: string } }>('RequestTagExtraction', `
+      mutation RequestTagExtraction($input: RequestTagExtractionInput!) {
+        requestTagExtraction(input: $input) {
+          result { accepted status diagnostics }
+          status
+        }
+      }
+    `, { input: subject })
+    const payload = data.requestTagExtraction
+    if (!payload) throw new NoteTransportError('GraphQL response omitted requestTagExtraction.', 'graphql')
+    ensureAccepted(payload.result)
+    return payload.status
+  }
+
+  /** Queues an AI translation of a notebook (or an inclusive page range) into
+   * `targetLanguage`. A pending translation job is created immediately; each
+   * page's Translated version arrives via the events feed. Status is "queued"
+   * or "agent-unavailable". */
+  async requestNotebookTranslation(input: {
+    notebookId: NotebookId
+    targetLanguage: string
+    pageStart?: number
+    pageEnd?: number
+  }): Promise<{ translationJobId: string | null; status: string }> {
+    const data = await this.request<{ requestNotebookTranslation: { result: ControlResult; translationJobId?: string | null; status: string } }>('RequestNotebookTranslation', `
+      mutation RequestNotebookTranslation($input: RequestNotebookTranslationInput!) {
+        requestNotebookTranslation(input: $input) {
+          result { accepted status diagnostics }
+          translationJobId
+          status
+        }
+      }
+    `, {
+      input: {
+        notebookId: input.notebookId,
+        targetLanguage: input.targetLanguage,
+        ...(input.pageStart !== undefined ? { pageStart: input.pageStart } : {}),
+        ...(input.pageEnd !== undefined ? { pageEnd: input.pageEnd } : {}),
+      },
+    })
+    const payload = data.requestNotebookTranslation
+    if (!payload) throw new NoteTransportError('GraphQL response omitted requestNotebookTranslation.', 'graphql')
+    ensureAccepted(payload.result)
+    return { translationJobId: payload.translationJobId ?? null, status: payload.status }
+  }
+
+  /** The stored JSON document for an app setting key, or null when unset. */
+  async appSetting(key: string): Promise<string | null> {
+    const data = await this.request<{ appSetting: { result: ControlResult; key: string; valueJSON?: string | null } }>('AppSetting', `
+      query AppSetting($key: String!) {
+        appSetting(key: $key) { result { accepted status diagnostics } key valueJSON }
+      }
+    `, { key })
+    if (!data.appSetting) throw new NoteTransportError('GraphQL response omitted appSetting.', 'graphql')
+    ensureAccepted(data.appSetting.result)
+    return data.appSetting.valueJSON ?? null
+  }
+
+  /** Stores an app setting document (whole-document replace). */
+  async setAppSetting(key: string, valueJSON: string): Promise<void> {
+    const data = await this.request<{ setAppSetting: { result: ControlResult } }>('SetAppSetting', `
+      mutation SetAppSetting($input: SetAppSettingInput!) {
+        setAppSetting(input: $input) { result { accepted status diagnostics } key valueJSON }
+      }
+    `, { input: { key, valueJSON } })
+    if (!data.setAppSetting) throw new NoteTransportError('GraphQL response omitted setAppSetting.', 'graphql')
+    ensureAccepted(data.setAppSetting.result)
+  }
+
+  async createNotebook(title: string): Promise<Notebook> {
+    return this.notebookMutation('CreateNotebook', `
+      mutation CreateNotebook($input: CreateNotebookInput!) {
+        createNotebook(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: { title: title.trim() } }, 'createNotebook')
+  }
+
+  async importDocument(file: File, title?: string, maximumOCRPages?: string, textExtractionMode?: string): Promise<Notebook> {
+    if (file.size > 1_048_576) throw new Error('Uploads are limited to 1 MiB. Use the local import command for larger files.')
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    return this.notebookMutation('ImportDocument', `
+      mutation ImportDocument($input: ImportDocumentInput!) {
+        importDocument(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: { filename: file.name, contentBase64: btoa(binary), title, maximumOCRPages, textExtractionMode } }, 'importDocument')
+  }
+
+  async saveNewNotebook(bodyMarkdown: string, idempotencyKey: string): Promise<Notebook> {
+    const draft = parseNotebookDraft(bodyMarkdown)
+    if (!bodyMarkdown.trim()) throw new NoteTransportError('Write something to start the notebook.', 'result')
+    return this.notebookMutation('SaveNewNotebook', `
+      mutation SaveNewNotebook($input: IngestNotebookPagesInput!) {
+        ingestNotebookPages(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt
+            tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: {
+      idempotencyKey, title: draft.title || 'Untitled notebook', allowEmptyPages: true,
+      pages: draft.notes.map((note) => ({ bodyMarkdown: note.bodyMarkdown, readOnly: false })),
+    } }, 'ingestNotebookPages')
+  }
+
+  async saveNotebookDraft(notebookId: NotebookId, bodyMarkdown: string): Promise<Notebook> {
+    const draft = parseNotebookDraft(bodyMarkdown)
+    return this.notebookMutation('SaveNotebookDraft', `
+      mutation SaveNotebookDraft($input: SaveNotebookDraftInput!) {
+        saveNotebookDraft(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt tags {
+            provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt }
+          } }
+        }
+      }
+    `, { input: { notebookId, title: draft.title || 'Untitled notebook', bodies: draft.notes.map((note) => note.bodyMarkdown) } }, 'saveNotebookDraft')
+  }
+
+  async deleteNotebook(notebookId: NotebookId): Promise<void> {
+    const data = await this.request<{ deleteNotebook: { result: ControlResult } }>('DeleteNotebook', `
+      mutation DeleteNotebook($notebookId: String!) {
+        deleteNotebook(notebookId: $notebookId) { result { accepted status diagnostics } }
+      }
+    `, { notebookId })
+    ensureAccepted(data.deleteNotebook.result)
+  }
+
+  async createNote(notebookId: NotebookId, bodyMarkdown: string): Promise<Note> {
+    const payload = await this.mutation('CreateNote', `
+      mutation CreateNote($input: CreateNoteInput!) {
+        createNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
+        }
+      }
+    `, { input: { notebookId, bodyMarkdown, provenance: 'human', assignedBy: 'kaiba-web' } }, 'createNote')
+    if (!payload.note) throw new NoteTransportError('The server did not return the saved note.', 'result')
+    return payload.note
+  }
+
+  async recognizeDocumentPage(noteId: NoteId): Promise<Note> {
+    const payload = await this.mutation('RecognizeDocumentPage', `
+      mutation RecognizeDocumentPage($noteId: String!) {
+        recognizeDocumentPage(noteId: $noteId) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
+        }
+      }
+    `, { noteId }, 'recognizeDocumentPage')
+    if (!payload.note) throw new NoteTransportError('The server did not return the recognized page.', 'result')
+    return payload.note
+  }
+
+  async updateNote(noteId: NoteId, bodyMarkdown: string): Promise<Note> {
+    const payload = await this.mutation('UpdateNote', `
+      mutation UpdateNote($input: UpdateNoteInput!) {
+        updateNote(input: $input) {
+          result { accepted status diagnostics }
+          note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} }
+        }
+      }
+    `, { input: { noteId, bodyMarkdown } }, 'updateNote')
+    if (!payload.note) throw new NoteTransportError('The server did not return the updated note.', 'result')
+    return payload.note
+  }
+
+  async applyTagById(notebookId: NotebookId, tagId: TagId): Promise<Notebook> {
+    return this.notebookMutation('ApplyNotebookTagIds', `
+      mutation ApplyNotebookTagIds($input: ApplyNotebookTagIdsInput!) {
+        applyNotebookTagIds(input: $input) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, { input: { notebookId, tagIds: [tagId], provenance: 'human', assignedBy: 'kaiba-web' } }, 'applyNotebookTagIds')
+  }
+
+  async removeTagById(notebookId: NotebookId, tagId: TagId): Promise<Notebook> {
+    return this.notebookMutation('RemoveNotebookTagById', `
+      mutation RemoveNotebookTagById($notebookId: String!, $tagId: String!, $provenance: String) {
+        removeNotebookTagById(notebookId: $notebookId, tagId: $tagId, provenance: $provenance) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, { notebookId, tagId, provenance: 'human' }, 'removeNotebookTagById')
+  }
+
+  async rebuildNotebookSearchIndex(notebookId: NotebookId): Promise<ControlResult> {
+    const data = await this.request<{ rebuildNotebookSearchIndex: { result: ControlResult } }>('RebuildNotebookSearchIndex', `
+      mutation RebuildNotebookSearchIndex($notebookId: String!) {
+        rebuildNotebookSearchIndex(notebookId: $notebookId) { result { accepted status diagnostics } }
+      }
+    `, { notebookId })
+    ensureAccepted(data.rebuildNotebookSearchIndex.result)
+    return data.rebuildNotebookSearchIndex.result
+  }
+
+  async renameNotebook(notebookId: NotebookId, title: string): Promise<Notebook> {
+    return this.notebookMutation('RenameNotebook', `
+      mutation RenameNotebook($notebookId: String!, $title: String!) {
+        renameNotebook(notebookId: $notebookId, title: $title) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, { notebookId, title }, 'renameNotebook')
+  }
+
+  async setNotebookReadOnly(notebookId: NotebookId, readOnly: boolean): Promise<Notebook> {
+    return this.notebookMutation('SetNotebookReadOnly', `
+      mutation SetNotebookReadOnly($notebookId: String!, $readOnly: Boolean!) {
+        setNotebookReadOnly(notebookId: $notebookId, readOnly: $readOnly) {
+          result { accepted status diagnostics }
+          notebook { notebookId type title readOnly createdAt updatedAt firstNotePreview noteCount tags { provenance assignedBy deletable createdAt tag { tagId name classId parentTagId isSystem createdAt } } }
+        }
+      }
+    `, { notebookId, readOnly }, 'setNotebookReadOnly')
+  }
+
+  async searchNotes(input: {
+    query: string
+    tagFilter?: string[]
+    classFilter?: string[]
+    notebookId?: NotebookId
+    sort?: string
+    createdAfter?: string
+    createdBefore?: string
+    includeLinked?: boolean
+    limit?: number
+    offset?: number
+  }): Promise<NoteSearchResult[]> {
+    return this.queryValue<{ searchNotes: QueryPayload<NoteSearchResult[]> }, NoteSearchResult[]>('SearchNotes', `
+      query SearchNotes($query: String!, $tagFilter: [String!], $classFilter: [String!], $notebookId: String, $sort: NoteListSort, $createdAfter: String, $createdBefore: String, $includeLinked: Boolean, $limit: Int, $offset: Int) {
+        searchNotes(query: $query, tagFilter: $tagFilter, classFilter: $classFilter, notebookId: $notebookId, sort: $sort, createdAfter: $createdAfter, createdBefore: $createdBefore, includeLinked: $includeLinked, limit: $limit, offset: $offset) {
+          result { accepted status diagnostics }
+          value { snippet rank isLinkedNeighbor termCoverage note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} } matchedTags { tagId name classId parentTagId isSystem createdAt } }
+        }
+      }
+    `, {
+      query: input.query,
+      tagFilter: input.tagFilter ?? [],
+      classFilter: input.classFilter ?? [],
+      ...(input.notebookId ? { notebookId: input.notebookId } : {}),
+      ...(input.sort ? { sort: input.sort } : {}),
+      ...(input.createdAfter ? { createdAfter: input.createdAfter } : {}),
+      ...(input.createdBefore ? { createdBefore: input.createdBefore } : {}),
+      includeLinked: input.includeLinked ?? false,
+      limit: input.limit ?? 20,
+      offset: input.offset ?? 0,
+    }, (data) => data.searchNotes)
+  }
+
+  async searchEngineCapability(): Promise<boolean> {
+    const data = await this.request<{
+      searchEngineCapability: { result: ControlResult; enabled: boolean }
+    }>('SearchEngineCapability', `
+      query SearchEngineCapability {
+        searchEngineCapability { result { accepted status diagnostics } enabled }
+      }
+    `, {})
+    const payload = data.searchEngineCapability
+    return Boolean(payload?.result.accepted && payload.enabled)
+  }
+
+  async engineSearchNotes(input: {
+    query: string
+    notebookId?: NotebookId
+    tagFilter?: string[]
+    tagClassFilter?: string[]
+    expandOntology?: boolean
+    facets?: boolean
+    limit?: number
+    offset?: number
+  }): Promise<EngineSearchPage> {
+    const data = await this.request<{
+      engineSearchNotes: QueryPayload<EngineNoteHit[]> & { facets: EngineSearchPage['facets'] }
+    }>('EngineSearchNotes', `
+      query EngineSearchNotes($query: String!, $notebookId: String, $tagFilter: [String!], $tagClassFilter: [String!], $expandOntology: Boolean, $facets: Boolean, $limit: Int, $offset: Int) {
+        engineSearchNotes(query: $query, notebookId: $notebookId, tagFilter: $tagFilter, tagClassFilter: $tagClassFilter, expandOntology: $expandOntology, facets: $facets, limit: $limit, offset: $offset) {
+          result { accepted status diagnostics }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} } }
+          facets { tagClasses { value count } tags { tagId name tagClass count } }
+        }
+      }
+    `, {
+      query: input.query,
+      ...(input.notebookId ? { notebookId: input.notebookId } : {}),
+      ...(input.tagFilter?.length ? { tagFilter: input.tagFilter } : {}),
+      ...(input.tagClassFilter?.length ? { tagClassFilter: input.tagClassFilter } : {}),
+      ...(input.expandOntology !== undefined ? { expandOntology: input.expandOntology } : {}),
+      ...(input.facets !== undefined ? { facets: input.facets } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      ...(input.offset !== undefined ? { offset: input.offset } : {}),
+    })
+    const payload = data.engineSearchNotes
+    if (!payload) throw new NoteTransportError('GraphQL response omitted engineSearchNotes.', 'graphql')
+    ensureAccepted(payload.result)
+    return { hits: payload.value ?? [], facets: payload.facets ?? null }
+  }
+
+  async relatedNotes(noteId: NoteId, limit = 8): Promise<EngineNoteHit[]> {
+    return this.queryValue<{
+      relatedNotes: QueryPayload<EngineNoteHit[]>
+    }, EngineNoteHit[]>('RelatedNotes', `
+      query RelatedNotes($noteId: String!, $limit: Int) {
+        relatedNotes(noteId: $noteId, limit: $limit) {
+          result { accepted status diagnostics }
+          value { snippet score reasons { kind tags } note { noteId notebookId noteNumber title bodyMarkdown readOnly createdAt updatedAt metaJSON ${documentPageSelection} } }
+        }
+      }
+    `, { noteId, limit }, (data) => data.relatedNotes)
+  }
+
+  async searchEngineSettings(): Promise<SearchEngineSettings | null> {
+    let payload: QueryPayload<SearchEngineSettings | null> | undefined
+    try {
+      const data = await this.request<{ searchEngineSettings?: QueryPayload<SearchEngineSettings | null> }>(
+        'SearchEngineSettings',
+        `query SearchEngineSettings { searchEngineSettings { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes } active } } }`,
+        {},
+      )
+      payload = data.searchEngineSettings
+    } catch (error) {
+      if (error instanceof NoteTransportError && error.kind === 'graphql') return null
+      throw error
+    }
+    if (!payload || !payload.result.accepted) return null
+    return payload.value ?? null
+  }
+
+  async updateSearchEngineSettings(input: SearchEngineSettingsInput): Promise<SearchEngineSettings> {
+    return this.queryValue<{ updateSearchEngineSettings: QueryPayload<SearchEngineSettings> }, SearchEngineSettings>(
+      'UpdateSearchEngineSettings',
+      `mutation UpdateSearchEngineSettings($input: SearchEngineSettingsInput!) { updateSearchEngineSettings(input: $input) { result { accepted status diagnostics } value { managedBy kind url indexPrefix authMode username hasSecret verifyTLS requestTimeoutSeconds adapters { kind displayName authModes } active } } }`,
+      { input: { ...input } },
+      (data) => data.updateSearchEngineSettings,
+    )
+  }
+
+  async testSearchEngineConnection(input: SearchEngineSettingsInput): Promise<SearchEngineConnectionTestResult> {
+    return this.queryValue<{ testSearchEngineConnection: QueryPayload<SearchEngineConnectionTestResult> }, SearchEngineConnectionTestResult>(
+      'TestSearchEngineConnection',
+      `mutation TestSearchEngineConnection($input: SearchEngineSettingsInput!) { testSearchEngineConnection(input: $input) { result { accepted status diagnostics } value { available status detail } } }`,
+      { input: { ...input } },
+      (data) => data.testSearchEngineConnection,
+    )
+  }
+
+  /** Agentic search: the configured agent answers the question, grounded in a
+   * grep pass and (for command-running agents) its own kaiba CLI searches.
+   * Slow by nature — expect seconds to minutes. */
+  async agenticSearch(input: {
+    query: string
+    notebookId?: NotebookId
+    limit?: number
+  }): Promise<AgenticSearchResult> {
+    const data = await this.request<{ agenticSearch: AgenticSearchResult & { result: ControlResult } }>('AgenticSearch', `
+      query AgenticSearch($query: String!, $notebookId: String, $limit: Int) {
+        agenticSearch(query: $query, notebookId: $notebookId, limit: $limit) {
+          result { accepted status diagnostics }
+          status
+          answerMarkdown
+        }
+      }
+    `, {
+      query: input.query,
+      ...(input.notebookId ? { notebookId: input.notebookId } : {}),
+      limit: input.limit ?? 20,
+    })
+    const payload = data.agenticSearch
+    if (!payload) throw new NoteTransportError('GraphQL response omitted agenticSearch.', 'graphql')
+    ensureAccepted(payload.result)
+    return { status: payload.status, answerMarkdown: payload.answerMarkdown ?? null }
+  }
+
+  /** One long poll of the agent reply chunk stream for a pending chat turn.
+   * `cursor` is an opaque server-issued resume token. */
+  async pollAgentReplyStream(
+    turnNoteId: NoteId,
+    cursor: number,
+    timeoutMs = 25_000,
+  ): Promise<AgentReplyStreamPoll> {
+    const parameters = new URLSearchParams({
+      turn: turnNoteId,
+      cursor: String(cursor),
+      timeoutMs: String(timeoutMs),
+    })
+    let response: Response
+    try {
+      response = await this.environment.request(`/note/agent-stream?${parameters.toString()}`, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: this.streamHeaders(),
+      })
+    } catch (error) {
+      throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
+    }
+    const value = await parseJSON<Partial<AgentReplyStreamPoll> & { error?: string }>(response)
+    if (!response.ok) {
+      throw new NoteTransportError(value.error ?? `Stream poll failed (${response.status}).`, 'http', response.status)
+    }
+    return {
+      cursor: typeof value.cursor === 'number' ? value.cursor : cursor,
+      chunks: Array.isArray(value.chunks) ? value.chunks.filter((chunk): chunk is string => typeof chunk === 'string') : [],
+      done: value.done === true,
+      status: typeof value.status === 'string' ? value.status : null,
+      message: typeof value.message === 'string' ? value.message : null,
+      resync: value.resync === true,
+    }
+  }
+
+  async removeNoteTag(noteId: NoteId, tagName: string): Promise<void> {
+    const data = await this.request<{ removeNoteTag: { result: { accepted: boolean; status: string; diagnostics: string[] } } }>('RemoveNoteTag', `
+      mutation RemoveNoteTag($noteId: String!, $tagName: String!) {
+        removeNoteTag(noteId: $noteId, tagName: $tagName, provenance: "human") { result { accepted status diagnostics } }
+      }
+    `, { noteId, tagName })
+    ensureAccepted(data.removeNoteTag.result)
+  }
+
+  async applyNoteTag(noteId: NoteId, tagName: string, classId?: TagClassId): Promise<void> {
+    const data = await this.request<{ applyNoteTags: { result: { accepted: boolean; status: string; diagnostics: string[] } } }>('ApplyNoteTags', `
+      mutation ApplyNoteTags($input: ApplyNoteTagsInput!) {
+        applyNoteTags(input: $input) { result { accepted status diagnostics } }
+      }
+    `, { input: { noteId, tags: [{ name: tagName, ...(classId ? { classId } : {}) }], provenance: 'human', assignedBy: 'kaiba-web' } })
+    ensureAccepted(data.applyNoteTags.result)
+  }
+
+  private async notebookMutation(
+    operationName: string,
+    query: string,
+    variables: Record<string, unknown>,
+    field: string,
+  ): Promise<Notebook> {
+    const payload = await this.mutation(operationName, query, variables, field)
+    if (!payload.notebook) throw new NoteTransportError('The server did not return the notebook.', 'result')
+    return normalizeNotebook(payload.notebook)
+  }
+
+  private async mutation(
+    operationName: string,
+    query: string,
+    variables: Record<string, unknown>,
+    field: string,
+  ): Promise<MutationPayload> {
+    const data = await this.request<Record<string, MutationPayload>>(operationName, query, variables)
+    const payload = data[field]
+    if (!payload) throw new NoteTransportError(`GraphQL response omitted ${field}.`, 'graphql')
+    ensureAccepted(payload?.result)
+    return payload
+  }
+
+  private async queryValue<Data, Value>(
+    operationName: string,
+    query: string,
+    variables: Record<string, unknown>,
+    select: (data: Data) => QueryPayload<Value>,
+  ): Promise<Value> {
+    const payload = select(await this.request<Data>(operationName, query, variables))
+    ensureAccepted(payload.result)
+    return payload.value
+  }
+
+  private async request<T>(
+    operationName: string,
+    query: string,
+    variables: Record<string, unknown>,
+  ): Promise<T> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    // Send the bearer when registered; without one the request still goes
+    // out so a `kaiba serve --allow-unauthenticated` host works, and an
+    // auth-required host answers 401 with a registration hint.
+    const bearer = this.readBearer()
+    if (bearer) headers.Authorization = `Bearer ${bearer}`
+    let response: Response
+    try {
+      response = await this.environment.request('/graphql', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers,
+        body: JSON.stringify({ query, variables, operationName }),
+      })
+    } catch (error) {
+      throw new NoteTransportError(error instanceof Error ? error.message : String(error), 'network')
+    }
+    const envelope = await parseJSON<GraphQLEnvelope<T>>(response)
+    if (response.status === 401) this.dropBearer()
+    if (!response.ok) {
+      throw new NoteTransportError(envelope.error ?? `Request failed (${response.status}).`, 'http', response.status)
+    }
+    if (envelope.errors?.length) {
+      throw new NoteTransportError(envelope.errors.map((error) => error.message).join('; '), 'graphql')
+    }
+    if (!envelope.data) throw new NoteTransportError('GraphQL response did not include data.', 'graphql')
+    return envelope.data
+  }
+}
+
+function normalizeNotebook(notebook: Notebook): Notebook {
+  const type = notebook.type ?? (notebook.tags.some(
+    (assignment) => assignment.tag.name === 'notebook-kind:agent-conversation',
+  ) ? 'AGENT_CHAT' : 'DOCUMENT')
+  return { ...notebook, type, readOnly: Boolean(notebook.readOnly) }
+}
+
+// The credential lives in localStorage, not sessionStorage: a registration
+// code is single-use, expires in 300 seconds and is printed only at server
+// startup, so a per-tab credential would strand every new tab.
+function browserEnvironment(): NoteClientEnvironment {
+  return {
+    request: serverRequest,
+    getStoredItem: (key) => localStorage.getItem(key),
+    setStoredItem: (key, value) => localStorage.setItem(key, value),
+    removeStoredItem: (key) => localStorage.removeItem(key),
+    currentURL: () => window.location.href,
+    replaceURL: (value) => history.replaceState(null, '', value),
+  }
+}
+
+function ensureAccepted(result?: { accepted: boolean; diagnostics: string[]; status: string }): void {
+  if (result?.accepted) return
+  throw new NoteTransportError(
+    result?.diagnostics.join('; ') || result?.status || 'Note operation failed.',
+    'result',
+    undefined,
+    result?.status,
+  )
+}
+
+async function parseJSON<T>(response: Response): Promise<T> {
+  const text = await response.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new NoteTransportError('The server returned invalid JSON.', 'http', response.status)
+  }
+}
+
+/** The typed page descriptor of an imported document page (Original/OCR
+ * versions); null for ordinary notes. */
+const documentPageSelection = `documentPage {
+  pageNumber originFileId originMediaType textExtractionMode textStatus textSource
+  analysis { isDocument language writingMode binding title }
+}`
+
+const userAgentCredentialSelection = `
+          result { accepted status diagnostics }
+          featureEnabled
+          customBaseURLAllowed
+          providers
+          credential { provider keyHint baseURL defaultModel enabled updatedAt }
+`
+
+function unwrapUserAgentCredential(
+  payload: (UserAgentCredentialState & { result: ControlResult }) | undefined,
+  field: string,
+): UserAgentCredentialState {
+  if (!payload) throw new NoteTransportError(`GraphQL response omitted ${field}.`, 'graphql')
+  ensureAccepted(payload.result)
+  return {
+    featureEnabled: payload.featureEnabled,
+    customBaseURLAllowed: payload.customBaseURLAllowed,
+    providers: payload.providers,
+    credential: payload.credential ?? null,
+  }
+}

@@ -1,0 +1,354 @@
+import type { CommentId, FileId, NoteId, NotebookId, TagClassId, TagId } from './ids'
+
+export type NoteListSort = 'updatedAtDesc' | 'title' | 'createdAtDesc' | 'createdAtAsc'
+
+export interface ControlResult {
+  accepted: boolean
+  status: string
+  diagnostics: string[]
+}
+
+export interface NoteTag {
+  tagId: TagId
+  name: string
+  classId: TagClassId | null
+  parentTagId: TagId | null
+  isSystem: boolean
+  createdAt: string
+}
+
+export interface NoteTagClass {
+  classId: TagClassId
+  label: string
+  description: string | null
+}
+
+export interface NoteTagAssignment {
+  tag: NoteTag
+  provenance: string
+  assignedBy: string | null
+  deletable: boolean
+  createdAt: string
+}
+
+export interface Notebook {
+  type: 'DOCUMENT' | 'AGENT_CHAT'
+  notebookId: NotebookId
+  title: string
+  readOnly: boolean
+  createdAt: string
+  updatedAt: string
+  tags: NoteTagAssignment[]
+  firstNotePreview?: string | null
+  noteCount?: number | null
+}
+
+export interface Note {
+  noteId: NoteId
+  notebookId: NotebookId
+  noteNumber: number
+  title: string | null
+  bodyMarkdown: string
+  readOnly: boolean
+  createdAt: string
+  updatedAt: string
+  /** Present on the single-note query and on chat turn notes. */
+  metaJSON?: string | null
+  /** Set for an imported document page; its Original and OCR versions. */
+  documentPage?: DocumentPage | null
+  tags?: NoteTagAssignment[]
+}
+
+/** An imported physical page (`document_pages`). The extracted text (OCR
+ * version) is loaded separately with `documentPageText`. */
+export interface DocumentPage {
+  pageNumber: number
+  originFileId: FileId
+  originMediaType: string
+  textExtractionMode: 'prefer-pdf-text' | 'ocr-only' | null
+  textStatus: 'pending' | 'complete'
+  textSource: 'pdf-text' | 'ocr' | null
+  analysis: {
+    isDocument: boolean | null
+    language: string | null
+    writingMode: string
+    binding: string
+    title: string | null
+  }
+}
+
+/** The Translated version of a note in one language. */
+export interface NoteTranslation {
+  noteId: NoteId
+  language: string
+  body: string
+  isCurrent: boolean
+  updatedAt: string
+}
+
+/** A file stored for a note attachment. Only the fields the web reader needs
+ * are queried; bytes are served separately via `GET /files/<fileId>`. */
+export interface NoteFileRecord {
+  fileId: FileId
+  storageKind: string
+  mediaType: string
+  byteSize: number
+  sha256: string
+  originalFilename: string | null
+  createdAt: string
+}
+
+/** A file attached to a note. Role "source-page-image" is a captured page of
+ * the imported source document (position = 1-based page number); role
+ * "embedded" is an image that appeared on those pages. */
+export interface NoteFileAttachment {
+  noteId: NoteId
+  file: NoteFileRecord
+  role: string
+  position: number
+}
+
+export interface NotebookFileAttachment {
+  notebookId: NotebookId
+  file: NoteFileRecord
+  role: string
+}
+
+/** A memo: anchored to a note (`noteId` set) or to a whole notebook
+ * (`noteId` null); `notebookId` names the containing notebook either way. */
+export interface NoteComment {
+  commentId: CommentId
+  noteId: NoteId | null
+  notebookId?: NotebookId | null
+  bodyMarkdown: string
+  author: string
+  createdAt: string
+}
+
+/** A tag sharing notes with another tag, with the number of notes they share
+ * (design-docs/specs/note-capture-and-entity-pages.md, E4). */
+export interface TagCoOccurrence {
+  tag: NoteTag
+  noteCount: number
+}
+
+/** Cross-notebook tag detail (design-docs/specs/tag-detail-pane.md), extended
+ * with the entity-page fields (note-capture-and-entity-pages.md, E1/E4/E6). */
+export interface TagDetail {
+  tag: NoteTag
+  tagClass: NoteTagClass | null
+  noteCount: number
+  notebookCount: number
+  /** The tag's memo/chat notebook, once one has been created. */
+  memoNotebookId: NotebookId | null
+  /** The note designated as this tag's description, null when nothing is
+   * bound and when the binding points at a note outside the caller's reach —
+   * an entity header must not disclose a note the caller cannot open. */
+  canonicalNote: Note | null
+  /** Tags sharing notes with this one, most shared notes first, without the
+   * organizational (system kind and folder-class) tags. */
+  coOccurringTags: TagCoOccurrence[]
+}
+
+/** The `201` body of `POST /note/capture` (design-docs/specs/
+ * note-capture-and-entity-pages.md, C6): the quick memo the server wrote and
+ * the singleton Quick Memos notebook it resolved for this account. */
+export interface NoteCaptureResult {
+  noteId: NoteId
+  notebookId: NotebookId
+  noteNumber: number
+}
+
+/** A memo in a tag's cross-notebook history, attributed with the titles of
+ * its anchoring note/notebook. */
+export interface TagComment {
+  comment: NoteComment
+  noteTitle: string | null
+  notebookTitle: string | null
+}
+
+export interface NoteGraphNeighbor {
+  seedNoteId: NoteId
+  note: Note
+  edgeKind: string
+  weight: number
+  hopCount: number
+  pathNoteIds: NoteId[]
+}
+
+export interface AgentConversation {
+  notebookId: NotebookId
+  title: string
+  updatedAt: string
+  turnCount: number
+  /** Null for a notebook-scoped conversation (started with no note selected). */
+  subjectNoteId: NoteId | null
+  subjectNotebookId?: NotebookId | null
+}
+
+export interface AgenticSearchResult {
+  /** "ok", "agent-unavailable", or "failed". */
+  status: string
+  answerMarkdown: string | null
+}
+
+/** One long-poll response of the agent reply chunk stream. */
+export interface AgentReplyStreamPoll {
+  cursor: number
+  chunks: string[]
+  done: boolean
+  status: string | null
+  message: string | null
+  /** The server evicted retained chunks; refresh the durable conversation. */
+  resync: boolean
+}
+
+export interface AgentChatMessageResult {
+  conversationNotebookId: NotebookId | null
+  turnNoteId: NoteId | null
+  agentStatus: string
+}
+
+export interface AgentChatAttachmentInput {
+  contentBase64: string
+  mediaType: string
+  originalFilename: string
+}
+
+export interface AgentModel {
+  modelId: string
+  displayName?: string | null
+  description?: string | null
+}
+
+export interface AgentModelsResult {
+  providers?: string[]
+  configuredProvider?: string | null
+  models: AgentModel[]
+  discoveryAvailable: boolean
+  configuredModel: string | null
+}
+
+/** Personal-agent credential as the server reports it: the key itself is
+ * write-only, only its last four characters come back as `keyHint`. */
+export interface UserAgentCredentialSummary {
+  provider: string
+  keyHint: string
+  baseURL: string | null
+  defaultModel: string
+  enabled: boolean
+  updatedAt: string
+}
+
+export interface UserAgentCredentialState {
+  featureEnabled: boolean
+  customBaseURLAllowed: boolean
+  providers: string[]
+  credential: UserAgentCredentialSummary | null
+}
+
+export interface SetUserAgentCredentialInput {
+  provider: string
+  apiKey: string
+  defaultModel: string
+  baseURL?: string | null
+  enabled?: boolean
+}
+
+export interface EngineNoteHit {
+  note: Note
+  snippet: string
+  score: number
+  reasons: EngineHitReason[]
+}
+
+export interface EngineHitReason {
+  kind: string
+  tags: string[]
+}
+
+export interface EngineSearchFacets {
+  tagClasses: Array<{ value: string; count: number }>
+  tags: Array<{ tagId: string; name: string; tagClass: string | null; count: number }>
+}
+
+export interface EngineSearchPage {
+  hits: EngineNoteHit[]
+  facets: EngineSearchFacets | null
+}
+
+export interface SearchEngineAdapterDescriptor {
+  kind: string
+  displayName: string
+  authModes: string[]
+}
+
+export interface SearchEngineSettings {
+  managedBy: string
+  kind: string
+  /** Null with a non-none kind means the server default. */
+  url: string | null
+  indexPrefix: string | null
+  authMode: string
+  username: string | null
+  hasSecret: boolean
+  verifyTLS: boolean
+  requestTimeoutSeconds: number
+  adapters: SearchEngineAdapterDescriptor[]
+  active: boolean
+}
+
+export interface SearchEngineSettingsInput {
+  kind: string
+  url?: string | null
+  indexPrefix?: string | null
+  authMode?: string | null
+  username?: string | null
+  secret?: string
+  clearSecret?: boolean
+  verifyTLS?: boolean
+  requestTimeoutSeconds?: number
+}
+
+export interface SearchEngineConnectionTestResult {
+  available: boolean
+  status: string
+  detail: string
+}
+
+export interface NoteSearchResult {
+  note: Note
+  snippet: string
+  rank: number
+  matchedTags: NoteTag[]
+  isLinkedNeighbor: boolean
+  /** 1 when every query term matched; a fraction for a relaxed (partial) hit. */
+  termCoverage: number
+}
+
+export interface QueryPayload<T> {
+  result: ControlResult
+  value: T
+}
+
+export interface MutationPayload {
+  note?: Note | null
+  result: ControlResult
+  notebook?: Notebook | null
+  tag?: NoteTag | null
+  comment?: NoteComment | null
+}
+
+export interface GraphQLEnvelope<T> {
+  data?: T
+  errors?: Array<{ message: string }>
+  error?: string
+}
+
+export interface NoteLink {
+  fromNoteId: NoteId
+  toNoteId: NoteId
+  linkKind: string
+  provenance: string
+  createdAt: string
+}

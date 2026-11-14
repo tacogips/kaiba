@@ -1,0 +1,20 @@
+.connection-explanation { margin: .35rem 0 .6rem; color: var(--muted, #777); font-size: .8rem; line-height: 1.5; }
+.note-destination { position: relative; display: flex; align-items: flex-start; gap: .25rem; }
+.link-list .note-destination > .note-destination-open { flex: 1; min-width: 0; display: grid; gap: .25rem; text-align: start; }
+.link-list .note-destination > .note-preview-trigger { flex: none; width: 1.8rem; min-width: 1.8rem; padding: .3rem; }
+.link-destination { display: block; overflow-wrap: anywhere; color: var(--muted, #777); font-size: .8rem; }
+.link-relationship { display: block; white-space: normal; overflow-wrap: anywhere; }
+.note-link-preview { position: fixed; z-index: 160; display: flex; flex-direction: column; width: min(400px, calc(100vw - 16px)); max-height: min(500px, calc(100dvh - 16px)); box-sizing: border-box; padding: .85rem; border: 1px solid var(--chatbook-border, #80808060); border-radius: .5rem; background: var(--surface, #fff); color: var(--ink, #222); box-shadow: 0 8px 28px #0003; }
+.note-link-preview > header { display: flex; align-items: flex-start; gap: .75rem; justify-content: space-between; }
+.note-link-preview > header > div { min-width: 0; overflow-wrap: anywhere; }
+.note-link-preview > header p { margin: .3rem 0; font-size: .8rem; color: var(--muted, #777); }
+.note-link-preview > header button { flex: none; }
+.note-link-preview .link-preview-reason { margin: .3rem 0 .65rem; font-size: .8rem; overflow-wrap: anywhere; }
+.note-link-preview-content { min-height: 0; overflow: auto; flex: 1; overscroll-behavior: contain; font-size: .9rem; }
+.note-link-preview-content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.55; margin: 0; }
+.note-link-preview-content img { max-width: 100%; height: auto; }
+.note-link-preview .pdf-viewer-stage { min-height: 0; max-height: 320px; }
+.note-link-preview .pdf-viewer-frame { min-height: 0; }
+.note-link-preview > footer { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .75rem; }
+
+.note-link-preview > header .workspace-icon { display: inline-flex; align-items: center; justify-content: center; width: 2rem; min-width: 2rem; height: 2rem; min-height: 2rem; padding: .3rem; background: transparent; color: inherit; border: 1px solid var(--chatbook-border, #80808060); }
