@@ -1,0 +1,6 @@
+.chatbook .app-toast { display: flex; align-items: center; gap: .75rem; color: var(--green-ink); border-color: var(--green-line); background: var(--green-soft); }
+.chatbook .app-toast.app-toast-error { color: var(--danger-ink); border-color: var(--danger-line); background: var(--danger-surface); }
+.app-toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.app-toast-actions { display: flex; align-items: center; flex-shrink: 0; gap: .25rem; }
+.chatbook .app-toast button.workspace-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 30px; min-height: 30px; padding: .25rem !important; color: inherit; background: transparent; border-color: transparent; }
+.chatbook .app-toast button.workspace-icon:hover { color: inherit; background: #0000000a; }

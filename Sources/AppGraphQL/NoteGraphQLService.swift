@@ -1,0 +1,946 @@
+import Foundation
+
+import AppCore
+
+typealias NotebookIngestCompletionMutation = @Sendable (
+  NoteService,
+  NotebookIngestRequestIdentity,
+  NotebookIngestResult,
+  String,
+  Bool,
+  AutoActionID?
+) throws -> Void
+
+typealias NotebookIngestRecoveryMutation = @Sendable (
+  NoteService,
+  NotebookIngestRequestIdentity,
+  NotebookIngestResult,
+  String,
+  Bool,
+  AutoActionID?
+) throws -> Void
+
+typealias NotebookIngestClaimObserver = @Sendable (NotebookIngestRequestClaim) -> Void
+
+// Mirrors riela's InlineWorkflowAddonAttachmentProjector.maxAttachmentBytes;
+// kaiba carries the bound directly since it has no workflow addon layer.
+private let graphQLNoteMaxInlineFileBytes = 8 * 1024 * 1024
+
+public struct GraphQLNoteQueryResult<Value: Codable & Equatable & Sendable>: Codable, Equatable, Sendable {
+  public var result: GraphQLControlPlaneResult
+  public var value: Value?
+
+  public init(result: GraphQLControlPlaneResult, value: Value? = nil) {
+    self.result = result
+    self.value = value
+  }
+}
+
+public struct GraphQLNoteGraphQLService: Sendable {
+  public var service: NoteService
+  public var documentMaximumOCRPages: DocumentOCRPageLimit
+  public var documentTextExtractionMode: PDFTextExtractionMode
+  public var documentPageRecognizer: any DocumentPageRecognizing
+  public var documentPageAnalyzer: (any DocumentPageAnalyzing)?
+  /// When set, `agenticSearch` runs synchronously against this agent runtime;
+  /// nil reports `agent-unavailable` (mirrors every other AI surface).
+  public var agentInvoker: (any AgentInvoking)?
+  public var agentProvider: String?
+  public var agentModel: String?
+  /// Receives one sanitized line for each failed `agenticSearch` request.
+  public var agenticSearchFailureLog: @Sendable (String) -> Void = {
+    FileHandle.standardError.write(Data(($0 + "\n").utf8))
+  }
+  /// Server-only model discovery; its result never exposes credentials or paths.
+  public var agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)?
+  /// Shared by copies of this request service so concurrent model queries use
+  /// one bounded catalog refresh instead of each starting a gateway process.
+  public var agentModelCatalogCache: AgentModelCatalogCache
+  /// Personal-agent policy (`design-docs/specs/user-agent-tools.md`): gates
+  /// the credential surface and the per-user model reported by `agentModels`.
+  public var userAgentConfiguration: KaibaUserAgentConfiguration
+  /// Internal fault-injection seam for post-create ingest reconciliation.
+  /// Production always delegates directly to `NoteService.setReadOnly`.
+  var ingestReadOnlyMutation: @Sendable (NoteService, NoteID, Bool) throws -> Note
+  /// Internal test seam for the page-attachment phase of a pending ingest.
+  var ingestNoteAttachmentMutation: @Sendable (
+    NoteService, NoteID, Data, NoteFileRole, String, String?, Int
+  ) throws -> NoteFileAttachment
+  /// Internal fault-injection seam for authoritative post-create ingest reads.
+  /// Production always delegates directly to `NoteService.getNote`.
+  var ingestNoteReadback: @Sendable (NoteService, NoteID) throws -> Note
+  /// Internal fault-injection seam for the terminal reveal transaction.
+  var ingestCompletionMutation: NotebookIngestCompletionMutation
+  /// Internal fault-injection seam for durable terminal-recovery persistence.
+  var ingestRecoveryMutation: NotebookIngestRecoveryMutation
+  /// Internal test seam proving request validation finishes before the durable claim.
+  var ingestClaimObserver: NotebookIngestClaimObserver
+  /// Pending duplicate requests use release notification plus bounded fallback
+  /// backoff so disconnect cancellation cannot leave a hot SQLite poller.
+  var ingestClaimMaximumWait: Duration
+  var ingestClaimInitialBackoff: Duration
+  var ingestClaimMaximumBackoff: Duration
+  /// Internal fault-injection seam for a claimed request that fails before creation.
+  var ingestBeforeNotebookCreation: @Sendable () throws -> Void
+  /// Internal test seam after successful pre-create abandonment has released ownership.
+  var ingestAfterAbandonment: @Sendable () -> Void
+  /// Internal fault-injection seam after the atomic hidden-resource commit.
+  /// Throwing here models process loss before any reconciliation can run.
+  var ingestAfterNotebookCreation: @Sendable () throws -> Void
+  /// Internal fault-injection seam after attachment commits but before note
+  /// reconciliation, modeling a process stop later in the created state.
+  var ingestAfterAttachmentPhase: @Sendable () throws -> Void
+
+  public init(
+    service: NoteService,
+    agentInvoker: (any AgentInvoking)? = nil,
+    agentProvider: String? = nil,
+    agentModel: String? = nil,
+    agentModelCatalog: (@Sendable () async throws -> AgentGatewayModelCatalogResult)? = nil,
+    agentModelCatalogCache: AgentModelCatalogCache = AgentModelCatalogCache(),
+    userAgentConfiguration: KaibaUserAgentConfiguration = KaibaUserAgentConfiguration(),
+    documentPageRecognizer: any DocumentPageRecognizing = VisionDocumentPageRecognizer(),
+    documentPageAnalyzer: (any DocumentPageAnalyzing)? = nil,
+    documentMaximumOCRPages: DocumentOCRPageLimit = .first(3),
+    documentTextExtractionMode: PDFTextExtractionMode = .preferPDFText
+  ) {
+    self.service = service
+    self.documentMaximumOCRPages = documentMaximumOCRPages
+    self.documentTextExtractionMode = documentTextExtractionMode
+    self.documentPageRecognizer = documentPageRecognizer
+    self.documentPageAnalyzer = documentPageAnalyzer
+    self.agentInvoker = agentInvoker
+    self.agentProvider = agentProvider
+    self.agentModel = agentModel
+    self.agentModelCatalog = agentModelCatalog
+    self.agentModelCatalogCache = agentModelCatalogCache
+    self.userAgentConfiguration = userAgentConfiguration
+    self.ingestReadOnlyMutation = { service, noteId, readOnly in
+      try service.setReadOnly(noteId: noteId, readOnly: readOnly)
+    }
+    self.ingestNoteAttachmentMutation = { service, noteId, data, role, mediaType, originalFilename, position in
+      try service.attachFile(
+        noteId: noteId,
+        data: data,
+        role: role,
+        mediaType: mediaType,
+        originalFilename: originalFilename,
+        position: position
+      )
+    }
+    self.ingestNoteReadback = { service, noteId in
+      try service.getNote(noteId)
+    }
+    self.ingestCompletionMutation = { service, identity, ingest, resultJSON, enqueue, actionId in
+      try service.completeNotebookIngestRequest(
+        identity,
+        ingest: ingest,
+        resultJSON: resultJSON,
+        enqueueAutoActions: enqueue,
+        originatingActionId: actionId
+      )
+    }
+    self.ingestRecoveryMutation = { service, identity, ingest, resultJSON, enqueue, actionId in
+      try service.recordNotebookIngestRecovery(
+        identity,
+        ingest: ingest,
+        resultJSON: resultJSON,
+        enqueueAutoActions: enqueue,
+        originatingActionId: actionId
+      )
+    }
+    self.ingestClaimObserver = { _ in }
+    self.ingestClaimMaximumWait = .seconds(30)
+    self.ingestClaimInitialBackoff = .milliseconds(25)
+    self.ingestClaimMaximumBackoff = .milliseconds(500)
+    self.ingestBeforeNotebookCreation = {}
+    self.ingestAfterAbandonment = {}
+    self.ingestAfterNotebookCreation = {}
+    self.ingestAfterAttachmentPhase = {}
+  }
+
+  public func note(noteId: NoteID) async -> GraphQLNoteQueryResult<GraphQLNoteDTO> {
+    noteResult {
+      GraphQLNoteDTO(note: try service.getNote(noteId))
+    }
+  }
+
+  public func notebook(notebookId: NotebookID) async -> GraphQLNoteQueryResult<GraphQLNotebookDTO> {
+    noteResult {
+      GraphQLNotebookDTO(notebook: try service.getNotebook(notebookId))
+    }
+  }
+
+  public func notebooks(
+    limit: Int = 50,
+    offset: Int = 0,
+    tagFilterIdGroups: [[TagID]] = [],
+    sort: String? = nil,
+    createdAfter: String? = nil,
+    createdBefore: String? = nil
+  ) async -> GraphQLNoteQueryResult<[GraphQLNotebookDTO]> {
+    noteResult {
+      try service.listNotebooks(
+        limit: limit,
+        offset: offset,
+        tagFilterIdGroups: tagFilterIdGroups,
+        sort: try graphQLNoteListSort(sort),
+        createdAfter: createdAfter,
+        createdBefore: createdBefore
+      ).map(GraphQLNotebookDTO.init)
+    }
+  }
+
+  /// The libraries the request's caller may see. A caller with no credential
+  /// gets only the ones that require no authentication
+  /// (`design-docs/specs/library.md`).
+  public func libraries() async -> GraphQLNoteQueryResult<[GraphQLNoteLibraryDTO]> {
+    noteResult {
+      try service.listLibraries().map(GraphQLNoteLibraryDTO.init)
+    }
+  }
+
+  public func notes(
+    limit: Int = 50,
+    offset: Int = 0,
+    notebookId: NotebookID? = nil,
+    tagFilter: [String] = []
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteDTO]> {
+    noteResult {
+      try service.listNotes(
+        limit: limit,
+        offset: offset,
+        notebookId: notebookId,
+        tagFilter: tagFilter
+      ).map(GraphQLNoteDTO.init)
+    }
+  }
+
+  public func searchNotes(
+    query: String,
+    tagFilter: [String] = [],
+    classFilter: [String] = [],
+    notebookId: NotebookID? = nil,
+    sort: String? = nil,
+    createdAfter: String? = nil,
+    createdBefore: String? = nil,
+    includeLinked: Bool = false,
+    depth: Int = 1,
+    limit: Int = 20,
+    offset: Int = 0
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteSearchResultDTO]> {
+    if includeLinked {
+      do {
+        return await engineSeededSearchNotes(
+          query: query,
+          tagFilter: tagFilter,
+          classFilter: classFilter,
+          notebookId: notebookId,
+          sort: try graphQLNoteListSort(sort),
+          createdAfter: createdAfter,
+          createdBefore: createdBefore,
+          depth: depth,
+          limit: limit,
+          offset: offset
+        )
+      } catch {
+        return GraphQLNoteQueryResult(result: graphQLNoteResult(for: error))
+      }
+    }
+    return noteResult {
+      try service.searchNotes(
+        query: query,
+        tagFilter: tagFilter,
+        classFilter: classFilter,
+        notebookId: notebookId,
+        sort: try graphQLNoteListSort(sort),
+        createdAfter: createdAfter,
+        createdBefore: createdBefore,
+        includeLinked: false,
+        depth: depth,
+        limit: limit,
+        offset: offset
+      ).map(GraphQLNoteSearchResultDTO.init)
+    }
+  }
+
+  public func noteGraphNeighbors(
+    noteIds: [NoteID],
+    depth: Int = NoteGraphPolicy.defaultMaxDepth,
+    limit: Int = NoteGraphPolicy.defaultLimit
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteGraphNeighborDTO]> {
+    noteResult {
+      try service.graphNeighbors(noteIds: noteIds, maxDepth: depth, limit: limit)
+        .map(GraphQLNoteGraphNeighborDTO.init)
+    }
+  }
+
+  public func proposeNoteLinks(
+    noteId: NoteID,
+    limit: Int = 8
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteLinkProposalDTO]> {
+    noteResult {
+      try service.proposeLinks(noteId: noteId, limit: limit).map(GraphQLNoteLinkProposalDTO.init)
+    }
+  }
+
+  public func tags() async -> GraphQLNoteQueryResult<[GraphQLNoteTagDTO]> {
+    noteResult {
+      try service.listTags().map(GraphQLNoteTagDTO.init)
+    }
+  }
+
+  public func tagClasses() async -> GraphQLNoteQueryResult<[GraphQLNoteTagClassDTO]> {
+    noteResult {
+      try service.listTagClasses().map(GraphQLNoteTagClassDTO.init)
+    }
+  }
+
+  public func noteFile(fileId: FileID) async -> GraphQLNoteQueryResult<GraphQLNoteFileDTO> {
+    noteResult {
+      GraphQLNoteFileDTO(file: try service.getFileRecord(fileId: fileId))
+    }
+  }
+
+  /// The note's attachments in store order (position, then created-at, then id).
+  public func noteFiles(noteId: NoteID) async -> GraphQLNoteQueryResult<[GraphQLNoteFileAttachmentDTO]> {
+    noteResult {
+      try service.listFiles(noteId: noteId).map(GraphQLNoteFileAttachmentDTO.init)
+    }
+  }
+
+  public func notebookFiles(
+    notebookId: NotebookID
+  ) async -> GraphQLNoteQueryResult<[GraphQLNotebookFileAttachmentDTO]> {
+    noteResult {
+      try service.listFiles(notebookId: notebookId).map(GraphQLNotebookFileAttachmentDTO.init)
+    }
+  }
+
+  public func noteLinks(noteId: NoteID) async -> GraphQLNoteQueryResult<[GraphQLNoteLinkDTO]> {
+    noteResult {
+      try service.listLinks(noteId: noteId).map(GraphQLNoteLinkDTO.init)
+    }
+  }
+
+  public func autoActions() async -> GraphQLNoteQueryResult<[GraphQLNoteAutoActionDTO]> {
+    noteResult {
+      try service.listAutoActions().map(GraphQLNoteAutoActionDTO.init)
+    }
+  }
+
+  public func createNote(_ input: GraphQLCreateNoteInput) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      try validatePublicNoteMetaJSON(input.metaJSON)
+      let note = try service.createNote(
+        notebookId: input.notebookId,
+        notebookTitle: input.notebookTitle,
+        title: input.title,
+        bodyMarkdown: input.bodyMarkdown,
+        readOnly: input.readOnly,
+        tags: input.tags.map(\.noteInput),
+        provenance: try graphQLNoteProvenance(input.provenance),
+        assignedBy: input.assignedBy,
+        metaJSON: input.metaJSON,
+        originatingActionId: input.originatingActionId
+      )
+      return .init(result: .ok, note: GraphQLNoteDTO(note: note))
+    }
+  }
+
+  public func createNotebook(_ input: GraphQLCreateNotebookInput) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      try validatePublicNotebookMetaJSON(input.metaJSON)
+      let notebook = try service.createNotebook(
+        title: input.title,
+        kindTagName: input.kindTagName,
+        folderPath: input.folderPath ?? [],
+        metaJSON: input.metaJSON,
+        originatingActionId: input.originatingActionId
+      )
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
+  public func defineTagClass(_ input: GraphQLDefineNoteTagClassInput) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let tagClass = try service.defineTagClass(
+        classId: input.classId,
+        label: input.label,
+        description: input.description
+      )
+      return .init(result: .ok, tagClass: GraphQLNoteTagClassDTO(tagClass: tagClass))
+    }
+  }
+
+  public func defineTag(_ input: GraphQLDefineNoteTagInput) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let tag = try service.defineTag(
+        name: input.name,
+        classId: input.classId,
+        parentTagId: input.parentTagId,
+        createOnly: input.createOnly
+      )
+      return .init(result: .ok, tag: GraphQLNoteTagDTO(tag: tag))
+    }
+  }
+
+  public func updateNote(noteId: NoteID, bodyMarkdown: String, originatingActionId: AutoActionID? = nil) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let note = try service.updateNoteBody(
+        noteId: noteId,
+        bodyMarkdown: bodyMarkdown,
+        originatingActionId: originatingActionId
+      )
+      return .init(result: .ok, note: GraphQLNoteDTO(note: note))
+    }
+  }
+
+  public func deleteNote(noteId: NoteID) async -> GraphQLControlPlaneResult {
+    noteControlResult {
+      try service.deleteNote(noteId: noteId)
+    }
+  }
+
+  public func deleteNotebook(notebookId: NotebookID) async -> GraphQLControlPlaneResult {
+    noteControlResult {
+      try service.deleteNotebook(notebookId: notebookId)
+    }
+  }
+
+  public func applyNotebookTags(
+    _ input: GraphQLApplyNotebookTagsInput
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.applyNotebookTags(
+        notebookId: input.notebookId,
+        tags: input.tags,
+        provenance: try graphQLNoteProvenance(input.provenance ?? NoteProvenance.ai.rawValue),
+        assignedBy: input.assignedBy
+      )
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
+  public func applyNotebookTagIds(
+    _ input: GraphQLApplyNotebookTagIdsInput
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.applyNotebookTagIds(
+        notebookId: input.notebookId,
+        tagIds: input.tagIds,
+        provenance: try graphQLNoteProvenance(input.provenance ?? NoteProvenance.ai.rawValue),
+        assignedBy: input.assignedBy
+      )
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
+  public func removeNotebookTag(
+    notebookId: NotebookID,
+    tagName: String,
+    provenance: String = NoteProvenance.human.rawValue
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.removeNotebookTag(
+        notebookId: notebookId,
+        tagName: tagName,
+        removedBy: try graphQLNoteProvenance(provenance)
+      )
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
+  public func removeNotebookTagById(
+    notebookId: NotebookID,
+    tagId: TagID,
+    provenance: String = NoteProvenance.human.rawValue
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.removeNotebookTagById(
+        notebookId: notebookId,
+        tagId: tagId,
+        removedBy: try graphQLNoteProvenance(provenance)
+      )
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
+  public func setNotebookReadOnly(
+    notebookId: NotebookID,
+    readOnly: Bool
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.setNotebookReadOnly(
+        notebookId: notebookId,
+        readOnly: readOnly
+      )
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
+  public func setReadOnly(noteId: NoteID, readOnly: Bool) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let note = try service.setReadOnly(noteId: noteId, readOnly: readOnly)
+      return .init(result: .ok, note: GraphQLNoteDTO(note: note))
+    }
+  }
+
+  public func applyTags(
+    noteId: NoteID,
+    tags: [GraphQLNoteTagInput],
+    provenance: String = NoteProvenance.ai.rawValue,
+    assignedBy: String? = nil
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let note = try service.applyTags(
+        noteId: noteId,
+        tags: tags.map(\.noteInput),
+        provenance: try graphQLNoteProvenance(provenance),
+        assignedBy: assignedBy
+      )
+      return .init(result: .ok, note: GraphQLNoteDTO(note: note))
+    }
+  }
+
+  public func removeTag(
+    noteId: NoteID,
+    tagName: String,
+    provenance: String = NoteProvenance.human.rawValue
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let note = try service.removeTag(
+        noteId: noteId,
+        tagName: tagName,
+        removedBy: try graphQLNoteProvenance(provenance)
+      )
+      return .init(result: .ok, note: GraphQLNoteDTO(note: note))
+    }
+  }
+
+  public func addComment(noteId: NoteID, bodyMarkdown: String, author: String = "user") async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let comment = try service.addComment(noteId: noteId, bodyMarkdown: bodyMarkdown, author: author)
+      return .init(result: .ok, comment: GraphQLNoteCommentDTO(comment: comment))
+    }
+  }
+
+  public func addNotebookComment(
+    notebookId: NotebookID,
+    bodyMarkdown: String,
+    author: String = "user"
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let comment = try service.addNotebookComment(
+        notebookId: notebookId,
+        bodyMarkdown: bodyMarkdown,
+        author: author
+      )
+      return .init(result: .ok, comment: GraphQLNoteCommentDTO(comment: comment))
+    }
+  }
+
+  public func linkNotes(
+    from fromNoteId: NoteID,
+    to toNoteId: NoteID,
+    linkKind: String = "related",
+    provenance: String = NoteProvenance.human.rawValue
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let link = try service.linkNotes(
+        from: fromNoteId,
+        to: toNoteId,
+        linkKind: linkKind,
+        provenance: try graphQLNoteProvenance(provenance)
+      )
+      return .init(result: .ok, link: GraphQLNoteLinkDTO(link: link))
+    }
+  }
+
+  public func attachFile(
+    noteId: NoteID,
+    contentBase64: String,
+    role: String = NoteFileRole.related.rawValue,
+    mediaType: String,
+    originalFilename: String? = nil,
+    position: Int = 0
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      guard estimatedBase64DecodedByteCount(contentBase64) <= graphQLNoteMaxInlineFileBytes else {
+        throw GraphQLNoteServiceError.invalidRequest(
+          "contentBase64 decoded payload exceeds \(graphQLNoteMaxInlineFileBytes) bytes"
+        )
+      }
+      guard let data = Data(base64Encoded: contentBase64) else {
+        throw GraphQLNoteServiceError.invalidRequest("contentBase64 is not valid base64")
+      }
+      guard data.count <= graphQLNoteMaxInlineFileBytes else {
+        throw GraphQLNoteServiceError.invalidRequest(
+          "contentBase64 decoded payload exceeds \(graphQLNoteMaxInlineFileBytes) bytes"
+        )
+      }
+      guard let noteFileRole = NoteFileRole(rawValue: role) else {
+        throw GraphQLNoteServiceError.invalidRequest("unsupported note file role: \(role)")
+      }
+      let attachment = try service.attachFile(
+        noteId: noteId,
+        data: data,
+        role: noteFileRole,
+        mediaType: mediaType,
+        originalFilename: originalFilename,
+        position: position
+      )
+      return .init(result: .ok, file: GraphQLNoteFileDTO(file: attachment.file))
+    }
+  }
+
+  public func attachNotebookFile(
+    notebookId: NotebookID,
+    contentBase64: String,
+    role: String = NotebookFileRole.related.rawValue,
+    mediaType: String,
+    originalFilename: String? = nil
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      guard estimatedBase64DecodedByteCount(contentBase64) <= graphQLNoteMaxInlineFileBytes,
+            let data = Data(base64Encoded: contentBase64),
+            data.count <= graphQLNoteMaxInlineFileBytes else {
+        throw GraphQLNoteServiceError.invalidRequest("contentBase64 is invalid or exceeds the byte limit")
+      }
+      guard let fileRole = NotebookFileRole(rawValue: role) else {
+        throw GraphQLNoteServiceError.invalidRequest("unsupported notebook file role: \(role)")
+      }
+      let attachment = try service.attachNotebookFile(
+        notebookId: notebookId,
+        data: data,
+        role: fileRole,
+        mediaType: mediaType,
+        originalFilename: originalFilename
+      )
+      return .init(result: .ok, file: GraphQLNoteFileDTO(file: attachment.file))
+    }
+  }
+
+  public func configureAutoAction(
+    actionId: AutoActionID,
+    trigger: String,
+    workflowId: WorkflowID,
+    filterJSON: String? = nil,
+    enabled: Bool = true,
+    position: Int = 0
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      guard let trigger = NoteAutoActionTrigger(rawValue: trigger) else {
+        throw GraphQLNoteServiceError.invalidRequest("unsupported auto-action trigger: \(trigger)")
+      }
+      let action = try service.configureAutoAction(
+        actionId: actionId,
+        trigger: trigger,
+        workflowId: workflowId,
+        filterJSON: filterJSON,
+        enabled: enabled,
+        position: position
+      )
+      return .init(result: .ok, autoAction: GraphQLNoteAutoActionDTO(action: action))
+    }
+  }
+
+  public func deleteAutoAction(actionId: AutoActionID) async -> GraphQLControlPlaneResult {
+    noteControlResult {
+      try service.deleteAutoAction(actionId: actionId)
+    }
+  }
+
+  public func saveConversation(
+    title: String,
+    transcript: [NoteConversationTurn],
+    assignedBy: String? = nil,
+    originatingActionId: AutoActionID? = nil
+  ) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let saved = try service.saveConversation(
+        title: title,
+        transcript: transcript,
+        assignedBy: assignedBy,
+        originatingActionId: originatingActionId
+      )
+      return .init(
+        result: .ok,
+        notebook: GraphQLNotebookDTO(notebook: saved.notebook),
+        notes: saved.notes.map(GraphQLNoteDTO.init)
+      )
+    }
+  }
+
+  public func noteConversations(
+    noteId: NoteID,
+    limit: Int = 50
+  ) async -> GraphQLNoteQueryResult<[GraphQLAgentConversationDTO]> {
+    noteResult {
+      try service.listAgentConversations(subjectNoteId: noteId, limit: limit)
+        .map(GraphQLAgentConversationDTO.init)
+    }
+  }
+
+  /// Conversations whose subject is the whole notebook (no note selected).
+  public func notebookConversations(
+    notebookId: NotebookID,
+    limit: Int = 50
+  ) async -> GraphQLNoteQueryResult<[GraphQLAgentConversationDTO]> {
+    noteResult {
+      try service.listAgentConversations(subjectNotebookId: notebookId, limit: limit)
+        .map(GraphQLAgentConversationDTO.init)
+    }
+  }
+
+  public func noteComments(
+    noteId: NoteID
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteCommentDTO]> {
+    noteResult {
+      try service.listComments(noteId: noteId).map(GraphQLNoteCommentDTO.init)
+    }
+  }
+
+  /// Cross-notebook tag detail (design-docs/specs/tag-detail-pane.md).
+  public func tagDetail(tagId: TagID) async -> GraphQLNoteQueryResult<GraphQLTagDetailDTO> {
+    noteResult {
+      GraphQLTagDetailDTO(detail: try service.tagDetail(tagId: tagId))
+    }
+  }
+
+  /// Memos of notes/notebooks carrying the tag (descendants included),
+  /// newest first, across all notebooks.
+  public func tagComments(
+    tagId: TagID,
+    limit: Int = 50,
+    offset: Int = 0
+  ) async -> GraphQLNoteQueryResult<[GraphQLTagCommentDTO]> {
+    noteResult {
+      try service.listTagComments(tagId: tagId, limit: limit, offset: offset)
+        .map(GraphQLTagCommentDTO.init)
+    }
+  }
+
+  /// Finds or creates the tag's memo/chat notebook.
+  public func ensureTagMemoNotebook(tagId: TagID) async -> GraphQLNoteMutationResult {
+    noteMutation {
+      let notebook = try service.ensureTagMemoNotebook(tagId: tagId)
+      return .init(result: .ok, notebook: GraphQLNotebookDTO(notebook: notebook))
+    }
+  }
+
+  public func appSetting(key: String) async -> GraphQLAppSettingResult {
+    do {
+      let value = try service.appSetting(key: key)
+      return GraphQLAppSettingResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        key: key,
+        valueJSON: value
+      )
+    } catch {
+      return GraphQLAppSettingResult(result: graphQLNoteResult(for: error), key: key)
+    }
+  }
+
+  public func setAppSetting(key: String, valueJSON: String) async -> GraphQLAppSettingResult {
+    do {
+      let stored = try service.setAppSetting(key: key, valueJSON: valueJSON)
+      return GraphQLAppSettingResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        key: key,
+        valueJSON: stored
+      )
+    } catch {
+      return GraphQLAppSettingResult(result: graphQLNoteResult(for: error), key: key)
+    }
+  }
+
+  /// Every memo in the notebook, note-anchored and notebook-level alike.
+  public func notebookComments(
+    notebookId: NotebookID
+  ) async -> GraphQLNoteQueryResult<[GraphQLNoteCommentDTO]> {
+    noteResult {
+      try service.listNotebookComments(notebookId: notebookId).map(GraphQLNoteCommentDTO.init)
+    }
+  }
+
+  public func requestTagExtraction(
+    _ input: GraphQLRequestTagExtractionInput
+  ) async -> GraphQLTagExtractionRequestResult {
+    do {
+      let subject: AITagExtractionSubject
+      switch (input.noteId, input.notebookId) {
+      case (let noteId?, nil):
+        subject = .note(noteId)
+      case (nil, let notebookId?):
+        subject = .notebook(notebookId)
+      default:
+        throw GraphQLNoteServiceError.invalidRequest(
+          "requestTagExtraction requires exactly one of noteId or notebookId"
+        )
+      }
+      let queued = try service.requestManualTagExtraction(subject: subject)
+      return GraphQLTagExtractionRequestResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        status: queued ? "queued" : "agent-unavailable"
+      )
+    } catch {
+      return GraphQLTagExtractionRequestResult(
+        result: graphQLNoteResult(for: error),
+        status: "error"
+      )
+    }
+  }
+
+  public func requestNotebookTranslation(
+    _ input: GraphQLRequestNotebookTranslationInput
+  ) async -> GraphQLNotebookTranslationRequestResult {
+    do {
+      let (job, queued) = try service.requestNotebookTranslation(
+        notebookId: input.notebookId,
+        targetLanguage: input.targetLanguage,
+        pageStart: input.pageStart, pageEnd: input.pageEnd
+      )
+      return GraphQLNotebookTranslationRequestResult(
+        result: GraphQLControlPlaneResult(accepted: true, status: "ok"),
+        translationJobId: job?.jobId,
+        status: queued ? "queued" : "agent-unavailable"
+      )
+    } catch {
+      return GraphQLNotebookTranslationRequestResult(
+        result: graphQLNoteResult(for: error),
+        status: "error"
+      )
+    }
+  }
+}
+
+private func estimatedBase64DecodedByteCount(_ value: String) -> Int {
+  let sanitized = value.filter { !$0.isWhitespace }
+  guard !sanitized.isEmpty else {
+    return 0
+  }
+  let padding = sanitized.reversed().prefix { $0 == "=" }.count
+  return max(0, (sanitized.count / 4) * 3 - padding)
+}
+
+enum GraphQLNoteServiceError: Error, Equatable {
+  case invalidRequest(String)
+}
+
+private func graphQLNoteProvenance(_ rawValue: String) throws -> NoteProvenance {
+  guard let provenance = NoteProvenance(rawValue: rawValue) else {
+    throw GraphQLNoteServiceError.invalidRequest("unsupported note provenance: \(rawValue)")
+  }
+  return provenance
+}
+
+private func validatePublicNotebookMetaJSON(_ metaJSON: String?) throws {
+  guard let metaJSON,
+        let metadata = (try? JSONValue(parsing: metaJSON))?.asObject else {
+    return
+  }
+  if metadata["kaibaChat"] != nil {
+    throw GraphQLNoteServiceError.invalidRequest("kaibaChat notebook metadata is server-managed")
+  }
+  if metadata["_kaibaNotebookIngest"] != nil {
+    throw GraphQLNoteServiceError.invalidRequest("_kaibaNotebookIngest notebook metadata is server-managed")
+  }
+}
+
+private func validatePublicNoteMetaJSON(_ metaJSON: String?) throws {
+  guard let metaJSON,
+    let metadata = (try? JSONValue(parsing: metaJSON))?.asObject,
+    metadata["kaibaChat"] != nil
+  else {
+    return
+  }
+  throw GraphQLNoteServiceError.invalidRequest("kaibaChat note metadata is server-managed")
+}
+
+private func graphQLNoteListSort(_ rawValue: String?) throws -> NoteListSort {
+  guard let rawValue else {
+    return .createdAtDesc
+  }
+  guard let sort = NoteListSort(rawValue: rawValue) else {
+    throw GraphQLNoteServiceError.invalidRequest("unsupported note sort: \(rawValue)")
+  }
+  return sort
+}
+
+func noteResult<Value>(
+  _ body: () throws -> Value
+) -> GraphQLNoteQueryResult<Value> where Value: Codable & Equatable & Sendable {
+  do {
+    return GraphQLNoteQueryResult(result: .ok, value: try body())
+  } catch {
+    return GraphQLNoteQueryResult(result: graphQLNoteResult(for: error))
+  }
+}
+
+func noteMutation(_ body: () throws -> GraphQLNoteMutationResult) -> GraphQLNoteMutationResult {
+  do {
+    return try body()
+  } catch {
+    return GraphQLNoteMutationResult(result: graphQLNoteResult(for: error))
+  }
+}
+
+private func noteControlResult(_ body: () throws -> Void) -> GraphQLControlPlaneResult {
+  do {
+    try body()
+    return .ok
+  } catch {
+    return graphQLNoteResult(for: error)
+  }
+}
+
+func graphQLNoteResult(for error: Error) -> GraphQLControlPlaneResult {
+  switch error {
+  case NoteServiceError.notFound:
+    return .init(accepted: false, status: "not_found", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
+  case NoteServiceError.readOnly, NoteServiceError.protectedTag:
+    return .init(accepted: false, status: "rejected", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
+  case NoteServiceError.conflict:
+    return .init(accepted: false, status: "conflict", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
+  case NoteServiceError.invalidInput:
+    return .init(accepted: false, status: "invalid_request", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
+  case GraphQLNoteServiceError.invalidRequest:
+    return .init(accepted: false, status: "invalid_request", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
+  default:
+    return .init(accepted: false, status: "error", diagnostics: [graphQLNotePublicDiagnostic(for: error)])
+  }
+}
+
+func graphQLNotePublicDiagnostic(for error: Error) -> String {
+  switch error {
+  case NoteServiceError.notFound:
+    return "requested note resource was not found"
+  case NoteServiceError.readOnly:
+    return "note is read-only"
+  case NoteServiceError.protectedTag:
+    return "tag is protected"
+  case let NoteServiceError.invalidInput(message):
+    return "invalid note request: \(message)"
+  case let NoteServiceError.conflict(message):
+    return "undo/redo conflict: \(message)"
+  case let NoteServiceError.invalidRow(message):
+    return "invalid note store row: \(message)"
+  case let GraphQLNoteServiceError.invalidRequest(message):
+    return message
+  case let NoteGraphQLDocumentExecutorError.missingVariable(name):
+    return "missingVariable: \(name)"
+  case let NoteGraphQLDocumentExecutorError.invalidVariable(message):
+    return "invalidVariable: \(message)"
+  case let NoteGraphQLDocumentExecutorError.invalidSelection(message):
+    return "invalidSelection: \(message)"
+  case let NoteGraphQLDocumentExecutorError.operationFieldMismatch(operation, fieldName):
+    return "operationFieldMismatch: \(fieldName) cannot be used in \(operation)"
+  default:
+    return "note operation failed"
+  }
+}
+
+private extension GraphQLControlPlaneResult {
+  static let ok = GraphQLControlPlaneResult(accepted: true, status: "ok")
+}
