@@ -1,0 +1,225 @@
+min_version = "2026.8.3"
+
+[[hooks.enter]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko --path "$MISE_PROJECT_ROOT" hook enter bash)"
+fi
+'''
+
+[[hooks.leave]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko hook leave bash)"
+fi
+'''
+
+[tools]
+swift = "6.3.3"
+swiftlint = "latest"
+rust = "1.97.1"
+rust-analyzer = "latest"
+bun = "latest"
+gitleaks = "latest"
+github-cli = "latest"
+awscli = "latest"
+jq = "latest"
+pre-commit = "latest"
+
+[tasks."default"]
+description = "Show available tasks"
+run = '''
+mise tasks ls
+'''
+
+[tasks."build"]
+description = "Build the Swift package"
+depends = ["anydoc:native"]
+run = '''
+swift build
+'''
+
+[tasks."run"]
+description = "Run the executable"
+depends = ["anydoc:native"]
+run = '''
+swift run kaiba "$@"
+'''
+
+[tasks."test"]
+description = "Run Swift tests"
+depends = ["anydoc:native"]
+run = '''
+swift test
+'''
+
+[tasks."anydoc:native"]
+description = "Resolve the Apple XCFramework or build anydoc-swift's native Linux FFI"
+run = '''
+scripts/build-anydoc-native.sh
+'''
+
+[tasks."anydoc:native".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."build".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."run".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."test".env]
+PKG_CONFIG_PATH = "{{config_root}}/.build/anydoc-native/host/pkgconfig"
+
+[tasks."test:s3-gateway"]
+description = "Run Kaiba file round trips through s3-gateway POSIX and MinIO backends"
+run = '''
+scripts/test-s3-gateway-integration.sh
+'''
+
+[tasks."test:turso"]
+description = "Run Kaiba persistence and FTS against a local libSQL HTTP server"
+run = '''
+scripts/test-turso-http-integration.sh
+'''
+
+[tasks."clean"]
+description = "Clean SwiftPM and release artifacts"
+run = '''
+rm -rf .build dist release
+'''
+
+[tasks."lint"]
+description = "Run SwiftLint when available"
+run = '''
+swiftlint
+'''
+
+[tasks."check"]
+description = "Run every verification gate: Swift tests, SwiftLint, the web client, the Tauri shell"
+depends = ["test", "lint", "web:check", "tauri:check"]
+
+[tasks."web:check"]
+description = "Typecheck, test, lint, and build the shared web/native client"
+run = '''
+cd web
+bun run check
+'''
+
+[tasks."tauri:check"]
+description = "Check and lint the Tauri Rust shell"
+run = '''
+CARGO_TERM_QUIET=true cargo fmt --manifest-path web/src-tauri/Cargo.toml -- --check
+CARGO_TERM_QUIET=true cargo check --manifest-path web/src-tauri/Cargo.toml
+CARGO_TERM_QUIET=true cargo clippy --manifest-path web/src-tauri/Cargo.toml -- -D warnings
+'''
+
+[tasks."tauri:dev"]
+description = "Run the Kaiba macOS Tauri client in development mode"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:dev
+'''
+
+[tasks."tauri:build"]
+description = "Build the Kaiba macOS Tauri app"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:build
+'''
+
+[tasks."tauri:ios:init"]
+description = "Generate the Kaiba Tauri iOS Xcode project"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:ios:init
+'''
+
+[tasks."tauri:ios:dev"]
+description = "Run the Kaiba Tauri client on an iPhone device or simulator"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:ios:dev -- "$@"
+'''
+
+[tasks."tauri:ios:build"]
+description = "Build the Kaiba Tauri iPhone app"
+run = '''
+cd web
+CARGO_TERM_QUIET=true bun run tauri:ios:build -- "$@"
+'''
+
+[tasks."build:homebrew"]
+description = "Build standalone Homebrew formula archives for the current platform, or pass targets after --"
+run = '''
+scripts/build-homebrew-release.sh "$@"
+'''
+
+[tasks."homebrew:formula"]
+description = "Render Formula/kaiba.rb from dist/homebrew checksums"
+run = '''
+scripts/render-homebrew-formula.sh "$@"
+'''
+
+[tasks."homebrew:tap-formula"]
+description = "Render the formula into the default sibling Homebrew tap checkout"
+run = '''
+set -euo pipefail
+if [ -z "$*" ]; then
+  echo "usage: mise run homebrew:tap-formula -- <version>" >&2
+  exit 2
+fi
+scripts/render-homebrew-formula.sh "$*" "../homebrew-tap/Formula/kaiba.rb"
+
+'''
+
+[tasks."build:homebrew-cask"]
+description = "Build signed and notarized Homebrew Cask DMGs, or pass targets after --"
+run = '''
+scripts/build-homebrew-cask-release.sh "$@"
+'''
+
+[tasks."homebrew:cask"]
+description = "Render Casks/kaiba.rb from dist/homebrew-cask checksums"
+run = '''
+scripts/render-homebrew-cask.sh "$@"
+'''
+
+[tasks."homebrew:tap-cask"]
+description = "Render the cask into the default sibling Homebrew tap checkout"
+run = '''
+set -euo pipefail
+if [ -z "$*" ]; then
+  echo "usage: mise run homebrew:tap-cask -- <version>" >&2
+  exit 2
+fi
+scripts/render-homebrew-cask.sh "$*" "../homebrew-tap/Casks/kaiba.rb"
+
+'''
+
+[tasks."release:homebrew-cask-local"]
+description = "Build, notarize, upload, and render the sibling tap cask for a v<version> tag"
+run = '''
+scripts/release-homebrew-cask-local.sh "$@"
+'''
+
+[tasks.install-git-hooks]
+description = "Install mise tools and the repository pre-commit hook"
+run = '''
+mise install
+
+hooks_path=$(git config --local --get core.hooksPath || true)
+if [ "$hooks_path" = ".git/hooks" ]; then
+  git config --local --unset-all core.hooksPath
+  hooks_path=""
+fi
+
+if [ -z "$hooks_path" ]; then
+  mise exec -- pre-commit install
+else
+  mise exec -- pre-commit validate-config .pre-commit-config.yaml
+  echo "Using existing custom Git hooks path: $hooks_path"
+fi
+'''
