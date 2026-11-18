@@ -17,7 +17,7 @@ let package = Package(
   dependencies: [
     .package(
       url: "https://github.com/tacogips/anydoc-swift.git",
-      revision: "0aa4756d0ce3f97cc94f1de9efe26879808097c8"
+      revision: "44b13d2be4ec3e47b88e90d1124d7b1ff5fb9b53"
     ),
     .package(url: "https://github.com/apple/swift-crypto.git", from: "5.0.3")
   ],
