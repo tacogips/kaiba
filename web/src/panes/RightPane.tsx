@@ -9,6 +9,7 @@ import { LinkedDocsTab } from '../components/LinkedDocsTab'
 import { ConnectionRecommendationsTab } from '../components/ConnectionRecommendationsTab'
 import { NotebookTagsTab } from '../components/NotebookAggregateTabs'
 import { TagPane } from '../components/TagPane'
+import { WorkspaceIcon } from '../components/WorkspaceIcon'
 import { useApp } from '../state/appStore'
 import type { RightTab } from '../state/paneState'
 
@@ -18,7 +19,7 @@ import type { RightTab } from '../state/paneState'
 // The AI tab lists saved conversations. A tag selection
 // (`?tag=` on the route) replaces all of it with the cross-notebook tag pane.
 
-export function RightPane(props: { onClose?: () => void; onConversation?: (id: NotebookId) => void } = {}): JSX.Element {
+export function RightPane(props: { onClose?: () => void; onConversation?: (id: NotebookId) => void; onAskAI?: () => void } = {}): JSX.Element {
   const app = useApp()
   const noteMode = createMemo(() => Boolean(app.state.noteId))
   const tagId = createMemo(() => app.tagPaneTagId())
@@ -60,6 +61,7 @@ export function RightPane(props: { onClose?: () => void; onConversation?: (id: N
               props.onClose?.()
             }}
           >›</button>
+          <span class="details-title">{noteMode() ? 'Note details' : 'Notebook details'}</span>
           <Tabs
             label={noteMode() ? 'Note details' : 'Notebook details'}
             tabs={tabs}
@@ -73,7 +75,15 @@ export function RightPane(props: { onClose?: () => void; onConversation?: (id: N
           <TabPanel idPrefix="right" value="history" active={activeTab()}>
             <div class="agent-history" aria-label="Saved AI conversations">
               <For each={app.state.notebooks.filter((notebook) => notebook.type === 'AGENT_CHAT')}
-                fallback={<p class="pane-empty">No conversations yet.</p>}>
+                fallback={<div class="agent-history-empty">
+                  <WorkspaceIcon name="ai" />
+                  <p>No saved conversations yet.</p>
+                  <Show when={props.onAskAI}>
+                    <button type="button" class="workspace-action workspace-primary" onClick={() => props.onAskAI?.()}>
+                      Open AI composer
+                    </button>
+                  </Show>
+                </div>}>
                 {(notebook) => <button type="button" class="tree-label" onClick={() => props.onConversation?.(notebook.notebookId)}>
                   <span class="tree-label-text">{notebook.title}</span>
                 </button>}

@@ -85,7 +85,7 @@ export function MemoComposerControls(props: MemoComposerControlsProps): JSX.Elem
     </Show>
     <div class="composer-main">
       <textarea ref={input} aria-label={props.inputLabel ?? 'New memo or agent message'} rows={2}
-        value={props.draft} disabled={locked()} readOnly={props.readOnly}
+        placeholder={props.placeholder} value={props.draft} disabled={locked()} readOnly={props.readOnly}
         onInput={(event) => props.onDraftChange(event.currentTarget.value)}
         onPaste={(event) => {
           if (event.clipboardData?.files.length) { event.preventDefault(); stage(event.clipboardData.files) }

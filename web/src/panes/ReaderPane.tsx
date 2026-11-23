@@ -297,7 +297,7 @@ export function ReaderPane(props: { onStudy?: () => void; onBrowseNotebooks?: ()
         <header class="reader-head" classList={{ 'document-reader-head': notes().some((note) => documentPageMetadata(note) !== undefined) }}>
           <div class="reader-title">
             <Show when={notes().some((note) => documentPageMetadata(note) !== undefined)} fallback={<>
-            <span class="eyebrow">{app.notebook()?.title ?? 'NOTEBOOK'}</span>
+            <Show when={app.state.note && app.notebook()}>{(notebook) => <span class="eyebrow">{notebook().title}</span>}</Show>
             <h1>{app.state.note ? noteDisplayTitle(app.state.note) : app.notebook()?.title ?? 'Notebook'}</h1>
             </>}>
               <Show when={app.notebook()}>{(notebook) => <NotebookTitleEditor notebook={notebook()} />}</Show>

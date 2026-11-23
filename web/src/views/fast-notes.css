@@ -40,7 +40,7 @@
 .fast-note-body { flex: 1; min-height: 0; overflow: auto; padding: 1.5rem 2rem 3rem; }
 .fast-note-body > .markdown-body, .fast-note-body > .note-editor, .fast-note-body > .fast-note-meta { max-width: 48rem; margin-inline: auto; }
 .fast-note-body > .fast-note-meta { margin-bottom: 1rem; }
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .chatbook-grid.fast-notes-grid.has-selected-note { grid-template-columns: minmax(0, 1fr); }
   .fast-notes-head, .fast-note-head { padding: 1rem; }
   .fast-notes-content, .fast-note-body { padding: 1rem; }

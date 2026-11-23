@@ -254,8 +254,9 @@ describe('ChatbookView authentication surface', () => {
       expect(host.querySelector('.new-notebook-editor textarea')).not.toBeNull()
       const workspace = host.querySelector('[aria-label="Workspace"]')!
       expect(workspace.querySelectorAll('[aria-label="New notebook"]')).toHaveLength(1)
-      expect(workspace.querySelector('[aria-label="New notebook"]')?.closest('details')).not.toBeNull()
-      expect(workspace.querySelector('summary[aria-label="Workspace menu"]')).not.toBeNull()
+      expect(workspace.querySelector('[aria-label="New notebook"]')?.closest('details')).toBeNull()
+      expect(workspace.querySelector('summary[aria-label="More notebook actions"]')?.parentElement?.textContent)
+        .toContain('Import PDF or image…')
       expect(workspace.textContent).not.toContain('Add note')
       expect(host.querySelector('[aria-label="Add a note to this draft"]')).not.toBeNull()
       const writer = host.querySelector<HTMLTextAreaElement>('.new-notebook-editor textarea')!

@@ -1,20 +1,22 @@
-/* Riela's compact, flat light surfaces, adapted to Kaiba's green workspace.
-   Loaded after feature styles so layout, pane sizing, and mobile behavior
-   remain owned by their existing stylesheets. */
+/* Shared palette and typography for the Kaiba notebook workspace. */
 :root {
   color-scheme: light;
-  --ink: #242529;
-  --muted: #777980;
-  --line: #e5e5e8;
-  --surface: #ffffff;
-  --surface-subtle: #f9f9fa;
-  --green-soft: #f5f5f7;
-  --green-selected: #eaeaf0;
-  --green-primary: #eeeef1;
-  --green-hover: #e4e4e9;
-  --green-line: #d5d5dc;
-  --green-ink: #565a91;
-  --green-focus: #6967bb;
+  --ink: #232923;
+  --muted: #555e55;
+  --line: #d9ddd2;
+  --surface: #fffdf7;
+  --surface-subtle: #f5f4ed;
+  --green-soft: #eef0e7;
+  --green-selected: #dce8d9;
+  --green-primary: #e8eee4;
+  --green-hover: #dce5d9;
+  --green-line: #bacbb9;
+  --green-ink: #31533d;
+  --green-focus: #436f51;
+  --green-action: #345740;
+  --green-action-hover: #284634;
+  --action-text: #ffffff;
+  --heading-font: Georgia, "Times New Roman", serif;
   --warning-ink: #805b17;
   --warning-line: #dec996;
   --danger-ink: #a3313c;
@@ -172,10 +174,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 }
 
 /* Compact workspace chrome, with document space taking priority. */
-.chatbook { --pane-left: 216px; --pane-right: 280px; --rail: 32px; }
+.chatbook { --pane-left: 248px; --pane-right: 306px; --rail: 38px; }
 .chatbook .workspace-menu { min-height: 34px; padding: 2px 10px; background: var(--surface-subtle); }
 .chatbook button { font-weight: 450; box-shadow: none; }
-.chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card) {
+.chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card):where(:not(.workspace-action, .workspace-menu button, .agent-footer-launcher, .notebook-display-mode button, .note-capture > button)) {
   min-height: 26px; padding: 3px 8px; font-size: calc(11px * var(--fs, 1)); border-radius: 3px !important;
 }
 .chatbook button.workspace-icon, .chatbook .pane-fold, .chatbook .tree-twisty {
@@ -192,7 +194,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 .pane-right { background: var(--surface-subtle); }
 .reader-head { padding: 8px 24px; min-height: 42px; }
 .reader-title h1 { font-size: calc(14px * var(--fs, 1)); font-weight: 550; }
-.reader-title .eyebrow { display: none; }
 .reader-body { padding: 8px 12px 12px; }
 .reader-onboarding, .reader-empty-selection { color: var(--muted); font-size: 13px; }
 .chatbook .notebook-create { margin: 0 0 8px; }
@@ -252,18 +253,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 .new-notebook-editor .note-capture { border: 0; }
 .chatbook .new-notebook-editor textarea { width: 100%; min-height: 45vh; resize: vertical; }
 .chatbook .composer-model { min-width: 0; max-width: 100%; flex: 1; }
-@media (min-width: 601px) and (max-width: 900px) {
+@media (min-width: 761px) and (max-width: 900px) {
   .chatbook { --pane-left: 170px; --pane-right: 240px; }
 }
 @media (pointer: coarse) {
-  .chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card),
+  .chatbook button:not(.tree-label):not(.pane-tab):not(.rail-button):not(.notebook-card):where(:not(.workspace-action, .workspace-menu button, .agent-footer-launcher, .notebook-display-mode button, .note-capture > button)),
   .chatbook .tree-label, .chatbook .pane-tab { min-height: 36px; }
 }
-
-/* Square corners throughout the app, including portalled dialogs and chat. */
-:is(#kaiba-square-surfaces, body) *,
-:is(#kaiba-square-surfaces, body) *::before,
-:is(#kaiba-square-surfaces, body) *::after { border-radius: 0 !important; }
 
 /* Shared conversational composer: text first, compact controls beneath it. */
 .chatbook .memo-composer {
@@ -335,3 +331,263 @@ input:focus, textarea:focus, select:focus { border-color: var(--green-focus); }
 
 .chatbook .pane-right .pane-tabs { min-width: 0; scrollbar-width: thin; }
 .chatbook .pane-right .pane-tab { flex: none; white-space: nowrap; }
+
+/* Workspace actions stay visible above the paper and supporting panes. */
+.chatbook .workspace-menu {
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px 16px;
+  background: var(--surface-subtle);
+}
+.workspace-tools, .chatbook .chatbook-head-actions { gap: 6px; }
+.workspace-tools { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.chatbook .workspace-menu :is(button.workspace-action, button.workspace-icon),
+.chatbook .workspace-menu .workspace-task-link,
+.chatbook .workspace-create-menu > summary {
+  min-height: 36px;
+  border-radius: 8px !important;
+}
+.chatbook .workspace-menu button.workspace-icon { width: 36px; }
+.chatbook button.workspace-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  color: var(--ink);
+  background: transparent;
+  font-size: calc(13px * var(--fs, 1));
+  font-weight: 560;
+  white-space: nowrap;
+}
+.chatbook button.workspace-action:hover,
+.chatbook button.workspace-action:is([aria-pressed="true"], [aria-expanded="true"]) {
+  background: var(--green-selected);
+  color: var(--green-ink);
+}
+.chatbook .workspace-menu button.workspace-find {
+  justify-content: start;
+  min-width: 207px;
+  background: var(--surface);
+  border-color: var(--line);
+}
+.workspace-find-compact, .workspace-new-compact { display: none; }
+.workspace-find kbd {
+  margin-inline-start: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 4px;
+  color: var(--muted);
+  font: inherit;
+  font-size: .78em;
+}
+.workspace-create { display: inline-flex; }
+.chatbook .workspace-create button.workspace-new,
+.chatbook .workspace-create-menu > summary,
+.chatbook .agent-history-empty button.workspace-primary {
+  color: var(--action-text);
+  background: var(--green-action);
+}
+.chatbook .workspace-create button.workspace-new { border-start-end-radius: 0 !important; border-end-end-radius: 0 !important; }
+.chatbook .workspace-create-menu > summary {
+  width: 32px;
+  border-inline-start: 1px solid #ffffff42;
+  border-start-start-radius: 0 !important;
+  border-end-start-radius: 0 !important;
+}
+.chatbook .workspace-create-menu > summary:hover,
+.chatbook .workspace-create-menu[open] > summary,
+.chatbook .workspace-create button.workspace-new:hover,
+.chatbook .agent-history-empty button.workspace-primary:hover { background: var(--green-action-hover); }
+.workspace-create .workspace-create-actions { inset-inline: auto 0; }
+.chatbook .workspace-menu .workspace-task-link { padding-inline: 9px; }
+
+.pane-left, .pane-right { background: var(--green-soft); }
+.pane-head, .chatbook .pane-right .pane-head { min-height: 50px; padding-inline: 10px; gap: 5px; }
+.notebook-tree-title, .details-title {
+  color: var(--ink);
+  font-size: calc(13px * var(--fs, 1));
+  font-weight: 660;
+}
+.notebook-tree-title, .details-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-body { padding: 12px; }
+.pane-left .tree-row, .pane-left .tree-label { min-height: 34px; }
+.pane-left .tree-row { border-radius: 6px; }
+.pane-left .tree-label { font-size: calc(13px * var(--fs, 1)); }
+.pane-left .notebook-outline summary { font-size: calc(13px * var(--fs, 1)); }
+.chatbook .pane-right .pane-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-block-start: 7px;
+}
+.details-title { grid-area: 1 / 1; }
+.chatbook .pane-right .pane-fold { grid-area: 1 / 2; width: 32px; }
+.chatbook .pane-right .pane-tabs { grid-column: 1 / -1; }
+.chatbook .pane-right .pane-tab { padding-inline: 7px !important; font-size: calc(12px * var(--fs, 1)); min-height: 34px; }
+.chatbook .pane-right .pane-tab.active { color: var(--green-ink) !important; border-bottom-color: var(--green-focus) !important; }
+.agent-history-empty {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: clamp(20px, 8vh, 84px) 4px 16px;
+  color: var(--muted);
+  text-align: center;
+  font-size: calc(13px * var(--fs, 1));
+}
+.agent-history-empty > svg { width: 28px; height: 28px; color: var(--green-focus); }
+.chatbook .agent-history-empty button.workspace-action {
+  width: auto;
+  min-height: 36px;
+  border-radius: 8px !important;
+  white-space: normal;
+}
+
+.reader-head:not(.document-reader-head) {
+  align-items: center;
+  padding: 14px clamp(16px, 3vw, 40px);
+}
+.reader-head:not(.document-reader-head) .reader-title { flex: 1 1 230px; }
+.reader-title .eyebrow { font-size: calc(11px * var(--fs, 1)); }
+.reader-head:not(.document-reader-head) .reader-title h1,
+.fast-notes-head h1, .fast-note-head h1 {
+  color: var(--ink);
+  font-family: var(--heading-font);
+  font-size: calc(clamp(22px, 2.2vw, 31px) * var(--fs, 1));
+  font-weight: 500;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.reader-position { min-width: 32px; color: var(--muted); font-size: calc(12px * var(--fs, 1)); }
+.notebook-display-mode {
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--green-soft);
+}
+.chatbook .notebook-display-mode button {
+  min-height: 30px;
+  padding-inline: 9px;
+  border: 0;
+  border-radius: 6px !important;
+  background: transparent;
+  font-size: calc(12px * var(--fs, 1));
+}
+.chatbook .notebook-display-mode button[aria-pressed="true"] {
+  color: var(--action-text);
+  background: var(--green-action);
+}
+.chatbook .notebook-display-mode button[aria-pressed="true"]:hover { background: var(--green-action-hover); }
+
+article.reader-body:not(.document-notebook-body), .reader .notebook-source-preview {
+  padding: 16px clamp(16px, 4vw, 52px) 48px;
+}
+.reader :is(.reader-body, .notebook-source-preview) > .reader-note,
+.reader .reader-body > .note-capture {
+  max-width: calc(36rem * var(--fs, 1));
+  margin-inline: auto;
+}
+.reader :is(.reader-body, .notebook-source-preview) > .reader-note { padding-block: 18px; overflow-wrap: anywhere; }
+.reader .reader-body > .note-capture { padding-bottom: 12px; margin-bottom: 0; }
+.chatbook .note-capture > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border-radius: 6px !important;
+  font-size: calc(12px * var(--fs, 1));
+}
+.reader-note-head { margin-bottom: 7px; }
+.reader-note-title { font-size: calc(13px * var(--fs, 1)); font-weight: 600; white-space: normal; }
+.reader-note.selected .reader-note-title { color: var(--green-ink); }
+:is(.reader-note, .fast-note-body) .markdown-body {
+  font-size: calc(16px * var(--fs, 1));
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+:is(.reader-note, .fast-note-body) .markdown-body > * + * { margin-block-start: .8em; }
+:is(.reader-note, .fast-note-body) .markdown-body > * + .md-heading { margin-block-start: .85em; }
+:is(.reader-note, .fast-note-body) .markdown-body .md-heading {
+  font-family: var(--heading-font);
+  font-weight: 600;
+  line-height: 1.21;
+}
+:is(.reader-note, .fast-note-body) .markdown-body ul { list-style: disc; }
+:is(.reader-note, .fast-note-body) .markdown-body ol { list-style: decimal; }
+:is(.reader-note, .fast-note-body) .markdown-body .md-quote {
+  padding: 8px 14px;
+  border-color: var(--green-focus);
+  color: var(--green-ink);
+  background: var(--green-soft);
+}
+
+.chatbook .agent-footer { padding: 5px clamp(10px, 2vw, 24px); }
+.chatbook .agent-footer button.agent-footer-launcher {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 7px;
+  width: auto;
+  min-height: 34px;
+  padding-inline: 10px;
+  border-radius: 7px !important;
+  color: var(--green-ink);
+  font-size: calc(13px * var(--fs, 1));
+  font-weight: 620;
+}
+.footer-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-inline-end: auto;
+  color: var(--green-ink);
+  font-size: calc(13px * var(--fs, 1));
+  font-weight: 620;
+}
+.chatbook .agent-footer .memo-composer { border-radius: 10px !important; background: var(--surface); }
+.chatbook .composer-toolbar .composer-submit:not(:disabled) { background: var(--green-action) !important; }
+.chatbook .composer-toolbar .composer-submit:hover:not(:disabled) { background: var(--green-action-hover) !important; }
+
+@media (max-width: 900px) {
+  .workspace-tools { flex: 1 1 auto; }
+  .workspace-find kbd, .workspace-settings span { display: none; }
+  .chatbook .workspace-settings { width: 36px; }
+  .chatbook .workspace-menu button.workspace-find { min-width: 0; }
+  .chatbook .workspace-menu { padding-inline: 10px; }
+}
+@media (max-width: 760px) {
+  .chatbook .workspace-menu {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 6px 8px;
+  }
+  .workspace-tools { gap: 4px; }
+  .chatbook .workspace-menu .chatbook-head-actions { margin: 0; justify-content: space-between; }
+  .chatbook .workspace-menu :is(button.workspace-action, button.workspace-icon, .workspace-task-link),
+  .chatbook .workspace-create-menu > summary { min-height: 44px; }
+  .chatbook .workspace-menu :is(button.workspace-icon, .workspace-settings) { width: 44px; }
+  .chatbook .workspace-menu button.workspace-find { flex: 1; }
+  .chatbook .workspace-menu .workspace-action { padding-inline: 7px; }
+  .pane-left .tree-row, .pane-left .tree-label, .chatbook .pane-right .pane-tab { min-height: 44px; }
+  .chatbook .pane :is(.pane-fold, button.workspace-icon) { width: 44px; min-height: 44px; }
+  .chatbook .pane .pane-fold { height: 44px; }
+  .chatbook .agent-footer button.agent-footer-launcher { min-height: 44px; }
+  .chatbook .note-capture > button, .chatbook .notebook-display-mode button { min-height: 38px; }
+}
+@media (max-width: 500px) {
+  .workspace-find-label, .workspace-new-label { display: none; }
+  .workspace-find-compact, .workspace-new-compact { display: inline; }
+  .chatbook .workspace-menu button.workspace-find { min-width: 54px; }
+  .chatbook .workspace-tools > .workspace-action:not(.workspace-find) {
+    flex: none;
+    min-width: 44px;
+    flex-direction: column;
+    gap: 1px;
+    padding-inline: 5px;
+    font-size: calc(10px * var(--fs, 1));
+  }
+}
+@media (max-width: 360px) {
+  .workspace-new > svg, .workspace-find > svg { display: none; }
+}

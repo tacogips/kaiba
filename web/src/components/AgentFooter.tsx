@@ -151,13 +151,18 @@ export function AgentFooter(props: {
       <div class="footer-pane-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize the bottom pane"
         title="Drag to resize the bottom pane; double-click to reset" onPointerDown={resizePanel} onDblClick={() => setPanelHeight(undefined)} />
       <div class="footer-chat-tools" role="group" aria-label="AI conversation controls">
+        <span class="footer-title"><WorkspaceIcon name="ai" />Ask AI</span>
         <Show when={showHistory() || selectedConversation()}>
           <button type="button" class="workspace-icon" aria-label="Return to current page discussion" title={`Return to ${contextLabel()}`} onClick={() => { setSelectedConversation(undefined); setShowHistory(false) }}><WorkspaceIcon name="back" /></button>
         </Show>
         <button type="button" class="workspace-icon" aria-label="AI conversations" title="Saved AI conversations" aria-pressed={showHistory()} onClick={() => setShowHistory(!showHistory())}><WorkspaceIcon name="timeline" /></button>
         <button type="button" class="workspace-icon" aria-label={largePanel() ? 'Exit full screen' : 'Full screen'} title={largePanel() ? 'Exit full screen (Escape)' : 'Show AI conversation in full screen'} aria-pressed={largePanel()} onClick={() => setLargePanel(!largePanel())}><WorkspaceIcon name={largePanel() ? 'collapse' : 'expand'} /></button>
         <button type="button" class="workspace-icon" aria-label="Close AI composer" title="Collapse the AI panel" aria-expanded="true"
-          onClick={() => { setExpanded(false); setLargePanel(false) }}><WorkspaceIcon name="close" /></button>
+          onClick={() => {
+            setExpanded(false)
+            setLargePanel(false)
+            queueMicrotask(() => footer.querySelector<HTMLButtonElement>('.agent-footer-launcher')?.focus())
+          }}><WorkspaceIcon name="close" /></button>
       </div>
       <Show when={!showHistory()} fallback={
         <section class="footer-conversation-history" aria-label="Saved AI conversations">
@@ -183,7 +188,7 @@ export function AgentFooter(props: {
             draft={draft.text()} attachments={draft.files()} models={models()} selectedModel={app.state.settings.agentModel}
             providers={providers()} selectedProvider={app.state.settings.agentProvider ?? configuredProvider()}
             onProviderChange={(agentProvider) => app.updateSettings({ agentProvider, agentModel: undefined })}
-            extensionsEnabled={!draft.busy() && !draft.submission()} inputLabel="Ask AI anything" sendLabel="Send to AI"
+            extensionsEnabled={!draft.busy() && !draft.submission()} inputLabel="Ask AI anything" placeholder="Ask a question…" sendLabel="Send to AI"
             onStageFiles={stageFiles} onDraftChange={(value) => { if (!draft.submission()) draft.setText(value) }}
             onRemoveAttachment={(index) => { if (!draft.submission()) draft.setFiles(draft.files().filter((_, i) => i !== index)) }}
             onModelChange={(model, provider) => app.updateSettings({ agentModel: model || undefined, ...(provider ? { agentProvider: provider } : {}) })}
@@ -197,13 +202,14 @@ export function AgentFooter(props: {
           <p class="footer-context-label" title={selectedConversation() ? conversationTitle() : contextLabel()}>
             {selectedConversation() ? `Saved conversation: ${conversationTitle()}` : contextLabel()}
           </p>
-          <MemoTab contextAttachments={contextAttachments} conversationNotebookId={selectedConversation() ?? (app.notebook()?.type === 'AGENT_CHAT' ? app.state.notebookId : undefined)} />
+          <MemoTab contextAttachments={contextAttachments} composerPlaceholder="Write a message…"
+            conversationNotebookId={selectedConversation() ?? (app.notebook()?.type === 'AGENT_CHAT' ? app.state.notebookId : undefined)} />
         </section>
       </Show>
       </Show>
     </Show>
     <Show when={!expanded()}><button type="button" class="workspace-icon agent-footer-launcher" aria-label="Ask AI"
       title="Discuss the current notebook or page (⌘/Ctrl J). Saved conversations are available in AI conversations."
-      aria-expanded="false" onClick={() => setExpanded(true)}><WorkspaceIcon name="ai" /></button></Show>
+      aria-expanded="false" onClick={focusPanel}><WorkspaceIcon name="ai" /><span>Ask AI</span></button></Show>
   </footer>
 }

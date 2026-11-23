@@ -72,7 +72,7 @@ export function FastNotesView(): JSX.Element {
   return <main class="reader fast-notes-view" id="main-content" tabindex="-1">
     <Show when={selected()} fallback={<>
       <header class="fast-notes-head">
-        <div><span class="eyebrow">FAST NOTE</span><h1>Notes</h1><p>Newest created first</p></div>
+        <div><h1>Fast notes</h1><p>Newest created first</p></div>
         <div class="fast-layout" role="group" aria-label="Note layout">
           <button type="button" title="List view" aria-label="List view" aria-pressed={layout() === 'list'} onClick={() => app.openFastNotes(query(), 'list')}><WorkspaceIcon name="list" /></button>
           <button type="button" title="Card view" aria-label="Card view" aria-pressed={layout() === 'cards'} onClick={() => app.openFastNotes(query(), 'cards')}><WorkspaceIcon name="cards" /></button>
@@ -106,7 +106,7 @@ export function FastNotesView(): JSX.Element {
     </>}>
       <header class="fast-note-head">
         <button type="button" class="workspace-icon" aria-label="Back to notes" title="Back to notes" onClick={() => app.openFastNotes()}><WorkspaceIcon name="list" /></button>
-        <div><span class="eyebrow">FAST NOTE</span><h1>{note() ? noteDisplayTitle(note()!) : 'Note'}</h1></div>
+        <div><h1>{note() ? noteDisplayTitle(note()!) : 'Note'}</h1></div>
       </header>
       <Show when={app.state.noteLoading}><p role="status" class="fast-feed-message">Loading note…</p></Show>
       <Show when={!app.state.noteLoading && !note()}><p role="alert" class="fast-feed-message">Could not load this note. <button type="button" onClick={() => void app.refreshNote()}>Retry</button></p></Show>

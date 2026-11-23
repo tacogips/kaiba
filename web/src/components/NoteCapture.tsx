@@ -39,7 +39,7 @@ export function NoteCapture(props: { notebookId: NotebookId; empty: boolean }): 
     <Show when={open() || props.empty} fallback={<button type="button" class="secondary" aria-label={draft() ? 'Resume draft' : 'Add a note'} title={draft() ? 'Resume draft' : 'Add a note'} onClick={() => {
       setOpen(true)
       queueMicrotask(() => textarea?.focus())
-    }}><WorkspaceIcon name="add" /></button>}>
+    }}><WorkspaceIcon name="add" />{draft() ? 'Resume draft' : 'Add a note'}</button>}>
       <form onSubmit={(event) => void save(event)}>
         <label><span class="sr-only">Write a note</span>
           <textarea ref={(element) => { textarea = element; vim.ref(element) }} rows={6} value={draft()} disabled={busy()}

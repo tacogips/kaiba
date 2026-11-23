@@ -8,6 +8,7 @@ import { ConfigView } from './ConfigView'
 import { LoginView } from './LoginView'
 import { WorkspaceShortcuts, shortcutLabel, type WorkspaceCommand } from '../components/WorkspaceShortcuts'
 import { WorkspaceIcon } from '../components/WorkspaceIcon'
+import { usePopoverDismissal } from '../components/usePopoverDismissal'
 import { useApp } from '../state/appStore'
 import { formatRoute } from '../router'
 import { stagePageRegion } from '../notes/stagePageRegion'
@@ -30,12 +31,14 @@ import '../workspace-actions.css'
 // header with the store-wide search form, the search popup and the keyboard
 // shortcuts.
 
+const compactWorkspaceWidth = 760
+
 export function ChatbookView(): JSX.Element {
   const app = useApp()
   const [importOpen, setImportOpen] = createSignal(false)
   let createMenu!: HTMLDetailsElement
   const [mobilePane, setMobilePane] = createSignal<MobilePane>('reader')
-  const [compact, setCompact] = createSignal(window.innerWidth <= 600)
+  const [compact, setCompact] = createSignal(window.innerWidth <= compactWorkspaceWidth)
   const [footerConversation, setFooterConversation] = createSignal<{ notebookId?: NotebookId }>()
   const [pendingNavigation, setPendingNavigation] = createSignal<{ ready: () => boolean; run: () => void }>()
   // Hash navigation completes asynchronously in the browser and native web view.
@@ -169,7 +172,21 @@ export function ChatbookView(): JSX.Element {
     })
     })
   }
-  const openImport = () => { if (createMenu) createMenu.open = false; setImportOpen(true) }
+  const closeCreateMenu = (restoreFocus: boolean) => {
+    createMenu.open = false
+    if (restoreFocus) createMenu.querySelector('summary')?.focus()
+  }
+  usePopoverDismissal({
+    isOpen: () => Boolean(createMenu?.open),
+    canDismiss: () => !document.querySelector('dialog[open], [role="dialog"]'),
+    contains: (target) => createMenu.contains(target),
+    onDismiss: closeCreateMenu,
+  })
+  const openImport = () => {
+    closeCreateMenu(true)
+    setImportOpen(true)
+  }
+  const quickSwitcher: WorkspaceCommand = { label: 'Quick switcher', key: 'p', run: () => app.setSearchOpen(true) }
   const commands: WorkspaceCommand[] = [
     { label: 'New notebook', key: 'n', run: newNotebook },
     { label: 'Notebooks', key: '1', shift: true, run: browseNotebooks },
@@ -177,7 +194,7 @@ export function ChatbookView(): JSX.Element {
       app.setNotebookView(app.state.pane.notebookView === 'tree' ? 'timeline' : 'tree')
       browseNotebooks()
     } },
-    { label: 'Quick switcher', key: 'p', run: () => app.setSearchOpen(true) },
+    quickSwitcher,
     { label: 'AI', key: 'a', shift: true, run: agentChat },
     { label: 'Ask AI', key: 'j', run: agentChat },
     { label: 'New chat', key: 'j', shift: true, run: () => {
@@ -206,7 +223,7 @@ export function ChatbookView(): JSX.Element {
   const hint = (label: string) => `${label} (${shortcutLabel(commands.find((command) => command.label === label)!)})`
 
   onMount(() => {
-    const resize = () => setCompact(window.innerWidth <= 600)
+    const resize = () => setCompact(window.innerWidth <= compactWorkspaceWidth)
     window.addEventListener('resize', resize)
     const shortcut = (event: KeyboardEvent) => {
       if (app.state.auth === 'unauthenticated' || app.state.searchOpen || event.defaultPrevented
@@ -270,31 +287,43 @@ export function ChatbookView(): JSX.Element {
       data-right={app.state.pane.rightOpen ? 'open' : 'closed'}
       data-view={view()}
     >
-      <a class="skip-link" href="#main-content">Skip to content</a>
+      <a class="skip-link" href="#main-content" onClick={(event) => {
+        event.preventDefault()
+        setMobilePane('reader')
+        focus('#main-content')
+      }}>Skip to content</a>
       <WorkspaceVimNavigation blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen} onCommand={workspaceCommand} />
-      <div class="chatbook-head workspace-menu">
+      <header class="chatbook-head workspace-menu">
         <nav class="workspace-tools" aria-label="Workspace">
-          <details class="workspace-create-menu" ref={createMenu} onKeyDown={(event) => { if (event.key === 'Escape') createMenu.open = false }}>
-            <summary aria-label="Workspace menu" title="Workspace menu: new notebook and document import"><WorkspaceIcon name="more" /></summary>
-            <div class="workspace-create-actions" role="group" aria-label="Notebook actions">
-              <button type="button" aria-label="New notebook" title={hint('New notebook')}
-                onClick={() => { createMenu.open = false; newNotebook() }}><WorkspaceIcon name="edit" />New notebook</button>
-              <button type="button" onClick={openImport}><WorkspaceIcon name="file" />Import PDF or image…</button>
-            </div>
-          </details>
-          <button type="button" class="workspace-icon" aria-label="Fast notes" title="Fast notes: newest created first" aria-pressed={view() === 'fast'} onClick={() => app.openFastNotes()}><WorkspaceIcon name="timeline" /></button>
-          <button type="button" class="workspace-icon" aria-label="Notebooks" title={view() === 'fast' ? 'Reference view: notebook library' : hint('Toggle library pane')} aria-expanded={view() !== 'fast' && libraryVisible()} onClick={toggleLibrary}><WorkspaceIcon name="files" /></button>
-          <button type="button" class="workspace-icon" aria-label="Quick switcher" title="Quick switcher (⌘/Ctrl P)" onClick={() => app.setSearchOpen(true)}><WorkspaceIcon name="search" /></button>
-          <button type="button" class="workspace-icon" aria-label="AI" title={`${hint('AI')}: Discussion for the selected page or notebook`} onClick={agentChat}><WorkspaceIcon name="ai" /></button>
+          <button type="button" class="workspace-action workspace-find" aria-label="Find anything (quick switcher)"
+            title={hint(quickSwitcher.label)} onClick={quickSwitcher.run}>
+            <WorkspaceIcon name="search" /><span class="workspace-find-label">Find anything</span>
+            <span class="workspace-find-compact">Find</span><kbd aria-hidden="true">{shortcutLabel(quickSwitcher)}</kbd>
+          </button>
+          <div class="workspace-create" role="group" aria-label="Notebook actions">
+            <button type="button" class="workspace-action workspace-new" aria-label="New notebook" title={hint('New notebook')}
+              onClick={() => { closeCreateMenu(false); newNotebook() }}>
+              <WorkspaceIcon name="add" /><span class="workspace-new-label">New notebook</span><span class="workspace-new-compact">New</span>
+            </button>
+            <details class="workspace-create-menu" ref={createMenu}>
+              <summary aria-label="More notebook actions" title="More notebook actions"><WorkspaceIcon name="chevronDown" /></summary>
+              <div class="workspace-create-actions">
+                <button type="button" onClick={openImport}><WorkspaceIcon name="file" />Import PDF or image…</button>
+              </div>
+            </details>
+          </div>
+          <button type="button" class="workspace-action" aria-label="Fast notes" title="Fast notes: newest created first" aria-pressed={view() === 'fast'} onClick={() => app.openFastNotes()}><WorkspaceIcon name="timeline" /><span>Fast notes</span></button>
+          <button type="button" class="workspace-action" aria-label="Notebooks" title={view() === 'fast' ? 'Reference view: notebook library' : hint('Toggle library pane')} aria-expanded={view() === 'reader' && libraryVisible()} onClick={toggleLibrary}><WorkspaceIcon name="files" /><span>Notebooks</span></button>
         </nav>
         <div class="chatbook-head-actions">
+          <button type="button" class="workspace-icon" aria-label="AI" title={`${hint('AI')}: Discussion for the selected page or notebook`} onClick={agentChat}><WorkspaceIcon name="ai" /></button>
           <TaskIndicator />
-          <Show when={view() !== 'fast' || (app.state.route.kind === 'fast' && app.state.route.noteId)}><button type="button" class="workspace-icon" aria-label="Toggle details pane" title={hint('Toggle details pane')}
-            aria-expanded={detailsVisible()} onClick={toggleDetails}><WorkspaceIcon name="panelRight" /></button></Show>
+          <Show when={view() !== 'fast' || (app.state.route.kind === 'fast' && app.state.route.noteId)}><button type="button" class="workspace-action" aria-label="Toggle details pane" title={hint('Toggle details pane')}
+            aria-expanded={(view() === 'reader' || view() === 'fast') && detailsVisible()} onClick={toggleDetails}><WorkspaceIcon name="panelRight" /><span>Details</span></button></Show>
           <WorkspaceShortcuts commands={commands} blocked={() => app.state.auth === 'unauthenticated' || app.state.searchOpen} />
-          <button type="button" class="workspace-icon" aria-label="Settings" title={hint('Settings')} onClick={app.openConfig}><WorkspaceIcon name="settings" /></button>
+          <button type="button" class="workspace-action workspace-settings" aria-label="Settings" title={hint('Settings')} onClick={app.openConfig}><WorkspaceIcon name="settings" /><span>Settings</span></button>
         </div>
-      </div>
+      </header>
 
       <Show when={app.state.error}>
         <ToastNotice message={app.state.error} severity="error" onDismiss={app.dismissError} onRetry={() => void app.refreshCatalog()} />
@@ -316,7 +345,7 @@ export function ChatbookView(): JSX.Element {
             onBrowseNotebooks={() => showMobilePane('files')}
           />
           <PaneSplitter side="right" />
-          <RightPane onClose={() => setMobilePane('reader')} onConversation={openAgentConversation} />
+          <RightPane onClose={() => setMobilePane('reader')} onConversation={openAgentConversation} onAskAI={agentChat} />
         </div>
       </Show>
       <Show when={view() === 'fast'}>
@@ -324,7 +353,7 @@ export function ChatbookView(): JSX.Element {
           <FastNotesView />
           <Show when={app.state.route.kind === 'fast' && app.state.route.noteId}>
             <PaneSplitter side="right" />
-            <RightPane onClose={() => setMobilePane('reader')} onConversation={openAgentConversation} />
+            <RightPane onClose={() => setMobilePane('reader')} onConversation={openAgentConversation} onAskAI={agentChat} />
           </Show>
         </div>
       </Show>
